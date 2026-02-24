@@ -17,7 +17,7 @@
     "publisher": "promptsonar-tools",
     "repository": {
         "type": "git",
-        "url": "https://github.com/raj-promptsonar/promptsonar.git"
+        "url": "https://github.com/meghal86/promptsonar.git"
     },
     "engines": {
         "vscode": "^1.80.0"
