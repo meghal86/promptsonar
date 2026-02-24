@@ -38,6 +38,9 @@ exports.deactivate = deactivate;
 const path = __importStar(require("path"));
 const vscode_1 = require("vscode");
 const node_1 = require("vscode-languageclient/node");
+const ReportPanel_1 = require("../webview/ReportPanel");
+// @ts-ignore
+const core_1 = require("core");
 let client;
 function activate(context) {
     // The server is implemented in node
@@ -96,6 +99,50 @@ function activate(context) {
             statusBarItem.hide();
         }
     });
+    // Register Health Check Command (triggered via CodeLens or Editor Title Menu)
+    context.subscriptions.push(vscode_1.commands.registerCommand('promptsonar.runScan', async (uriOrStr, startLine, endLine) => {
+        let uri;
+        if (typeof uriOrStr === 'string' && uriOrStr.startsWith('file://')) {
+            uri = vscode_1.Uri.parse(uriOrStr);
+        }
+        // Handle if it's already a URI object or fallback to active editor
+        let finalUri = uriOrStr;
+        if (!finalUri || !finalUri.fsPath) {
+            if (vscode_1.window.activeTextEditor) {
+                finalUri = vscode_1.window.activeTextEditor.document.uri;
+            }
+            else {
+                vscode_1.window.showErrorMessage('No active file to scan.');
+                return;
+            }
+        }
+        try {
+            const doc = await vscode_1.workspace.openTextDocument(finalUri);
+            const text = doc.getText();
+            const filePath = finalUri.fsPath;
+            const detectedPrompts = await (0, core_1.parseFile)({
+                filePath,
+                content: text,
+                language: ''
+            });
+            if (detectedPrompts.length === 0) {
+                vscode_1.window.showInformationMessage('No prompts detected in this file.');
+                return;
+            }
+            let targetPrompt = detectedPrompts[0];
+            if (startLine && endLine) {
+                const match = detectedPrompts.find((p) => p.startLine === startLine && p.endLine === endLine);
+                if (match)
+                    targetPrompt = match;
+            }
+            const config = { efficiency: { token_budget: 8192 } };
+            const result = (0, core_1.evaluatePrompt)({ text: targetPrompt.text, context: { filePath } }, config);
+            await ReportPanel_1.PromptSonarReportPanel.createOrShow(context.extensionUri, result, targetPrompt.text);
+        }
+        catch (e) {
+            vscode_1.window.showErrorMessage(`PromptSonar Scan Failed: ${String(e)}`);
+        }
+    }));
 }
 function deactivate() {
     if (!client) {

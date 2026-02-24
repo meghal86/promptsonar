@@ -2,7 +2,7 @@ export type Severity = "low" | "medium" | "high" | "critical";
 
 export interface Finding {
     rule_id: string;
-    category: "clarity" | "security" | "efficiency" | "structure" | "consistency";
+    category: "clarity" | "security" | "efficiency" | "structure" | "consistency" | "best_practices" | "safety";
     severity: Severity;
     explanation: string;
     suggested_fix?: string;

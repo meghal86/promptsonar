@@ -9,7 +9,8 @@ import {
     InitializeResult,
     CodeAction,
     CodeActionKind,
-    Command
+    Command,
+    CodeLens
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 // @ts-ignore
@@ -22,11 +23,14 @@ connection.onInitialize((params: InitializeParams) => {
     const result: InitializeResult = {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
-            codeActionProvider: true
+            codeActionProvider: true,
+            codeLensProvider: { resolveProvider: false }
         }
     };
     return result;
 });
+
+const codeLensMap = new Map<string, CodeLens[]>();
 
 documents.onDidChangeContent(change => {
     validateTextDocument(change.document);
@@ -49,8 +53,22 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
         const config = { efficiency: { token_budget: 8192 } };
 
         const diagnostics: Diagnostic[] = [];
+        const lenses: CodeLens[] = [];
 
         for (const prompt of detectedPrompts) {
+            const startPos = { line: prompt.startLine - 1, character: 0 };
+            const endPos = { line: prompt.endLine - 1, character: Number.MAX_VALUE };
+
+            // Add CodeLens
+            lenses.push({
+                range: { start: startPos, end: endPos },
+                command: {
+                    title: '▶ Run PromptSonar Health Check',
+                    command: 'promptsonar.runScan',
+                    arguments: [uri, prompt.startLine, prompt.endLine]
+                }
+            });
+
             const evaluation = evaluatePrompt({
                 text: prompt.text,
                 context: { filePath }
@@ -77,6 +95,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
             }
         }
 
+        codeLensMap.set(uri, lenses);
         connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
 
         // Compute average score for status bar
@@ -113,6 +132,10 @@ connection.onCodeAction((params) => {
         }
     }
     return codeActions;
+});
+
+connection.onCodeLens((params) => {
+    return codeLensMap.get(params.textDocument.uri) || [];
 });
 
 documents.listen(connection);

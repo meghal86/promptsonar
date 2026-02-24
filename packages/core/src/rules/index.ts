@@ -1,39 +1,38 @@
 import { RuleInput, RuleResult } from './types';
-import { checkVagueWords } from './clarity/vague_words';
+import { checkClarity } from './clarity';
+import { checkStructure } from './structure';
+import { checkBestPractices } from './best_practices';
+import { checkConsistency } from './consistency';
 import { checkOwaspPatterns } from './security/owasp_patterns';
 import { checkPii } from './security/pii';
 import { checkTokenLimit } from './efficiency/token_limit';
-import { checkJsonMode } from './structure/json_mode';
-import { checkContradictions } from './consistency/contradictions';
 
 export * from './types';
 
 export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
     const findings = [
-        ...checkVagueWords(input),
+        ...checkClarity(input),
+        ...checkStructure(input),
+        ...checkBestPractices(input),
+        ...checkConsistency(input),
         ...checkOwaspPatterns(input),
         ...checkPii(input),
         ...checkTokenLimit(input, config?.efficiency?.token_budget || 8192),
-        ...checkJsonMode(input),
-        ...checkContradictions(input)
     ];
 
-    // Scoring weights: clarity: 25%, security: 30%, efficiency: 20%, structure: 15%, consistency: 10%
-    // Instead of dynamic weights per finding, we will sum the penalty_scores and deduct from 100.
-    // The system prompt logic: "deterministic weighted sum ONLY (no LLM randomness): clarity: 25%, security: 30%, ... Final score = 100 - sum(penalties), clamped 0-100"
-
+    // Master Scoring (Security 40%, Clarity 15%, Structure 15%, Best Practices 15%, Consistency 10%, Efficiency 5%)
     let totalPenalty = 0;
     for (const finding of findings) {
-        if (finding.category === 'clarity') totalPenalty += (finding.penalty_score || 0) * 0.25;
-        if (finding.category === 'security') totalPenalty += (finding.penalty_score || 0) * 0.30;
-        if (finding.category === 'efficiency') totalPenalty += (finding.penalty_score || 0) * 0.20;
+        if (finding.category === 'security') totalPenalty += (finding.penalty_score || 0) * 0.40;
+        if (finding.category === 'clarity') totalPenalty += (finding.penalty_score || 0) * 0.15;
         if (finding.category === 'structure') totalPenalty += (finding.penalty_score || 0) * 0.15;
+        if (finding.category === 'best_practices') totalPenalty += (finding.penalty_score || 0) * 0.15;
         if (finding.category === 'consistency') totalPenalty += (finding.penalty_score || 0) * 0.10;
+        if (finding.category === 'efficiency') totalPenalty += (finding.penalty_score || 0) * 0.05;
+        // safety can be lumped into security/pii for this MVP mapping
+        if (finding.category === 'safety') totalPenalty += (finding.penalty_score || 0) * 0.05;
     }
 
-    // Wait, if it's "100 - sum(penalties)", maybe penalties are raw points and the categories define max points?
-    // Let's just deduct raw penalty sums since rules define their own penalty.
-    // We'll scale them by weights to honor the "weighted sum" requirement.
     let status: "pass" | "warn" | "fail" = "pass";
     let score = Math.max(0, Math.min(100, Math.round(100 - totalPenalty)));
 

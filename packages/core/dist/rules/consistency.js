@@ -1,15 +1,16 @@
-import { RuleInput, Finding } from '../types';
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.checkConsistency = checkConsistency;
 const CONTRADICTIONS = [
     { p1: "be concise", p2: "be detailed" },
     { p1: "short response", p2: "comprehensive explanation" },
-    { p1: "only return", p2: "also include" }
+    { p1: "only return", p2: "also include" },
+    { p1: "simple language", p2: "highly technical" },
+    { p1: "brief summary", p2: "exhaustive list" }
 ];
-
-export function checkContradictions(input: RuleInput): Finding[] {
-    const findings: Finding[] = [];
+function checkConsistency(input) {
+    const findings = [];
     const lowerText = input.text.toLowerCase();
-
     for (const pair of CONTRADICTIONS) {
         if (lowerText.includes(pair.p1) && lowerText.includes(pair.p2)) {
             findings.push({
@@ -22,6 +23,5 @@ export function checkContradictions(input: RuleInput): Finding[] {
             });
         }
     }
-
     return findings;
 }

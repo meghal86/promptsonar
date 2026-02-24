@@ -1,11 +1,10 @@
-import { RuleInput, Finding } from '../types';
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.checkVagueWords = checkVagueWords;
 const VAGUE_WORDS = ["try", "perhaps", "maybe", "several", "some", "good"];
-
-export function checkVagueWords(input: RuleInput): Finding[] {
-    const findings: Finding[] = [];
+function checkVagueWords(input) {
+    const findings = [];
     const lowerText = input.text.toLowerCase();
-
     for (const word of VAGUE_WORDS) {
         // using regex boundary to match exact words
         const regex = new RegExp(`\\b${word}\\b`, 'i');
@@ -20,6 +19,5 @@ export function checkVagueWords(input: RuleInput): Finding[] {
             });
         }
     }
-
     return findings;
 }

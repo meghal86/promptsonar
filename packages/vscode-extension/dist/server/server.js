@@ -10,11 +10,13 @@ connection.onInitialize((params) => {
     const result = {
         capabilities: {
             textDocumentSync: node_1.TextDocumentSyncKind.Incremental,
-            codeActionProvider: true
+            codeActionProvider: true,
+            codeLensProvider: { resolveProvider: false }
         }
     };
     return result;
 });
+const codeLensMap = new Map();
 documents.onDidChangeContent(change => {
     validateTextDocument(change.document);
 });
@@ -32,7 +34,19 @@ async function validateTextDocument(textDocument) {
         // Read workspace config (mocked reading for MVP)
         const config = { efficiency: { token_budget: 8192 } };
         const diagnostics = [];
+        const lenses = [];
         for (const prompt of detectedPrompts) {
+            const startPos = { line: prompt.startLine - 1, character: 0 };
+            const endPos = { line: prompt.endLine - 1, character: Number.MAX_VALUE };
+            // Add CodeLens
+            lenses.push({
+                range: { start: startPos, end: endPos },
+                command: {
+                    title: '▶ Run PromptSonar Health Check',
+                    command: 'promptsonar.runScan',
+                    arguments: [uri, prompt.startLine, prompt.endLine]
+                }
+            });
             const evaluation = (0, core_1.evaluatePrompt)({
                 text: prompt.text,
                 context: { filePath }
@@ -57,6 +71,7 @@ async function validateTextDocument(textDocument) {
                 });
             }
         }
+        codeLensMap.set(uri, lenses);
         connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
         // Compute average score for status bar
         if (detectedPrompts.length > 0) {
@@ -86,6 +101,9 @@ connection.onCodeAction((params) => {
         }
     }
     return codeActions;
+});
+connection.onCodeLens((params) => {
+    return codeLensMap.get(params.textDocument.uri) || [];
 });
 documents.listen(connection);
 connection.listen();

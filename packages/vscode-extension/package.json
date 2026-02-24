@@ -41,8 +41,21 @@
             {
                 "command": "promptsonar.compress",
                 "title": "PromptSonar: Compress with LLMLingua"
+            },
+            {
+                "command": "promptsonar.runScan",
+                "title": "PromptSonar: Run Health Check",
+                "icon": "$(play)"
             }
         ],
+        "menus": {
+            "editor/title": [
+                {
+                    "command": "promptsonar.runScan",
+                    "group": "navigation"
+                }
+            ]
+        },
         "configuration": {
             "type": "object",
             "title": "PromptSonar",

@@ -1,12 +1,11 @@
-import { RuleInput, Finding } from '../types';
-
-export function checkJsonMode(input: RuleInput): Finding[] {
-    const findings: Finding[] = [];
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.checkJsonMode = checkJsonMode;
+function checkJsonMode(input) {
+    const findings = [];
     const lowerText = input.text.toLowerCase();
-
     const expectsOutputFormat = ["format:", "schema", "output:", "generate a"].some(w => lowerText.includes(w));
     const hasJson = lowerText.includes("json");
-
     // If asking for a specific format but not enforcing JSON
     if (expectsOutputFormat && !hasJson) {
         findings.push({
@@ -18,6 +17,5 @@ export function checkJsonMode(input: RuleInput): Finding[] {
             penalty_score: 15
         });
     }
-
     return findings;
 }
