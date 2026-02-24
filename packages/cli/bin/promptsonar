@@ -37,9 +37,10 @@ program
   .command('scan')
   .description('Scan directory for embedded prompts')
   .argument('[path]', 'Directory to scan', '.')
-  .action(async (scanPath) => {
-    console.log(chalk.blue(`[PromptSonar] Scanning ${scanPath}...`));
-    
+  .option('--json', 'Output results as JSON')
+  .action(async (scanPath, options) => {
+    if (!options.json) console.log(chalk.blue(`[PromptSonar] Scanning ${scanPath}...`));
+
     // Simplistic globbing
     const files = globSync('**/*.{py,ts,js,tsx,jsx,go,java,rs,cs,prompt,ai,chat,json,yml,yaml}', {
       cwd: path.resolve(scanPath),
@@ -52,16 +53,32 @@ program
     let passCount = 0;
     let failCount = 0;
 
+    const report = {
+      summary: {
+        total_prompts: fileCount,
+        average_score: 0,
+        passing: passCount,
+        failing: failCount,
+        status: "pass"
+      },
+      files: []
+    };
+
     for (const file of files) {
       try {
         const content = fs.readFileSync(file, 'utf8');
         const prompts = await parseFile({ filePath: file, content, language: '' });
 
         if (prompts.length > 0) {
-          console.log(`\n📄 ${chalk.bold(path.relative(process.cwd(), file))}`);
+          const fileReport = {
+            file: path.relative(process.cwd(), file),
+            prompts: []
+          };
+          if (!options.json) console.log(`\n📄 ${chalk.bold(path.relative(process.cwd(), file))}`);
+
           for (const prompt of prompts) {
             const evaluation = evaluatePrompt({ text: prompt.text, context: { filePath: file } }, config);
-            
+
             totalScore += evaluation.score;
             fileCount++;
 
@@ -74,16 +91,26 @@ program
               passCount++;
             }
 
-            console.log(`  L${prompt.startLine}-${prompt.endLine} | Score: ${statusColor(evaluation.score)}`);
-            
-            for (const finding of evaluation.findings) {
-              const sev = finding.severity === 'critical' ? chalk.bgRed.white('CRIT') : finding.severity;
-              console.log(`    - [${sev}] ${finding.explanation}`);
-              if (finding.suggested_fix) {
-                console.log(`      ${chalk.gray(`Fix: ${finding.suggested_fix}`)}`);
+            fileReport.prompts.push({
+              line_start: prompt.startLine,
+              line_end: prompt.endLine,
+              score: evaluation.score,
+              status: evaluation.status,
+              findings: evaluation.findings
+            });
+
+            if (!options.json) {
+              console.log(`  L${prompt.startLine}-${prompt.endLine} | Score: ${statusColor(evaluation.score)}`);
+              for (const finding of evaluation.findings) {
+                const sev = finding.severity === 'critical' ? chalk.bgRed.white('CRIT') : finding.severity;
+                console.log(`    - [${sev}] ${finding.explanation}`);
+                if (finding.suggested_fix) {
+                  console.log(`      ${chalk.gray(`Fix: ${finding.suggested_fix}`)}`);
+                }
               }
             }
           }
+          report.files.push(fileReport);
         }
       } catch (err) {
         // console.error(err);
@@ -91,18 +118,33 @@ program
     }
 
     if (fileCount === 0) {
-      console.log(chalk.yellow("No prompts found."));
+      if (options.json) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        console.log(chalk.yellow("No prompts found."));
+      }
       process.exit(0);
     }
 
     const avgScore = totalScore / fileCount;
+    report.summary.average_score = avgScore;
+    report.summary.total_prompts = fileCount;
+    report.summary.passing = passCount;
+    report.summary.failing = failCount;
+    report.summary.status = (avgScore < 85 || failCount > 0) ? "fail" : "pass";
+
+    if (options.json) {
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(report.summary.status === "fail" ? 1 : 0);
+    }
+
     console.log(`\n${chalk.bold("--- Scan Summary ---")}`);
     console.log(`Total Prompts Executed: ${fileCount}`);
     console.log(`Average Score: ${avgScore.toFixed(1)}`);
     console.log(`Passing/Warning: ${passCount}`);
     console.log(`Failing: ${failCount}`);
 
-    if (avgScore < 85 || failCount > 0) {
+    if (report.summary.status === "fail") {
       console.error(chalk.red("\n❌ PromptSonar checks failed (average score < 85 or failing prompts detected)."));
       process.exit(1);
     } else {

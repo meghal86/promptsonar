@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { workspace, ExtensionContext } from 'vscode';
+import { workspace, ExtensionContext, window, StatusBarAlignment, StatusBarItem, ThemeColor } from 'vscode';
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -53,6 +53,31 @@ export function activate(context: ExtensionContext) {
 
     // Start the client. This will also launch the server
     client.start();
+
+    // Create Status Bar Item
+    const statusBarItem: StatusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
+    context.subscriptions.push(statusBarItem);
+
+    // Listen for custom notifications from the server
+    client.onNotification('promptsonar/scanResult', (params: { score: number | null, file: string }) => {
+        if (params.score !== null) {
+            statusBarItem.text = `$(shield) PromptSonar: ${params.score}`;
+
+            // Color formatting
+            if (params.score < 70) {
+                statusBarItem.color = new ThemeColor('errorForeground');
+            } else if (params.score < 85) {
+                statusBarItem.color = new ThemeColor('issues.warning');
+            } else {
+                statusBarItem.color = undefined; // Reset
+            }
+
+            statusBarItem.tooltip = `PromptSonar Scan Score: ${params.score}`;
+            statusBarItem.show();
+        } else {
+            statusBarItem.hide();
+        }
+    });
 }
 
 export function deactivate(): Thenable<void> | undefined {

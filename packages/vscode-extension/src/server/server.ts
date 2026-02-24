@@ -57,7 +57,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
             }, config);
 
             for (const finding of evaluation.findings) {
-                let severity = DiagnosticSeverity.Information;
+                let severity: DiagnosticSeverity = DiagnosticSeverity.Information;
                 if (finding.severity === "critical" || finding.severity === "high") {
                     severity = DiagnosticSeverity.Error;
                 } else if (finding.severity === "medium") {
@@ -78,6 +78,20 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
         }
 
         connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+
+        // Compute average score for status bar
+        if (detectedPrompts.length > 0) {
+            let totalScore = 0;
+            // Re-evaluate to get scores directly (or we could have saved them above)
+            for (const prompt of detectedPrompts) {
+                const evaluation = evaluatePrompt({ text: prompt.text, context: { filePath } }, config);
+                totalScore += evaluation.score;
+            }
+            const avgScore = Math.round(totalScore / detectedPrompts.length);
+            connection.sendNotification('promptsonar/scanResult', { score: avgScore, file: uri });
+        } else {
+            connection.sendNotification('promptsonar/scanResult', { score: null, file: uri });
+        }
     } catch (err) {
         console.error("PromptSonar LSP error:", err);
     }
@@ -91,8 +105,8 @@ connection.onCodeAction((params) => {
         if (diag.code === 'eff_compression_potential') {
             codeActions.push(
                 CodeAction.create(
-                    'Compress with LLMLingua',
-                    Command.create('Compress with LLMLingua', 'promptsonar.compress', params.textDocument.uri, diag.range),
+                    'Compress with LLMLingua (~40% savings estimated)',
+                    Command.create('Compress with LLMLingua (~40% savings estimated)', 'promptsonar.compress', params.textDocument.uri, diag.range),
                     CodeActionKind.QuickFix
                 )
             );

@@ -47,15 +47,15 @@
         "package": "vsce package"
     },
     "dependencies": {
+        "core": "file:../core/core-1.0.0.tgz",
         "vscode-languageclient": "^9.0.1",
         "vscode-languageserver": "^9.0.1",
         "vscode-languageserver-textdocument": "^1.0.11",
-        "vscode-uri": "^3.0.8",
-        "core": "file:../core"
+        "vscode-uri": "^3.0.8"
     },
     "devDependencies": {
-        "@types/vscode": "^1.80.0",
         "@types/node": "^20.0.0",
+        "@types/vscode": "^1.80.0",
         "typescript": "^5.0.0"
     }
 }
