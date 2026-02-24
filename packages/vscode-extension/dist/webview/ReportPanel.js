@@ -116,6 +116,7 @@ class PromptSonarReportPanel {
                                 <span class="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider ${badgeColor}">${f.severity}</span>
                                 <span class="text-slate-300 font-medium">${f.category.replace('_', ' ').toUpperCase()}</span>
                                 <span class="text-slate-500 text-sm font-mono">${f.rule_id}</span>
+                                ${f.file ? `<span class="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono ml-2 border border-indigo-500/30">${f.file}</span>` : ''}
                             </div>
                             <p class="text-slate-300 mb-2">${f.explanation}</p>
                             <p class="text-emerald-400/90 text-sm"><span class="font-semibold text-emerald-500">Fix:</span> ${f.suggested_fix}</p>

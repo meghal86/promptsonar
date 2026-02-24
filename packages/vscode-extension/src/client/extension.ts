@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { workspace, ExtensionContext, window, StatusBarAlignment, StatusBarItem, ThemeColor, commands, Uri, languages, CodeLens, Range } from 'vscode';
+import * as vscode from 'vscode';
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -171,6 +172,83 @@ export function activate(context: ExtensionContext) {
             } catch (e) {
                 window.showErrorMessage(`PromptSonar Scan Failed: ${String(e)}`);
             }
+        })
+    );
+
+    // Register Workspace Scan Command
+    context.subscriptions.push(
+        commands.registerCommand('promptsonar.scanWorkspace', async () => {
+            const workspaceFolders = workspace.workspaceFolders;
+            if (!workspaceFolders) {
+                window.showErrorMessage('No workspace open to scan.');
+                return;
+            }
+
+            window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "PromptSonar: Scanning Workspace...",
+                cancellable: false
+            }, async (progress) => {
+                try {
+                    const files = await workspace.findFiles('**/*.{ts,js,py,go,java,rs,cs,prompt,ai,chat}', '**/node_modules/**');
+                    const config = { efficiency: { token_budget: 8192 } };
+
+                    let allFindings: any[] = [];
+                    let totalScore = 0;
+                    let promptsEvaluated = 0;
+                    let combinedText = '';
+
+                    for (let i = 0; i < files.length; i++) {
+                        const file = files[i];
+                        progress.report({ message: `Scanning ${path.basename(file.fsPath)}`, increment: (100 / files.length) });
+
+                        const doc = await workspace.openTextDocument(file);
+                        const text = doc.getText();
+
+                        const detectedPrompts = await parseFile({
+                            filePath: file.fsPath,
+                            content: text,
+                            language: ''
+                        });
+
+                        for (const prompt of detectedPrompts) {
+                            const result = evaluatePrompt({ text: prompt.text, context: { filePath: file.fsPath } }, config);
+                            allFindings.push(...result.findings.map((f: any) => ({ ...f, file: path.basename(file.fsPath) })));
+                            totalScore += result.score;
+                            promptsEvaluated++;
+                            combinedText += prompt.text + '\n\n';
+                        }
+                    }
+
+                    if (promptsEvaluated === 0) {
+                        window.showInformationMessage('No prompts found in the entire workspace.');
+                        return;
+                    }
+
+                    const averageScore = Math.round(totalScore / promptsEvaluated);
+                    let status: "pass" | "warn" | "fail" = "pass";
+                    if (averageScore < 70) status = "fail";
+                    else if (averageScore < 85) status = "warn";
+
+                    const hasCritical = allFindings.some(f => f.severity === 'critical');
+                    let finalScore = averageScore;
+                    if (hasCritical) {
+                        finalScore = Math.min(finalScore, 49);
+                        status = "fail";
+                    }
+
+                    const masterResult = {
+                        score: finalScore,
+                        status,
+                        findings: allFindings
+                    };
+
+                    await PromptSonarReportPanel.createOrShow(context.extensionUri, masterResult as any, combinedText || "Workspace Summary");
+
+                } catch (e) {
+                    window.showErrorMessage(`Workspace Scan Failed: ${String(e)}`);
+                }
+            });
         })
     );
 }

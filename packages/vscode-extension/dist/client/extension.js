@@ -37,6 +37,7 @@ exports.activate = activate;
 exports.deactivate = deactivate;
 const path = __importStar(require("path"));
 const vscode_1 = require("vscode");
+const vscode = __importStar(require("vscode"));
 const node_1 = require("vscode-languageclient/node");
 const ReportPanel_1 = require("../webview/ReportPanel");
 // @ts-ignore
@@ -174,6 +175,71 @@ function activate(context) {
         catch (e) {
             vscode_1.window.showErrorMessage(`PromptSonar Scan Failed: ${String(e)}`);
         }
+    }));
+    // Register Workspace Scan Command
+    context.subscriptions.push(vscode_1.commands.registerCommand('promptsonar.scanWorkspace', async () => {
+        const workspaceFolders = vscode_1.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            vscode_1.window.showErrorMessage('No workspace open to scan.');
+            return;
+        }
+        vscode_1.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "PromptSonar: Scanning Workspace...",
+            cancellable: false
+        }, async (progress) => {
+            try {
+                const files = await vscode_1.workspace.findFiles('**/*.{ts,js,py,go,java,rs,cs,prompt,ai,chat}', '**/node_modules/**');
+                const config = { efficiency: { token_budget: 8192 } };
+                let allFindings = [];
+                let totalScore = 0;
+                let promptsEvaluated = 0;
+                let combinedText = '';
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    progress.report({ message: `Scanning ${path.basename(file.fsPath)}`, increment: (100 / files.length) });
+                    const doc = await vscode_1.workspace.openTextDocument(file);
+                    const text = doc.getText();
+                    const detectedPrompts = await (0, core_1.parseFile)({
+                        filePath: file.fsPath,
+                        content: text,
+                        language: ''
+                    });
+                    for (const prompt of detectedPrompts) {
+                        const result = (0, core_1.evaluatePrompt)({ text: prompt.text, context: { filePath: file.fsPath } }, config);
+                        allFindings.push(...result.findings.map((f) => ({ ...f, file: path.basename(file.fsPath) })));
+                        totalScore += result.score;
+                        promptsEvaluated++;
+                        combinedText += prompt.text + '\n\n';
+                    }
+                }
+                if (promptsEvaluated === 0) {
+                    vscode_1.window.showInformationMessage('No prompts found in the entire workspace.');
+                    return;
+                }
+                const averageScore = Math.round(totalScore / promptsEvaluated);
+                let status = "pass";
+                if (averageScore < 70)
+                    status = "fail";
+                else if (averageScore < 85)
+                    status = "warn";
+                const hasCritical = allFindings.some(f => f.severity === 'critical');
+                let finalScore = averageScore;
+                if (hasCritical) {
+                    finalScore = Math.min(finalScore, 49);
+                    status = "fail";
+                }
+                const masterResult = {
+                    score: finalScore,
+                    status,
+                    findings: allFindings
+                };
+                await ReportPanel_1.PromptSonarReportPanel.createOrShow(context.extensionUri, masterResult, combinedText || "Workspace Summary");
+            }
+            catch (e) {
+                vscode_1.window.showErrorMessage(`Workspace Scan Failed: ${String(e)}`);
+            }
+        });
     }));
 }
 function deactivate() {
