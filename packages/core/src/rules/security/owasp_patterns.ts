@@ -54,5 +54,40 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
         }
     }
 
+    // Advanced Unicode Obfuscation Heuristics
+    if (/[\u{1D400}-\u{1D7FF}]/u.test(input.text)) {
+        findings.push({
+            rule_id: "sec_unicode_math_homoglyph",
+            category: "security",
+            severity: "high",
+            explanation: `Potential prompt injection obfuscation detected: Mathematical Alphanumeric Symbols presence reveals an obfuscation attempt.`,
+            suggested_fix: `Remove the obfuscated text and rely on standard ASCII or Unicode blocks.`,
+            penalty_score: 20
+        });
+    }
+
+    if (/[\u{1F100}-\u{1F1FF}]/u.test(input.text)) {
+        findings.push({
+            rule_id: "sec_unicode_enclosed_obfuscation",
+            category: "security",
+            severity: "high",
+            explanation: `Potential prompt injection obfuscation detected: Enclosed Alphanumeric Symbols presence reveals an obfuscation attempt.`,
+            suggested_fix: `Remove the obfuscated text and rely on standard ASCII or Unicode blocks.`,
+            penalty_score: 20
+        });
+    }
+
+    const nonAsciiCount = (input.text.match(/[^\x00-\x7F]/g) || []).length;
+    if (nonAsciiCount > 10 && /ignore|reveal|prompt|instruction/i.test(input.text)) {
+        findings.push({
+            rule_id: "sec_unicode_injection_obfuscation",
+            category: "security",
+            severity: "critical",
+            explanation: `Potential prompt injection obfuscation detected: High volume of Non-ASCII characters combined with injection keywords.`,
+            suggested_fix: `Remove the obfuscated text and rely on standard ASCII or Unicode blocks.`,
+            penalty_score: 30
+        });
+    }
+
     return findings;
 }
