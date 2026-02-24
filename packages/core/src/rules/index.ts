@@ -34,14 +34,19 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
     // Wait, if it's "100 - sum(penalties)", maybe penalties are raw points and the categories define max points?
     // Let's just deduct raw penalty sums since rules define their own penalty.
     // We'll scale them by weights to honor the "weighted sum" requirement.
-    const score = Math.max(0, Math.min(100, Math.round(100 - totalPenalty)));
-
-    // Thresholds: pass >=85, warn 70-84, fail <70
     let status: "pass" | "warn" | "fail" = "pass";
+    let score = Math.max(0, Math.min(100, Math.round(100 - totalPenalty)));
+
     if (score < 70) {
         status = "fail";
     } else if (score < 85) {
         status = "warn";
+    }
+
+    const hasCritical = findings.some(f => f.severity === 'critical');
+    if (hasCritical) {
+        score = Math.min(score, 49); // Hard fail ceiling
+        status = "fail";
     }
 
     // Strip internal fields like penalty_score from output

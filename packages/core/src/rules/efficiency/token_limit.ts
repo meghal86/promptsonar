@@ -16,6 +16,17 @@ export function checkTokenLimit(input: RuleInput, tokenBudget: number = 8192): F
         });
     }
 
+    if (input.text.length > 8000) {
+        findings.push({
+            rule_id: "eff_token_bloat",
+            category: "efficiency",
+            severity: "high",
+            explanation: `Prompt exceeds 8000 chars (~2000 tokens) – risk of truncation or high cost.`,
+            suggested_fix: `Shorten the prompt or rely on RAG.`,
+            penalty_score: 20
+        });
+    }
+
     // Check for compression potential (very rough heuristic: many whitespaces/stopwords)
     const words = input.text.split(/\s+/).length;
     if (words > 100) {
