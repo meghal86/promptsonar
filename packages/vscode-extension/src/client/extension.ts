@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { workspace, ExtensionContext, window, StatusBarAlignment, StatusBarItem, ThemeColor, commands, Uri } from 'vscode';
+import { workspace, ExtensionContext, window, StatusBarAlignment, StatusBarItem, ThemeColor, commands, Uri, languages, CodeLens, Range } from 'vscode';
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -45,6 +45,46 @@ export function activate(context: ExtensionContext) {
             fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
         }
     };
+
+    // Explicitly register a CodeLens Provider on the client side just in case the LSP capabilities map fails
+    context.subscriptions.push(
+        languages.registerCodeLensProvider(
+            clientOptions.documentSelector as any,
+            {
+                provideCodeLenses: async (document, token) => {
+                    if (!client) return [];
+                    // We can ask the server for lenses through a custom request, or let the LSP client handle it.
+                    // The standard way is the LSP client handles it if `codeLensProvider` is true in Init result.
+                    // Since it wasn't working, let's manually build the Lenses here on the client side using core parser directly for bulletproof UX.
+
+                    const text = document.getText();
+                    const filePath = document.uri.fsPath;
+
+                    try {
+                        const detectedPrompts = await parseFile({
+                            filePath,
+                            content: text,
+                            language: ''
+                        });
+
+                        const lenses: CodeLens[] = [];
+                        for (const prompt of detectedPrompts) {
+                            const range = new Range(prompt.startLine - 1, 0, prompt.endLine - 1, 0);
+                            lenses.push(new CodeLens(range, {
+                                title: '▶ Run PromptSonar Health Check',
+                                command: 'promptsonar.runScan',
+                                arguments: [document.uri, prompt.startLine, prompt.endLine]
+                            }));
+                        }
+                        return lenses;
+
+                    } catch (e) {
+                        return [];
+                    }
+                }
+            }
+        )
+    );
 
     // Create the language client and start the client.
     client = new LanguageClient(

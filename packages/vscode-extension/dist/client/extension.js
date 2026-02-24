@@ -71,6 +71,38 @@ function activate(context) {
             fileEvents: vscode_1.workspace.createFileSystemWatcher('**/.clientrc')
         }
     };
+    // Explicitly register a CodeLens Provider on the client side just in case the LSP capabilities map fails
+    context.subscriptions.push(vscode_1.languages.registerCodeLensProvider(clientOptions.documentSelector, {
+        provideCodeLenses: async (document, token) => {
+            if (!client)
+                return [];
+            // We can ask the server for lenses through a custom request, or let the LSP client handle it.
+            // The standard way is the LSP client handles it if `codeLensProvider` is true in Init result.
+            // Since it wasn't working, let's manually build the Lenses here on the client side using core parser directly for bulletproof UX.
+            const text = document.getText();
+            const filePath = document.uri.fsPath;
+            try {
+                const detectedPrompts = await (0, core_1.parseFile)({
+                    filePath,
+                    content: text,
+                    language: ''
+                });
+                const lenses = [];
+                for (const prompt of detectedPrompts) {
+                    const range = new vscode_1.Range(prompt.startLine - 1, 0, prompt.endLine - 1, 0);
+                    lenses.push(new vscode_1.CodeLens(range, {
+                        title: '▶ Run PromptSonar Health Check',
+                        command: 'promptsonar.runScan',
+                        arguments: [document.uri, prompt.startLine, prompt.endLine]
+                    }));
+                }
+                return lenses;
+            }
+            catch (e) {
+                return [];
+            }
+        }
+    }));
     // Create the language client and start the client.
     client = new node_1.LanguageClient('promptsonarLSP', 'PromptSonar Language Server', serverOptions, clientOptions);
     // Start the client. This will also launch the server
