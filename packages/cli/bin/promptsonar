@@ -1,0 +1,122 @@
+#!/usr/bin/env node
+
+const { program } = require('commander');
+const fs = require('fs');
+const path = require('path');
+const { globSync } = require('glob');
+const yaml = require('yaml');
+const chalk = require('chalk');
+
+// Hack for local core require in MVP since it's commonjs and might need ts-node to run directly if not built
+let core;
+try {
+  core = require('core');
+} catch {
+  // Try to load via ts-node for raw source if not compiled
+  require('ts-node').register({
+    project: path.join(__dirname, '..', '..', 'core', 'tsconfig.json')
+  });
+  core = require('../../core/src/index');
+}
+const { parseFile, evaluatePrompt } = core;
+
+program
+  .name('promptsonar')
+  .description('Static analysis and guardrails for embedded AI prompts')
+  .version('1.0.0');
+
+// Load config
+let config = {};
+const configPath = path.join(process.cwd(), 'config', 'default-promptsonar.config.yaml');
+if (fs.existsSync(configPath)) {
+  const fileStr = fs.readFileSync(configPath, 'utf8');
+  config = yaml.parse(fileStr);
+}
+
+program
+  .command('scan')
+  .description('Scan directory for embedded prompts')
+  .argument('[path]', 'Directory to scan', '.')
+  .action(async (scanPath) => {
+    console.log(chalk.blue(`[PromptSonar] Scanning ${scanPath}...`));
+    
+    // Simplistic globbing
+    const files = globSync('**/*.{py,ts,js,tsx,jsx,go,java,rs,cs,prompt,ai,chat,json,yml,yaml}', {
+      cwd: path.resolve(scanPath),
+      ignore: config.ignore_patterns || ['**/node_modules/**', '**/tests/**'],
+      absolute: true
+    });
+
+    let totalScore = 0;
+    let fileCount = 0;
+    let passCount = 0;
+    let failCount = 0;
+
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(file, 'utf8');
+        const prompts = await parseFile({ filePath: file, content, language: '' });
+
+        if (prompts.length > 0) {
+          console.log(`\n📄 ${chalk.bold(path.relative(process.cwd(), file))}`);
+          for (const prompt of prompts) {
+            const evaluation = evaluatePrompt({ text: prompt.text, context: { filePath: file } }, config);
+            
+            totalScore += evaluation.score;
+            fileCount++;
+
+            let statusColor = chalk.green;
+            if (evaluation.status === "warn") statusColor = chalk.yellow;
+            if (evaluation.status === "fail") {
+              statusColor = chalk.red;
+              failCount++;
+            } else {
+              passCount++;
+            }
+
+            console.log(`  L${prompt.startLine}-${prompt.endLine} | Score: ${statusColor(evaluation.score)}`);
+            
+            for (const finding of evaluation.findings) {
+              const sev = finding.severity === 'critical' ? chalk.bgRed.white('CRIT') : finding.severity;
+              console.log(`    - [${sev}] ${finding.explanation}`);
+              if (finding.suggested_fix) {
+                console.log(`      ${chalk.gray(`Fix: ${finding.suggested_fix}`)}`);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // console.error(err);
+      }
+    }
+
+    if (fileCount === 0) {
+      console.log(chalk.yellow("No prompts found."));
+      process.exit(0);
+    }
+
+    const avgScore = totalScore / fileCount;
+    console.log(`\n${chalk.bold("--- Scan Summary ---")}`);
+    console.log(`Total Prompts Executed: ${fileCount}`);
+    console.log(`Average Score: ${avgScore.toFixed(1)}`);
+    console.log(`Passing/Warning: ${passCount}`);
+    console.log(`Failing: ${failCount}`);
+
+    if (avgScore < 85 || failCount > 0) {
+      console.error(chalk.red("\n❌ PromptSonar checks failed (average score < 85 or failing prompts detected)."));
+      process.exit(1);
+    } else {
+      console.log(chalk.green("\n✅ PromptSonar checks passed."));
+      process.exit(0);
+    }
+  });
+
+program
+  .command('optimize')
+  .description('Optimize a prompt (Phase 2 feature mock)')
+  .argument('<path>', 'File containing prompt')
+  .action((filePath) => {
+    console.log(`Optimizing ${filePath}... LLMLingua-2 compression coming in Phase 2!`);
+  });
+
+program.parse(process.argv);

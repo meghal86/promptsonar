@@ -1,0 +1,34 @@
+name: PromptSonar Guardrails
+
+on:
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  promptsonar-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.x
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Run PromptSonar Core Rules
+      run: npx promptsonar scan ./ --config .promptsonar.config.yaml
+      
+    - name: Comment PR
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '🚨 **PromptSonar detected score < 85**. Please review the CI output for embedded prompt vulnerabilities.'
+          })

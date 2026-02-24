@@ -1,0 +1,13 @@
+rules:
+  clarity:
+    enabled: true
+    vague_words: ["try", "perhaps", "maybe", "several"]
+  security:
+    enabled: true
+    owasp_map: true
+  efficiency:
+    token_budget: 8192
+    compression_target: 0.6
+ignore_patterns:
+  - "**/tests/**"
+  - "node_modules/**"

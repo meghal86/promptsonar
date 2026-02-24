@@ -1,0 +1,61 @@
+{
+    "name": "promptsonar-vscode",
+    "displayName": "PromptSonar",
+    "description": "Static analysis and guardrails for embedded AI prompts",
+    "version": "1.0.0",
+    "publisher": "PromptSonar",
+    "engines": {
+        "vscode": "^1.80.0"
+    },
+    "categories": [
+        "Linters",
+        "Machine Learning"
+    ],
+    "activationEvents": [
+        "onLanguage:python",
+        "onLanguage:typescript",
+        "onLanguage:javascript",
+        "onLanguage:go",
+        "onLanguage:java",
+        "onLanguage:rust",
+        "onLanguage:csharp"
+    ],
+    "main": "./dist/client/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "promptsonar.compress",
+                "title": "PromptSonar: Compress with LLMLingua"
+            }
+        ],
+        "configuration": {
+            "type": "object",
+            "title": "PromptSonar",
+            "properties": {
+                "promptsonar.enable": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable/disable PromptSonar"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -b",
+        "watch": "tsc -b -w",
+        "package": "vsce package"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1",
+        "vscode-languageserver": "^9.0.1",
+        "vscode-languageserver-textdocument": "^1.0.11",
+        "vscode-uri": "^3.0.8",
+        "core": "file:../core"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.80.0",
+        "@types/node": "^20.0.0",
+        "typescript": "^5.0.0"
+    }
+}

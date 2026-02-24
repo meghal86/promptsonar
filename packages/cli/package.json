@@ -1,0 +1,17 @@
+{
+    "name": "promptsonar",
+    "version": "1.0.0",
+    "description": "PromptSonar CLI",
+    "bin": {
+        "promptsonar": "./bin/promptsonar"
+    },
+    "dependencies": {
+        "chalk": "^4.1.2",
+        "commander": "^11.0.0",
+        "core": "file:../core",
+        "glob": "^10.3.0",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.9.3",
+        "yaml": "^2.3.1"
+    }
+}
