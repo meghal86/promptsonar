@@ -41,17 +41,24 @@ program
   .action(async (scanPath, options) => {
     if (!options.json) console.log(chalk.blue(`[PromptSonar] Scanning ${scanPath}...`));
 
-    // Simplistic globbing
-    const files = globSync('**/*.{py,ts,js,tsx,jsx,go,java,rs,cs,prompt,ai,chat,json,yml,yaml}', {
-      cwd: path.resolve(scanPath),
-      ignore: config.ignore_patterns || ['**/node_modules/**', '**/tests/**'],
-      absolute: true
-    });
+    const resolvedPath = path.resolve(scanPath);
+    let files = [];
+    if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+      files = [resolvedPath];
+    } else {
+      // Simplistic globbing
+      files = globSync('**/*.{py,ts,js,tsx,jsx,go,java,rs,cs,prompt,ai,chat,json,yml,yaml}', {
+        cwd: resolvedPath,
+        ignore: config.ignore_patterns || ['**/node_modules/**', '**/tests/**'],
+        absolute: true
+      });
+    }
 
     let totalScore = 0;
     let fileCount = 0;
     let passCount = 0;
     let failCount = 0;
+    let hasCriticalFailures = false;
 
     const report = {
       summary: {
@@ -103,10 +110,16 @@ program
               console.log(`  L${prompt.startLine}-${prompt.endLine} | Score: ${statusColor(evaluation.score)}`);
               for (const finding of evaluation.findings) {
                 const sev = finding.severity === 'critical' ? chalk.bgRed.white('CRIT') : finding.severity;
+                if (finding.severity === 'critical') hasCriticalFailures = true;
+
                 console.log(`    - [${sev}] ${finding.explanation}`);
                 if (finding.suggested_fix) {
                   console.log(`      ${chalk.gray(`Fix: ${finding.suggested_fix}`)}`);
                 }
+              }
+            } else {
+              for (const finding of evaluation.findings) {
+                if (finding.severity === 'critical') hasCriticalFailures = true;
               }
             }
           }
@@ -131,7 +144,7 @@ program
     report.summary.total_prompts = fileCount;
     report.summary.passing = passCount;
     report.summary.failing = failCount;
-    report.summary.status = (avgScore < 85 || failCount > 0) ? "fail" : "pass";
+    report.summary.status = (avgScore < 85 || failCount > 0 || hasCriticalFailures) ? "fail" : "pass";
 
     if (options.json) {
       console.log(JSON.stringify(report, null, 2));
@@ -145,7 +158,12 @@ program
     console.log(`Failing: ${failCount}`);
 
     if (report.summary.status === "fail") {
-      console.error(chalk.red("\n❌ PromptSonar checks failed (average score < 85 or failing prompts detected)."));
+      if (hasCriticalFailures) {
+        console.error(chalk.bgRed.white.bold("\n🚨 CRITICAL VULNERABILITY DETECTED – PROMPT INJECTION RISK (OWASP LLM01)"));
+        console.error(chalk.red.bold("Scan FAILED – Do NOT deploy this code!\n"));
+      } else {
+        console.error(chalk.red("\n❌ PromptSonar checks failed (average score < 85 or failing prompts detected)."));
+      }
       process.exit(1);
     } else {
       console.log(chalk.green("\n✅ PromptSonar checks passed."));

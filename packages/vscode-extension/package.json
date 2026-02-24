@@ -1,9 +1,24 @@
 {
-    "name": "promptsonar-vscode",
+    "name": "promptsonar",
     "displayName": "PromptSonar",
-    "description": "Static analysis and guardrails for embedded AI prompts",
-    "version": "1.0.0",
-    "publisher": "PromptSonar",
+    "description": "Static scanner for prompt injection (OWASP LLM01), API key leaks & jailbreaks in code. Local, fast, no LLM calls.",
+    "version": "0.1.0",
+    "icon": "icon.png",
+    "keywords": [
+        "prompt",
+        "security",
+        "injection",
+        "llm",
+        "owasp",
+        "scanner",
+        "linter",
+        "ai"
+    ],
+    "publisher": "raj-promptsonar",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/raj-promptsonar/promptsonar.git"
+    },
     "engines": {
         "vscode": "^1.80.0"
     },
