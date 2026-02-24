@@ -14,7 +14,7 @@
         "linter",
         "ai"
     ],
-    "publisher": "meghal-promptsonar",
+    "publisher": "promptsonar",
     "repository": {
         "type": "git",
         "url": "https://github.com/raj-promptsonar/promptsonar.git"
