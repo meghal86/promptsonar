@@ -1,7 +1,7 @@
 # PromptSonar
 
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/raj-promptsonar.promptsonar?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=raj-promptsonar.promptsonar)
-[![GitHub stars](https://img.shields.io/github/stars/raj-promptsonar/promptsonar?style=social)](https://github.com/raj-promptsonar/promptsonar)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/meghal-promptsonar.promptsonar?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=meghal-promptsonar.promptsonar)
+[![GitHub stars](https://img.shields.io/github/stars/meghal-promptsonar/promptsonar?style=social)](https://github.com/meghal-promptsonar/promptsonar)
 
 Static scanner for prompt injection (OWASP LLM01), API key leaks, and jailbreaks in code. Local, fast, no external LLM calls.
 
