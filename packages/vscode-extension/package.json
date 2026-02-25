@@ -69,6 +69,11 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Enable/disable PromptSonar"
+                },
+                "promptsonar.enableCodeLens": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable/disable 'Run Health Check' CodeLenses above detected prompts"
                 }
             }
         }
@@ -89,6 +94,8 @@
     "devDependencies": {
         "@types/node": "^20.0.0",
         "@types/vscode": "^1.80.0",
-        "typescript": "^5.0.0"
+        "@vitest/coverage-v8": "^4.0.18",
+        "typescript": "^5.0.0",
+        "vitest": "^4.0.18"
     }
 }

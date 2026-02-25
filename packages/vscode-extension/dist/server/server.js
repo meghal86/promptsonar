@@ -89,6 +89,16 @@ connection.onCodeAction((params) => {
     return codeActions;
 });
 connection.onCodeLens(async (params) => {
+    try {
+        // Fetch configuration state to see if CodeLenses are enabled globally
+        const settings = await connection.workspace.getConfiguration('promptsonar');
+        if (settings && settings.enableCodeLens === false) {
+            return [];
+        }
+    }
+    catch (e) {
+        // Configuration fetching might fail gracefully, proceed with default behavior
+    }
     const textDocument = documents.get(params.textDocument.uri);
     if (!textDocument)
         return [];
