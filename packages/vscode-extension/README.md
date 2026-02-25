@@ -27,7 +27,19 @@ npm link ./packages/cli
 promptsonar scan .
 ```
 
-## Running Scans
+## VS Code Extension Features
+
+Once the PromptSonar extension is installed, you can scan your code seamlessly from within the editor. 
+**Note:** These commands are run from the VS Code **Command Palette**, NOT your terminal.
+
+- **Run Health Check:** 
+  You can click the `▶ Run PromptSonar Health Check` **CodeLens** that appears directly above any detected prompt, or use the play button in the Editor Title Menu.
+- **Scan Entire Workspace:** 
+  Open the Command Palette (`Cmd + Shift + P` or `Ctrl + Shift + P`), type **`PromptSonar: Scan Entire Workspace`**, and hit Enter. This will scan all supported files in your project and generate a master HTML security report.
+- **Configuration:** 
+  If you find the CodeLenses visually distracting while typing, you can disable them by searching for `promptsonar.enableCodeLens` in your VS Code settings.
+
+## Running Scans (CLI Tool)
 ```bash
 # Scan a specific file or directory
 promptsonar scan tests/validation/ultimate_injection_test.js

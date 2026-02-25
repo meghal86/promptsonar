@@ -2,7 +2,7 @@
     "name": "promptsonar",
     "displayName": "PromptSonar",
     "description": "Static scanner for prompt injection (OWASP LLM01), API key leaks & jailbreaks in code. Local, fast, no LLM calls.",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "icon": "icon.png",
     "keywords": [
         "prompt",
