@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/7</span>
+                <span class='fraction'>7/7</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/4</span>
+                <span class='fraction'>4/4</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/7</span>
+                <span class='fraction'>7/7</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -97,7 +97,7 @@
 <a name='L32'></a><a href='#L32'>32</a>
 <a name='L33'></a><a href='#L33'>33</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -109,14 +109,12 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">40x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -125,11 +123,13 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { RuleInput, Finding } from './types';
 &nbsp;
-const CONTRADICTIONS = <span class="cstat-no" title="statement not covered" >[</span>
+const CONTRADICTIONS = [
     { p1: "be concise", p2: "be detailed" },
     { p1: "short response", p2: "comprehensive explanation" },
     { p1: "only return", p2: "also include" },
@@ -140,13 +140,13 @@ const CONTRADICTIONS = <span class="cstat-no" title="statement not covered" >[</
     { p1: "detailed", p2: "short" }
 ];
 &nbsp;
-export function <span class="fstat-no" title="function not covered" >checkConsistency(i</span>nput: RuleInput): Finding[] {
-    const findings: Finding[] = <span class="cstat-no" title="statement not covered" >[];</span>
-    const lowerText = <span class="cstat-no" title="statement not covered" >input.text.toLowerCase();</span>
+export function checkConsistency(input: RuleInput): Finding[] {
+    const findings: Finding[] = [];
+    const lowerText = input.text.toLowerCase();
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    for (const pair of CONTRADICTIONS) {</span>
-<span class="cstat-no" title="statement not covered" >        if (lowerText.includes(pair.p1) &amp;&amp; lowerText.includes(pair.p2)) {</span>
-<span class="cstat-no" title="statement not covered" >            findings.push({</span>
+    for (const pair of CONTRADICTIONS) {
+        if (lowerText.includes(pair.p1) &amp;&amp; lowerText.includes(pair.p2)) {
+            findings.push({
                 rule_id: "consist_contradiction",
                 category: "consistency",
                 severity: "medium",
@@ -157,7 +157,7 @@ export function <span class="fstat-no" title="function not covered" >checkConsis
         }
     }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    return findings;</span>
+    return findings;
 }
 &nbsp;</pre></td></tr></table></pre>
 
@@ -166,7 +166,7 @@ export function <span class="fstat-no" title="function not covered" >checkConsis
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-02-26T05:31:50.474Z
+                at 2026-02-26T05:52:52.218Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

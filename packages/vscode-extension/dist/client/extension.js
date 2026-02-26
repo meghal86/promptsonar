@@ -41,6 +41,7 @@ const vscode = __importStar(require("vscode"));
 const node_1 = require("vscode-languageclient/node");
 const WebviewPanel_1 = require("./WebviewPanel");
 const CodeLensProvider_1 = require("./CodeLensProvider");
+const SidebarProvider_1 = require("./SidebarProvider");
 // @ts-ignore
 const core_1 = require("core");
 let client;
@@ -82,6 +83,9 @@ function activate(context) {
     // Create Status Bar Item
     const statusBarItem = vscode_1.window.createStatusBarItem(vscode_1.StatusBarAlignment.Right, 100);
     context.subscriptions.push(statusBarItem);
+    // Register Sidebar Tree Provider
+    const sidebarProvider = new SidebarProvider_1.PromptSonarSidebarProvider(context);
+    vscode_1.window.registerTreeDataProvider('promptsonar-explorer', sidebarProvider);
     // Listen for custom notifications from the server
     client.onNotification('promptsonar/scanResult', (params) => {
         if (params.score !== null) {

@@ -59,6 +59,32 @@
                     "command": "promptsonar.runScan",
                     "group": "navigation"
                 }
+            ],
+            "view/title": [
+                {
+                    "command": "promptsonar.scanWorkspace",
+                    "when": "view == promptsonar-explorer",
+                    "group": "navigation"
+                }
+            ]
+        },
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "promptsonar-sidebar",
+                    "title": "PromptSonar",
+                    "icon": "icon.png"
+                }
+            ]
+        },
+        "views": {
+            "promptsonar-sidebar": [
+                {
+                    "id": "promptsonar-explorer",
+                    "name": "Prompt Analysis",
+                    "icon": "icon.png",
+                    "type": "webview"
+                }
             ]
         },
         "configuration": {

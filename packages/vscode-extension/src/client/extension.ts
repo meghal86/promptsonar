@@ -9,6 +9,7 @@ import {
 } from 'vscode-languageclient/node';
 import { PromptSonarWebviewPanel } from './WebviewPanel';
 import { PromptSonarCodeLensProvider } from './CodeLensProvider';
+import { PromptSonarSidebarProvider } from './SidebarProvider';
 // @ts-ignore
 import { parseFile, evaluatePrompt } from 'core';
 
@@ -70,6 +71,10 @@ export function activate(context: ExtensionContext) {
     // Create Status Bar Item
     const statusBarItem: StatusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
     context.subscriptions.push(statusBarItem);
+
+    // Register Sidebar Tree Provider
+    const sidebarProvider = new PromptSonarSidebarProvider(context);
+    window.registerTreeDataProvider('promptsonar-explorer', sidebarProvider);
 
     // Listen for custom notifications from the server
     client.onNotification('promptsonar/scanResult', (params: { score: number | null, file: string }) => {

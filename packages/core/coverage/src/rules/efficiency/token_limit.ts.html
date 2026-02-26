@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">70% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/10</span>
+                <span class='fraction'>7/10</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">57.14% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/7</span>
+                <span class='fraction'>4/7</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">70% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/10</span>
+                <span class='fraction'>7/10</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line medium'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -110,22 +110,11 @@
 <a name='L45'></a><a href='#L45'>45</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -136,9 +125,7 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -149,16 +136,29 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { RuleInput, Finding } from '../types';
 &nbsp;
-export function <span class="fstat-no" title="function not covered" >checkTokenLimit(i</span>nput: RuleInput, tokenBudget: number = <span class="branch-0 cbranch-no" title="branch not covered" >8192): Finding[] {</span>
-    const findings: Finding[] = <span class="cstat-no" title="statement not covered" >[];</span>
+export function checkTokenLimit(input: RuleInput, tokenBudget: number = 8192): Finding[] {
+    const findings: Finding[] = [];
     // Rough estimation: 1 token = 4 characters
-    const estimatedTokens = <span class="cstat-no" title="statement not covered" >Math.ceil(input.text.length / 4);</span>
+    const estimatedTokens = Math.ceil(input.text.length / 4);
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    if (estimatedTokens &gt; tokenBudget) {</span>
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (estimatedTokens &gt; tokenBudget) {
 <span class="cstat-no" title="statement not covered" >        findings.push({</span>
             rule_id: "eff_token_budget",
             category: "efficiency",
@@ -169,7 +169,7 @@ export function <span class="fstat-no" title="function not covered" >checkTokenL
         });
     }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    if (input.text.length &gt; 8000) {</span>
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (input.text.length &gt; 8000) {
 <span class="cstat-no" title="statement not covered" >        findings.push({</span>
             rule_id: "eff_token_bloat",
             category: "efficiency",
@@ -181,8 +181,8 @@ export function <span class="fstat-no" title="function not covered" >checkTokenL
     }
 &nbsp;
     // Check for compression potential (very rough heuristic: many whitespaces/stopwords)
-    const words = <span class="cstat-no" title="statement not covered" >input.text.split(/\s+/).length;</span>
-<span class="cstat-no" title="statement not covered" >    if (words &gt; 100) {</span>
+    const words = input.text.split(/\s+/).length;
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (words &gt; 100) {
 <span class="cstat-no" title="statement not covered" >        findings.push({</span>
             rule_id: "eff_compression_potential",
             category: "efficiency",
@@ -193,7 +193,7 @@ export function <span class="fstat-no" title="function not covered" >checkTokenL
         });
     }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    return findings;</span>
+    return findings;
 }
 &nbsp;</pre></td></tr></table></pre>
 
@@ -202,7 +202,7 @@ export function <span class="fstat-no" title="function not covered" >checkTokenL
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-02-26T05:31:50.474Z
+                at 2026-02-26T05:52:52.218Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>

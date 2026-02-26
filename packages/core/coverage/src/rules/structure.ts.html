@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">90.9% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/11</span>
+                <span class='fraction'>10/11</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">50% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/4</span>
+                <span class='fraction'>2/4</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/3</span>
+                <span class='fraction'>3/3</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">88.88% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/9</span>
+                <span class='fraction'>8/9</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -91,17 +91,17 @@
 <a name='L26'></a><a href='#L26'>26</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -111,21 +111,21 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { RuleInput, Finding } from './types';
 &nbsp;
-export function <span class="fstat-no" title="function not covered" >checkStructure(i</span>nput: RuleInput): Finding[] {
-    const findings: Finding[] = <span class="cstat-no" title="statement not covered" >[];</span>
-    const lowerText = <span class="cstat-no" title="statement not covered" >input.text.toLowerCase();</span>
+export function checkStructure(input: RuleInput): Finding[] {
+    const findings: Finding[] = [];
+    const lowerText = input.text.toLowerCase();
 &nbsp;
-    const asksForData = <span class="cstat-no" title="statement not covered" >["format", "schema", "output", "generate a", "return", "provide"];</span>
-    const formatEnforcers = <span class="cstat-no" title="statement not covered" >["json", "yaml", "xml", "markdown", "csv", "```"];</span>
+    const asksForData = ["format", "schema", "output", "generate a", "return", "provide"];
+    const formatEnforcers = ["json", "yaml", "xml", "markdown", "csv", "```"];
 &nbsp;
-    const expectsData = <span class="cstat-no" title="statement not covered" >asksForData.some(<span class="fstat-no" title="function not covered" >w =&gt; <span class="cstat-no" title="statement not covered" >l</span>owerText.includes(w))</span>;</span>
-    const enforcedFormat = <span class="cstat-no" title="statement not covered" >formatEnforcers.some(<span class="fstat-no" title="function not covered" >w =&gt; <span class="cstat-no" title="statement not covered" >l</span>owerText.includes(w))</span>;</span>
+    const expectsData = asksForData.some(w =&gt; lowerText.includes(w));
+    const enforcedFormat = formatEnforcers.some(w =&gt; lowerText.includes(w));
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    if (expectsData &amp;&amp; !enforcedFormat) {</span>
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (expectsData &amp;&amp; <span class="branch-1 cbranch-no" title="branch not covered" >!enforcedFormat) {</span>
 <span class="cstat-no" title="statement not covered" >        findings.push({</span>
             rule_id: "struct_missing_format_enforcer",
             category: "structure",
@@ -136,7 +136,7 @@ export function <span class="fstat-no" title="function not covered" >checkStruct
         });
     }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    return findings;</span>
+    return findings;
 }
 &nbsp;</pre></td></tr></table></pre>
 
@@ -145,7 +145,7 @@ export function <span class="fstat-no" title="function not covered" >checkStruct
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-02-26T05:31:50.474Z
+                at 2026-02-26T05:52:52.218Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

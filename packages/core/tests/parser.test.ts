@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFile } from '../dist/parser/index';
+import { parseFile } from '../src/parser/index';
 
 describe('Agent B: Edge-Case Parser & Quality Tester', () => {
 

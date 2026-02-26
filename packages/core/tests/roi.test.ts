@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateROI } from '../dist/optimizer/costCalculator';
+import { calculateROI } from '../src/optimizer/costCalculator';
 
 describe('Agent C: Hard ROI & Token Math Tester', () => {
     // Standard test rate

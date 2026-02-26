@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluatePrompt } from '../dist/rules/index';
+import { evaluatePrompt } from '../src/rules/index';
 
 describe('Agent A: Adversarial Security Tests', () => {
     // Shared mock config for consistent evaluation

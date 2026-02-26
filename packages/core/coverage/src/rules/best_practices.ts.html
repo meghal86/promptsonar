@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/15</span>
+                <span class='fraction'>15/15</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">87.5% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/8</span>
+                <span class='fraction'>7/8</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/4</span>
+                <span class='fraction'>4/4</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/12</span>
+                <span class='fraction'>12/12</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -114,26 +114,13 @@
 <a name='L49'></a><a href='#L49'>49</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">21x</span>
+<span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -144,11 +131,9 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">20x</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -157,18 +142,33 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { RuleInput, Finding } from './types';
 &nbsp;
-export function <span class="fstat-no" title="function not covered" >checkBestPractices(i</span>nput: RuleInput): Finding[] {
-    const findings: Finding[] = <span class="cstat-no" title="statement not covered" >[];</span>
-    const lowerText = <span class="cstat-no" title="statement not covered" >input.text.toLowerCase();</span>
+export function checkBestPractices(input: RuleInput): Finding[] {
+    const findings: Finding[] = [];
+    const lowerText = input.text.toLowerCase();
 &nbsp;
     // 1. Missing Persona
-    const personaIndictators = <span class="cstat-no" title="statement not covered" >["you are a", "you are an expert", "act as", "role:", "persona:"];</span>
-<span class="cstat-no" title="statement not covered" >    if (!personaIndictators.some(<span class="fstat-no" title="function not covered" >p =&gt; <span class="cstat-no" title="statement not covered" >l</span>owerText.includes(p))</span>) {</span>
-<span class="cstat-no" title="statement not covered" >        findings.push({</span>
+    const personaIndictators = ["you are a", "you are an expert", "act as", "role:", "persona:"];
+    if (!personaIndictators.some(p =&gt; lowerText.includes(p))) {
+        findings.push({
             rule_id: "bp_missing_persona",
             category: "best_practices",
             severity: "low",
@@ -179,9 +179,9 @@ export function <span class="fstat-no" title="function not covered" >checkBestPr
     }
 &nbsp;
     // 2. Missing Few-Shot Examples
-    const exampleIndicators = <span class="cstat-no" title="statement not covered" >["example:", "for example", "input:", "output:"];</span>
-<span class="cstat-no" title="statement not covered" >    if (!exampleIndicators.some(<span class="fstat-no" title="function not covered" >p =&gt; <span class="cstat-no" title="statement not covered" >l</span>owerText.includes(p))</span>) {</span>
-<span class="cstat-no" title="statement not covered" >        findings.push({</span>
+    const exampleIndicators = ["example:", "for example", "input:", "output:"];
+    <span class="missing-if-branch" title="else path not taken" >E</span>if (!exampleIndicators.some(p =&gt; lowerText.includes(p))) {
+        findings.push({
             rule_id: "bp_missing_few_shot",
             category: "best_practices",
             severity: "low",
@@ -192,10 +192,10 @@ export function <span class="fstat-no" title="function not covered" >checkBestPr
     }
 &nbsp;
     // 3. Missing Chain-of-Thought (CoT)
-    const cotIndicators = <span class="cstat-no" title="statement not covered" >["think step by step", "step-by-step", "explain your reasoning", "first,", "second,"];</span>
+    const cotIndicators = ["think step by step", "step-by-step", "explain your reasoning", "first,", "second,"];
     // Only flag CoT if the prompt looks complex (longer than 100 characters)
-<span class="cstat-no" title="statement not covered" >    if (input.text.length &gt; 100 &amp;&amp; !cotIndicators.some(<span class="fstat-no" title="function not covered" >p =&gt; <span class="cstat-no" title="statement not covered" >l</span>owerText.includes(p))</span>) {</span>
-<span class="cstat-no" title="statement not covered" >        findings.push({</span>
+    if (input.text.length &gt; 100 &amp;&amp; !cotIndicators.some(p =&gt; lowerText.includes(p))) {
+        findings.push({
             rule_id: "bp_missing_cot",
             category: "best_practices",
             severity: "low",
@@ -205,7 +205,7 @@ export function <span class="fstat-no" title="function not covered" >checkBestPr
         });
     }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    return findings;</span>
+    return findings;
 }
 &nbsp;</pre></td></tr></table></pre>
 
@@ -214,7 +214,7 @@ export function <span class="fstat-no" title="function not covered" >checkBestPr
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-02-26T05:31:50.474Z
+                at 2026-02-26T05:52:52.218Z
             </div>
         <script src="../../prettify.js"></script>
         <script>
