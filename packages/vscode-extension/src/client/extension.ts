@@ -7,7 +7,8 @@ import {
     ServerOptions,
     TransportKind
 } from 'vscode-languageclient/node';
-import { PromptSonarReportPanel } from '../webview/ReportPanel';
+import { PromptSonarWebviewPanel } from './WebviewPanel';
+import { PromptSonarCodeLensProvider } from './CodeLensProvider';
 // @ts-ignore
 import { parseFile, evaluatePrompt } from 'core';
 
@@ -51,39 +52,7 @@ export function activate(context: ExtensionContext) {
     context.subscriptions.push(
         languages.registerCodeLensProvider(
             clientOptions.documentSelector as any,
-            {
-                provideCodeLenses: async (document, token) => {
-                    if (!client) return [];
-                    // We can ask the server for lenses through a custom request, or let the LSP client handle it.
-                    // The standard way is the LSP client handles it if `codeLensProvider` is true in Init result.
-                    // Since it wasn't working, let's manually build the Lenses here on the client side using core parser directly for bulletproof UX.
-
-                    const text = document.getText();
-                    const filePath = document.uri.fsPath;
-
-                    try {
-                        const detectedPrompts = await parseFile({
-                            filePath,
-                            content: text,
-                            language: ''
-                        });
-
-                        const lenses: CodeLens[] = [];
-                        for (const prompt of detectedPrompts) {
-                            const range = new Range(prompt.startLine - 1, 0, prompt.endLine - 1, 0);
-                            lenses.push(new CodeLens(range, {
-                                title: '▶ Run PromptSonar Health Check',
-                                command: 'promptsonar.runScan',
-                                arguments: [document.uri, prompt.startLine, prompt.endLine]
-                            }));
-                        }
-                        return lenses;
-
-                    } catch (e) {
-                        return [];
-                    }
-                }
-            }
+            new PromptSonarCodeLensProvider()
         )
     );
 
@@ -167,7 +136,7 @@ export function activate(context: ExtensionContext) {
                 const config = { efficiency: { token_budget: 8192 } };
                 const result = evaluatePrompt({ text: targetPrompt.text, context: { filePath } }, config);
 
-                await PromptSonarReportPanel.createOrShow(context.extensionUri, result, targetPrompt.text);
+                await PromptSonarWebviewPanel.createOrShow(context.extensionUri, result, targetPrompt.text);
 
             } catch (e) {
                 window.showErrorMessage(`PromptSonar Scan Failed: ${String(e)}`);
@@ -243,7 +212,7 @@ export function activate(context: ExtensionContext) {
                         findings: allFindings
                     };
 
-                    await PromptSonarReportPanel.createOrShow(context.extensionUri, masterResult as any, combinedText || "Workspace Summary");
+                    await PromptSonarWebviewPanel.createOrShow(context.extensionUri, masterResult as any, combinedText || "Workspace Summary");
 
                 } catch (e) {
                     window.showErrorMessage(`Workspace Scan Failed: ${String(e)}`);

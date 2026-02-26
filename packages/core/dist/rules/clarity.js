@@ -34,7 +34,7 @@ function checkClarity(input) {
         }
     }
     // Include the original vague words check
-    const VAGUE_WORDS = ["try", "perhaps", "maybe", "several", "some", "good"];
+    const VAGUE_WORDS = ["try", "maybe", "perhaps", "several", "some", "good"];
     for (const word of VAGUE_WORDS) {
         const regex = new RegExp(`\\b${word}\\b`, 'i');
         if (regex.test(lowerText)) {

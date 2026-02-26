@@ -5,7 +5,10 @@ const CONTRADICTIONS = [
     { p1: "short response", p2: "comprehensive explanation" },
     { p1: "only return", p2: "also include" },
     { p1: "simple language", p2: "highly technical" },
-    { p1: "brief summary", p2: "exhaustive list" }
+    { p1: "brief summary", p2: "exhaustive list" },
+    { p1: "highly detailed", p2: "concise" },
+    { p1: "etailed", p2: "short" },
+    { p1: "detailed", p2: "short" }
 ];
 
 export function checkConsistency(input: RuleInput): Finding[] {

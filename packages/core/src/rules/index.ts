@@ -20,7 +20,7 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
         ...checkTokenLimit(input, config?.efficiency?.token_budget || 8192),
     ];
 
-    // Master Scoring (Security 40%, Clarity 15%, Structure 15%, Best Practices 15%, Consistency 10%, Efficiency 5%)
+    // Master Scoring (Security 40%, Clarity 15%, Structure 15%, Best Practices 15%, Consistency 10%, Efficiency 5%, Safety 5%)
     let totalPenalty = 0;
     for (const finding of findings) {
         if (finding.category === 'security') totalPenalty += (finding.penalty_score || 0) * 0.40;
@@ -29,7 +29,6 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
         if (finding.category === 'best_practices') totalPenalty += (finding.penalty_score || 0) * 0.15;
         if (finding.category === 'consistency') totalPenalty += (finding.penalty_score || 0) * 0.10;
         if (finding.category === 'efficiency') totalPenalty += (finding.penalty_score || 0) * 0.05;
-        // safety can be lumped into security/pii for this MVP mapping
         if (finding.category === 'safety') totalPenalty += (finding.penalty_score || 0) * 0.05;
     }
 

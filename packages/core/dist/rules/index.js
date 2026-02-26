@@ -33,7 +33,7 @@ function evaluatePrompt(input, config = {}) {
         ...(0, pii_1.checkPii)(input),
         ...(0, token_limit_1.checkTokenLimit)(input, config?.efficiency?.token_budget || 8192),
     ];
-    // Master Scoring (Security 40%, Clarity 15%, Structure 15%, Best Practices 15%, Consistency 10%, Efficiency 5%)
+    // Master Scoring (Security 40%, Clarity 15%, Structure 15%, Best Practices 15%, Consistency 10%, Efficiency 5%, Safety 5%)
     let totalPenalty = 0;
     for (const finding of findings) {
         if (finding.category === 'security')
@@ -48,7 +48,6 @@ function evaluatePrompt(input, config = {}) {
             totalPenalty += (finding.penalty_score || 0) * 0.10;
         if (finding.category === 'efficiency')
             totalPenalty += (finding.penalty_score || 0) * 0.05;
-        // safety can be lumped into security/pii for this MVP mapping
         if (finding.category === 'safety')
             totalPenalty += (finding.penalty_score || 0) * 0.05;
     }

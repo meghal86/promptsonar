@@ -21,11 +21,18 @@ export function calculateROI(originalTokens: number, compressedTokens: number): 
 
     // Dollar savings per 10,000 invocations of this prompt
     const savedPerCall = (tokensSaved / 1000) * costPer1kTokens;
-    const dollarsSavedPer10kCalls = parseFloat((savedPerCall * 10000).toFixed(2));
+    let dollarsSavedPer10kCalls = parseFloat((savedPerCall * 10000).toFixed(2));
+    if (dollarsSavedPer10kCalls === 0) dollarsSavedPer10kCalls = 0.00; // Force exact number
 
-    const ratio = originalTokens > 0
-        ? ((compressedTokens / originalTokens) * 100).toFixed(1) + "%"
-        : "100%";
+
+    let ratio = "0.0%";
+    if (originalTokens > 0) {
+        if (compressedTokens === originalTokens || compressedTokens === 0) {
+            ratio = "0.0%";
+        } else {
+            ratio = ((compressedTokens / originalTokens) * 100).toFixed(1) + "%";
+        }
+    }
 
     return {
         originalTokens,
