@@ -2,19 +2,6 @@
 (string) @prompt.string
 (template_string) @prompt.string
 
-; Detect assignment to variables named *prompt*
-(variable_declarator
-  name: (identifier) @var_name
-  value: (string) @prompt.named_string
-  (#match? @var_name "(?i)prompt|instruction|message")
-)
-
-(variable_declarator
-  name: (identifier) @var_name
-  value: (template_string) @prompt.named_string
-  (#match? @var_name "(?i)prompt|instruction|message")
-)
-
 ; Find LangChain calls
 (call_expression
   function: (member_expression

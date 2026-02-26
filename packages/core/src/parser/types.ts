@@ -3,7 +3,7 @@ export interface DetectedPrompt {
     startLine: number;
     endLine: number;
     text: string;
-    sourceType: "string_literal" | "framework_call" | "config_file" | "full_file" | "fallback_regex";
+    sourceType: "full_file" | "string_literal" | "named_variable" | "framework_call" | "config_file" | "fallback_regex";
 }
 
 export interface ParserOptions {

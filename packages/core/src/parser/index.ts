@@ -127,11 +127,16 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
             parser.setLanguage(lang);
             const tree = parser.parse(content);
 
-            // Load query from queries directory
-            // We look up from core/dist/parser/index.js -> /queries
-            // Use process.cwd() or find root
-            const rootDir = path.resolve(__dirname, '..', '..', '..', '..');
-            const queryPath = path.join(rootDir, 'queries', `${tsLangName}.scm`);
+            // Load query from local package queries directory
+            // Depending on if this is run via ts-node in src/, or compiled in dist/parser/
+            // we search upwards until we hit the 'core' package root, then append 'queries'
+            let coreRoot = __dirname;
+            while (!fs.existsSync(path.join(coreRoot, 'package.json'))) {
+                coreRoot = path.dirname(coreRoot);
+                if (coreRoot === '/' || coreRoot.endsWith(':\\')) break; // safety
+            }
+            const queryPath = path.join(coreRoot, 'queries', `${tsLangName}.scm`);
+            console.log("[DEBUG PARSER] Looking for queries at:", queryPath, "Exists?", fs.existsSync(queryPath));
 
             if (fs.existsSync(queryPath)) {
                 const queryString = fs.readFileSync(queryPath, 'utf8');
@@ -156,6 +161,15 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
                                 cleanedText = cleanedText.slice(1, -1);
                             }
                             results.push({ ...nodeInfo, text: cleanedText, sourceType: "string_literal" });
+                        } else if (capture.name.includes("prompt.named_string")) {
+                            // A string explicitly assigned to a prompt variable
+                            let cleanedText = capture.node.text;
+                            if (cleanedText.startsWith('"""') || cleanedText.startsWith("'''")) {
+                                cleanedText = cleanedText.slice(3, -3);
+                            } else if (cleanedText.startsWith('"') || cleanedText.startsWith("'") || cleanedText.startsWith("`")) {
+                                cleanedText = cleanedText.slice(1, -1);
+                            }
+                            results.push({ ...nodeInfo, text: cleanedText, sourceType: "named_variable" });
                         } else if (capture.name.includes("prompt.framework")) {
                             results.push({ ...nodeInfo, sourceType: "framework_call" });
                         }

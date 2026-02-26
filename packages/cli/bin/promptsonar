@@ -126,7 +126,7 @@ program
           report.files.push(fileReport);
         }
       } catch (err) {
-        // console.error(err);
+        console.error(err);
       }
     }
 
