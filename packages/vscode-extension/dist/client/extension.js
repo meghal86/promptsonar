@@ -151,6 +151,33 @@ function activate(context) {
             vscode_1.window.showErrorMessage(`PromptSonar Scan Failed: ${String(e)}`);
         }
     }));
+    // Register LLMLingua Compression Command
+    context.subscriptions.push(vscode_1.commands.registerCommand('promptsonar.compress', async (filePath, range) => {
+        if (!vscode_1.window.activeTextEditor) {
+            vscode_1.window.showErrorMessage('No active file.');
+            return;
+        }
+        try {
+            const doc = vscode_1.window.activeTextEditor.document;
+            const text = doc.getText(range);
+            vscode_1.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "PromptSonar: Compressing via LLMLingua-2...",
+                cancellable: false
+            }, async () => {
+                const compressionResult = await (0, core_1.compressPromptLLMLingua)(text);
+                if (compressionResult.compressedText) {
+                    vscode_1.window.showInformationMessage(`Compression Success! Saved ${compressionResult.originalTokens - compressionResult.compressedTokens} tokens.`);
+                }
+                else {
+                    vscode_1.window.showErrorMessage("LLMLingua compression failed or is unavailable locally.");
+                }
+            });
+        }
+        catch (e) {
+            vscode_1.window.showErrorMessage(`Compression Failed: ${String(e)}`);
+        }
+    }));
     // Register Workspace Scan Command
     context.subscriptions.push(vscode_1.commands.registerCommand('promptsonar.scanWorkspace', async () => {
         const workspaceFolders = vscode_1.workspace.workspaceFolders;

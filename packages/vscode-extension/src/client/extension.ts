@@ -11,7 +11,7 @@ import { PromptSonarWebviewPanel } from './WebviewPanel';
 import { PromptSonarCodeLensProvider } from './CodeLensProvider';
 import { PromptSonarSidebarProvider } from './SidebarProvider';
 // @ts-ignore
-import { parseFile, evaluatePrompt } from 'core';
+import { parseFile, evaluatePrompt, compressPromptLLMLingua } from 'core';
 
 let client: LanguageClient;
 
@@ -145,6 +145,37 @@ export function activate(context: ExtensionContext) {
 
             } catch (e) {
                 window.showErrorMessage(`PromptSonar Scan Failed: ${String(e)}`);
+            }
+        })
+    );
+
+    // Register LLMLingua Compression Command
+    context.subscriptions.push(
+        commands.registerCommand('promptsonar.compress', async (filePath, range) => {
+            if (!window.activeTextEditor) {
+                window.showErrorMessage('No active file.');
+                return;
+            }
+
+            try {
+                const doc = window.activeTextEditor.document;
+                const text = doc.getText(range);
+
+                window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "PromptSonar: Compressing via LLMLingua-2...",
+                    cancellable: false
+                }, async () => {
+                    const compressionResult = await compressPromptLLMLingua(text);
+                    if (compressionResult.compressedText) {
+                        window.showInformationMessage(`Compression Success! Saved ${compressionResult.originalTokens - compressionResult.compressedTokens} tokens.`);
+                    } else {
+                        window.showErrorMessage("LLMLingua compression failed or is unavailable locally.");
+                    }
+                });
+
+            } catch (e) {
+                window.showErrorMessage(`Compression Failed: ${String(e)}`);
             }
         })
     );
