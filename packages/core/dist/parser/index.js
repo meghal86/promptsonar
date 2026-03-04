@@ -42,7 +42,6 @@ const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 // Export types
 __exportStar(require("./types"), exports);
-const KEYWORDS = ["system", "user", "assistant", "prompt", "instruction", "You are", "Ignore previous"];
 const FULL_FILE_EXTENSIONS = ['.prompt', '.ai', '.chat'];
 const CONFIG_FILE_EXTENSIONS = ['.json', '.yml', '.yaml'];
 // Module-level cache for WASM languages
@@ -88,8 +87,27 @@ function getLanguageName(extension) {
     }
 }
 function containsPromptKeyword(text) {
+    // If it's a tiny string like "user" or "system", ignore it. Prompts are usually sentences.
+    if (text.length < 20)
+        return false;
+    // Prompts almost always contain spaces. This filters out file globs, URLs, and variable names.
+    if (!/\s/.test(text))
+        return false;
+    // Explicit LLM phrasing usually guarantees it's a prompt
+    const explicitPhrases = ["you are a", "act as", "ignore previous", "system prompt", "system context", "chat history", "developer mode", "devmode", "no restrictions", "content filters"];
+    if (explicitPhrases.some(phrase => text.toLowerCase().includes(phrase))) {
+        return true;
+    }
+    // Otherwise, it needs to contain typical LLM words as standalone words, not substrings (e.g. not "username")
     const lowerText = text.toLowerCase();
-    return KEYWORDS.some(keyword => lowerText.includes(keyword.toLowerCase()));
+    const hasUserOrSystem = /\b(user|system|assistant|llm|ai)\b/.test(lowerText);
+    const hasPromptContext = /\b(prompt|instruction|query|task)\b/.test(lowerText);
+    // Require AT LEAST two categories of words to match to reduce false positives (e.g. "user" + "prompt")
+    // OR require it to be a very long instructions string.
+    if (hasUserOrSystem && hasPromptContext) {
+        return true;
+    }
+    return false;
 }
 async function parseFile(options) {
     const { filePath, content, language } = options;
@@ -110,25 +128,25 @@ async function parseFile(options) {
         // Simple regex for configs containing prompt keywords or fields
         const lines = content.split('\n');
         let inBlock = false;
-        let blockStart = 0;
-        let blockText = [];
-        // Simple heuristic: just find any line with prompt keywords and grab it, or multiline strings in yaml
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            if (containsPromptKeyword(line)) {
-                // Include a small context around it or just the line if it's long enough
-                if (line.length > 20) {
-                    results.push({
-                        filePath,
-                        startLine: i + 1,
-                        endLine: i + 1,
-                        text: line.trim(),
-                        sourceType: "config_file"
-                    });
+        // Restrict line-by-line heuristic to non-package.json config files to avoid "description" false positives
+        if (!filePath.endsWith('package.json') && !filePath.endsWith('package-lock.json')) {
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (containsPromptKeyword(line)) {
+                    if (line.length > 20) {
+                        results.push({
+                            filePath,
+                            startLine: i + 1,
+                            endLine: i + 1,
+                            text: line.trim(),
+                            sourceType: "config_file"
+                        });
+                    }
                 }
             }
         }
-        // Also try generic string scanning since configs can have multiline strings
+        // Also try generic string scanning since configs can have multiline strings (simplified for common JSON)
         const jsonMatches = [...content.matchAll(/"(system|user|messages|prompt|instruction)"\s*:\s*"([^"]+)"/gi)];
         for (const match of jsonMatches) {
             const text = match[2];
@@ -160,7 +178,6 @@ async function parseFile(options) {
                     break; // safety
             }
             const queryPath = path.join(coreRoot, 'queries', `${tsLangName}.scm`);
-            console.log("[DEBUG PARSER] Looking for queries at:", queryPath, "Exists?", fs.existsSync(queryPath));
             if (fs.existsSync(queryPath)) {
                 const queryString = fs.readFileSync(queryPath, 'utf8');
                 const query = lang.query(queryString);

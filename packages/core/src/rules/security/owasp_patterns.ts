@@ -8,28 +8,29 @@ const INJECTION_SOURCES: RegExp[] = [
     /new\s+(instructions|task|role|persona)/i,
 
     // Role-playing / persona switches
-    /you\s+are\s+now\s+(a|an|the)\s+/i,
-    /act\s+as\s+/i,
-    /pretend\s+to\s+be/i,
-    /from\s+now\s+on\s+you\s+are/i,
+    // Role-playing / persona switches
+    /you\s+are\s+now\s+(?:a|an|the)\s+(?:god|admin|hacker|unrestricted|developer)/i,
+    /(?:act\s+as|pretend\s+to\s+be)\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan)/i,
+    /from\s+now\s+on\s+you\s+are\s+(?:god|admin|hacker|unrestricted|developer|dan)/i,
     /role\s*:\s*(admin|developer|god|unrestricted|dan|do\s+anything\s+now)/i,
 
     // DAN & variants (very common jailbreaks)
     /DAN\s*(?:\d+\.?\d*)?\s*(mode|persona|version)?/i,
     /do\s+anything\s+now/i,
-    /developer\s+mode/i,
+    /(developer\s+mode|devmode)/i,
     /hypothetical\s+response/i,
     /unrestricted\s+(mode|access|persona)/i,
+    /ignore\s+(safety\s+|content\s+)?(guidelines|filters|limitations|restrictions)/i,
+    /no\s+(ethical\s+|safety\s+|content\s+)?(guidelines|filters|limitations|restrictions)/i,
 
     // Output redirection / exfiltration
-    /print|echo|output|respond\s+with|show\s+me\s+(your\s+system\s+prompt|api\s+key|secret|password)/i,
+    /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|api\s+key|secret|password)/i,
     /send\s+to\s+(email|http|url|server)/i,
     /exfiltrate|leak\s+(system\s+prompt|instructions)/i,
     /<secret>|reveal\s+(system\s+prompt|instructions)/i,
 
     // Encoding / obfuscation attempts
-    /rot13|hex|unicode|encoded|decode/i,
-    /base64/i,
+    /(?:rot13|base64|hex|encoded|decode)\s+(?:text|string|prompt|instructions|output)/i,
     /[^\x00-\x7F]{5,}/,
 
     // Tool / privilege abuse
@@ -100,7 +101,7 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
         });
     }
 
-    const nonAsciiCount = (normalizedText.match(/[^\\x00-\\x7F]/g) || []).length;
+    const nonAsciiCount = (normalizedText.match(/[^\x00-\x7F]/g) || []).length;
     if (nonAsciiCount > 10 && /ignore|reveal|prompt|instruction/i.test(normalizedText)) {
         findings.push({
             rule_id: "sec_unicode_injection_obfuscation",
