@@ -22,6 +22,10 @@ const consistency_1 = require("./consistency");
 const owasp_patterns_1 = require("./security/owasp_patterns");
 const pii_1 = require("./security/pii");
 const token_limit_1 = require("./efficiency/token_limit");
+const unbounded_persona_1 = require("./security/unbounded_persona");
+const unbounded_access_1 = require("./security/unbounded_access");
+const rag_injection_1 = require("./security/rag_injection");
+const ethics_1 = require("./ethics");
 __exportStar(require("./types"), exports);
 function evaluatePrompt(input, config = {}) {
     const findings = [
@@ -31,9 +35,13 @@ function evaluatePrompt(input, config = {}) {
         ...(0, consistency_1.checkConsistency)(input),
         ...(0, owasp_patterns_1.checkOwaspPatterns)(input),
         ...(0, pii_1.checkPii)(input),
+        ...(0, unbounded_persona_1.checkUnboundedPersona)(input),
+        ...(0, unbounded_access_1.checkUnboundedAccess)(input),
+        ...(0, rag_injection_1.checkRagInjection)(input),
+        ...(0, ethics_1.checkEthics)(input),
         ...(0, token_limit_1.checkTokenLimit)(input, config?.efficiency?.token_budget || 8192),
     ];
-    // Master Scoring (Security 40%, Clarity 15%, Structure 15%, Best Practices 15%, Consistency 10%, Efficiency 5%, Safety 5%)
+    // Master Scoring (Security 40%, Clarity 15%, Structure 15%, Best Practices 15%, Consistency 10%, Efficiency 5%, Ethics 5%)
     let totalPenalty = 0;
     for (const finding of findings) {
         if (finding.category === 'security')
@@ -48,7 +56,7 @@ function evaluatePrompt(input, config = {}) {
             totalPenalty += (finding.penalty_score || 0) * 0.10;
         if (finding.category === 'efficiency')
             totalPenalty += (finding.penalty_score || 0) * 0.05;
-        if (finding.category === 'safety')
+        if (finding.category === 'ethics')
             totalPenalty += (finding.penalty_score || 0) * 0.05;
     }
     let status = "pass";

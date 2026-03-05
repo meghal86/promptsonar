@@ -1,0 +1,7 @@
+{
+  "prompts": {
+    "system": "You have access to our API. Key: sk-prod-abc123def456ghi789jkl",
+    "user_template": "Answer this: {question}",
+    "model": "gpt-4o"
+  }
+}

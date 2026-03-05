@@ -15,6 +15,15 @@ import { parseFile, evaluatePrompt, compressPromptLLMLingua } from 'core';
 
 let client: LanguageClient;
 
+const SUPPORTED_LANGUAGES = new Set([
+    'python', 'typescript', 'javascript', 'typescriptreact', 'javascriptreact',
+    'go', 'java', 'rust', 'csharp'
+]);
+
+function isSupportedLanguage(languageId: string): boolean {
+    return SUPPORTED_LANGUAGES.has(languageId);
+}
+
 export function activate(context: ExtensionContext) {
     // The server is implemented in node
     const serverModule = context.asAbsolutePath(
@@ -68,6 +77,26 @@ export function activate(context: ExtensionContext) {
     // Start the client. This will also launch the server
     client.start();
 
+    // Auto-trigger on file OPEN
+    context.subscriptions.push(
+        workspace.onDidOpenTextDocument(doc => {
+            if (isSupportedLanguage(doc.languageId)) {
+                // The server will auto-validate via onDidChangeContent,
+                // but we explicitly request validation on open too
+                client.sendNotification('promptsonar/requestValidation', { uri: doc.uri.toString() });
+            }
+        })
+    );
+
+    // Auto-refresh on file SAVE (< 2 seconds target)
+    context.subscriptions.push(
+        workspace.onDidSaveTextDocument(doc => {
+            if (isSupportedLanguage(doc.languageId)) {
+                client.sendNotification('promptsonar/requestValidation', { uri: doc.uri.toString() });
+            }
+        })
+    );
+
     // Create Status Bar Item
     const statusBarItem: StatusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
     context.subscriptions.push(statusBarItem);
@@ -79,18 +108,21 @@ export function activate(context: ExtensionContext) {
     // Listen for custom notifications from the server
     client.onNotification('promptsonar/scanResult', (params: { score: number | null, file: string }) => {
         if (params.score !== null) {
-            statusBarItem.text = `$(shield) PromptSonar: ${params.score}`;
-
-            // Color formatting
+            // Enhanced status bar with icon variants per FRD v5.0
+            let icon = '$(shield-check)';
             if (params.score < 70) {
+                icon = '$(shield-x)';
                 statusBarItem.color = new ThemeColor('errorForeground');
-            } else if (params.score < 85) {
+            } else if (params.score < 90) {
+                icon = '$(shield)';
                 statusBarItem.color = new ThemeColor('issues.warning');
             } else {
-                statusBarItem.color = undefined; // Reset
+                statusBarItem.color = undefined;
             }
 
-            statusBarItem.tooltip = `PromptSonar Scan Score: ${params.score}`;
+            statusBarItem.text = `${icon} Prompt Health: ${params.score}/100`;
+            statusBarItem.tooltip = `PromptSonar Score: ${params.score}/100\nClick to open Problems panel`;
+            statusBarItem.command = 'workbench.actions.view.problems';
             statusBarItem.show();
         } else {
             statusBarItem.hide();
@@ -195,7 +227,19 @@ export function activate(context: ExtensionContext) {
                 cancellable: false
             }, async (progress) => {
                 try {
-                    const files = await workspace.findFiles('**/*.{ts,js,py,go,java,rs,cs,prompt,ai,chat}', '**/node_modules/**');
+                    // VS Code findFiles exclude doesn't always handle `{}` brace expansion perfectly.
+                    // We'll use a simpler glob and manually filter the results for safety.
+                    const rawFiles = await workspace.findFiles('**/*.{ts,js,py,go,java,rs,cs,prompt,ai,chat}', '**/node_modules/**');
+
+                    const excludeKeywords = ['/node_modules/', '\\node_modules\\', '/dist/', '\\dist\\', '/out/', '\\out\\', '/build/', '\\build\\', '/vendor/', '\\vendor\\', '/.git/', '\\.git\\', '/venv/', '\\venv\\'];
+
+                    const files = rawFiles.filter(f => !excludeKeywords.some(kw => f.fsPath.includes(kw)));
+
+                    if (files.length === 0) {
+                        window.showInformationMessage('No scannable files found in the workspace.');
+                        return;
+                    }
+
                     const config = { efficiency: { token_budget: 8192 } };
 
                     let allFindings: any[] = [];
@@ -207,21 +251,43 @@ export function activate(context: ExtensionContext) {
                         const file = files[i];
                         progress.report({ message: `Scanning ${path.basename(file.fsPath)}`, increment: (100 / files.length) });
 
-                        const doc = await workspace.openTextDocument(file);
-                        const text = doc.getText();
+                        // Skip files larger than 500KB to prevent regex or memory hangs
+                        const stat = await workspace.fs.stat(file);
+                        if (stat.size > 500 * 1024) continue;
 
-                        const detectedPrompts = await parseFile({
-                            filePath: file.fsPath,
-                            content: text,
-                            language: ''
-                        });
+                        // Read file directly from disk to avoid crashing VS Code's TextDocument manager
+                        const fileData = await workspace.fs.readFile(file);
+                        const text = Buffer.from(fileData).toString('utf8');
+
+                        let detectedPrompts: any[] = [];
+                        try {
+                            const parsePromise = parseFile({
+                                filePath: file.fsPath,
+                                content: text,
+                                language: ''
+                            });
+
+                            // 5-second safety timeout per file to prevent single files from freezing the scan
+                            const timeoutPromise = new Promise<any[]>((_, reject) =>
+                                setTimeout(() => reject(new Error('Parser timeout (5s exceeded)')), 5000)
+                            );
+
+                            detectedPrompts = await Promise.race([parsePromise, timeoutPromise]);
+                        } catch (err: any) {
+                            console.warn(`[PromptSonar] Skipped ${file.fsPath}:`, err.message);
+                            continue;
+                        }
 
                         for (const prompt of detectedPrompts) {
-                            const result = evaluatePrompt({ text: prompt.text, context: { filePath: file.fsPath } }, config);
-                            allFindings.push(...result.findings.map((f: any) => ({ ...f, file: path.basename(file.fsPath) })));
-                            totalScore += result.score;
-                            promptsEvaluated++;
-                            combinedText += prompt.text + '\n\n';
+                            try {
+                                const result = evaluatePrompt({ text: prompt.text, context: { filePath: file.fsPath } }, config);
+                                allFindings.push(...result.findings.map((f: any) => ({ ...f, file: path.basename(file.fsPath) })));
+                                totalScore += result.score;
+                                promptsEvaluated++;
+                                combinedText += prompt.text + '\n\n';
+                            } catch (err) {
+                                console.warn(`[PromptSonar] Failed to evaluate prompt in ${file.fsPath}:`, err);
+                            }
                         }
                     }
 
@@ -238,7 +304,6 @@ export function activate(context: ExtensionContext) {
                     const hasCritical = allFindings.some(f => f.severity === 'critical');
                     let finalScore = averageScore;
                     if (hasCritical) {
-                        finalScore = Math.min(finalScore, 49);
                         status = "fail";
                     }
 

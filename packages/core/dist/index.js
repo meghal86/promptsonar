@@ -18,4 +18,5 @@ Object.defineProperty(exports, "__esModule", { value: true });
 __exportStar(require("./parser"), exports);
 __exportStar(require("./rules"), exports);
 __exportStar(require("./optimizer"), exports); // Phase 2
+__exportStar(require("./waiver"), exports);
 // export * from './security'; // Phase 2

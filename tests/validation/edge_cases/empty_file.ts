@@ -1,0 +1,1 @@
+// Empty file — should produce ZERO findings and not crash

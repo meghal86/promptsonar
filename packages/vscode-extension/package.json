@@ -2,7 +2,7 @@
     "name": "promptsonar",
     "displayName": "PromptSonar",
     "description": "Static scanner for prompt injection (OWASP LLM01), API key leaks & jailbreaks in code. Local, fast, no LLM calls.",
-    "version": "1.0.8",
+    "version": "1.0.21",
     "icon": "icon.png",
     "keywords": [
         "prompt",
@@ -25,15 +25,6 @@
     "categories": [
         "Linters",
         "Machine Learning"
-    ],
-    "activationEvents": [
-        "onLanguage:python",
-        "onLanguage:typescript",
-        "onLanguage:javascript",
-        "onLanguage:go",
-        "onLanguage:java",
-        "onLanguage:rust",
-        "onLanguage:csharp"
     ],
     "main": "./dist/client/extension.js",
     "contributes": {
@@ -105,12 +96,13 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
-        "compile": "tsc -b",
-        "watch": "tsc -b -w",
-        "package": "vsce package"
+        "compile": "node esbuild.js --production",
+        "watch": "node esbuild.js --watch",
+        "package": "vsce package --no-dependencies",
+        "pretest": "npm run compile"
     },
     "dependencies": {
-        "core": "file:../core/core-1.0.0.tgz",
+        "core": "file:../core/core-1.0.1.tgz",
         "vscode-languageclient": "^9.0.1",
         "vscode-languageserver": "^9.0.1",
         "vscode-languageserver-textdocument": "^1.0.11",
@@ -120,6 +112,7 @@
         "@types/node": "^20.0.0",
         "@types/vscode": "^1.80.0",
         "@vitest/coverage-v8": "^4.0.18",
+        "esbuild": "^0.27.3",
         "typescript": "^5.0.0",
         "vitest": "^4.0.18"
     }

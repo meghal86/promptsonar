@@ -1,17 +1,30 @@
 {
-    "name": "promptsonar",
-    "version": "1.0.0",
-    "description": "PromptSonar CLI",
+    "name": "@promptsonar/cli",
+    "version": "0.1.0",
+    "description": "Static security scanner for LLM prompts — CLI",
     "bin": {
-        "promptsonar": "./bin/promptsonar"
+        "promptsonar": "./dist/cli.js"
+    },
+    "main": "./dist/index.js",
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsup src/cli.ts src/index.ts --format cjs --dts --clean",
+        "dev": "ts-node src/cli.ts"
     },
     "dependencies": {
-        "chalk": "^4.1.2",
-        "commander": "^11.0.0",
         "core": "file:../core",
-        "glob": "^10.3.0",
-        "ts-node": "^10.9.2",
-        "typescript": "^5.9.3",
+        "commander": "^12.0.0",
+        "fast-glob": "^3.3.2",
+        "chalk": "^4.1.2",
+        "ora": "^5.4.1",
         "yaml": "^2.3.1"
+    },
+    "devDependencies": {
+        "tsup": "^8.0.0",
+        "typescript": "^5.9.3",
+        "ts-node": "^10.9.2"
     }
 }

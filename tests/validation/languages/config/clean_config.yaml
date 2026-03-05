@@ -1,0 +1,7 @@
+# Test: Should NOT flag — clean config
+agent:
+  name: customer-support
+  system: "You are a customer support agent who ONLY handles product questions. You NEVER discuss competitors or internal systems. Always respond in JSON format. Example: Input: I want a refund. Output: {\"intent\": \"refund\"} Think step-by-step. Provide exactly 1 sentence."
+  tools:
+    - name: search_kb
+      scope: readonly

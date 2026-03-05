@@ -30,6 +30,14 @@ connection.onInitialize((params: InitializeParams) => {
     return result;
 });
 
+// Handle requestValidation from file open/save
+connection.onNotification('promptsonar/requestValidation', async (params: { uri: string }) => {
+    const doc = documents.get(params.uri);
+    if (doc) {
+        await validateTextDocument(doc);
+    }
+});
+
 
 documents.onDidChangeContent(change => {
     validateTextDocument(change.document);
@@ -67,13 +75,28 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
                     severity = DiagnosticSeverity.Warning;
                 }
 
+                // OWASP reference mapping
+                let owaspRef = '';
+                if (finding.rule_id.startsWith('sec_owasp_llm01') || finding.rule_id.startsWith('sec_unicode') || finding.rule_id === 'sec_unbounded_persona') owaspRef = 'OWASP LLM01 — Prompt Injection';
+                else if (finding.rule_id.startsWith('sec_owasp_llm02')) owaspRef = 'OWASP LLM02 — Sensitive Information Disclosure';
+                else if (finding.rule_id === 'sec_unbounded_access' || finding.rule_id === 'sec_rag_injection') owaspRef = 'OWASP LLM07 — Insecure Plugin Design';
+
+                const docsUrl = `https://github.com/meghal86/promptsonar/wiki/rules/${finding.rule_id}`;
+
+                // Build 5-field hover message
+                let message = `[PromptSonar] ${finding.rule_id}`;
+                message += `\n${finding.explanation}`;
+                if (owaspRef) message += `\n${owaspRef}`;
+                message += `\nFix: ${finding.suggested_fix || 'Review and apply best practices.'}`;
+                message += `\nDocs: ${docsUrl}`;
+
                 diagnostics.push({
                     severity,
                     range: {
                         start: { line: prompt.startLine - 1, character: 0 },
                         end: { line: prompt.endLine - 1, character: Number.MAX_VALUE }
                     },
-                    message: `[PromptSonar] ${finding.explanation}\nSuggestion: ${finding.suggested_fix}`,
+                    message,
                     source: 'PromptSonar',
                     code: finding.rule_id
                 });
@@ -102,14 +125,97 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
 connection.onCodeAction((params) => {
     const codeActions: CodeAction[] = [];
+    const textDocument = documents.get(params.textDocument.uri);
+    if (!textDocument) return codeActions;
 
-    // Provide Quick Fixes based on diagnostics
     for (const diag of params.context.diagnostics) {
-        if (diag.code === 'eff_compression_potential') {
+        const ruleId = diag.code as string;
+
+        // QF-1: "Enforce JSON output" → struct_missing_format_enforcer
+        if (ruleId === 'struct_missing_format_enforcer') {
+            const insertText = '\nRespond ONLY in valid JSON. No preamble.\nFormat: {[DEFINE_SCHEMA_HERE]}';
+            const fix = CodeAction.create(
+                'Enforce JSON output',
+                {
+                    changes: {
+                        [params.textDocument.uri]: [{
+                            range: { start: diag.range.end, end: diag.range.end },
+                            newText: insertText
+                        }]
+                    }
+                },
+                CodeActionKind.QuickFix
+            );
+            fix.diagnostics = [diag];
+            codeActions.push(fix);
+
+            // QF-5: "Wrap in delimiters" → struct_missing_format_enforcer
+            const wrapFix = CodeAction.create(
+                'Wrap in delimiters',
+                {
+                    changes: {
+                        [params.textDocument.uri]: [
+                            {
+                                range: { start: diag.range.start, end: diag.range.start },
+                                newText: '<instructions>'
+                            },
+                            {
+                                range: { start: diag.range.end, end: diag.range.end },
+                                newText: '</instructions>'
+                            }
+                        ]
+                    }
+                },
+                CodeActionKind.QuickFix
+            );
+            wrapFix.diagnostics = [diag];
+            codeActions.push(wrapFix);
+        }
+
+        // QF-2: "Add precise persona" → bp_missing_persona + sec_unbounded_persona
+        if (ruleId === 'bp_missing_persona' || ruleId === 'sec_unbounded_persona') {
+            const personaText = 'You are a [ROLE] who ONLY does [X].\nYou NEVER [Y].\n\n';
+            const fix = CodeAction.create(
+                'Add precise persona',
+                {
+                    changes: {
+                        [params.textDocument.uri]: [{
+                            range: { start: diag.range.start, end: diag.range.start },
+                            newText: personaText
+                        }]
+                    }
+                },
+                CodeActionKind.QuickFix
+            );
+            fix.diagnostics = [diag];
+            codeActions.push(fix);
+        }
+
+        // QF-3: "Add reasoning chain" → bp_missing_cot
+        if (ruleId === 'bp_missing_cot') {
+            const cotText = '\n\nThink step-by-step:\n1) Analyze the input\n2) Identify relevant info\n3) Apply the rules\n4) Verify before responding';
+            const fix = CodeAction.create(
+                'Add reasoning chain',
+                {
+                    changes: {
+                        [params.textDocument.uri]: [{
+                            range: { start: diag.range.end, end: diag.range.end },
+                            newText: cotText
+                        }]
+                    }
+                },
+                CodeActionKind.QuickFix
+            );
+            fix.diagnostics = [diag];
+            codeActions.push(fix);
+        }
+
+        // QF-4 (skipped — LLMLingua license pending): show info instead
+        if (ruleId === 'eff_compression_potential') {
             codeActions.push(
                 CodeAction.create(
-                    'Compress with LLMLingua (~40% savings estimated)',
-                    Command.create('Compress with LLMLingua (~40% savings estimated)', 'promptsonar.compress', params.textDocument.uri, diag.range),
+                    '⚡ Compression available when licensed',
+                    Command.create('⚡ Compression available when licensed', 'promptsonar.compress', params.textDocument.uri, diag.range),
                     CodeActionKind.QuickFix
                 )
             );

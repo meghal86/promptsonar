@@ -49,7 +49,7 @@ program
       // Simplistic globbing
       files = globSync('**/*.{py,ts,js,tsx,jsx,go,java,rs,cs,prompt,ai,chat,json,yml,yaml}', {
         cwd: resolvedPath,
-        ignore: config.ignore_patterns || ['**/node_modules/**', '**/tests/**'],
+        ignore: config.ignore_patterns || ['**/node_modules/**', '**/tests/**', '**/dist/**', '**/out/**', '**/build/**', '**/.git/**'],
         absolute: true
       });
     }

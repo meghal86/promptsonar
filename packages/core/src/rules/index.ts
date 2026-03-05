@@ -6,6 +6,10 @@ import { checkConsistency } from './consistency';
 import { checkOwaspPatterns } from './security/owasp_patterns';
 import { checkPii } from './security/pii';
 import { checkTokenLimit } from './efficiency/token_limit';
+import { checkUnboundedPersona } from './security/unbounded_persona';
+import { checkUnboundedAccess } from './security/unbounded_access';
+import { checkRagInjection } from './security/rag_injection';
+import { checkEthics } from './ethics';
 
 export * from './types';
 
@@ -17,10 +21,14 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
         ...checkConsistency(input),
         ...checkOwaspPatterns(input),
         ...checkPii(input),
+        ...checkUnboundedPersona(input),
+        ...checkUnboundedAccess(input),
+        ...checkRagInjection(input),
+        ...checkEthics(input),
         ...checkTokenLimit(input, config?.efficiency?.token_budget || 8192),
     ];
 
-    // Master Scoring (Security 40%, Clarity 15%, Structure 15%, Best Practices 15%, Consistency 10%, Efficiency 5%, Safety 5%)
+    // Master Scoring (Security 40%, Clarity 15%, Structure 15%, Best Practices 15%, Consistency 10%, Efficiency 5%, Ethics 5%)
     let totalPenalty = 0;
     for (const finding of findings) {
         if (finding.category === 'security') totalPenalty += (finding.penalty_score || 0) * 0.40;
@@ -29,7 +37,7 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
         if (finding.category === 'best_practices') totalPenalty += (finding.penalty_score || 0) * 0.15;
         if (finding.category === 'consistency') totalPenalty += (finding.penalty_score || 0) * 0.10;
         if (finding.category === 'efficiency') totalPenalty += (finding.penalty_score || 0) * 0.05;
-        if (finding.category === 'safety') totalPenalty += (finding.penalty_score || 0) * 0.05;
+        if (finding.category === 'ethics') totalPenalty += (finding.penalty_score || 0) * 0.05;
     }
 
     let status: "pass" | "warn" | "fail" = "pass";

@@ -47,3 +47,10 @@ promptsonar scan tests/validation/ultimate_injection_test.js
 # Output report as JSON to parse programmatically
 promptsonar scan . --json > report.json
 ```
+
+## Known Limitations (v0.1.0)
+
+PromptSonar is a static analysis tool designed for CI/CD speed. It does **not** execute code. As a result, it currently has the following known limitations:
+- **Concatenation / Indirection:** Prompts constructed dynamically across multiple files or deep variable assignments may not trigger structural AST detection.
+- **Obfuscation / Evasion:** Advanced adversarial evasion techniques such as Base64 encoding injections, complete Unicode homograph substitutions, or zero-width character splitting are not fully supported and may cause false negatives during static scanning.
+- **Language Support:** Only English language prompts are fully supported by heuristic keyword matching. Non-English prompts require explicit named variables (e.g. `const systemPrompt`) to be scanned.

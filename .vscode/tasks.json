@@ -9,10 +9,6 @@
             "problemMatcher": [
                 "$tsc"
             ],
-            "isBackground": true,
-            "presentation": {
-                "reveal": "never"
-            },
             "label": "npm: compile - packages/vscode-extension"
         }
     ]

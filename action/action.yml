@@ -1,0 +1,34 @@
+name: 'PromptSonar — Prompt Security Scan'
+description: 'Scans LLM prompts for OWASP LLM01-LLM07 vulnerabilities.'
+author: 'PromptSonar'
+
+inputs:
+  fail-on:
+    description: 'Severity threshold: critical|high|medium|none'
+    default: 'critical'
+  waiver-file:
+    description: 'Path to .promptsonar-waivers.yaml'
+    default: '.promptsonar-waivers.yaml'
+  upload-sarif:
+    description: 'Upload SARIF to GitHub Security tab'
+    default: 'true'
+  diff-only:
+    description: 'Scan changed files only'
+    default: 'false'
+  api-key:
+    required: false
+    description: 'PromptSonar API key (optional)'
+
+outputs:
+  score:
+    description: 'Overall score 0–100'
+  criticals:
+    description: 'Critical count'
+  highs:
+    description: 'High count'
+  sarif-path:
+    description: 'Path to SARIF output'
+
+runs:
+  using: 'node20'
+  main: 'dist/action.js'
