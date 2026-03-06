@@ -108,15 +108,18 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
         // Compute average score for status bar
         if (detectedPrompts.length > 0) {
             let totalScore = 0;
+            let totalChars = 0;
             // Re-evaluate to get scores directly (or we could have saved them above)
             for (const prompt of detectedPrompts) {
                 const evaluation = evaluatePrompt({ text: prompt.text, context: { filePath } }, config);
                 totalScore += evaluation.score;
+                totalChars += prompt.text.length;
             }
             const avgScore = Math.round(totalScore / detectedPrompts.length);
-            connection.sendNotification('promptsonar/scanResult', { score: avgScore, file: uri });
+            const tokenEstimate = Math.ceil(totalChars / 4);
+            connection.sendNotification('promptsonar/scanResult', { score: avgScore, file: uri, tokenEstimate });
         } else {
-            connection.sendNotification('promptsonar/scanResult', { score: null, file: uri });
+            connection.sendNotification('promptsonar/scanResult', { score: null, file: uri, tokenEstimate: 0 });
         }
     } catch (err) {
         console.error("PromptSonar LSP error:", err);
@@ -219,6 +222,30 @@ connection.onCodeAction((params) => {
                     CodeActionKind.QuickFix
                 )
             );
+        }
+
+        // QF-5: "Wrap in delimiters" → consist_contradiction
+        if (ruleId === 'consist_contradiction') {
+            const wrapFix = CodeAction.create(
+                'Wrap in delimiters',
+                {
+                    changes: {
+                        [params.textDocument.uri]: [
+                            {
+                                range: { start: diag.range.start, end: diag.range.start },
+                                newText: '<instructions>'
+                            },
+                            {
+                                range: { start: diag.range.end, end: diag.range.end },
+                                newText: '</instructions>'
+                            }
+                        ]
+                    }
+                },
+                CodeActionKind.QuickFix
+            );
+            wrapFix.diagnostics = [diag];
+            codeActions.push(wrapFix);
         }
     }
     return codeActions;

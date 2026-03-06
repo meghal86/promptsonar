@@ -11,7 +11,7 @@ const INJECTION_SOURCES: RegExp[] = [
     // Role-playing / persona switches
     /you\s+are\s+now\s+(?:a|an|the)\s+(?:god|admin|hacker|unrestricted|developer)/i,
     /(?:act\s+as|pretend\s+to\s+be)\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan)/i,
-    /from\s+now\s+on\s+you\s+are\s+(?:god|admin|hacker|unrestricted|developer|dan)/i,
+    /from\s+now\s+on\s+you\s+are/i,
     /role\s*:\s*(admin|developer|god|unrestricted|dan|do\s+anything\s+now)/i,
 
     // DAN & variants (very common jailbreaks)
@@ -57,6 +57,10 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
         } catch (e) { }
         return match;
     });
+
+    // Strip zero-width characters before matching (prevents evasion via literal unicode escapes or actual characters)
+    // Matches literal \u200B, \u200C, \u200D, \uFEFF or the actual characters
+    normalizedText = normalizedText.replace(/(\\u200[bcd]|\\ufeff|[\u200B-\u200D\uFEFF])/gi, '');
 
     // Homoglyph Normalization (Basic Cyrillic/Latin lookalikes mapped to ascii)
     const homoglyphMap = {

@@ -94,7 +94,7 @@ function containsPromptKeyword(text: string): boolean {
     // Prompts almost always contain spaces. This filters out file globs, URLs, and variable names.
     if (!/\s/.test(text)) return false;
 
-    const lowerText = text.toLowerCase();
+    const lowerText = text.toLowerCase().replace(/(\\u200[bcd]|\\ufeff|[\u200B-\u200D\uFEFF])/g, '');
 
     // Explicit LLM phrasing — always a prompt
     const explicitPhrases = [

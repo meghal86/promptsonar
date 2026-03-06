@@ -12,7 +12,8 @@
         "@actions/core": "^1.10.0",
         "@actions/github": "^6.0.0",
         "@actions/artifact": "^2.1.0",
-        "core": "file:../packages/core"
+        "core": "file:../packages/core",
+        "fast-glob": "^3.3.2"
     },
     "devDependencies": {
         "tsup": "^8.0.0",

@@ -121,7 +121,7 @@ export function activate(context: ExtensionContext) {
     window.registerTreeDataProvider('promptsonar-explorer', sidebarProvider);
 
     // Listen for custom notifications from the server
-    client.onNotification('promptsonar/scanResult', (params: { score: number | null, file: string }) => {
+    client.onNotification('promptsonar/scanResult', (params: { score: number | null, file: string, tokenEstimate?: number }) => {
         if (params.score !== null) {
             // Enhanced status bar with icon variants per FRD v5.0
             let icon = '$(shield-check)';
@@ -135,8 +135,9 @@ export function activate(context: ExtensionContext) {
                 statusBarItem.color = undefined;
             }
 
-            statusBarItem.text = `${icon} Prompt Health: ${params.score}/100`;
-            statusBarItem.tooltip = `PromptSonar Score: ${params.score}/100\nClick to open Problems panel`;
+            const tokenInfo = params.tokenEstimate ? ` | ⚡ ~${params.tokenEstimate} tokens` : '';
+            statusBarItem.text = `${icon} Prompt Health: ${params.score}/100${tokenInfo}`;
+            statusBarItem.tooltip = `PromptSonar Score: ${params.score}/100${tokenInfo}\nClick to open Problems panel`;
             statusBarItem.command = 'workbench.actions.view.problems';
             statusBarItem.show();
         } else {

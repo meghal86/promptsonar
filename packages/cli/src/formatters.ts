@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { ScanResult } from './scanner';
 
-const VERSION = '0.1.0';
+const VERSION = '1.0.23';
 
 // Severity color/emoji map
 const SEVERITY_DISPLAY: Record<string, { emoji: string; color: (s: string) => string; label: string }> = {
@@ -49,10 +49,16 @@ export function formatTerminal(results: ScanResult[]): string {
         } else {
             for (const f of result.findings) {
                 const sev = SEVERITY_DISPLAY[f.severity] || SEVERITY_DISPLAY.low;
-                lines.push(`  ${sev.emoji} ${sev.color(sev.label.padEnd(10))} ${chalk.bold(f.rule_id)}`);
-                lines.push(`     Line ${f.line}:${f.column} — ${f.message}`);
-                if (f.fix) {
-                    lines.push(`     Fix: ${f.fix}`);
+                if (f.waived) {
+                    // Waived findings: dimmed with [WAIVED] tag
+                    lines.push(chalk.dim(`  ⚠️  ${sev.label.padEnd(10)} ${f.rule_id}  [WAIVED]`));
+                    lines.push(chalk.dim(`     Line ${f.line}:${f.column} — ${f.message}`));
+                } else {
+                    lines.push(`  ${sev.emoji} ${sev.color(sev.label.padEnd(10))} ${chalk.bold(f.rule_id)}`);
+                    lines.push(`     Line ${f.line}:${f.column} — ${f.message}`);
+                    if (f.fix) {
+                        lines.push(`     Fix: ${f.fix}`);
+                    }
                 }
                 lines.push('');
             }

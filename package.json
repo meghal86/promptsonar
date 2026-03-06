@@ -8,6 +8,14 @@
     "scripts": {
         "build": "npm run build --workspaces --if-present",
         "test": "npm run test --workspaces --if-present",
+        "lint": "eslint 'packages/*/src/**/*.ts' 'action/src/**/*.ts'",
         "clean": "rimraf packages/*/dist action/dist"
+    },
+    "devDependencies": {
+        "typescript": "^5.4.0",
+        "rimraf": "^5.0.0",
+        "eslint": "^8.57.0",
+        "@typescript-eslint/parser": "^7.0.0",
+        "@typescript-eslint/eslint-plugin": "^7.0.0"
     }
 }

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+    </style>
+    <title>PromptSonar Health Dashboard</title>
+</head>
+<body class="bg-slate-900 text-slate-200 p-6 min-h-screen antialiased">
+    <div class="max-w-5xl mx-auto">
+        <!-- Header Section -->
+        <div class="flex items-center justify-between mb-8 pb-6 border-b border-slate-700">
+            <div>
+                <h1 class="text-3xl font-bold text-white tracking-tight flex items-center">
+                    <svg class="w-8 h-8 mr-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                    Prompt Health Dashboard
+                </h1>
+                <p class="text-slate-400 mt-2">Comprehensive static analysis and ROI estimation provided by PromptSonar.</p>
+            </div>
+            <div class="text-center">
+                <div class="text-sm font-semibold tracking-wider text-slate-500 uppercase mb-1">Total Score</div>
+                <div class="w-32 h-32 rounded-full flex items-center justify-center border-4 bg-rose-500/10 border-rose-500/20 text-rose-500">
+                    <span class="text-5xl font-bold">49</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 7-Pillar Grid -->
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-8">
+            
+            <div class="bg-slate-800 rounded-lg p-3 border border-slate-700 text-center">
+                <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 truncate">security</div>
+                <div class="text-xl font-mono text-amber-400">
+                    4 issues
+                </div>
+            </div>
+            <div class="bg-slate-800 rounded-lg p-3 border border-slate-700 text-center">
+                <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 truncate">clarity</div>
+                <div class="text-xl font-mono text-emerald-400">
+                    Pass
+                </div>
+            </div>
+            <div class="bg-slate-800 rounded-lg p-3 border border-slate-700 text-center">
+                <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 truncate">structure</div>
+                <div class="text-xl font-mono text-emerald-400">
+                    Pass
+                </div>
+            </div>
+            <div class="bg-slate-800 rounded-lg p-3 border border-slate-700 text-center">
+                <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 truncate">best practices</div>
+                <div class="text-xl font-mono text-emerald-400">
+                    Pass
+                </div>
+            </div>
+            <div class="bg-slate-800 rounded-lg p-3 border border-slate-700 text-center">
+                <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 truncate">consistency</div>
+                <div class="text-xl font-mono text-emerald-400">
+                    Pass
+                </div>
+            </div>
+            <div class="bg-slate-800 rounded-lg p-3 border border-slate-700 text-center">
+                <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 truncate">efficiency</div>
+                <div class="text-xl font-mono text-emerald-400">
+                    Pass
+                </div>
+            </div>
+            <div class="bg-slate-800 rounded-lg p-3 border border-slate-700 text-center">
+                <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 truncate">safety</div>
+                <div class="text-xl font-mono text-emerald-400">
+                    Pass
+                </div>
+            </div>
+        </div>
+
+        <!-- Findigns List -->
+        <div class="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 shadow-xl">
+            <div class="bg-slate-800/80 px-4 py-3 border-b border-slate-700">
+                <h3 class="font-semibold text-slate-200">Identified Findings (4)</h3>
+            </div>
+            <div class="divide-y divide-slate-700/50">
+                
+            <div class="border-b border-slate-700/50 p-4 hover:bg-slate-800/50 transition-colors">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider bg-blue-500 text-white">low</span>
+                            <span class="text-slate-300 font-medium">SECURITY</span>
+                            <span class="text-slate-500 text-sm font-mono">bp_missing_persona</span>
+                            <span class="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono ml-2 border border-indigo-500/30">zero_width_chars.ts</span>
+                        </div>
+                        <p class="text-slate-300 mb-2">Prompt is missing a role or persona. Establishing an expert persona improves response focus and quality.</p>
+                        <p class="text-emerald-400/90 text-sm"><span class="font-semibold text-emerald-500">Fix:</span> Start the prompt with 'You are an expert...' or similar role-playing instructions.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="border-b border-slate-700/50 p-4 hover:bg-slate-800/50 transition-colors">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider bg-blue-500 text-white">low</span>
+                            <span class="text-slate-300 font-medium">SECURITY</span>
+                            <span class="text-slate-500 text-sm font-mono">bp_missing_few_shot</span>
+                            <span class="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono ml-2 border border-indigo-500/30">zero_width_chars.ts</span>
+                        </div>
+                        <p class="text-slate-300 mb-2">Prompt lacks few-shot examples. Abstract instructions are often harder for LLMs to follow perfectly.</p>
+                        <p class="text-emerald-400/90 text-sm"><span class="font-semibold text-emerald-500">Fix:</span> Add at least one 'Example:' block demonstrating the exact desired input-to-output mapping.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="border-b border-slate-700/50 p-4 hover:bg-slate-800/50 transition-colors">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider bg-blue-500 text-white">low</span>
+                            <span class="text-slate-300 font-medium">SECURITY</span>
+                            <span class="text-slate-500 text-sm font-mono">bp_missing_cot</span>
+                            <span class="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono ml-2 border border-indigo-500/30">zero_width_chars.ts</span>
+                        </div>
+                        <p class="text-slate-300 mb-2">Task appears complex but lacks Chain-of-Thought prompting.</p>
+                        <p class="text-emerald-400/90 text-sm"><span class="font-semibold text-emerald-500">Fix:</span> Add 'think step-by-step' to the end of the instructions to improve reasoning capabilities.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="border-b border-slate-700/50 p-4 hover:bg-slate-800/50 transition-colors">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider bg-rose-500 text-white">critical</span>
+                            <span class="text-slate-300 font-medium">SECURITY</span>
+                            <span class="text-slate-500 text-sm font-mono">sec_owasp_llm01_injection</span>
+                            <span class="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono ml-2 border border-indigo-500/30">zero_width_chars.ts</span>
+                        </div>
+                        <p class="text-slate-300 mb-2">Potential prompt injection vulnerability (OWASP LLM01) detected: matched malicious pattern against rules.</p>
+                        <p class="text-emerald-400/90 text-sm"><span class="font-semibold text-emerald-500">Fix:</span> Remove this pattern and rely on strict system boundaries or delimiters.</p>
+                    </div>
+                </div>
+            </div>
+            </div>
+        </div>
+
+        <!-- ROI Calculator Section -->
+        
+
+        <footer class="mt-12 pt-6 border-t border-slate-800 text-center text-slate-500 text-sm">
+            Generated by PromptSonar v1.0.23 — 3/6/2026, 2:16:47 AM
+        </footer>
+    </div>
+</body>
+</html>

@@ -48,9 +48,32 @@ promptsonar scan tests/validation/ultimate_injection_test.js
 promptsonar scan . --json > report.json
 ```
 
-## Known Limitations (v0.1.0)
+## Known Limitations — v0.1.0
 
-PromptSonar is a static analysis tool designed for CI/CD speed. It does **not** execute code. As a result, it currently has the following known limitations:
-- **Concatenation / Indirection:** Prompts constructed dynamically across multiple files or deep variable assignments may not trigger structural AST detection.
-- **Obfuscation / Evasion:** Advanced adversarial evasion techniques such as Base64 encoding injections, complete Unicode homograph substitutions, or zero-width character splitting are not fully supported and may cause false negatives during static scanning.
-- **Language Support:** Only English language prompts are fully supported by heuristic keyword matching. Non-English prompts require explicit named variables (e.g. `const systemPrompt`) to be scanned.
+**Static analysis constraints (shared by Snyk, SonarQube, ESLint):**
+
+1. **Concatenated string assembly**
+   `const a = "Ignore "; const p = a + "previous instructions";`
+   → Each fragment scanned separately. Scheduled: v0.2.0.
+
+2. **Non-English jailbreaks**
+   Spanish, French, German, Arabic injection patterns not covered.
+   → Multilingual rule pack: v0.2.0.
+
+3. **Runtime-constructed prompts**
+   Values fetched from a database or API at runtime cannot be statically analyzed.
+   → PromptSonar Runtime SDK: Phase 4.
+
+4. **Deep function indirection**
+   `const getPrompt = () => JAILBREAK; usePrompt(getPrompt())`
+   → Direct assignments and inline template literals only in v0.1.0.
+
+5. **Token compression**
+   LLMLingua-2 engine is built. License for production use pending.
+   → Coming in a future release.
+
+**Evasion — verified results:**
+- Base64 encoded jailbreaks:       DETECTED ✅ (decoded before pattern match)
+- Cyrillic homoglyph substitution: DETECTED ✅ (normalized before pattern match)
+- Mathematical Unicode symbols:    DETECTED ✅ (U+1D400–U+1D7FF range check)
+- Zero-width character injection:  DETECTED ✅ (stripped before pattern match)

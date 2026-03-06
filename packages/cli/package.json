@@ -1,11 +1,12 @@
 {
     "name": "@promptsonar/cli",
-    "version": "0.1.0",
+    "version": "1.0.23",
     "description": "Static security scanner for LLM prompts — CLI",
     "bin": {
         "promptsonar": "./dist/cli.js"
     },
     "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
     "files": [
         "dist",
         "README.md"
