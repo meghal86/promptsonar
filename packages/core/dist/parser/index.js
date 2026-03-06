@@ -47,21 +47,49 @@ const CONFIG_FILE_EXTENSIONS = ['.json', '.yml', '.yaml'];
 // Module-level cache for WASM languages
 const LANGUAGE_CACHE = {};
 let parserInitialized = false;
+// Find the nearest directory containing tree-sitter.wasm and other assets
+function findAssetsRoot() {
+    let currentDir = __dirname;
+    while (currentDir !== '/' && !currentDir.endsWith(':\\')) {
+        if (fs.existsSync(path.join(currentDir, 'tree-sitter.wasm'))) {
+            return currentDir;
+        }
+        if (fs.existsSync(path.join(currentDir, 'node_modules', 'web-tree-sitter', 'tree-sitter.wasm'))) {
+            return currentDir;
+        }
+        currentDir = path.dirname(currentDir);
+    }
+    return __dirname; // Fallback
+}
 async function initParser() {
     if (!parserInitialized) {
-        await Parser.init();
+        const root = findAssetsRoot();
+        let wasmPath = path.join(root, 'tree-sitter.wasm'); // Bundled VS Code location
+        if (!fs.existsSync(wasmPath)) {
+            // Local dev/CLI location
+            wasmPath = path.join(root, 'node_modules', 'web-tree-sitter', 'tree-sitter.wasm');
+        }
+        await Parser.init({
+            locateFile() {
+                return wasmPath;
+            }
+        });
         parserInitialized = true;
     }
 }
 function getWasmPath(langName) {
-    // Try to find the tree-sitter-wasms module path
+    const root = findAssetsRoot();
+    // Bundled VS Code Extension location
+    let wasmPath = path.join(root, 'tree-sitter-wasms', 'out', `tree-sitter-${langName}.wasm`);
+    if (fs.existsSync(wasmPath))
+        return wasmPath;
+    // Local dev/CLI fallback via node_modules
     try {
         const wasmsDir = path.dirname(require.resolve('tree-sitter-wasms/package.json'));
         return path.join(wasmsDir, 'out', `tree-sitter-${langName}.wasm`);
     }
-    catch (e) {
-        // Fallback if not found (e.g. tests running in weird environments)
-        return path.join(__dirname, '..', '..', 'node_modules', 'tree-sitter-wasms', 'out', `tree-sitter-${langName}.wasm`);
+    catch {
+        return path.join(root, 'node_modules', 'tree-sitter-wasms', 'out', `tree-sitter-${langName}.wasm`);
     }
 }
 async function getLanguage(langName) {
@@ -93,18 +121,41 @@ function containsPromptKeyword(text) {
     // Prompts almost always contain spaces. This filters out file globs, URLs, and variable names.
     if (!/\s/.test(text))
         return false;
-    // Explicit LLM phrasing usually guarantees it's a prompt
-    const explicitPhrases = ["you are a", "act as", "ignore previous", "system prompt", "system context", "chat history", "developer mode", "devmode", "no restrictions", "content filters"];
-    if (explicitPhrases.some(phrase => text.toLowerCase().includes(phrase))) {
+    const lowerText = text.toLowerCase();
+    // Explicit LLM phrasing — always a prompt
+    const explicitPhrases = [
+        "you are a", "you are an", "you are now", "act as", "pretend you", "roleplay as",
+        "ignore previous", "ignore all previous", "ignore your previous",
+        "system prompt", "system context", "system message",
+        "chat history", "developer mode", "devmode",
+        "no restrictions", "without restrictions", "content filters",
+    ];
+    if (explicitPhrases.some(phrase => lowerText.includes(phrase))) {
         return true;
     }
-    // Otherwise, it needs to contain typical LLM words as standalone words, not substrings (e.g. not "username")
-    const lowerText = text.toLowerCase();
-    const hasUserOrSystem = /\b(user|system|assistant|llm|ai)\b/.test(lowerText);
-    const hasPromptContext = /\b(prompt|instruction|query|task)\b/.test(lowerText);
-    // Require AT LEAST two categories of words to match to reduce false positives (e.g. "user" + "prompt")
-    // OR require it to be a very long instructions string.
-    if (hasUserOrSystem && hasPromptContext) {
+    // Security/attack phrases — jailbreaks, injection, evasion
+    const securityPhrases = [
+        "forget everything", "bypass security", "do anything now",
+        "new session", "reset context", "start fresh",
+        "no moral", "no ethical", "disregard",
+        "jailbreak", "override", "override your",
+        "previous instructions", "prior instructions",
+        "ignore all instructions", "ignore your instructions",
+        "unlock", "unrestricted mode", "god mode",
+        "dan mode", "you are dan",
+    ];
+    if (securityPhrases.some(phrase => lowerText.includes(phrase))) {
+        return true;
+    }
+    // Keyword categories for softer matching
+    const hasRoleWord = /\b(user|system|assistant|llm|ai|bot|agent|model)\b/.test(lowerText);
+    const hasPromptWord = /\b(prompt|instruction|instructions|query|task|respond|response|answer|generate|analyze|summarize|explain)\b/.test(lowerText);
+    // Two categories matching = likely a prompt
+    if (hasRoleWord && hasPromptWord) {
+        return true;
+    }
+    // Long strings (>80 chars) with at least ONE strong indicator are likely prompts
+    if (text.length > 80 && (hasRoleWord || hasPromptWord)) {
         return true;
     }
     return false;
@@ -163,24 +214,30 @@ async function parseFile(options) {
     // Tree-sitter parsing for supported languages
     const tsLangName = language || getLanguageName(ext);
     if (tsLangName) {
+        let parser;
+        let tree;
+        let query;
         try {
             const lang = await getLanguage(tsLangName);
-            const parser = new Parser();
+            parser = new Parser();
             parser.setLanguage(lang);
-            const tree = parser.parse(content);
-            // Load query from local package queries directory
-            // Depending on if this is run via ts-node in src/, or compiled in dist/parser/
-            // we search upwards until we hit the 'core' package root, then append 'queries'
-            let coreRoot = __dirname;
-            while (!fs.existsSync(path.join(coreRoot, 'package.json'))) {
-                coreRoot = path.dirname(coreRoot);
-                if (coreRoot === '/' || coreRoot.endsWith(':\\'))
-                    break; // safety
+            tree = parser.parse(content);
+            // Dynamically locate queries folder
+            const root = findAssetsRoot();
+            let queryPath = path.join(root, 'queries', `${tsLangName}.scm`); // Bundled VSIX location
+            if (!fs.existsSync(queryPath)) {
+                // Local dev/CLI fallback, find 'core' package root
+                let coreRoot = __dirname;
+                while (!fs.existsSync(path.join(coreRoot, 'package.json'))) {
+                    coreRoot = path.dirname(coreRoot);
+                    if (coreRoot === '/' || coreRoot.endsWith(':\\'))
+                        break;
+                }
+                queryPath = path.join(coreRoot, 'queries', `${tsLangName}.scm`);
             }
-            const queryPath = path.join(coreRoot, 'queries', `${tsLangName}.scm`);
             if (fs.existsSync(queryPath)) {
                 const queryString = fs.readFileSync(queryPath, 'utf8');
-                const query = lang.query(queryString);
+                query = lang.query(queryString);
                 const matches = query.matches(tree.rootNode);
                 for (const match of matches) {
                     for (const capture of match.captures) {
@@ -221,6 +278,15 @@ async function parseFile(options) {
         }
         catch (err) {
             console.warn(`[PromptSonar] Error parsing ${filePath} with tree-sitter:`, err);
+        }
+        finally {
+            // CRITICAL: Prevent WASM linear memory leaks (OOM Abort)
+            if (query && typeof query.delete === 'function')
+                query.delete();
+            if (tree && typeof tree.delete === 'function')
+                tree.delete();
+            if (parser && typeof parser.delete === 'function')
+                parser.delete();
         }
     }
     // Fallback: regex for triple-quoted strings + keyword search

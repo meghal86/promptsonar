@@ -1,4 +1,5 @@
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { workspace, ExtensionContext, window, StatusBarAlignment, StatusBarItem, ThemeColor, commands, Uri, languages, CodeLens, Range } from 'vscode';
 import * as vscode from 'vscode';
 import {
@@ -14,6 +15,20 @@ import { PromptSonarSidebarProvider } from './SidebarProvider';
 import { parseFile, evaluatePrompt, compressPromptLLMLingua } from 'core';
 
 let client: LanguageClient;
+
+// Incremental scan cache: stores content hash + results per file to skip unchanged files on repeat scans
+interface CachedScanEntry {
+    contentHash: string;
+    findings: any[];
+    score: number;
+    promptsEvaluated: number;
+    combinedText: string;
+}
+const scanCache = new Map<string, CachedScanEntry>();
+
+function hashContent(content: string): string {
+    return crypto.createHash('md5').update(content).digest('hex');
+}
 
 const SUPPORTED_LANGUAGES = new Set([
     'python', 'typescript', 'javascript', 'typescriptreact', 'javascriptreact',
@@ -212,7 +227,94 @@ export function activate(context: ExtensionContext) {
         })
     );
 
-    // Register Workspace Scan Command
+    // ── Workspace Scan: fast regex scanner with tree-sitter fallback ──
+    const scanLog = window.createOutputChannel('PromptSonar Scan');
+
+    // Fast, synchronous prompt extraction — no WASM, no tree-sitter
+    function fastExtractPrompts(filePath: string, content: string): Array<{ text: string; startLine: number; endLine: number }> {
+        const ext = path.extname(filePath).toLowerCase();
+        const prompts: Array<{ text: string; startLine: number; endLine: number }> = [];
+
+        // Full-file prompt types
+        if (['.prompt', '.ai', '.chat'].includes(ext)) {
+            return [{ text: content, startLine: 1, endLine: content.split('\n').length }];
+        }
+
+        // Keywords that indicate LLM prompts
+        const promptIndicators = [
+            "you are a", "you are an", "you are now", "act as", "pretend you", "roleplay as",
+            "ignore previous", "ignore all previous", "ignore your previous",
+            "system prompt", "system context", "system message",
+            "chat history", "developer mode", "devmode",
+            "no restrictions", "without restrictions", "content filters",
+            "forget everything", "bypass security", "do anything now",
+            "new session", "reset context", "start fresh",
+            "no moral", "no ethical", "disregard",
+            "jailbreak", "override your",
+            "previous instructions", "prior instructions",
+            "ignore all instructions", "ignore your instructions",
+            "unrestricted mode", "god mode", "dan mode", "you are dan",
+        ];
+
+        // 1. Extract strings from code: template literals, regular strings, triple-quoted
+        const stringPatterns = [
+            /`([^`]{20,})`/gs,                              // template literals
+            /"""([\s\S]{20,}?)"""/g,                         // triple double-quotes
+            /'''([\s\S]{20,}?)'''/g,                         // triple single-quotes
+            /"([^"\n]{20,})"/g,                              // regular double-quoted strings
+            /'([^'\n]{20,})'/g,                              // regular single-quoted strings
+        ];
+
+        for (const pattern of stringPatterns) {
+            let match;
+            while ((match = pattern.exec(content)) !== null) {
+                const text = match[1];
+                const lowerText = text.toLowerCase();
+
+                // Check if this string contains prompt indicators
+                const isPrompt = promptIndicators.some(indicator => lowerText.includes(indicator));
+
+                // Also check keyword combos
+                const hasRoleWord = /\b(user|system|assistant|llm|ai|bot|agent|model)\b/.test(lowerText);
+                const hasPromptWord = /\b(prompt|instruction|instructions|query|task|respond|response|answer|generate|analyze|summarize|explain)\b/.test(lowerText);
+                const keywordMatch = (hasRoleWord && hasPromptWord) || (text.length > 80 && (hasRoleWord || hasPromptWord));
+
+                if (isPrompt || keywordMatch) {
+                    const linesBefore = content.slice(0, match.index).split('\n').length;
+                    const lineCount = text.split('\n').length;
+                    prompts.push({
+                        text,
+                        startLine: linesBefore,
+                        endLine: linesBefore + lineCount - 1,
+                    });
+                }
+            }
+        }
+
+        // 2. Check for named prompt variables (e.g. const systemPrompt = "...")
+        const namedVarPattern = /(?:const|let|var|val)\s+(\w*(?:prompt|instruction|message|system_prompt|user_prompt)\w*)\s*=\s*(?:"|'|`)([\s\S]*?)(?:"|'|`)/gi;
+        let namedMatch;
+        while ((namedMatch = namedVarPattern.exec(content)) !== null) {
+            const text = namedMatch[2];
+            if (text.length >= 20) {
+                const linesBefore = content.slice(0, namedMatch.index).split('\n').length;
+                prompts.push({
+                    text,
+                    startLine: linesBefore,
+                    endLine: linesBefore + text.split('\n').length - 1,
+                });
+            }
+        }
+
+        // Deduplicate by startLine
+        const seen = new Set<number>();
+        return prompts.filter(p => {
+            if (seen.has(p.startLine)) return false;
+            seen.add(p.startLine);
+            return true;
+        });
+    }
+
     context.subscriptions.push(
         commands.registerCommand('promptsonar.scanWorkspace', async () => {
             const workspaceFolders = workspace.workspaceFolders;
@@ -221,19 +323,37 @@ export function activate(context: ExtensionContext) {
                 return;
             }
 
+            scanLog.clear();
+            scanLog.show(true); // show the output channel so user can see progress
+            scanLog.appendLine('═══ PromptSonar Workspace Scan ═══');
+            scanLog.appendLine(`Started at ${new Date().toLocaleTimeString()}`);
+
             window.withProgress({
                 location: vscode.ProgressLocation.Notification,
                 title: "PromptSonar: Scanning Workspace...",
                 cancellable: false
             }, async (progress) => {
                 try {
-                    // VS Code findFiles exclude doesn't always handle `{}` brace expansion perfectly.
-                    // We'll use a simpler glob and manually filter the results for safety.
                     const rawFiles = await workspace.findFiles('**/*.{ts,js,py,go,java,rs,cs,prompt,ai,chat}', '**/node_modules/**');
 
-                    const excludeKeywords = ['/node_modules/', '\\node_modules\\', '/dist/', '\\dist\\', '/out/', '\\out\\', '/build/', '\\build\\', '/vendor/', '\\vendor\\', '/.git/', '\\.git\\', '/venv/', '\\venv\\'];
+                    const excludeKeywords = [
+                        '/node_modules/', '\\node_modules\\',
+                        '/dist/', '\\dist\\',
+                        '/out/', '\\out\\',
+                        '/build/', '\\build\\',
+                        '/vendor/', '\\vendor\\',
+                        '/.git/', '\\.git\\',
+                        '/venv/', '\\venv\\',
+                        '/tests/', '\\tests\\',
+                        '/coverage/', '\\coverage\\',
+                        '/docs/', '\\docs\\',
+                        '/.vscode-test/', '\\.vscode-test\\',
+                        'dummy_test.', 'generate_test.', 'test_parser.', 'test_regex.', 'debug_scan.', 'test_parse.'
+                    ];
 
-                    const files = rawFiles.filter(f => !excludeKeywords.some(kw => f.fsPath.includes(kw)));
+                    const files = rawFiles.filter(f => !excludeKeywords.some(kw => f.fsPath.toLowerCase().includes(kw)));
+
+                    scanLog.appendLine(`Found ${files.length} scannable files (excluded node_modules, dist, build, etc.)\n`);
 
                     if (files.length === 0) {
                         window.showInformationMessage('No scannable files found in the workspace.');
@@ -246,53 +366,46 @@ export function activate(context: ExtensionContext) {
                     let totalScore = 0;
                     let promptsEvaluated = 0;
                     let combinedText = '';
+                    let filesWithPrompts = 0;
 
                     for (let i = 0; i < files.length; i++) {
                         const file = files[i];
-                        progress.report({ message: `Scanning ${path.basename(file.fsPath)}`, increment: (100 / files.length) });
+                        const basename = path.basename(file.fsPath);
+                        progress.report({ message: `(${i + 1}/${files.length}) ${basename}`, increment: (100 / files.length) });
 
-                        // Skip files larger than 500KB to prevent regex or memory hangs
-                        const stat = await workspace.fs.stat(file);
-                        if (stat.size > 500 * 1024) continue;
-
-                        // Read file directly from disk to avoid crashing VS Code's TextDocument manager
                         const fileData = await workspace.fs.readFile(file);
                         const text = Buffer.from(fileData).toString('utf8');
 
-                        let detectedPrompts: any[] = [];
-                        try {
-                            const parsePromise = parseFile({
-                                filePath: file.fsPath,
-                                content: text,
-                                language: ''
-                            });
+                        // Use fast regex-based extraction (no WASM dependency)
+                        const detectedPrompts = fastExtractPrompts(file.fsPath, text);
 
-                            // 5-second safety timeout per file to prevent single files from freezing the scan
-                            const timeoutPromise = new Promise<any[]>((_, reject) =>
-                                setTimeout(() => reject(new Error('Parser timeout (5s exceeded)')), 5000)
-                            );
-
-                            detectedPrompts = await Promise.race([parsePromise, timeoutPromise]);
-                        } catch (err: any) {
-                            console.warn(`[PromptSonar] Skipped ${file.fsPath}:`, err.message);
-                            continue;
+                        if (detectedPrompts.length > 0) {
+                            filesWithPrompts++;
+                            scanLog.appendLine(`✓ ${basename} — ${detectedPrompts.length} prompt(s) detected`);
                         }
 
                         for (const prompt of detectedPrompts) {
                             try {
                                 const result = evaluatePrompt({ text: prompt.text, context: { filePath: file.fsPath } }, config);
-                                allFindings.push(...result.findings.map((f: any) => ({ ...f, file: path.basename(file.fsPath) })));
+                                allFindings.push(...result.findings.map((f: any) => ({ ...f, file: basename })));
                                 totalScore += result.score;
                                 promptsEvaluated++;
                                 combinedText += prompt.text + '\n\n';
-                            } catch (err) {
-                                console.warn(`[PromptSonar] Failed to evaluate prompt in ${file.fsPath}:`, err);
+                            } catch (err: any) {
+                                scanLog.appendLine(`  ⚠ Error evaluating prompt in ${basename}: ${err.message}`);
                             }
                         }
                     }
 
+                    scanLog.appendLine(`\n═══ Scan Complete ═══`);
+                    scanLog.appendLine(`Files scanned: ${files.length}`);
+                    scanLog.appendLine(`Files with prompts: ${filesWithPrompts}`);
+                    scanLog.appendLine(`Total prompts: ${promptsEvaluated}`);
+                    scanLog.appendLine(`Total findings: ${allFindings.length}`);
+                    scanLog.appendLine(`Finished at ${new Date().toLocaleTimeString()}`);
+
                     if (promptsEvaluated === 0) {
-                        window.showInformationMessage('No prompts found in the entire workspace.');
+                        window.showInformationMessage(`PromptSonar: Scanned ${files.length} files — no prompts found.`);
                         return;
                     }
 
@@ -316,6 +429,7 @@ export function activate(context: ExtensionContext) {
                     await PromptSonarWebviewPanel.createOrShow(context.extensionUri, masterResult as any, combinedText || "Workspace Summary");
 
                 } catch (e) {
+                    scanLog.appendLine(`\n✘ Scan failed: ${String(e)}`);
                     window.showErrorMessage(`Workspace Scan Failed: ${String(e)}`);
                 }
             });

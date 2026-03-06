@@ -94,20 +94,46 @@ function containsPromptKeyword(text: string): boolean {
     // Prompts almost always contain spaces. This filters out file globs, URLs, and variable names.
     if (!/\s/.test(text)) return false;
 
-    // Explicit LLM phrasing usually guarantees it's a prompt
-    const explicitPhrases = ["you are a", "act as", "ignore previous", "system prompt", "system context", "chat history", "developer mode", "devmode", "no restrictions", "content filters"];
-    if (explicitPhrases.some(phrase => text.toLowerCase().includes(phrase))) {
+    const lowerText = text.toLowerCase();
+
+    // Explicit LLM phrasing — always a prompt
+    const explicitPhrases = [
+        "you are a", "you are an", "you are now", "act as", "pretend you", "roleplay as",
+        "ignore previous", "ignore all previous", "ignore your previous",
+        "system prompt", "system context", "system message",
+        "chat history", "developer mode", "devmode",
+        "no restrictions", "without restrictions", "content filters",
+    ];
+    if (explicitPhrases.some(phrase => lowerText.includes(phrase))) {
         return true;
     }
 
-    // Otherwise, it needs to contain typical LLM words as standalone words, not substrings (e.g. not "username")
-    const lowerText = text.toLowerCase();
-    const hasUserOrSystem = /\b(user|system|assistant|llm|ai)\b/.test(lowerText);
-    const hasPromptContext = /\b(prompt|instruction|query|task)\b/.test(lowerText);
+    // Security/attack phrases — jailbreaks, injection, evasion
+    const securityPhrases = [
+        "forget everything", "bypass security", "do anything now",
+        "new session", "reset context", "start fresh",
+        "no moral", "no ethical", "disregard",
+        "jailbreak", "override", "override your",
+        "previous instructions", "prior instructions",
+        "ignore all instructions", "ignore your instructions",
+        "unlock", "unrestricted mode", "god mode",
+        "dan mode", "you are dan",
+    ];
+    if (securityPhrases.some(phrase => lowerText.includes(phrase))) {
+        return true;
+    }
 
-    // Require AT LEAST two categories of words to match to reduce false positives (e.g. "user" + "prompt")
-    // OR require it to be a very long instructions string.
-    if (hasUserOrSystem && hasPromptContext) {
+    // Keyword categories for softer matching
+    const hasRoleWord = /\b(user|system|assistant|llm|ai|bot|agent|model)\b/.test(lowerText);
+    const hasPromptWord = /\b(prompt|instruction|instructions|query|task|respond|response|answer|generate|analyze|summarize|explain)\b/.test(lowerText);
+
+    // Two categories matching = likely a prompt
+    if (hasRoleWord && hasPromptWord) {
+        return true;
+    }
+
+    // Long strings (>80 chars) with at least ONE strong indicator are likely prompts
+    if (text.length > 80 && (hasRoleWord || hasPromptWord)) {
         return true;
     }
 

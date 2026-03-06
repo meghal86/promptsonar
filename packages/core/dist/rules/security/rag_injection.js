@@ -6,7 +6,7 @@ const TRIGGER_PATTERNS = [
     /\{user_input\}/gi,
     /\{user_query\}/gi,
     /\{raw_query\}/gi,
-    /retrieve.*\{[^}]*user[^}]*\}/gi,
+    /retrieve.{0,100}?\{[^}]*user[^}]*\}/gi,
 ];
 const NEGATIVE_INDICATORS = ['validated', 'sanitized', 'filtered', 'escaped'];
 function checkRagInjection(input) {
