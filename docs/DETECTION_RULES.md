@@ -1,6 +1,6 @@
 # PromptSonar — Detection Rules & Analysis Reference
 
-> **Last updated:** March 5, 2026 — v1.0.13 (Phase 1 complete)
+> **Last updated:** March 6, 2026 — v1.0.22 (Refinement complete)
 
 PromptSonar detects LLM prompts in source code and evaluates them against a comprehensive rule engine covering security, clarity, structure, best practices, consistency, efficiency, and ethics.
 
@@ -33,7 +33,7 @@ PromptSonar detects LLM prompts in source code and evaluates them against a comp
 ## Architecture Overview
 
 ```
-Source Code → Parser (Tree-sitter + Regex) → Detected Prompts → Rule Engine → Score + Findings (SARIF)
+Source Code → Parser (Fast Regex + Tree-sitter) → Detected Prompts → Rule Engine → Score + Findings (SARIF)
                                                                     ↓
                                                               Optimizer (LLMLingua-2) → ROI Cost Report
 ```
@@ -79,12 +79,24 @@ Each detected prompt is classified by a `sourceType`:
 
 ### Keyword Heuristic (`containsPromptKeyword`)
 
-A string must meet **all** of these criteria to be recognized as a prompt:
+A string must meet **length and structure guards** to be considered for further analysis:
 - ≥ 20 characters long
-- Contains at least one whitespace character
-- **Plus** one of:
-  - Contains an explicit LLM phrase (`"you are a"`, `"act as"`, `"ignore previous"`, `"system prompt"`, `"developer mode"`, etc.)
-  - Contains words from **two** categories: a role word (`user`, `system`, `assistant`, `llm`, `ai`) **and** a context word (`prompt`, `instruction`, `query`, `task`)
+- Contains at least one whitespace character (filters out variable names, URLs, globs)
+
+If guards pass, a string is recognized as a prompt if it matches **any** of the following:
+
+1.  **Explicit Phrasing**: Contains phrases like `"you are a"`, `"act as"`, `"system prompt"`, `"chat history"`, `"developer mode"`, etc.
+2.  **Security Patterns**: Contains attack-related phrases like `"forget everything"`, `"bypass security"`, `"do anything now"`, `"jailbreak"`, `"dan mode"`, `"unrestricted mode"`.
+3.  **Cross-Category Matching**: Contains both a **Role Word** (`user`, `system`, `llm`, etc.) and a **Prompt Word** (`instruction`, `query`, `generate`, `summarize`, etc.).
+4.  **Long String Weak Match**: Strings > 80 characters containing at least one strong role or prompt keyword.
+
+### Workspace Exclusions
+
+To ensure high-performance scans and low noise, PromptSonar automatically excludes:
+- `node_modules/`, `dist/`, `out/`, `build/`, `vendor/`
+- `.git/`, `venv/`, `coverage/`, `docs/`, `tests/`
+- Tool-specific folders: `.vscode-test/`
+- Root-level test scripts: `dummy_test.js`, `generate_test.js`, `test_parser.js`, etc.
 
 ---
 
@@ -103,13 +115,13 @@ Detects prompt injection attacks mapped to **OWASP LLM Top 10 — LLM01**. Befor
 
 | Category | Example Patterns |
 |---|---|
-| **Classic instruction overrides** | `ignore previous instructions`, `disregard all prompts`, `forget all rules`, `new instructions` |
-| **Role-playing / persona hijack** | `you are now a god/admin/hacker`, `act as DAN`, `pretend to be unrestricted`, `role: admin` |
-| **DAN & jailbreak variants** | `DAN mode`, `do anything now`, `developer mode`, `hypothetical response`, `unrestricted mode` |
-| **Safety filter bypass** | `ignore safety guidelines`, `no ethical filters`, `no content restrictions` |
-| **Output redirection / exfiltration** | `print your system prompt`, `show me api key`, `send to email/http`, `reveal instructions` |
+| **Classic instruction overrides** | `ignore previous instructions`, `disregard all prompts`, `forget all rules`, `new instructions`, `forget everything` |
+| **Role-playing / persona hijack** | `you are now a god/admin/hacker`, `act as DAN`, `pretend to be unrestricted`, `role: admin`, `you are now`, `pretend you` |
+| **DAN & jailbreak variants** | `DAN mode`, `do anything now`, `developer mode`, `hypothetical response`, `unrestricted mode`, `god mode`, `unlock` |
+| **Safety filter bypass** | `ignore safety guidelines`, `no ethical filters`, `no content restrictions`, `no moral`, `no ethical` |
+| **Output redirection / exfiltration** | `print your system prompt`, `show me api key`, `send to email/http`, `reveal instructions`, `prompt leakage` |
 | **Encoding / obfuscation** | `rot13 text`, `base64 decode prompt`, ≥5 consecutive non-ASCII chars |
-| **Tool / privilege abuse** | `use tool without permission`, `bypass guardrails`, `delete_all_users` |
+| **Tool / privilege abuse** | `use tool without permission`, `bypass guardrails`, `delete_all_users`, `bypass security` |
 
 #### Additional Unicode Obfuscation Checks
 
