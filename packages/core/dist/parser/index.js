@@ -115,25 +115,41 @@ function getLanguageName(extension) {
     }
 }
 function containsPromptKeyword(text) {
+    // Strip surrounding quotes if present for the check
+    let cleanText = text.trim();
+    if ((cleanText.startsWith('"') && cleanText.endsWith('"')) ||
+        (cleanText.startsWith("'") && cleanText.endsWith("'")) ||
+        (cleanText.startsWith("`") && cleanText.endsWith("`"))) {
+        cleanText = cleanText.slice(1, -1);
+    }
+    if (cleanText.startsWith('"""') && cleanText.endsWith('"""'))
+        cleanText = cleanText.slice(3, -3);
     // If it's a tiny string like "user" or "system", ignore it. Prompts are usually sentences.
-    if (text.length < 20)
+    if (cleanText.length < 15)
         return false;
-    // Prompts almost always contain spaces. This filters out file globs, URLs, and variable names.
-    if (!/\s/.test(text))
-        return false;
-    const lowerText = text.toLowerCase().replace(/(\\u200[bcd]|\\ufeff|[\u200B-\u200D\uFEFF])/g, '');
-    // Explicit LLM phrasing — always a prompt
+    // Normalization for the heuristic check
+    const homoglyphMap = { 'а': 'a', 'с': 'c', 'е': 'e', 'о': 'o', 'р': 'p', 'х': 'x', 'у': 'y', 'і': 'i', 'І': 'I' };
+    const normalized = cleanText.split('').map(char => homoglyphMap[char] || char).join('')
+        .toLowerCase()
+        .replace(/(\\u200[bcd]|\\ufeff|[\u200B-\u200D\uFEFF])/g, ' '); // Replace ZWSP with space
+    // CHECK: Does it look like a Base64 block? (Usually no spaces)
+    if (/^[A-Za-z0-9+/=]{64,}$/.test(cleanText))
+        return true;
+    // CHECK: Does it contain explicit injection markers?
     const explicitPhrases = [
         "you are a", "you are an", "you are now", "act as", "pretend you", "roleplay as",
-        "ignore previous", "ignore all previous", "ignore your previous",
+        "ignore previous", "ignore all previous", "ignore your previous", "ignore instructions",
         "system prompt", "system context", "system message",
         "chat history", "developer mode", "devmode",
         "no restrictions", "without restrictions", "content filters",
     ];
-    if (explicitPhrases.some(phrase => lowerText.includes(phrase))) {
+    if (explicitPhrases.some(phrase => normalized.includes(phrase))) {
         return true;
     }
-    // Security/attack phrases — jailbreaks, injection, evasion
+    // Prompts usually contain spaces. This filters out file globs, URLs, and variable names.
+    if (!/\s/.test(normalized))
+        return false;
+    // Security/attack phrases
     const securityPhrases = [
         "forget everything", "bypass security", "do anything now",
         "new session", "reset context", "start fresh",
@@ -144,20 +160,16 @@ function containsPromptKeyword(text) {
         "unlock", "unrestricted mode", "god mode",
         "dan mode", "you are dan",
     ];
-    if (securityPhrases.some(phrase => lowerText.includes(phrase))) {
+    if (securityPhrases.some(phrase => normalized.includes(phrase))) {
         return true;
     }
     // Keyword categories for softer matching
-    const hasRoleWord = /\b(user|system|assistant|llm|ai|bot|agent|model)\b/.test(lowerText);
-    const hasPromptWord = /\b(prompt|instruction|instructions|query|task|respond|response|answer|generate|analyze|summarize|explain)\b/.test(lowerText);
-    // Two categories matching = likely a prompt
-    if (hasRoleWord && hasPromptWord) {
+    const hasRoleWord = /\b(user|system|assistant|llm|ai|bot|agent|model)\b/.test(normalized);
+    const hasPromptWord = /\b(prompt|instruction|instructions|query|task|respond|response|answer|generate|analyze|summarize|explain)\b/.test(normalized);
+    if (hasRoleWord && hasPromptWord)
         return true;
-    }
-    // Long strings (>80 chars) with at least ONE strong indicator are likely prompts
-    if (text.length > 80 && (hasRoleWord || hasPromptWord)) {
+    if (cleanText.length > 80 && (hasRoleWord || hasPromptWord))
         return true;
-    }
     return false;
 }
 async function parseFile(options) {

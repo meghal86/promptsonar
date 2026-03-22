@@ -33,8 +33,8 @@ var import_chalk2 = __toESM(require("chalk"));
 var fs = __toESM(require("fs"));
 var path = __toESM(require("path"));
 var import_fast_glob = __toESM(require("fast-glob"));
-var import_core = require("core");
-var import_sarif = require("core/dist/formatter/sarif");
+var import_core = require("@promptsonar/core");
+var import_sarif = require("@promptsonar/core/dist/formatter/sarif");
 function getOwaspRef(ruleId) {
   if (ruleId.startsWith("sec_owasp_llm01") || ruleId.startsWith("sec_unicode") || ruleId === "sec_unbounded_persona") return "LLM01";
   if (ruleId.startsWith("sec_owasp_llm02")) return "LLM02";
@@ -205,7 +205,7 @@ function generateSarif(results) {
 
 // src/formatters.ts
 var import_chalk = __toESM(require("chalk"));
-var VERSION = "1.0.23";
+var VERSION = "1.0.25";
 var SEVERITY_DISPLAY = {
   critical: { emoji: "\u{1F534}", color: import_chalk.default.red, label: "CRITICAL" },
   high: { emoji: "\u{1F7E0}", color: import_chalk.default.hex("#FF8C00"), label: "HIGH" },
@@ -287,11 +287,11 @@ function getExitCode(results, failOn) {
 }
 
 // src/cli.ts
-var import_core2 = require("core");
-var VERSION2 = "1.0.23";
+var import_core2 = require("@promptsonar/core");
+var VERSION2 = "1.0.25";
 var program = new import_commander.Command();
 program.name("promptsonar").description("Static security scanner for LLM prompts").version(VERSION2);
-program.command("scan").description("Scan a directory or file for prompt vulnerabilities").argument("<path>", "Path to file or directory to scan").option("-v, --verbose", "Show detailed scan information").option("--json", "Output results in JSON format").option("--sarif", "Output results in SARIF format").option("--report <file>", "Generate a visual HTML report").option("--output <file>", "Write results to a file").option("--fail-on <severity>", "Exit code threshold (critical|high|medium|low)", "critical").option("--waiver <file>", "Path to a .promptsonar.json waiver file").action(async (targetPath, options) => {
+program.command("scan").description("Scan a directory or file for prompt vulnerabilities").argument("<path>", "Path to file or directory to scan").option("-v, --verbose", "Show detailed scan information").option("--json", "Output results in JSON format").option("--sarif", "Output results in SARIF format").option("--report <file>", "Generate a visual HTML report").option("--output <file>", "Write results to a file").option("--fail-on <severity>", "Exit code threshold (critical|high|medium|low)", "critical").option("--waiver <file>", "Path to a .promptsonar.json waiver file").option("--policy-file <file>", "Path to a .promptsonar-policy.yaml governance file").action(async (targetPath, options) => {
   try {
     const results = await scanFiles(targetPath, {
       verbose: options.verbose,
@@ -341,9 +341,39 @@ program.command("scan").description("Scan a directory or file for prompt vulnera
       console.log(import_chalk2.default.green.bold(`
 \u2728 Visual report generated: ${reportPath}`));
     }
+    if (options.policyFile) {
+      console.log(import_chalk2.default.blue(`[PromptSonar] Evaluating Governance Policy from ${options.policyFile}...`));
+      const policy = (0, import_core2.parseGovernancePolicy)(options.policyFile);
+      const govResults = (0, import_core2.evaluateGovernancePolicy)(results, policy);
+      if (!govResults.passed) {
+        console.error(import_chalk2.default.red.bold("\n\u274C Governance Policy Violations:"));
+        govResults.violations.forEach((v) => console.error(import_chalk2.default.red(`  - ${v}`)));
+        process.exit(1);
+      } else {
+        console.log(import_chalk2.default.green("\u2705 Passed all Governance Policy checks."));
+      }
+    }
     process.exit(getExitCode(results, options.failOn));
   } catch (err) {
     console.error(import_chalk2.default.red(`[PromptSonar] Error: ${err.message}`));
+    if (options.verbose) {
+      console.error(err.stack);
+    }
+    process.exit(1);
+  }
+});
+program.command("sbom").description("Generate a CycloneDX Prompt SBOM for a given directory").argument("<path>", "Path to file or directory to scan for the SBOM").option("--output <file>", "Write SBOM results to a JSON file", "prompt-sbom.json").option("-v, --verbose", "Show detailed scan information").action(async (targetPath, options) => {
+  try {
+    console.log(import_chalk2.default.blue(`[PromptSonar] Scanning ${targetPath} for SBOM generation...`));
+    const results = await scanFiles(targetPath, {
+      verbose: options.verbose
+    });
+    const sbomString = (0, import_core2.generatePromptSBOM)(results);
+    const outputPath = path2.resolve(options.output);
+    fs2.writeFileSync(outputPath, sbomString, "utf-8");
+    console.log(import_chalk2.default.green(`\u2705 Prompt SBOM generated at ${outputPath}`));
+  } catch (err) {
+    console.error(import_chalk2.default.red(`[PromptSonar] SBOM Error: ${err.message}`));
     if (options.verbose) {
       console.error(err.stack);
     }

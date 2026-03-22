@@ -1,4 +1,4 @@
-const { parseFile, evaluatePrompt } = require('./packages/core/dist/index.js');
+const { parseFile, evaluatePrompt } = require('./packages/@promptsonar/core/dist/index.js');
 const fg = require('./packages/cli/node_modules/fast-glob');
 const fs = require('fs');
 const path = require('path');

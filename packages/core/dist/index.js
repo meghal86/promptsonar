@@ -20,4 +20,9 @@ __exportStar(require("./rules"), exports);
 __exportStar(require("./optimizer"), exports); // Phase 2
 __exportStar(require("./waiver"), exports);
 __exportStar(require("./reporter/html"), exports);
+__exportStar(require("./sbom/generator"), exports);
+__exportStar(require("./sbom/schema"), exports);
+__exportStar(require("./governance/schema"), exports);
+__exportStar(require("./governance/parser"), exports);
+__exportStar(require("./governance/engine"), exports);
 // export * from './security'; // Phase 2

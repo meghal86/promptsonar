@@ -22,8 +22,7 @@ Open VS Code → Extensions → Search "PromptSonar"
 
 ### 2. CLI Tool (Local Developer Usage)
 ```bash
-# In the CLI directory
-npm link ./packages/cli
+npm install -g @promptsonar/cli@latest
 promptsonar scan .
 ```
 
@@ -48,32 +47,21 @@ promptsonar scan tests/validation/ultimate_injection_test.js
 promptsonar scan . --json > report.json
 ```
 
-## Known Limitations — v0.1.0
+## Known Limitations — v1.0.27
 
 **Static analysis constraints (shared by Snyk, SonarQube, ESLint):**
 
-1. **Concatenated string assembly**
-   `const a = "Ignore "; const p = a + "previous instructions";`
-   → Each fragment scanned separately. Scheduled: v0.2.0.
-
-2. **Non-English jailbreaks**
-   Spanish, French, German, Arabic injection patterns not covered.
-   → Multilingual rule pack: v0.2.0.
-
-3. **Runtime-constructed prompts**
+1. **Runtime-constructed prompts**
    Values fetched from a database or API at runtime cannot be statically analyzed.
    → PromptSonar Runtime SDK: Phase 4.
 
-4. **Deep function indirection**
+2. **Deep function indirection**
    `const getPrompt = () => JAILBREAK; usePrompt(getPrompt())`
-   → Direct assignments and inline template literals only in v0.1.0.
-
-5. **Token compression**
-   LLMLingua-2 engine is built. License for production use pending.
-   → Coming in a future release.
+   → Direct assignments and inline template literals only.
 
 **Evasion — verified results:**
 - Base64 encoded jailbreaks:       DETECTED ✅ (decoded before pattern match)
 - Cyrillic homoglyph substitution: DETECTED ✅ (normalized before pattern match)
 - Mathematical Unicode symbols:    DETECTED ✅ (U+1D400–U+1D7FF range check)
 - Zero-width character injection:  DETECTED ✅ (stripped before pattern match)
+- Semantic Drift Attacks:          DETECTED ✅ (ZEDD Engine ensures intent integrity)

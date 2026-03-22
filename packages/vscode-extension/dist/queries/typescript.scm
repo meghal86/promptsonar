@@ -2,17 +2,17 @@
 (string) @prompt.string
 (template_string) @prompt.string
 
-; Detect assignment to variables named *prompt*
+; Detect assignment to variables named *prompt*, *query*, *instruction*
 (variable_declarator
   name: (identifier) @var_name
   value: (string) @prompt.named_string
-  (#match? @var_name "([Pp]rompt)")
+  (#match? @var_name "([Pp]rompt|[Qq]uery|[Ii]nstruction|[Mm]essage)")
 )
 
 (variable_declarator
   name: (identifier) @var_name
   value: (template_string) @prompt.named_string
-  (#match? @var_name "([Pp]rompt)")
+  (#match? @var_name "([Pp]rompt|[Qq]uery|[Ii]nstruction|[Mm]essage)")
 )
 
 ; Find LangChain calls

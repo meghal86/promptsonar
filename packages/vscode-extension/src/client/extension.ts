@@ -12,7 +12,7 @@ import { PromptSonarWebviewPanel } from './WebviewPanel';
 import { PromptSonarCodeLensProvider } from './CodeLensProvider';
 import { PromptSonarSidebarProvider } from './SidebarProvider';
 // @ts-ignore
-import { parseFile, evaluatePrompt, compressPromptLLMLingua } from 'core';
+import { parseFile, evaluatePrompt, compressPromptLLMLingua } from '@promptsonar/core';
 
 let client: LanguageClient;
 

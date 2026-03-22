@@ -2,7 +2,7 @@
     "name": "promptsonar",
     "displayName": "PromptSonar",
     "description": "Static scanner for prompt injection (OWASP LLM01), API key leaks & jailbreaks in code. Local, fast, no LLM calls.",
-    "version": "1.0.23",
+    "version": "1.0.27",
     "icon": "icon.png",
     "keywords": [
         "prompt",
@@ -102,7 +102,7 @@
         "pretest": "npm run compile"
     },
     "dependencies": {
-        "core": "file:../core/core-1.0.1.tgz",
+        "@promptsonar/core": "file:../core",
         "vscode-languageclient": "^9.0.1",
         "vscode-languageserver": "^9.0.1",
         "vscode-languageserver-textdocument": "^1.0.11",

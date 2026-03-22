@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import fg from 'fast-glob';
-import { parseFile, evaluatePrompt, RuleResult, loadWaivers, getActiveWaivers, isFindingWaived, Waiver } from 'core';
-import { formatToSarif } from 'core/dist/formatter/sarif';
+import { parseFile, evaluatePrompt, RuleResult, loadWaivers, getActiveWaivers, isFindingWaived, Waiver } from '@promptsonar/core';
+import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
 export interface ScanResult {
     filePath: string;

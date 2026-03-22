@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { RuleResult, Finding, calculateROI, compressPromptLLMLingua, generateHtmlReport } from 'core';
+import { RuleResult, Finding, calculateROI, compressPromptLLMLingua, generateHtmlReport } from '@promptsonar/core';
 
 export class PromptSonarWebviewPanel {
     public static currentPanel: PromptSonarWebviewPanel | undefined;

@@ -14,7 +14,7 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 // @ts-ignore
-import { parseFile, evaluatePrompt } from 'core';
+import { parseFile, evaluatePrompt } from '@promptsonar/core';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);

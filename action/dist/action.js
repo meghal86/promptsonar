@@ -32,8 +32,8 @@ var path2 = __toESM(require("path"));
 var fs = __toESM(require("fs"));
 var path = __toESM(require("path"));
 var import_fast_glob = __toESM(require("fast-glob"));
-var import_core = require("core");
-var import_sarif = require("core/dist/formatter/sarif");
+var import_core = require("@promptsonar/core");
+var import_sarif = require("@promptsonar/core/dist/formatter/sarif");
 function getOwaspRef(ruleId) {
   if (ruleId.startsWith("sec_owasp_llm01") || ruleId.startsWith("sec_unicode") || ruleId === "sec_unbounded_persona") return "LLM01";
   if (ruleId.startsWith("sec_owasp_llm02")) return "LLM02";

@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">75.86% </span>
+                <span class="strong">75.97% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>110/145</span>
+                <span class='fraction'>117/154</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">62.83% </span>
+                <span class="strong">63.56% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>71/113</span>
+                <span class='fraction'>82/129</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">90% </span>
+                <span class="strong">90.9% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>9/10</span>
+                <span class='fraction'>10/11</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">76.29% </span>
+                <span class="strong">77.69% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>103/135</span>
+                <span class='fraction'>108/139</span>
             </div>
         
             
@@ -370,7 +370,16 @@
 <a name='L305'></a><a href='#L305'>305</a>
 <a name='L306'></a><a href='#L306'>306</a>
 <a name='L307'></a><a href='#L307'>307</a>
-<a name='L308'></a><a href='#L308'>308</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<a name='L308'></a><a href='#L308'>308</a>
+<a name='L309'></a><a href='#L309'>309</a>
+<a name='L310'></a><a href='#L310'>310</a>
+<a name='L311'></a><a href='#L311'>311</a>
+<a name='L312'></a><a href='#L312'>312</a>
+<a name='L313'></a><a href='#L313'>313</a>
+<a name='L314'></a><a href='#L314'>314</a>
+<a name='L315'></a><a href='#L315'>315</a>
+<a name='L316'></a><a href='#L316'>316</a>
+<a name='L317'></a><a href='#L317'>317</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -462,10 +471,23 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">628x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -476,9 +498,12 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">56x</span>
+<span class="cline-any cline-yes">59x</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">3x</span>
@@ -499,15 +524,8 @@
 <span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -767,27 +785,43 @@ function <span class="fstat-no" title="function not covered" >getLanguageName(e<
 }
 &nbsp;
 function containsPromptKeyword(text: string): boolean {
+    // Strip surrounding quotes if present for the check
+    let cleanText = text.trim();
+    if ((cleanText.startsWith('"') &amp;&amp; cleanText.endsWith('"')) ||
+        (cleanText.startsWith("'") &amp;&amp; <span class="branch-3 cbranch-no" title="branch not covered" >cleanText.endsWith("'")) ||</span>
+        (cleanText.startsWith("`") &amp;&amp; <span class="branch-5 cbranch-no" title="branch not covered" >cleanText.endsWith("`"))) {</span>
+        cleanText = cleanText.slice(1, -1);
+    }
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (cleanText.startsWith('"""') &amp;&amp; <span class="branch-1 cbranch-no" title="branch not covered" >cleanText.endsWith('"""')) <span class="cstat-no" title="statement not covered" >c</span>leanText = cleanText.slice(3, -3);</span>
+&nbsp;
     // If it's a tiny string like "user" or "system", ignore it. Prompts are usually sentences.
-    if (text.length &lt; 20) return false;
+    if (cleanText.length &lt; 15) return false;
 &nbsp;
-    // Prompts almost always contain spaces. This filters out file globs, URLs, and variable names.
-    <span class="missing-if-branch" title="if path not taken" >I</span>if (!/\s/.test(text)) <span class="cstat-no" title="statement not covered" >return false;</span>
+    // Normalization for the heuristic check
+    const homoglyphMap: Record&lt;string, string&gt; = { 'а': 'a', 'с': 'c', 'е': 'e', 'о': 'o', 'р': 'p', 'х': 'x', 'у': 'y', 'і': 'i', 'І': 'I' };
+    const normalized = cleanText.split('').map(char =&gt; homoglyphMap[char] || char).join('')
+        .toLowerCase()
+        .replace(/(\\u200[bcd]|\\ufeff|[\u200B-\u200D\uFEFF])/g, ' '); // Replace ZWSP with space
 &nbsp;
-    const lowerText = text.toLowerCase();
+    // CHECK: Does it look like a Base64 block? (Usually no spaces)
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (/^[A-Za-z0-9+/=]{16,}$/.test(cleanText)) <span class="cstat-no" title="statement not covered" >return true;</span>
 &nbsp;
-    // Explicit LLM phrasing — always a prompt
+    // CHECK: Does it contain explicit injection markers?
     const explicitPhrases = [
         "you are a", "you are an", "you are now", "act as", "pretend you", "roleplay as",
-        "ignore previous", "ignore all previous", "ignore your previous",
+        "ignore previous", "ignore all previous", "ignore your previous", "ignore instructions",
         "system prompt", "system context", "system message",
         "chat history", "developer mode", "devmode",
         "no restrictions", "without restrictions", "content filters",
     ];
-    if (explicitPhrases.some(phrase =&gt; lowerText.includes(phrase))) {
+    if (explicitPhrases.some(phrase =&gt; normalized.includes(phrase))) {
         return true;
     }
 &nbsp;
-    // Security/attack phrases — jailbreaks, injection, evasion
+    // Prompts usually contain spaces. This filters out file globs, URLs, and variable names.
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (!/\s/.test(normalized)) <span class="cstat-no" title="statement not covered" >return false;</span>
+&nbsp;
+    // Security/attack phrases
     const securityPhrases = [
         "forget everything", "bypass security", "do anything now",
         "new session", "reset context", "start fresh",
@@ -798,23 +832,16 @@ function containsPromptKeyword(text: string): boolean {
         "unlock", "unrestricted mode", "god mode",
         "dan mode", "you are dan",
     ];
-    <span class="missing-if-branch" title="if path not taken" >I</span>if (securityPhrases.some(phrase =&gt; lowerText.includes(phrase))) {
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (securityPhrases.some(phrase =&gt; normalized.includes(phrase))) {
 <span class="cstat-no" title="statement not covered" >        return true;</span>
     }
 &nbsp;
     // Keyword categories for softer matching
-    const hasRoleWord = /\b(user|system|assistant|llm|ai|bot|agent|model)\b/.test(lowerText);
-    const hasPromptWord = /\b(prompt|instruction|instructions|query|task|respond|response|answer|generate|analyze|summarize|explain)\b/.test(lowerText);
+    const hasRoleWord = /\b(user|system|assistant|llm|ai|bot|agent|model)\b/.test(normalized);
+    const hasPromptWord = /\b(prompt|instruction|instructions|query|task|respond|response|answer|generate|analyze|summarize|explain)\b/.test(normalized);
 &nbsp;
-    // Two categories matching = likely a prompt
-    <span class="missing-if-branch" title="if path not taken" >I</span>if (hasRoleWord &amp;&amp; hasPromptWord) {
-<span class="cstat-no" title="statement not covered" >        return true;</span>
-    }
-&nbsp;
-    // Long strings (&gt;80 chars) with at least ONE strong indicator are likely prompts
-    if (text.length &gt; 80 &amp;&amp; (hasRoleWord || <span class="branch-2 cbranch-no" title="branch not covered" >hasPromptWord)) {</span>
-        return true;
-    }
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (hasRoleWord &amp;&amp; hasPromptWord) <span class="cstat-no" title="statement not covered" >return true;</span>
+    if (cleanText.length &gt; 80 &amp;&amp; (hasRoleWord || <span class="branch-2 cbranch-no" title="branch not covered" >hasPromptWord)) r</span>eturn true;
 &nbsp;
     return false;
 }
@@ -991,7 +1018,7 @@ export async function parseFile(options: ParserOptions): Promise&lt;DetectedProm
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-06T07:55:31.831Z
+                at 2026-03-22T20:39:18.827Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

@@ -42,8 +42,8 @@ module.exports = __toCommonJS(index_exports);
 var fs = __toESM(require("fs"));
 var path = __toESM(require("path"));
 var import_fast_glob = __toESM(require("fast-glob"));
-var import_core = require("core");
-var import_sarif = require("core/dist/formatter/sarif");
+var import_core = require("@promptsonar/core");
+var import_sarif = require("@promptsonar/core/dist/formatter/sarif");
 function getOwaspRef(ruleId) {
   if (ruleId.startsWith("sec_owasp_llm01") || ruleId.startsWith("sec_unicode") || ruleId === "sec_unbounded_persona") return "LLM01";
   if (ruleId.startsWith("sec_owasp_llm02")) return "LLM02";
@@ -214,7 +214,7 @@ function generateSarif(results) {
 
 // src/formatters.ts
 var import_chalk = __toESM(require("chalk"));
-var VERSION = "1.0.23";
+var VERSION = "1.0.25";
 var SEVERITY_DISPLAY = {
   critical: { emoji: "\u{1F534}", color: import_chalk.default.red, label: "CRITICAL" },
   high: { emoji: "\u{1F7E0}", color: import_chalk.default.hex("#FF8C00"), label: "HIGH" },

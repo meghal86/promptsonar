@@ -6,9 +6,9 @@ import * as path from 'path';
 import chalk from 'chalk';
 import { scanFiles, generateSarif } from './scanner';
 import { formatJson, formatTerminal, getExitCode } from './formatters';
-import { generateHtmlReport, calculateROI, compressPromptLLMLingua } from 'core';
+import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy } from '@promptsonar/core';
 
-const VERSION = '1.0.23';
+const VERSION = '1.0.25';
 
 const program = new Command();
 
@@ -28,6 +28,7 @@ program
     .option('--output <file>', 'Write results to a file')
     .option('--fail-on <severity>', 'Exit code threshold (critical|high|medium|low)', 'critical')
     .option('--waiver <file>', 'Path to a .promptsonar.json waiver file')
+    .option('--policy-file <file>', 'Path to a .promptsonar-policy.yaml governance file')
     .action(async (targetPath, options) => {
         try {
             const results = await scanFiles(targetPath, {
@@ -90,10 +91,52 @@ program
                 console.log(chalk.green.bold(`\n✨ Visual report generated: ${reportPath}`));
             }
 
+            // Governance Evaluation
+            if (options.policyFile) {
+                console.log(chalk.blue(`[PromptSonar] Evaluating Governance Policy from ${options.policyFile}...`));
+                const policy = parseGovernancePolicy(options.policyFile);
+                const govResults = evaluateGovernancePolicy(results, policy);
+                
+                if (!govResults.passed) {
+                    console.error(chalk.red.bold('\n❌ Governance Policy Violations:'));
+                    govResults.violations.forEach((v: string) => console.error(chalk.red(`  - ${v}`)));
+                    process.exit(1); 
+                } else {
+                    console.log(chalk.green('✅ Passed all Governance Policy checks.'));
+                }
+            }
+
             // Exit code
             process.exit(getExitCode(results, options.failOn));
         } catch (err: any) {
             console.error(chalk.red(`[PromptSonar] Error: ${err.message}`));
+            if (options.verbose) {
+                console.error(err.stack);
+            }
+            process.exit(1);
+        }
+    });
+
+program
+    .command('sbom')
+    .description('Generate a CycloneDX Prompt SBOM for a given directory')
+    .argument('<path>', 'Path to file or directory to scan for the SBOM')
+    .option('--output <file>', 'Write SBOM results to a JSON file', 'prompt-sbom.json')
+    .option('-v, --verbose', 'Show detailed scan information')
+    .action(async (targetPath, options) => {
+        try {
+            console.log(chalk.blue(`[PromptSonar] Scanning ${targetPath} for SBOM generation...`));
+            const results = await scanFiles(targetPath, {
+                verbose: options.verbose
+            });
+
+            const sbomString = generatePromptSBOM(results);
+            
+            const outputPath = path.resolve(options.output);
+            fs.writeFileSync(outputPath, sbomString, 'utf-8');
+            console.log(chalk.green(`✅ Prompt SBOM generated at ${outputPath}`));
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] SBOM Error: ${err.message}`));
             if (options.verbose) {
                 console.error(err.stack);
             }
