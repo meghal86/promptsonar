@@ -112,3 +112,39 @@ export function getExitCode(results: ScanResult[], failOn: string): number {
 
     return 0;
 }
+
+import * as crypto from 'crypto';
+
+/**
+ * Formats scan results into the Article 19 JSONL export schema.
+ */
+export function formatArticle19(results: ScanResult[]): string {
+    const lines: string[] = [];
+
+    for (const r of results) {
+        // Create a stable prompt_id from the file path
+        const prompt_id = crypto.createHash('sha256').update(r.filePath).digest('hex').substring(0, 12);
+        
+        // Map OWASP rules into controls
+        const controls = new Set<string>();
+        controls.add("ISO42001-6.2"); // Default standard compliance tag
+        for (const f of r.findings) {
+            if (f.owasp_ref) {
+                controls.add(`OWASP-${f.owasp_ref}`);
+            }
+        }
+
+        const logEntry = {
+            ts: new Date().toISOString(),
+            prompt_id: prompt_id,
+            model: "static-analysis", // Placeholder since we don't execute against a live model
+            risk_score: Math.max(0, 100 - r.overall_score),
+            controls: Array.from(controls),
+            outcome: r.status === 'fail' ? 'blocked' : 'success'
+        };
+
+        lines.push(JSON.stringify(logEntry));
+    }
+
+    return lines.join('\n');
+}

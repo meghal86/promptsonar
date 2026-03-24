@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
 import { scanFiles, generateSarif } from './scanner';
-import { formatJson, formatTerminal, getExitCode } from './formatters';
+import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy } from '@promptsonar/core';
 
 const VERSION = '1.0.25';
@@ -140,6 +140,40 @@ program
             if (options.verbose) {
                 console.error(err.stack);
             }
+            process.exit(1);
+        }
+    });
+
+program
+    .command('export')
+    .description('Export an Article 19 compliance logging dump by running a workspace scan')
+    .argument('<path>', 'Path to file or directory to scan for the export')
+    .option('--format <type>', 'Export format (e.g., article19)', 'article19')
+    .option('--output <file>', 'Write export results to a JSONL file')
+    .option('-v, --verbose', 'Show detailed scan information')
+    .action(async (targetPath, options) => {
+        try {
+            if (options.verbose) console.log(chalk.blue(`[PromptSonar] Scanning ${targetPath} for Export...`));
+            const results = await scanFiles(targetPath, { verbose: options.verbose });
+            
+            let output: string;
+            if (options.format === 'article19') {
+                output = formatArticle19(results);
+            } else {
+                console.error(chalk.red(`[PromptSonar] Unknown export format: ${options.format}`));
+                process.exit(1);
+            }
+            
+            if (options.output) {
+                const outputPath = path.resolve(options.output);
+                fs.writeFileSync(outputPath, output, 'utf-8');
+                console.log(chalk.green(`✅ Export generated at ${outputPath}`));
+            } else {
+                console.log(output);
+            }
+        } catch(err: any) {
+            console.error(chalk.red(`[PromptSonar] Export Error: ${err.message}`));
+            if (options.verbose) console.error(err.stack);
             process.exit(1);
         }
     });

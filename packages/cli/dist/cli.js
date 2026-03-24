@@ -205,6 +205,7 @@ function generateSarif(results) {
 
 // src/formatters.ts
 var import_chalk = __toESM(require("chalk"));
+var crypto = __toESM(require("crypto"));
 var VERSION = "1.0.25";
 var SEVERITY_DISPLAY = {
   critical: { emoji: "\u{1F534}", color: import_chalk.default.red, label: "CRITICAL" },
@@ -284,6 +285,30 @@ function getExitCode(results, failOn) {
   if (hasHigh && failOnIndex <= 1) return 2;
   if (hasMedium && failOnIndex <= 2) return 3;
   return 0;
+}
+function formatArticle19(results) {
+  const lines = [];
+  for (const r of results) {
+    const prompt_id = crypto.createHash("sha256").update(r.filePath).digest("hex").substring(0, 12);
+    const controls = /* @__PURE__ */ new Set();
+    controls.add("ISO42001-6.2");
+    for (const f of r.findings) {
+      if (f.owasp_ref) {
+        controls.add(`OWASP-${f.owasp_ref}`);
+      }
+    }
+    const logEntry = {
+      ts: (/* @__PURE__ */ new Date()).toISOString(),
+      prompt_id,
+      model: "static-analysis",
+      // Placeholder since we don't execute against a live model
+      risk_score: Math.max(0, 100 - r.overall_score),
+      controls: Array.from(controls),
+      outcome: r.status === "fail" ? "blocked" : "success"
+    };
+    lines.push(JSON.stringify(logEntry));
+  }
+  return lines.join("\n");
 }
 
 // src/cli.ts
@@ -377,6 +402,30 @@ program.command("sbom").description("Generate a CycloneDX Prompt SBOM for a give
     if (options.verbose) {
       console.error(err.stack);
     }
+    process.exit(1);
+  }
+});
+program.command("export").description("Export an Article 19 compliance logging dump by running a workspace scan").argument("<path>", "Path to file or directory to scan for the export").option("--format <type>", "Export format (e.g., article19)", "article19").option("--output <file>", "Write export results to a JSONL file").option("-v, --verbose", "Show detailed scan information").action(async (targetPath, options) => {
+  try {
+    if (options.verbose) console.log(import_chalk2.default.blue(`[PromptSonar] Scanning ${targetPath} for Export...`));
+    const results = await scanFiles(targetPath, { verbose: options.verbose });
+    let output;
+    if (options.format === "article19") {
+      output = formatArticle19(results);
+    } else {
+      console.error(import_chalk2.default.red(`[PromptSonar] Unknown export format: ${options.format}`));
+      process.exit(1);
+    }
+    if (options.output) {
+      const outputPath = path2.resolve(options.output);
+      fs2.writeFileSync(outputPath, output, "utf-8");
+      console.log(import_chalk2.default.green(`\u2705 Export generated at ${outputPath}`));
+    } else {
+      console.log(output);
+    }
+  } catch (err) {
+    console.error(import_chalk2.default.red(`[PromptSonar] Export Error: ${err.message}`));
+    if (options.verbose) console.error(err.stack);
     process.exit(1);
   }
 });
