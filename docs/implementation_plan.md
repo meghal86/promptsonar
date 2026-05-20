@@ -67,6 +67,7 @@ Objective: make adoption easy for security teams.
 - [x] Policy file examples for org-level controls.
 - [x] Evidence report artifact: JSON/SARIF/Markdown with stable rule IDs and remediation.
 - [x] Anonymized enterprise pilot package: install guide, 15-minute rollout checklist, feedback form.
+- [x] Prepare design-partner outreach and testimonial capture template.
 - [ ] Collect permissioned testimonials or anonymized proof from design partners.
 
 ## Sprint 3 - Public Acclaim Engine
@@ -79,7 +80,8 @@ Objective: turn technical work into third-party recognition.
 - [x] Prepare Product Hunt assets after README, demo, and install path are polished.
 - [x] Prepare security newsletter and AI engineering newsletter pitches with concrete examples.
 - [x] Prepare talk proposal for AI security, AppSec, and developer tooling meetups.
-- [ ] Contribute findings/rules back to OWASP GenAI/MCP communities where appropriate.
+- [x] Draft OWASP GenAI/MCP contribution package.
+- [ ] Submit findings/rules back to OWASP GenAI/MCP communities where appropriate.
 
 ## Sprint 4 - Dashboard and Commercial Layer
 

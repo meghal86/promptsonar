@@ -37,7 +37,15 @@ Track public evidence here for open-source adoption, enterprise use, and field r
 |---|---|---|---|
 | 2026-05-20 | v1.0.28 | npm publish verified | `npm view @promptsonar/cli version` and `npx @promptsonar/cli --version` both returned `1.0.28` |
 | 2026-05-20 | v1.0.28 | MCP benchmark baseline | `npm run benchmark:mcp` passed 6/6 synthetic MCP fixtures. Evidence: `benchmarks/mcp/results/2026-05-20-mcp-benchmark.md` and `.json`. |
+| TBD | v1.1.0 | Release notes draft prepared | Draft: `docs/release/v1.1.0-mcp-audit.md`. |
 | TBD | v1.1.0 | MCP audit launch | Release notes pending |
+
+## Community / Standards Outreach
+
+| Date | Community | Status | Evidence |
+|---|---|---|---|
+| TBD | OWASP GenAI / MCP | Draft prepared; submission pending | `docs/community/owasp-genai-mcp-submission.md` |
+| TBD | Design partners | Outreach draft prepared; replies pending | `docs/community/design-partner-outreach.md` |
 
 ## Baseline Project Links
 

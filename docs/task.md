@@ -56,6 +56,8 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
 - [x] Add anonymized pilot feedback template.
 - [x] Create sample JSON/SARIF/Markdown evidence report.
 - [x] Add reproducible MCP benchmark fixtures and runner.
+- [x] Prepare design-partner outreach and testimonial capture template.
+- [ ] Collect permissioned testimonials or anonymized proof from design partners.
 
 ## Sprint 3 - Public Acclaim
 
@@ -69,6 +71,8 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
 - [x] Prepare Product Hunt assets after technical launch is stable.
 - [x] Pitch security newsletters.
 - [x] Submit talk proposals to AI security/AppSec meetups.
+- [x] Draft OWASP GenAI/MCP community contribution package.
+- [ ] Submit OWASP GenAI/MCP community contribution.
 - [x] Document external mentions in `ADOPTION.md`.
   - [x] Log confirmed AI:PRODUCTIVITY and DEV Community links.
   - [x] Add exact Hacker News URL.
@@ -76,6 +80,7 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
   - [x] Add baseline GitHub, npm, and VS Code links.
   - [x] Save screenshots for all external mentions under `/evidence/`.
 - [x] Update `ADOPTION.md` with first metrics snapshot after launch.
+- [x] Draft v1.1.0 MCP audit release notes.
 
 ## Sprint 4 - Optional Dashboard
 
