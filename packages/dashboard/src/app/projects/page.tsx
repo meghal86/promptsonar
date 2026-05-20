@@ -13,9 +13,14 @@ export default function ProjectsPage() {
             </h1>
             <p className="mt-2 text-slate-400 text-lg">Manage your project security scans</p>
           </div>
-          <button className="bg-indigo-500 hover:bg-indigo-400 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300 shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] transform hover:-translate-y-0.5">
-            + New Project
-          </button>
+          <div className="flex gap-4">
+            <Link href="/playground" className="bg-white/5 border border-white/10 hover:bg-white/10 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300">
+              Interactive Playground →
+            </Link>
+            <button className="bg-indigo-500 hover:bg-indigo-400 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300 shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] transform hover:-translate-y-0.5">
+              + New Project
+            </button>
+          </div>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

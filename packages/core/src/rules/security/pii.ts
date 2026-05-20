@@ -6,7 +6,9 @@ const PII_REGEXES = [
     { name: "Credit Card", pattern: /\b(?:\d[ -]?){13,16}\b/ },
     { name: "OpenAI API Key", pattern: /sk-(?:live|test|proj)-[a-zA-Z0-9]{32,}/i },
     { name: "GitHub PAT", pattern: /ghp_[a-zA-Z0-9]{36}/i },
-    { name: "Generic API Key", pattern: /(?:api[_-]?key|secret|token)[\s:=]+["'][a-zA-Z0-9_\-]{16,}["']/i }
+    { name: "Generic API Key", pattern: /(?:api[_-]?key|secret|token)[\s:=]+["'][a-zA-Z0-9_\-]{16,}["']/i },
+    { name: "Credential/Key", pattern: /\b(?:key|api_?key|secret|token)\b\s*(?:is|[:=])\s*[a-zA-Z0-9_\-]{4,}\b/i },
+    { name: "Password", pattern: /\b(?:password|passwd|pwd)\b\s*(?:is|[:=])\s*[a-zA-Z0-9_\-]{4,}\b/i }
 ];
 
 export function checkPii(input: RuleInput): Finding[] {

@@ -1,0 +1,55 @@
+[
+  {
+    "filePath": "/Users/meghalparikh/Downloads/Work_Projects/PromptSonar/tests/fixtures/mcp/vulnerable-mcp.json",
+    "status": "fail",
+    "findings": [
+      {
+        "rule_id": "MCP-007",
+        "severity": "low",
+        "message": "MCP config does not declare a schemaVersion or version.",
+        "fix": "Add a schemaVersion/version field so config migrations are auditable.",
+        "path": "$"
+      },
+      {
+        "rule_id": "MCP-001",
+        "severity": "critical",
+        "message": "MCP server \"dangerous-agent\" uses an unencrypted, local, or raw-IP endpoint: http://203.0.113.10:8787/mcp",
+        "fix": "Use HTTPS, bind local services safely, and require authentication before exposing MCP tools.",
+        "path": "mcpServers.dangerous-agent",
+        "server": "dangerous-agent"
+      },
+      {
+        "rule_id": "MCP-006",
+        "severity": "medium",
+        "message": "Remote MCP domain \"203.0.113.10\" is not in the built-in review allowlist.",
+        "fix": "Review the server publisher, pin the package/version, and document why this domain is trusted.",
+        "path": "mcpServers.dangerous-agent",
+        "server": "dangerous-agent"
+      },
+      {
+        "rule_id": "MCP-002",
+        "severity": "high",
+        "message": "MCP server \"dangerous-agent\" appears to request broad filesystem, shell, admin, or network scope.",
+        "fix": "Scope tools to specific directories, commands, domains, and read/write actions.",
+        "path": "mcpServers.dangerous-agent",
+        "server": "dangerous-agent"
+      },
+      {
+        "rule_id": "MCP-004",
+        "severity": "medium",
+        "message": "MCP server \"dangerous-agent\" contains suspicious tool text or prompt-injection language.",
+        "fix": "Remove directive-like text from tool descriptions and review the package source.",
+        "path": "mcpServers.dangerous-agent",
+        "server": "dangerous-agent"
+      },
+      {
+        "rule_id": "MCP-005",
+        "severity": "high",
+        "message": "MCP server \"dangerous-agent\" appears to contain a hardcoded secret.",
+        "fix": "Move secrets to environment variables or a managed secret store and rotate exposed credentials.",
+        "path": "mcpServers.dangerous-agent",
+        "server": "dangerous-agent"
+      }
+    ]
+  }
+]

@@ -9,4 +9,7 @@ export * from './sbom/schema';
 export * from './governance/schema';
 export * from './governance/parser';
 export * from './governance/engine';
+export * from './contracts/engine';
+export * from './evaluation/crossModel';
+export * from './mcp';
 // export * from './security'; // Phase 2

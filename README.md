@@ -7,9 +7,19 @@ Static scanner for prompt injection (OWASP LLM01), API key leaks, and jailbreaks
 
 ![CLI Scan Output](screenshot-cli-fail.png)
 
+## 30-Second Demo
+
+```bash
+npx @promptsonar/cli scan .
+npx @promptsonar/cli audit-mcp
+```
+
+PromptSonar audits AI prompts and MCP configs locally. It does not send code or prompts to an external LLM.
+
 ## Features
 - **Auto-Detect Embedded Prompts**: Locates hardcoded LLM prompts in JavaScript, TypeScript, Python, Go, Java, Rust, c# and configuration files automatically.
 - **Security Check (OWASP LLM01/LLM02)**: Instantly detects Prompt Injections, Developer Modes, role overrides, unicode/base64 obfuscation and exposes them.
+- **MCP Config Auditing**: Finds unsafe MCP server URLs, missing auth indicators, broad tool scope, hardcoded secrets, and prompt-injection text in Claude/Cursor MCP configs.
 - **CI/CD Gating**: Fails hard on Critical vulnerabilities to protect CI pipelines.
 - **Live IDE Feedback**: Diagnostics live in your editor bridging directly into the exact same algorithmic rules engine powering the CLI.
 
@@ -47,7 +57,30 @@ promptsonar scan tests/validation/ultimate_injection_test.js
 promptsonar scan . --json > report.json
 ```
 
-## Known Limitations — v1.0.27
+## Auditing MCP Configs
+
+```bash
+# Auto-discover Claude, Cursor, and local MCP config files
+promptsonar audit-mcp
+
+# Audit a specific config
+promptsonar audit-mcp tests/fixtures/mcp/vulnerable-mcp.json
+
+# Machine-readable output
+promptsonar audit-mcp --json
+promptsonar audit-mcp --sarif --output promptsonar-mcp.sarif
+```
+
+Rule coverage:
+- `MCP-001`: unencrypted, local, or raw-IP server endpoint.
+- `MCP-002`: over-broad filesystem, shell, admin, or network scope.
+- `MCP-003`: remote server missing authentication indicators.
+- `MCP-004`: suspicious tool description or prompt-injection text.
+- `MCP-005`: hardcoded secrets in config.
+- `MCP-006`: unknown remote domain requiring review.
+- `MCP-007`: legacy or malformed config shape.
+
+## Known Limitations - v1.0.28
 
 **Static analysis constraints (shared by Snyk, SonarQube, ESLint):**
 
@@ -59,9 +92,10 @@ promptsonar scan . --json > report.json
    `const getPrompt = () => JAILBREAK; usePrompt(getPrompt())`
    → Direct assignments and inline template literals only.
 
-**Evasion — verified results:**
-- Base64 encoded jailbreaks:       DETECTED ✅ (decoded before pattern match)
-- Cyrillic homoglyph substitution: DETECTED ✅ (normalized before pattern match)
-- Mathematical Unicode symbols:    DETECTED ✅ (U+1D400–U+1D7FF range check)
-- Zero-width character injection:  DETECTED ✅ (stripped before pattern match)
-- Semantic Drift Attacks:          DETECTED ✅ (ZEDD Engine ensures intent integrity)
+**Evasion checks covered by deterministic rules/tests:**
+- Base64 encoded jailbreak strings are decoded before pattern matching.
+- Cyrillic homoglyph substitution is normalized before pattern matching.
+- Mathematical Unicode symbol ranges are flagged as obfuscation risk.
+- Zero-width character injection is stripped before pattern matching.
+
+Semantic drift detection is experimental and is not marketed as a production guarantee yet.

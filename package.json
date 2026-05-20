@@ -9,7 +9,9 @@
         "build": "npm run build --workspaces --if-present",
         "test": "npm run test --workspaces --if-present",
         "lint": "eslint 'packages/*/src/**/*.ts' 'action/src/**/*.ts'",
-        "clean": "rimraf packages/*/dist action/dist"
+        "clean": "rimraf packages/*/dist action/dist",
+        "adoption:metrics": "node scripts/capture-adoption-metrics.js",
+        "release:hygiene": "node scripts/check-release-hygiene.js"
     },
     "devDependencies": {
         "typescript": "^5.4.0",

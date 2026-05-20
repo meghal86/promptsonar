@@ -1,19 +1,28 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-// Mock data representing incident forensics
-const RISK_REGISTRY = [
-  { id: "e3b0c44298fc", project: "Payment Service", score: 42, rule: "sec_owasp_llm01_injection", status: "blocked", ts: "2026-03-23T14:22:00Z" },
-  { id: "8f434346648f", project: "Customer Support", score: 68, rule: "sec_unbounded_persona", status: "warn", ts: "2026-03-23T11:15:00Z" },
-  { id: "d4735e3a265e", project: "Internal Wiki Bot", score: 35, rule: "sec_rag_injection", status: "blocked", ts: "2026-03-22T09:40:00Z" },
-];
-
 export default function RiskRegistryPage() {
+  const [incidents, setIncidents] = useState<any[]>([]);
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
   const [lineageData, setLineageData] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [fetchingRegistry, setFetchingRegistry] = useState(true);
+
+  useEffect(() => {
+    // Fetch live risk registry on mount
+    fetch('/api/risk-registry')
+      .then(res => res.json())
+      .then(data => {
+        if (data.incidents) setIncidents(data.incidents);
+        setFetchingRegistry(false);
+      })
+      .catch(err => {
+        console.error("Failed fetching live registry: ", err);
+        setFetchingRegistry(false);
+      });
+  }, []);
 
   const fetchLineage = async (promptId: string) => {
     setSelectedPrompt(promptId);
@@ -50,11 +59,14 @@ export default function RiskRegistryPage() {
             </h1>
             <p className="mt-2 text-slate-400 text-lg">Enterprise Incident Forensics & Article 19 Audit Logs</p>
           </div>
-          <Link href="/projects">
-            <button className="bg-white/5 border border-white/10 hover:bg-white/10 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300">
+          <div className="flex gap-4">
+            <Link href="/playground" className="bg-white/5 border border-white/10 hover:bg-white/10 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300">
+              Playground →
+            </Link>
+            <Link href="/projects" className="bg-white/5 border border-white/10 hover:bg-white/10 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300">
               ← Back to Projects
-            </button>
-          </Link>
+            </Link>
+          </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -65,39 +77,43 @@ export default function RiskRegistryPage() {
               <h2 className="text-xl font-bold">Critical Vulnerabilities</h2>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-white/5 text-xs uppercase text-slate-400 tracking-widest">
-                    <th className="px-6 py-4 font-semibold">Prompt Hash</th>
-                    <th className="px-6 py-4 font-semibold">Project</th>
-                    <th className="px-6 py-4 font-semibold">Violation</th>
-                    <th className="px-6 py-4 font-semibold">Score</th>
-                    <th className="px-6 py-4 text-right font-semibold">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5 text-sm">
-                  {RISK_REGISTRY.map((incident) => (
-                    <tr key={incident.id} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="px-6 py-4 font-mono text-xs text-indigo-400">{incident.id}</td>
-                      <td className="px-6 py-4">{incident.project}</td>
-                      <td className="px-6 py-4 text-rose-400 font-medium">{incident.rule}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${incident.score < 50 ? 'bg-rose-500/20 text-rose-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-                          {incident.score}/100
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button 
-                          onClick={() => fetchLineage(incident.id)}
-                          className="text-indigo-400 hover:text-indigo-300 transition-colors font-medium text-xs uppercase tracking-wider"
-                        >
-                          Analyze Lineage →
-                        </button>
-                      </td>
+              {fetchingRegistry ? (
+                <div className="p-8 text-center text-slate-500 animate-pulse">Syncing with database...</div>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-white/5 text-xs uppercase text-slate-400 tracking-widest">
+                      <th className="px-6 py-4 font-semibold">Prompt Hash</th>
+                      <th className="px-6 py-4 font-semibold">Project</th>
+                      <th className="px-6 py-4 font-semibold">Violation</th>
+                      <th className="px-6 py-4 font-semibold">Score</th>
+                      <th className="px-6 py-4 text-right font-semibold">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 text-sm">
+                    {incidents.map((incident) => (
+                      <tr key={incident.id} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="px-6 py-4 font-mono text-xs text-indigo-400">{incident.id}</td>
+                        <td className="px-6 py-4">{incident.project}</td>
+                        <td className="px-6 py-4 text-rose-400 font-medium">{incident.rule}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-1 rounded text-xs font-bold ${incident.score < 50 ? 'bg-rose-500/20 text-rose-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                            {incident.score}/100
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button 
+                            onClick={() => fetchLineage(incident.id)}
+                            className="text-indigo-400 hover:text-indigo-300 transition-colors font-medium text-xs uppercase tracking-wider"
+                          >
+                            Analyze Lineage →
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
 

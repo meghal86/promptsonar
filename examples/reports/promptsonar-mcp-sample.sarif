@@ -1,0 +1,199 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "PromptSonar MCP Auditor",
+          "version": "1.0.28",
+          "informationUri": "https://github.com/meghal86/promptsonar",
+          "rules": [
+            {
+              "id": "MCP-007",
+              "name": "MCP-007",
+              "shortDescription": {
+                "text": "MCP config does not declare a schemaVersion or version."
+              },
+              "help": {
+                "text": "Add a schemaVersion/version field so config migrations are auditable."
+              }
+            },
+            {
+              "id": "MCP-001",
+              "name": "MCP-001",
+              "shortDescription": {
+                "text": "MCP server \"dangerous-agent\" uses an unencrypted, local, or raw-IP endpoint: http://203.0.113.10:8787/mcp"
+              },
+              "help": {
+                "text": "Use HTTPS, bind local services safely, and require authentication before exposing MCP tools."
+              }
+            },
+            {
+              "id": "MCP-006",
+              "name": "MCP-006",
+              "shortDescription": {
+                "text": "Remote MCP domain \"203.0.113.10\" is not in the built-in review allowlist."
+              },
+              "help": {
+                "text": "Review the server publisher, pin the package/version, and document why this domain is trusted."
+              }
+            },
+            {
+              "id": "MCP-002",
+              "name": "MCP-002",
+              "shortDescription": {
+                "text": "MCP server \"dangerous-agent\" appears to request broad filesystem, shell, admin, or network scope."
+              },
+              "help": {
+                "text": "Scope tools to specific directories, commands, domains, and read/write actions."
+              }
+            },
+            {
+              "id": "MCP-004",
+              "name": "MCP-004",
+              "shortDescription": {
+                "text": "MCP server \"dangerous-agent\" contains suspicious tool text or prompt-injection language."
+              },
+              "help": {
+                "text": "Remove directive-like text from tool descriptions and review the package source."
+              }
+            },
+            {
+              "id": "MCP-005",
+              "name": "MCP-005",
+              "shortDescription": {
+                "text": "MCP server \"dangerous-agent\" appears to contain a hardcoded secret."
+              },
+              "help": {
+                "text": "Move secrets to environment variables or a managed secret store and rotate exposed credentials."
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "MCP-007",
+          "level": "note",
+          "message": {
+            "text": "MCP config does not declare a schemaVersion or version. Fix: Add a schemaVersion/version field so config migrations are auditable."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/Users/meghalparikh/Downloads/Work_Projects/PromptSonar/tests/fixtures/mcp/vulnerable-mcp.json"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "MCP-001",
+          "level": "error",
+          "message": {
+            "text": "MCP server \"dangerous-agent\" uses an unencrypted, local, or raw-IP endpoint: http://203.0.113.10:8787/mcp Fix: Use HTTPS, bind local services safely, and require authentication before exposing MCP tools."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/Users/meghalparikh/Downloads/Work_Projects/PromptSonar/tests/fixtures/mcp/vulnerable-mcp.json"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "MCP-006",
+          "level": "warning",
+          "message": {
+            "text": "Remote MCP domain \"203.0.113.10\" is not in the built-in review allowlist. Fix: Review the server publisher, pin the package/version, and document why this domain is trusted."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/Users/meghalparikh/Downloads/Work_Projects/PromptSonar/tests/fixtures/mcp/vulnerable-mcp.json"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "MCP-002",
+          "level": "error",
+          "message": {
+            "text": "MCP server \"dangerous-agent\" appears to request broad filesystem, shell, admin, or network scope. Fix: Scope tools to specific directories, commands, domains, and read/write actions."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/Users/meghalparikh/Downloads/Work_Projects/PromptSonar/tests/fixtures/mcp/vulnerable-mcp.json"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "MCP-004",
+          "level": "warning",
+          "message": {
+            "text": "MCP server \"dangerous-agent\" contains suspicious tool text or prompt-injection language. Fix: Remove directive-like text from tool descriptions and review the package source."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/Users/meghalparikh/Downloads/Work_Projects/PromptSonar/tests/fixtures/mcp/vulnerable-mcp.json"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "MCP-005",
+          "level": "error",
+          "message": {
+            "text": "MCP server \"dangerous-agent\" appears to contain a hardcoded secret. Fix: Move secrets to environment variables or a managed secret store and rotate exposed credentials."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/Users/meghalparikh/Downloads/Work_Projects/PromptSonar/tests/fixtures/mcp/vulnerable-mcp.json"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

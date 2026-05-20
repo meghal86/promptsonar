@@ -47,7 +47,7 @@ promptsonar scan tests/validation/ultimate_injection_test.js
 promptsonar scan . --json > report.json
 ```
 
-## Known Limitations — v1.0.27
+## Known Limitations - v1.0.28
 
 **Static analysis constraints (shared by Snyk, SonarQube, ESLint):**
 
@@ -59,9 +59,10 @@ promptsonar scan . --json > report.json
    `const getPrompt = () => JAILBREAK; usePrompt(getPrompt())`
    → Direct assignments and inline template literals only.
 
-**Evasion — verified results:**
-- Base64 encoded jailbreaks:       DETECTED ✅ (decoded before pattern match)
-- Cyrillic homoglyph substitution: DETECTED ✅ (normalized before pattern match)
-- Mathematical Unicode symbols:    DETECTED ✅ (U+1D400–U+1D7FF range check)
-- Zero-width character injection:  DETECTED ✅ (stripped before pattern match)
-- Semantic Drift Attacks:          DETECTED ✅ (ZEDD Engine ensures intent integrity)
+**Evasion checks covered by deterministic rules/tests:**
+- Base64 encoded jailbreak strings are decoded before pattern matching.
+- Cyrillic homoglyph substitution is normalized before pattern matching.
+- Mathematical Unicode symbol ranges are flagged as obfuscation risk.
+- Zero-width character injection is stripped before pattern matching.
+
+Semantic drift detection is experimental and is not marketed as a production guarantee yet.

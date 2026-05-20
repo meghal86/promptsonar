@@ -1,0 +1,38 @@
+name: PromptSonar AI Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  promptsonar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Scan prompts and agent code
+        run: npx @promptsonar/cli scan . --sarif --output promptsonar-results.sarif --fail-on high
+
+      - name: Audit MCP configs
+        run: npx @promptsonar/cli audit-mcp --sarif --output promptsonar-mcp.sarif
+
+      - name: Upload PromptSonar SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: promptsonar-results.sarif
+
+      - name: Upload MCP SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: promptsonar-mcp.sarif
