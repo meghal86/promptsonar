@@ -18,7 +18,7 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
 - [x] Verify npm publish for `@promptsonar/cli`.
   - [x] Check published version number matches `packages/cli/package.json`.
   - [x] Confirm clean install and runtime version: `npx @promptsonar/cli --version`.
-- [/] Credibility polish.
+- [x] Credibility polish.
   - [x] Add `ADOPTION.md` evidence log.
   - [x] Update README with 30-second demo.
   - [x] Replace mock-only claims with verified claims.
@@ -51,13 +51,16 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
 
 - [x] Add GitHub Action examples with SARIF upload.
 - [x] Add `pre-commit` and GitLab CI examples.
+- [x] Add org policy example for MCP review gates.
 - [x] Add enterprise rollout checklist.
 - [x] Add anonymized pilot feedback template.
-- [x] Create sample HTML/SARIF evidence report.
+- [x] Create sample JSON/SARIF/Markdown evidence report.
+- [x] Add reproducible MCP benchmark fixtures and runner.
 
 ## Sprint 3 - Public Acclaim
 
 - [x] Write technical launch article.
+- [x] Publish benchmark results with reproducible fixtures and false-positive notes.
 - [/] Submit MCP security paper to arXiv (`cs.SE`).
   - [x] Create preprint draft.
   - [x] Expand benchmark/evaluation section.

@@ -1,0 +1,78 @@
+{
+  "generatedAt": "2026-05-20T23:01:23.705Z",
+  "fixtureCount": 6,
+  "passCount": 6,
+  "failCount": 0,
+  "rows": [
+    {
+      "fixture": "safe-authenticated-remote.json",
+      "expected": [],
+      "actual": [],
+      "status": "pass",
+      "exitCode": 0,
+      "findingCount": 0
+    },
+    {
+      "fixture": "safe-local-scoped.json",
+      "expected": [],
+      "actual": [],
+      "status": "pass",
+      "exitCode": 0,
+      "findingCount": 0
+    },
+    {
+      "fixture": "unsafe-broad-scope.json",
+      "expected": [
+        "MCP-002"
+      ],
+      "actual": [
+        "MCP-002"
+      ],
+      "status": "pass",
+      "exitCode": 2,
+      "findingCount": 1
+    },
+    {
+      "fixture": "unsafe-hardcoded-secret.json",
+      "expected": [
+        "MCP-005"
+      ],
+      "actual": [
+        "MCP-005"
+      ],
+      "status": "pass",
+      "exitCode": 2,
+      "findingCount": 1
+    },
+    {
+      "fixture": "unsafe-raw-http-ip.json",
+      "expected": [
+        "MCP-001",
+        "MCP-003",
+        "MCP-006",
+        "MCP-007"
+      ],
+      "actual": [
+        "MCP-001",
+        "MCP-003",
+        "MCP-006",
+        "MCP-007"
+      ],
+      "status": "pass",
+      "exitCode": 3,
+      "findingCount": 4
+    },
+    {
+      "fixture": "unsafe-tool-poisoning.json",
+      "expected": [
+        "MCP-004"
+      ],
+      "actual": [
+        "MCP-004"
+      ],
+      "status": "pass",
+      "exitCode": 1,
+      "findingCount": 1
+    }
+  ]
+}

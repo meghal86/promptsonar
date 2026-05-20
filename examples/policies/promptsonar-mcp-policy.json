@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "2026-05-20",
+  "name": "enterprise-mcp-baseline",
+  "description": "Review baseline for PromptSonar MCP audit findings before approving Claude/Cursor/local MCP configs.",
+  "severityGates": {
+    "critical": "block",
+    "high": "block",
+    "medium": "review",
+    "low": "log"
+  },
+  "requiredActions": {
+    "MCP-001": "Block unencrypted, raw-IP, or unsafe local endpoints until the publisher, transport, and auth model are documented.",
+    "MCP-002": "Require least-privilege scoping for filesystem, shell, admin, and network capabilities.",
+    "MCP-003": "Require explicit authentication indicators for remote MCP servers.",
+    "MCP-004": "Manually review tool descriptions containing directive-like or prompt-injection text.",
+    "MCP-005": "Remove hardcoded secrets, rotate exposed credentials, and use managed environment variables.",
+    "MCP-006": "Document domain ownership and trust rationale before approving unknown remote domains.",
+    "MCP-007": "Normalize legacy or malformed configs before production use."
+  },
+  "approvedRemoteDomains": [
+    "api.github.com",
+    "api.openai.com"
+  ],
+  "evidenceRequired": [
+    "PromptSonar JSON or SARIF output",
+    "Reviewer name and approval date",
+    "Rationale for every accepted medium or low finding",
+    "Credential rotation ticket for every MCP-005 finding"
+  ]
+}

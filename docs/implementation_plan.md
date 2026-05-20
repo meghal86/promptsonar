@@ -27,26 +27,26 @@ npx @promptsonar/cli audit-mcp
 
 Objective: make the repository trustworthy before public launch.
 
-- [ ] Fix production build failures across CLI, core, dashboard, VS Code extension, and GitHub Action.
-- [ ] Remove or ignore generated artifacts: `dist`, `coverage`, `.next`, `*.vsix`, virtualenvs, local scratch outputs, and unrelated project folders.
-- [ ] Align package versions and CLI runtime version.
-- [ ] Make README first-screen conversion strong: problem, install, 30-second demo, local-first trust claim, screenshots.
-- [ ] Replace unsupported claims with verified wording. Do not market mock-only tests as production semantic drift detection.
-- [ ] Add a public `ADOPTION.md` evidence log template for stars, downloads, installs, mentions, testimonials, and enterprise pilots.
+- [x] Fix production build failures across CLI, core, dashboard, VS Code extension, and GitHub Action.
+- [x] Remove or ignore generated artifacts: `dist`, `coverage`, `.next`, `*.vsix`, virtualenvs, local scratch outputs, and unrelated project folders.
+- [x] Align package versions and CLI runtime version.
+- [x] Make README first-screen conversion strong: problem, install, 30-second demo, local-first trust claim, screenshots.
+- [x] Replace unsupported claims with verified wording. Do not market mock-only tests as production semantic drift detection.
+- [x] Add a public `ADOPTION.md` evidence log template for stars, downloads, installs, mentions, testimonials, and enterprise pilots.
 
 ## Sprint 1 - MCP Security Wedge
 
 Objective: ship the feature most likely to get GitHub stars and security-community attention.
 
-- [ ] Add `promptsonar audit-mcp [path]`.
-- [ ] Auto-discover:
+- [x] Add `promptsonar audit-mcp [path]`.
+- [x] Auto-discover:
   1. `~/Library/Application Support/Claude/claude_desktop_config.json`
   2. `~/.config/claude/claude_desktop_config.json`
   3. `%APPDATA%/Claude/claude_desktop_config.json`
   4. `./claude_desktop_config.json`
   5. `./.cursor/mcp.json`
   6. `./mcp.json`
-- [ ] Implement MCP rules:
+- [x] Implement MCP rules:
   - `MCP-001` critical: unencrypted HTTP or exposed unauthenticated local/network server.
   - `MCP-002` high: over-broad filesystem, shell, admin, or network scope.
   - `MCP-003` high: remote server missing authentication indicators.
@@ -54,31 +54,31 @@ Objective: ship the feature most likely to get GitHub stars and security-communi
   - `MCP-005` high: hardcoded secrets in args, env, headers, or URLs.
   - `MCP-006` medium: unknown remote domain requiring review.
   - `MCP-007` low: legacy or malformed config shape.
-- [ ] Output terminal, JSON, and SARIF.
-- [ ] Add tests with intentionally vulnerable and safe MCP configs.
-- [ ] Add README section mapping findings to OWASP MCP Top 10 and OWASP LLM Top 10.
+- [x] Output terminal, JSON, and SARIF.
+- [x] Add tests with intentionally vulnerable and safe MCP configs.
+- [x] Add README section mapping findings to OWASP MCP Top 10 and OWASP LLM Top 10.
 
 ## Sprint 2 - Enterprise Proof
 
 Objective: make adoption easy for security teams.
 
-- [ ] GitHub Action path with SARIF upload examples.
-- [ ] CI templates for GitHub Actions, GitLab, and pre-commit.
-- [ ] Policy file examples for org-level controls.
-- [ ] Evidence report artifact: JSON/SARIF/HTML with stable rule IDs and remediation.
-- [ ] Anonymized enterprise pilot package: install guide, 15-minute rollout checklist, feedback form.
+- [x] GitHub Action path with SARIF upload examples.
+- [x] CI templates for GitHub Actions, GitLab, and pre-commit.
+- [x] Policy file examples for org-level controls.
+- [x] Evidence report artifact: JSON/SARIF/Markdown with stable rule IDs and remediation.
+- [x] Anonymized enterprise pilot package: install guide, 15-minute rollout checklist, feedback form.
 - [ ] Collect permissioned testimonials or anonymized proof from design partners.
 
 ## Sprint 3 - Public Acclaim Engine
 
 Objective: turn technical work into third-party recognition.
 
-- [ ] Publish technical article: "MCP config is the new AI supply-chain attack surface."
-- [ ] Publish benchmark results with reproducible fixtures and false-positive notes.
-- [ ] Submit to Hacker News as a technical Show HN, not a marketing launch.
-- [ ] Submit to Product Hunt only after README, demo, and install path are polished.
-- [ ] Pitch security newsletters and AI engineering newsletters with concrete examples.
-- [ ] Apply to speak at AI security, AppSec, and developer tooling meetups.
+- [x] Publish technical article: "MCP config is the new AI supply-chain attack surface."
+- [x] Publish benchmark results with reproducible fixtures and false-positive notes.
+- [x] Submit to Hacker News as a technical Show HN, not a marketing launch.
+- [x] Prepare Product Hunt assets after README, demo, and install path are polished.
+- [x] Prepare security newsletter and AI engineering newsletter pitches with concrete examples.
+- [x] Prepare talk proposal for AI security, AppSec, and developer tooling meetups.
 - [ ] Contribute findings/rules back to OWASP GenAI/MCP communities where appropriate.
 
 ## Sprint 4 - Dashboard and Commercial Layer

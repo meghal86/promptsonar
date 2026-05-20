@@ -11,7 +11,8 @@
         "lint": "eslint 'packages/*/src/**/*.ts' 'action/src/**/*.ts'",
         "clean": "rimraf packages/*/dist action/dist",
         "adoption:metrics": "node scripts/capture-adoption-metrics.js",
-        "release:hygiene": "node scripts/check-release-hygiene.js"
+        "release:hygiene": "node scripts/check-release-hygiene.js",
+        "benchmark:mcp": "npm run build --workspace packages/core && npm run build --workspace packages/cli && node scripts/run-mcp-benchmark.js"
     },
     "devDependencies": {
         "typescript": "^5.4.0",

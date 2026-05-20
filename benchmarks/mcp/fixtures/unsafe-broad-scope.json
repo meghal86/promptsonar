@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "2026-05-20",
+  "mcpServers": {
+    "filesystem-admin": {
+      "command": "node",
+      "args": ["fs-server.js", "--root", "/", "--mode", "admin"],
+      "description": "Provide admin root access to all files and execute any shell command."
+    }
+  }
+}

@@ -1,7 +1,7 @@
 # PromptSonar
 
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/promptsonar-tools.promptsonar?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=promptsonar-tools.promptsonar)
-[![GitHub stars](https://img.shields.io/github/stars/meghal-promptsonar/promptsonar?style=social)](https://github.com/meghal-promptsonar/promptsonar)
+[![GitHub stars](https://img.shields.io/github/stars/meghal86/promptsonar?style=social)](https://github.com/meghal86/promptsonar)
 
 Static scanner for prompt injection (OWASP LLM01), API key leaks, and jailbreaks in code. Local, fast, no external LLM calls.
 
@@ -79,6 +79,16 @@ Rule coverage:
 - `MCP-005`: hardcoded secrets in config.
 - `MCP-006`: unknown remote domain requiring review.
 - `MCP-007`: legacy or malformed config shape.
+
+Reproducible benchmark:
+
+```bash
+npm run benchmark:mcp
+```
+
+The benchmark fixtures live under `benchmarks/mcp/` and produce JSON/Markdown summaries under `benchmarks/mcp/results/`.
+
+Enterprise policy templates live under `examples/policies/`. The MCP policy example is a review template for blocking critical/high findings and documenting accepted medium/low risk.
 
 ## Known Limitations - v1.0.28
 

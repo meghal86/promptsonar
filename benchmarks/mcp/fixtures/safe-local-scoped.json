@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "2026-05-20",
+  "mcpServers": {
+    "docs-search": {
+      "command": "node",
+      "args": ["server.js", "--root", "./docs", "--read-only"],
+      "description": "Read documentation files from the scoped docs directory."
+    }
+  }
+}
