@@ -9,7 +9,7 @@ import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './form
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult } from '@promptsonar/core';
 import { runPromptTests } from './tester';
 
-const VERSION = '1.0.28';
+const VERSION = '1.1.0';
 
 const program = new Command();
 

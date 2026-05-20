@@ -47,7 +47,7 @@ promptsonar scan tests/validation/ultimate_injection_test.js
 promptsonar scan . --json > report.json
 ```
 
-## Known Limitations - v1.0.28
+## Known Limitations - v1.1.0
 
 **Static analysis constraints (shared by Snyk, SonarQube, ESLint):**
 

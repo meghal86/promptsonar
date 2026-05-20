@@ -90,7 +90,7 @@ The benchmark fixtures live under `benchmarks/mcp/` and produce JSON/Markdown su
 
 Enterprise policy templates live under `examples/policies/`. The MCP policy example is a review template for blocking critical/high findings and documenting accepted medium/low risk.
 
-## Known Limitations - v1.0.28
+## Known Limitations - v1.1.0
 
 **Static analysis constraints (shared by Snyk, SonarQube, ESLint):**
 

@@ -1,6 +1,6 @@
 # PromptSonar MCP Benchmark Summary
 
-Generated: 2026-05-20T23:01:23.705Z
+Generated: 2026-05-20T23:09:31.899Z
 
 Fixtures: 6
 Passed: 6

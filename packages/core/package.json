@@ -1,6 +1,6 @@
 {
   "name": "@promptsonar/core",
-  "version": "1.0.28",
+  "version": "1.1.0",
   "description": "Core engine for PromptSonar — Static security scanner for LLM prompts",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
