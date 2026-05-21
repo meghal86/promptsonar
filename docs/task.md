@@ -26,7 +26,7 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
   - [x] Publish `@promptsonar/core@1.1.0` to npm.
   - [x] Publish `@promptsonar/cli@1.1.0` to npm.
   - [x] Verify `npx @promptsonar/cli@latest --version`.
-  - [ ] Publish `promptsonar-tools.promptsonar@1.1.0` to VS Code Marketplace.
+  - [x] Publish `promptsonar-tools.promptsonar@1.1.0` to VS Code Marketplace.
 - [x] Credibility polish.
   - [x] Add `ADOPTION.md` evidence log.
   - [x] Update README with 30-second demo.
