@@ -38,7 +38,8 @@ Track public evidence here for open-source adoption, enterprise use, and field r
 | 2026-05-20 | v1.0.28 | npm publish verified | `npm view @promptsonar/cli version` and `npx @promptsonar/cli --version` both returned `1.0.28` |
 | 2026-05-20 | v1.0.28 | MCP benchmark baseline | `npm run benchmark:mcp` passed 6/6 synthetic MCP fixtures. Evidence: `benchmarks/mcp/results/2026-05-20-mcp-benchmark.md` and `.json`. |
 | TBD | v1.1.0 | Release notes draft prepared | Draft: `docs/release/v1.1.0-mcp-audit.md`. |
-| TBD | v1.1.0 | npm and VS Code publish prepared | Publish blocked on refreshed npm login and VS Code Marketplace PAT. Runbook: `docs/release/publish-1.1.0.md`. |
+| 2026-05-21 | v1.1.0 | npm publish verified | `@promptsonar/core` and `@promptsonar/cli` latest are `1.1.0`; `npx @promptsonar/cli@latest --version` returned `1.1.0`. |
+| TBD | v1.1.0 | VS Code publish prepared | Publish blocked on refreshed VS Code Marketplace PAT. Runbook: `docs/release/publish-1.1.0.md`. |
 | TBD | v1.1.0 | MCP audit launch | Release notes pending |
 
 ## Community / Standards Outreach
