@@ -12,6 +12,7 @@
         "clean": "rimraf packages/*/dist action/dist",
         "adoption:metrics": "node scripts/capture-adoption-metrics.js",
         "release:hygiene": "node scripts/check-release-hygiene.js",
+        "smoke:features": "npm run build --workspace packages/core && npm run build --workspace packages/cli && node scripts/run-feature-smoke.js",
         "benchmark:mcp": "npm run build --workspace packages/core && npm run build --workspace packages/cli && node scripts/run-mcp-benchmark.js"
     },
     "devDependencies": {

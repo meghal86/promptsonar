@@ -97,6 +97,8 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
   - [x] Save screenshots for all external mentions under `/evidence/`.
 - [x] Update `ADOPTION.md` with first metrics snapshot after launch.
 - [x] Draft v1.1.0 MCP audit release notes.
+- [x] Add full feature smoke test command for launch verification.
+- [x] Reduce repo-scan demo noise by excluding generated/test/docs artifacts by default.
 - [ ] Add agent-skill fixtures and launch examples.
 
 ## Sprint 4 - Optional Dashboard

@@ -75,6 +75,8 @@ Objective: make adoption easy for security teams.
 Objective: turn technical work into third-party recognition.
 
 - [x] Add first-class scanning for agent instruction files: `SKILL.md`, `skills.md`, `AGENTS.md`, `agent.md`.
+- [x] Add a full feature smoke test command covering CLI scan, MCP audit, reports, SBOM, exports, contracts, eval, compression, and agent instruction scanning.
+- [x] Harden default scan exclusions so public repo demos avoid generated bundles, docs, tests, benchmarks, evidence, and lockfiles.
 - [x] Publish technical article: "MCP config is the new AI supply-chain attack surface."
 - [x] Publish benchmark results with reproducible fixtures and false-positive notes.
 - [x] Submit to Hacker News as a technical Show HN, not a marketing launch.

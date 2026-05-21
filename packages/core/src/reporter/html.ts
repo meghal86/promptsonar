@@ -7,10 +7,19 @@ import { RuleResult } from '../rules';
 export function generateHtmlReport(result: RuleResult, promptText: string, roiHtml: string = ''): string {
     const scoreColor = result.score >= 85 ? 'text-emerald-400' : (result.score >= 70 ? 'text-amber-400' : 'text-rose-500');
     const scoreBg = result.score >= 85 ? 'bg-emerald-400/10 border-emerald-400/20' : (result.score >= 70 ? 'bg-amber-400/10 border-amber-400/20' : 'bg-rose-500/10 border-rose-500/20');
+    const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    const displayLimit = 200;
+    const sortedFindings = [...result.findings].sort((a, b) => {
+        const severityDelta = (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9);
+        if (severityDelta !== 0) return severityDelta;
+        return a.rule_id.localeCompare(b.rule_id);
+    });
+    const displayedFindings = sortedFindings.slice(0, displayLimit);
+    const omittedCount = Math.max(0, result.findings.length - displayedFindings.length);
 
     let vulnerabilitiesHtml = '';
-    if (result.findings.length > 0) {
-        vulnerabilitiesHtml = result.findings.map(f => {
+    if (displayedFindings.length > 0) {
+        vulnerabilitiesHtml = displayedFindings.map(f => {
             const badgeColor = f.severity === 'critical' ? 'bg-rose-500 text-white' :
                 f.severity === 'high' ? 'bg-orange-500 text-white' :
                     f.severity === 'medium' ? 'bg-amber-500 text-white' : 'bg-blue-500 text-white';
@@ -23,7 +32,7 @@ export function generateHtmlReport(result: RuleResult, promptText: string, roiHt
                             <span class="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider ${badgeColor}">${f.severity}</span>
                             <span class="text-slate-300 font-medium">${f.category.replace('_', ' ').toUpperCase()}</span>
                             <span class="text-slate-500 text-sm font-mono">${f.rule_id}</span>
-                            ${(f as any).file ? `<span class="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono ml-2 border border-indigo-500/30">${(f as any).file}</span>` : ''}
+                            ${(f as any).file ? `<span class="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono ml-2 border border-indigo-500/30">${(f as any).file}${(f as any).line ? `:${(f as any).line}` : ''}</span>` : ''}
                         </div>
                         <p class="text-slate-300 mb-2">${f.explanation}</p>
                         <p class="text-emerald-400/90 text-sm"><span class="font-semibold text-emerald-500">Fix:</span> ${f.suggested_fix}</p>
@@ -31,6 +40,12 @@ export function generateHtmlReport(result: RuleResult, promptText: string, roiHt
                 </div>
             </div>`;
         }).join('');
+        if (omittedCount > 0) {
+            vulnerabilitiesHtml += `
+            <div class="p-4 bg-slate-900/70 text-slate-400 text-sm">
+                Showing the top ${displayLimit} findings by severity. ${omittedCount} lower-priority findings were omitted from this visual report; use JSON or SARIF output for the full machine-readable result.
+            </div>`;
+        }
     } else {
         vulnerabilitiesHtml = `<div class="p-8 text-center text-slate-400">No vulnerabilities or issues found. This prompt is pristine!</div>`;
     }
@@ -91,7 +106,7 @@ export function generateHtmlReport(result: RuleResult, promptText: string, roiHt
         <!-- Findigns List -->
         <div class="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 shadow-xl">
             <div class="bg-slate-800/80 px-4 py-3 border-b border-slate-700">
-                <h3 class="font-semibold text-slate-200">Identified Findings (${result.findings.length})</h3>
+                <h3 class="font-semibold text-slate-200">Identified Findings (${result.findings.length}${omittedCount > 0 ? `, showing top ${displayLimit}` : ''})</h3>
             </div>
             <div class="divide-y divide-slate-700/50">
                 ${vulnerabilitiesHtml}

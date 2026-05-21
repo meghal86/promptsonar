@@ -69,9 +69,10 @@ program
                     allFindings.push(...res.findings.map(f => ({
                         rule_id: f.rule_id,
                         severity: f.severity,
-                        category: (f as any).category || 'security',
+                        category: f.category || 'security',
                         explanation: f.message,
                         suggested_fix: f.fix,
+                        line: f.line,
                         file: basename
                     })));
                     totalScore += res.overall_score;

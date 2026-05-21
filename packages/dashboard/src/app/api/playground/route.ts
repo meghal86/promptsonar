@@ -14,13 +14,14 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { promptText, contractYaml, variables, runCrossModel, models } = body;
     let orgId = body.orgId;
+    const localSandbox = !orgId;
 
     if (!promptText || typeof promptText !== 'string') {
       return NextResponse.json({ error: 'promptText must be a valid string' }, { status: 400 });
     }
 
     // 1. Resolve active Org ID
-    if (!orgId) {
+    if (!localSandbox && !orgId) {
       // Fetch or insert a default organization to guarantee smooth operation
       const { data: firstOrg, error: fetchError } = await supabase
         .from('orgs')
@@ -47,13 +48,15 @@ export async function POST(request: Request) {
     }
 
     // 2. Enforce Scan limit check (Free limit: 50 scans/mo max)
-    const scanLimit = await checkUsageLimit(orgId, 'scan');
-    if (!scanLimit.allowed) {
-      return NextResponse.json({ error: scanLimit.reason }, { status: 403 });
+    if (!localSandbox) {
+      const scanLimit = await checkUsageLimit(orgId, 'scan');
+      if (!scanLimit.allowed) {
+        return NextResponse.json({ error: scanLimit.reason }, { status: 403 });
+      }
     }
 
     // 3. Optional: Enforce Policy/Contract limits (Disabled on Free plan)
-    if (contractYaml && contractYaml.trim().length > 0) {
+    if (!localSandbox && contractYaml && contractYaml.trim().length > 0) {
       const policyLimit = await checkUsageLimit(orgId, 'policy');
       if (!policyLimit.allowed) {
         return NextResponse.json({ error: policyLimit.reason }, { status: 403 });
@@ -103,7 +106,9 @@ export async function POST(request: Request) {
     const roi = calculateROI(compression.originalTokens, compression.compressedTokens);
 
     // 8. Increment monthly scan usage count in DB
-    await incrementScanUsage(orgId);
+    if (!localSandbox) {
+      await incrementScanUsage(orgId);
+    }
 
     return NextResponse.json({
       score: evaluation.score,
@@ -112,7 +117,8 @@ export async function POST(request: Request) {
       contractResult,
       crossModelResult,
       compression,
-      roi
+      roi,
+      mode: localSandbox ? 'local-sandbox' : 'tracked'
     });
   } catch (err: any) {
     console.error("Playground API error:", err);
