@@ -2,7 +2,13 @@
 .vscode-test/**
 src/**
 tests/**
-node_modules/**/node_modules/**
+node_modules/**
+../core/node_modules/**
+../core/**/*.tgz
+../core/coverage/**
+../core/dist/**
+../core/*.tsbuildinfo
+packages/**
 node_modules/.bin/**
 packages/**/node_modules/.bin/**
 *.ts

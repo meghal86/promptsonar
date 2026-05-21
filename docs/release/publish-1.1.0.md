@@ -38,10 +38,12 @@ Run after refreshing the VS Code Marketplace PAT:
 ```bash
 cd packages/vscode-extension
 npx vsce login promptsonar-tools
-npx vsce publish --packagePath promptsonar-1.1.0.vsix
+npm run publish:marketplace
 ```
 
 When `vsce login` says `Publisher 'promptsonar-tools' is already known` and asks whether to overwrite the PAT, answer `y`. Answering `n` keeps the expired token and publish will fail.
+
+Do not run plain `npx vsce publish` from the extension folder. In this monorepo it can try to auto-detect and package dependency folders, causing duplicate case-insensitive paths from `node_modules`. Use the prepared VSIX package path with `--no-dependencies`, which is what `npm run publish:marketplace` does.
 
 Verify Marketplace:
 

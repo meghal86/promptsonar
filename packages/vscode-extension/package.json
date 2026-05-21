@@ -99,6 +99,7 @@
         "compile": "node esbuild.js --production",
         "watch": "node esbuild.js --watch",
         "package": "vsce package --no-dependencies",
+        "publish:marketplace": "vsce publish --no-dependencies --packagePath promptsonar-1.1.0.vsix",
         "pretest": "npm run compile"
     },
     "dependencies": {
