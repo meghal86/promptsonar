@@ -7,6 +7,7 @@ Track public evidence here for open-source adoption, enterprise use, and field r
 | Date | GitHub Stars | Forks | npm Weekly Downloads | VS Code Installs | Notes |
 |---|---:|---:|---:|---:|---|
 | 2026-05-20 | 4 | 0 | 5 | 25 | Baseline before MCP audit launch; captured from GitHub, npm downloads API, and VS Code Marketplace API |
+| 2026-05-21 | 4 | 0 | 131 | 25 | Post-launch snapshot after `v1.1.0` npm and VS Code release; npm last-week window `2026-05-14` through `2026-05-20` |
 
 ## Enterprise / Team Usage
 
@@ -40,7 +41,7 @@ Track public evidence here for open-source adoption, enterprise use, and field r
 | TBD | v1.1.0 | Release notes draft prepared | Draft: `docs/release/v1.1.0-mcp-audit.md`. |
 | 2026-05-21 | v1.1.0 | npm publish verified | `@promptsonar/core` and `@promptsonar/cli` latest are `1.1.0`; `npx @promptsonar/cli@latest --version` returned `1.1.0`. |
 | 2026-05-21 | v1.1.0 | VS Code publish verified | Marketplace latest is `1.1.0`; listing last updated `2026-05-21T18:27:49.257Z`. |
-| TBD | v1.1.0 | MCP audit launch | Release notes pending |
+| 2026-05-21 | v1.1.0 | MCP audit launch | Public release state captured with fresh GitHub, npm, and VS Code screenshots under `/evidence/2026-05-21_*`. |
 
 ## Community / Standards Outreach
 
@@ -53,9 +54,9 @@ Track public evidence here for open-source adoption, enterprise use, and field r
 
 | Property | URL | Screenshot Saved? | Notes |
 |---|---|---|---|
-| GitHub | https://github.com/meghal86/promptsonar | Yes | Baseline repository before MCP audit launch. Screenshot: `evidence/2026-05-20_github_promptsonar_baseline.png`. |
-| npm | https://www.npmjs.com/package/@promptsonar/cli | Yes | Published CLI package. Screenshot: `evidence/2026-05-20_npm_promptsonar_cli_baseline.png`. |
-| VS Code Marketplace | https://marketplace.visualstudio.com/items?itemName=promptsonar-tools.promptsonar | Yes | Published extension listing. Screenshot: `evidence/2026-05-20_vscode_promptsonar_baseline.png`. |
+| GitHub | https://github.com/meghal86/promptsonar | Yes | Baseline and release snapshots saved. Latest screenshot: `evidence/2026-05-21_github_promptsonar_release_snapshot.png`. |
+| npm | https://www.npmjs.com/package/@promptsonar/cli | Yes | Published CLI package. Latest screenshot: `evidence/2026-05-21_npm_promptsonar_cli_1.1.0.png`. |
+| VS Code Marketplace | https://marketplace.visualstudio.com/items?itemName=promptsonar-tools.promptsonar | Yes | Published extension listing. Latest screenshot: `evidence/2026-05-21_vscode_promptsonar_1.1.0.png`. |
 
 ## EB-1A-Relevant Evidence Checklist
 

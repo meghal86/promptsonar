@@ -18,7 +18,7 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
 - [x] Verify npm publish for `@promptsonar/cli`.
   - [x] Check published version number matches `packages/cli/package.json`.
   - [x] Confirm clean install and runtime version: `npx @promptsonar/cli --version`.
-- [/] Publish v1.1.0 MCP audit release.
+- [x] Publish v1.1.0 MCP audit release.
   - [x] Bump local packages to `1.1.0`.
   - [x] Build CLI, core, dashboard, action, and VS Code extension.
   - [x] Create VS Code Marketplace package artifact.
@@ -27,6 +27,7 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
   - [x] Publish `@promptsonar/cli@1.1.0` to npm.
   - [x] Verify `npx @promptsonar/cli@latest --version`.
   - [x] Publish `promptsonar-tools.promptsonar@1.1.0` to VS Code Marketplace.
+  - [x] Capture post-launch GitHub, npm, and VS Code evidence screenshots.
 - [x] Credibility polish.
   - [x] Add `ADOPTION.md` evidence log.
   - [x] Update README with 30-second demo.
