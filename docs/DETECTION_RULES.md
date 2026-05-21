@@ -71,6 +71,7 @@ Each detected prompt is classified by a `sourceType`:
 | Source Type | Strategy | Description |
 |---|---|---|
 | `full_file` | Extension match | Files with `.prompt`, `.ai`, `.chat` extensions are treated as prompts in their entirety |
+| `markdown_instruction` | Filename match | High-signal markdown instruction files such as `SKILL.md`, `skills.md`, `AGENTS.md`, and `agent.md` are treated as full prompt documents when they contain prompt keywords |
 | `config_file` | Regex + keyword scan | JSON/YAML/GitHub Actions configs are scanned for prompt-related keys (`system`, `user`, `messages`, `prompt`, `instruction`) |
 | `string_literal` | Tree-sitter AST query | String/template literals containing prompt keywords (≥20 chars, contains spaces) |
 | `named_variable` | Tree-sitter AST query | Strings assigned to variables whose names match `/[Pp]rompt\|[Ii]nstruction\|[Mm]essage/` (TypeScript/Python only) |

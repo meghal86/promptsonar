@@ -74,6 +74,7 @@ Objective: make adoption easy for security teams.
 
 Objective: turn technical work into third-party recognition.
 
+- [x] Add first-class scanning for agent instruction files: `SKILL.md`, `skills.md`, `AGENTS.md`, `agent.md`.
 - [x] Publish technical article: "MCP config is the new AI supply-chain attack surface."
 - [x] Publish benchmark results with reproducible fixtures and false-positive notes.
 - [x] Submit to Hacker News as a technical Show HN, not a marketing launch.
@@ -82,6 +83,15 @@ Objective: turn technical work into third-party recognition.
 - [x] Prepare talk proposal for AI security, AppSec, and developer tooling meetups.
 - [x] Draft OWASP GenAI/MCP contribution package.
 - [ ] Submit findings/rules back to OWASP GenAI/MCP communities where appropriate.
+
+## Sprint 3.5 - Agent Ecosystem Virality Wedge
+
+Objective: expand beyond prompts-in-code into agent instruction repos without turning PromptSonar into a generic markdown scanner.
+
+- [x] Scan high-signal instruction files: `SKILL.md`, `skills.md`, `AGENTS.md`, `agent.md`.
+- [ ] Add dedicated fixtures for malicious agent/skill instructions.
+- [ ] Add README examples showing PromptSonar scanning agent skills and repository-level instructions.
+- [ ] Package a launch post around "scan your agent instructions before publishing a skill".
 
 ## Sprint 4 - Dashboard and Commercial Layer
 

@@ -71,6 +71,12 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
 
 ## Sprint 3 - Public Acclaim
 
+- [x] Add first-class scanning for agent instruction markdown.
+  - [x] Detect `SKILL.md`.
+  - [x] Detect `skills.md`.
+  - [x] Detect `AGENTS.md`.
+  - [x] Detect `agent.md`.
+  - [x] Add parser test coverage.
 - [x] Write technical launch article.
 - [x] Publish benchmark results with reproducible fixtures and false-positive notes.
 - [/] Submit MCP security paper to arXiv (`cs.SE`).
@@ -91,6 +97,7 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
   - [x] Save screenshots for all external mentions under `/evidence/`.
 - [x] Update `ADOPTION.md` with first metrics snapshot after launch.
 - [x] Draft v1.1.0 MCP audit release notes.
+- [ ] Add agent-skill fixtures and launch examples.
 
 ## Sprint 4 - Optional Dashboard
 

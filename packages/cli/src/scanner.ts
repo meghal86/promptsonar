@@ -89,6 +89,13 @@ const SUPPORTED_EXTENSIONS = [
     '.json', '.yml', '.yaml',
 ];
 
+const SUPPORTED_MARKDOWN_PROMPT_FILES = new Set([
+    'skill.md',
+    'skills.md',
+    'agent.md',
+    'agents.md',
+]);
+
 function getLanguageForExt(ext: string): string {
     switch (ext) {
         case '.py': return 'python';
@@ -131,6 +138,17 @@ export async function scanFiles(targetPath: string, options: {
             absolute: true,
             ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**'],
         });
+
+        const markdownPromptFiles = await fg(['**/*.md'], {
+            cwd: resolvedPath,
+            absolute: true,
+            ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**'],
+        });
+        files.push(
+            ...markdownPromptFiles.filter(filePath =>
+                SUPPORTED_MARKDOWN_PROMPT_FILES.has(path.basename(filePath).toLowerCase())
+            )
+        );
     } else {
         files = [resolvedPath];
     }

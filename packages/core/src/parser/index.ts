@@ -9,6 +9,7 @@ export * from './types';
 
 const FULL_FILE_EXTENSIONS = ['.prompt', '.ai', '.chat'];
 const CONFIG_FILE_EXTENSIONS = ['.json', '.yml', '.yaml'];
+const MARKDOWN_INSTRUCTION_FILES = new Set(['skill.md', 'skills.md', 'agent.md', 'agents.md']);
 
 // Module-level cache for WASM languages
 const LANGUAGE_CACHE: Record<string, any> = {};
@@ -152,6 +153,7 @@ function containsPromptKeyword(text: string): boolean {
 export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[]> {
     const { filePath, content, language } = options;
     const ext = path.extname(filePath).toLowerCase();
+    const baseName = path.basename(filePath).toLowerCase();
     const results: DetectedPrompt[] = [];
 
     // Rule 4: Full file extensions
@@ -162,6 +164,16 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
             endLine: content.split('\n').length,
             text: content,
             sourceType: "full_file"
+        }];
+    }
+
+    if (ext === '.md' && MARKDOWN_INSTRUCTION_FILES.has(baseName) && containsPromptKeyword(content)) {
+        return [{
+            filePath,
+            startLine: 1,
+            endLine: content.split('\n').length,
+            text: content,
+            sourceType: "markdown_instruction"
         }];
     }
 
