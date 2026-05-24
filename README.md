@@ -71,7 +71,7 @@ The playground makes the value visible immediately: the vulnerable sample fails 
 
 Turn a scan into a shareable report card with score, OWASP labels, jailbreak verdict, before/after hardening, and a GitHub badge.
 
-![PromptSonar security report card showing a protected prompt score](docs/assets/report-card.png)
+![PromptSonar security report card showing a protected prompt score](docs/assets/report-card-clean.png)
 
 ### VS Code Marketplace
 
