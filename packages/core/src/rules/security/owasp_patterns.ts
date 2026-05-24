@@ -2,74 +2,84 @@ import { RuleInput, Finding } from '../types';
 
 const INJECTION_SOURCES: RegExp[] = [
     // Classic overrides
-    /ignore\s+(previous|above|prior|all|earlier)\s+(instructions|prompts|rules|commands)/i,
-    /disregard\s+(previous|above|all)\s+(instructions|prompts)/i,
-    /forget\s+(all|previous)\s+(instructions|rules)/i,
-    /new\s+(instructions|task|role|persona)/i,
+    /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+    /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+    /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+    /new\s+(?:instructions|task|role|persona|query|command)/i,
 
     // Role-playing / persona switches
-    // Role-playing / persona switches
-    /you\s+are\s+now\s+(?:a|an|the)\s+(?:god|admin|hacker|unrestricted|developer)/i,
+    /you\s+are\s+now\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan|ai\s+without)/i,
     /(?:act\s+as|pretend\s+to\s+be)\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan)/i,
     /from\s+now\s+on\s+you\s+are/i,
     /role\s*:\s*(admin|developer|god|unrestricted|dan|do\s+anything\s+now)/i,
 
     // DAN & variants (very common jailbreaks)
-    /DAN\s*(?:\d+\.?\d*)?\s*(mode|persona|version)?/i,
+    /\bDAN\b\s*(?:\d+\.?\d*)?\s*(mode|persona|version)?/i,
     /do\s+anything\s+now/i,
     /(developer\s+mode|devmode)/i,
     /hypothetical\s+response/i,
     /unrestricted\s+(mode|access|persona)/i,
-    /ignore\s+(safety\s+|content\s+)?(guidelines|filters|limitations|restrictions)/i,
-    /no\s+(ethical\s+|safety\s+|content\s+)?(guidelines|filters|limitations|restrictions)/i,
+    /ignore\s+(?:safety\s+|content\s+)?(?:guidelines|filters|limitations|restrictions|rules)/i,
+    /no\s+(?:ethical\s+|safety\s+|content\s+)?(?:guidelines|filters|limitations|restrictions|rules)/i,
 
     // Output redirection / exfiltration
-    /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|api\s+key|secret|password)/i,
+    /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|api\s+key|secret|password|instructions)/i,
     /send\s+to\s+(email|http|url|server)/i,
     /exfiltrate|leak\s+(system\s+prompt|instructions)/i,
-    /<secret>|reveal\s+(system\s+prompt|instructions)/i,
+    /reveal\s+(system\s+prompt|instructions)/i,
 
     // Encoding / obfuscation attempts
     /(?:rot13|base64|hex|encoded|decode)\s+(?:text|string|prompt|instructions|output)/i,
-    /[^\x00-\x7F]{5,}/,
+    /[^\x00-\x7F]{10,}/,
 
     // Tool / privilege abuse
     /use\s+(tool|function|command)\s+without\s+permission/i,
     /bypass\s+guardrails|safety\s+controls/i,
     /delete_(all_)?users?/i
-]; // + can easily add 100+ more here
+];
 
 
 export function checkOwaspPatterns(input: RuleInput): Finding[] {
     const findings: Finding[] = [];
 
-    // 0. Pre-processing / Normalization (Base64 & Homoglyphs)
+    // 0. Pre-processing / Normalization 
     let normalizedText = input.text;
 
-    // Detect and decode Base64 chunks heuristically if they exist (min length 16)
-    const base64Regex = /([A-Za-z0-9+/=]{16,})/g;
-    normalizedText = normalizedText.replace(base64Regex, (match) => {
+    // A. Detect and decode Base64 chunks (including those with spaces/newlines)
+    // We look for candidate base64 strings and try to decode them.
+    const base64CandidateRegex = /([A-Za-z0-9+/=\s]{12,})/g;
+    normalizedText = normalizedText.replace(base64CandidateRegex, (match) => {
+        const cleanMatch = match.replace(/\s/g, '');
+        if (cleanMatch.length < 12) return match;
         try {
-            const decoded = Buffer.from(match, 'base64').toString('utf8');
-            if (/^[\x20-\x7E\r\n]+$/.test(decoded)) {
-                return match + ' (DECODED: ' + decoded + ') ';
+            const decoded = Buffer.from(cleanMatch, 'base64').toString('utf8');
+            // If it decodes to something mostly printable and has injection intent, keep it
+            if (/^[\x20-\x7E\r\n\t]+$/.test(decoded)) {
+                return match + ' [DECODED: ' + decoded + '] ';
             }
         } catch (e) { }
         return match;
     });
 
-    // Strip zero-width characters before matching (prevents evasion via literal unicode escapes or actual characters)
-    // Matches literal \u200B, \u200C, \u200D, \uFEFF or the actual characters
-    normalizedText = normalizedText.replace(/(\\u200[bcd]|\\ufeff|[\u200B-\u200D\uFEFF])/gi, '');
+    // B. Strip zero-width characters inside words, then space out other controls.
+    normalizedText = normalizedText
+        .replace(/(\\u200[bcd]|\\ufeff|[\u200B-\u200D\uFEFF])/gi, '')
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ');
 
-    // Homoglyph Normalization (Basic Cyrillic/Latin lookalikes mapped to ascii)
-    const homoglyphMap = {
-        'а': 'a', 'с': 'c', 'е': 'e', 'о': 'o', 'р': 'p', 'х': 'x', 'у': 'y', 'ɡ': 'g', 'ꮯ': 'c', 'і': 'i'
+    // C. Homoglyph Normalization (Expanded map including uppercase and common Cyrillic/Greek/Fullwidth)
+    const homoglyphMap: Record<string, string> = {
+        'а': 'a', 'b': 'b', 'с': 'c', 'ԁ': 'd', 'е': 'e', 'f': 'f', 'ɡ': 'g', 'һ': 'h', 'і': 'i', 'ј': 'j', 'к': 'k', 'ӏ': 'l', 'm': 'm', 'п': 'n', 'о': 'o', 'р': 'p', 'q': 'q', 'г': 'r', 'ѕ': 's', 'т': 't', 'υ': 'u', 'ѵ': 'v', 'ԝ': 'w', 'х': 'x', 'у': 'y', 'z': 'z',
+        'А': 'A', 'В': 'B', 'С': 'C', 'Ｄ': 'D', 'Е': 'E', 'Ｆ': 'F', 'Ｇ': 'G', 'Ｈ': 'H', 'І': 'I', 'Ｊ': 'J', 'Ｋ': 'K', 'Ｌ': 'L', 'Ｍ': 'M', 'Ｎ': 'N', 'Ｏ': 'O', 'Р': 'P', 'Ｑ': 'Q', 'Ｒ': 'R', 'Ｓ': 'S', 'Ｔ': 'T', 'Ｕ': 'U', 'Ｖ': 'V', 'Ｗ': 'W', 'Ｘ': 'X', 'Ｙ': 'Y', 'Ｚ': 'Z',
+        'ꮯ': 'c', 'ｏ': 'o'
     };
-    normalizedText = normalizedText.split('').map(char => homoglyphMap[char as keyof typeof homoglyphMap] || char).join('');
+    normalizedText = normalizedText.split('').map(char => homoglyphMap[char] || char).join('');
+
+    // D. Lowercase for pattern matching
+    const searchResult = normalizedText.toLowerCase();
+
     // 1. Single-pass evaluation checking each source explicitly
     for (const regex of INJECTION_SOURCES) {
-        if (regex.test(normalizedText)) {
+        if (regex.test(searchResult)) {
             findings.push({
                 rule_id: "sec_owasp_llm01_injection",
                 category: "security",
@@ -81,6 +91,7 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
         }
     }
 
+    // 2. Advanced Unicode Heuristics (on the original or normalized string)
     const mathHomoglyphPattern = new RegExp('[' + String.fromCodePoint(0x1D400) + '-' + String.fromCodePoint(0x1D7FF) + ']', 'u');
     if (mathHomoglyphPattern.test(normalizedText)) {
         findings.push({
@@ -105,8 +116,9 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
         });
     }
 
+    // Heuristic: If we still have many non-ascii characters and common injection words are present
     const nonAsciiCount = (normalizedText.match(/[^\x00-\x7F]/g) || []).length;
-    if (nonAsciiCount > 10 && /ignore|reveal|prompt|instruction/i.test(normalizedText)) {
+    if (nonAsciiCount > 10 && /ignore|reveal|prompt|instruction|system/i.test(normalizedText)) {
         findings.push({
             rule_id: "sec_unicode_injection_obfuscation",
             category: "security",

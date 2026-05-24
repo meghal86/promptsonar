@@ -14,7 +14,7 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 // @ts-ignore
-import { parseFile, evaluatePrompt } from 'core';
+import { parseFile, evaluatePrompt } from '@promptsonar/core';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
@@ -77,7 +77,14 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
                 // OWASP reference mapping
                 let owaspRef = '';
-                if (finding.rule_id.startsWith('sec_owasp_llm01') || finding.rule_id.startsWith('sec_unicode') || finding.rule_id === 'sec_unbounded_persona') owaspRef = 'OWASP LLM01 — Prompt Injection';
+                if (
+                    finding.rule_id.startsWith('sec_owasp_llm01') ||
+                    finding.rule_id.startsWith('sec_unicode') ||
+                    finding.rule_id === 'sec_unbounded_persona' ||
+                    finding.rule_id === 'sec_base64_encoded_payload' ||
+                    finding.rule_id === 'sec_homoglyph_evasion' ||
+                    finding.rule_id === 'sec_zero_width_injection'
+                ) owaspRef = 'OWASP LLM01 — Prompt Injection';
                 else if (finding.rule_id.startsWith('sec_owasp_llm02')) owaspRef = 'OWASP LLM02 — Sensitive Information Disclosure';
                 else if (finding.rule_id === 'sec_unbounded_access' || finding.rule_id === 'sec_rag_injection') owaspRef = 'OWASP LLM07 — Insecure Plugin Design';
 

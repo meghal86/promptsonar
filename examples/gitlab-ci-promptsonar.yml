@@ -1,0 +1,12 @@
+promptsonar:
+  image: node:20
+  stage: test
+  script:
+    - npx @promptsonar/cli scan . --json --output promptsonar-results.json --fail-on high
+    - npx @promptsonar/cli audit-mcp --json --output promptsonar-mcp.json
+  artifacts:
+    when: always
+    paths:
+      - promptsonar-results.json
+      - promptsonar-mcp.json
+    expire_in: 30 days

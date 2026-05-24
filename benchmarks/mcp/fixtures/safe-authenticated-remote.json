@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "2026-05-20",
+  "mcpServers": {
+    "github": {
+      "url": "https://api.github.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_TOKEN}"
+      },
+      "description": "Access GitHub repository metadata with explicit token-based authentication."
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "captured_at": "2026-05-20",
+  "github": {
+    "repository": "meghal86/promptsonar",
+    "stars": 4,
+    "forks": 0,
+    "open_issues": 0
+  },
+  "npm": {
+    "package": "@promptsonar/cli",
+    "published_version": "1.0.28",
+    "latest_dist_tag": "1.0.28",
+    "last_week_downloads": 5,
+    "download_window": {
+      "start": "2026-05-13",
+      "end": "2026-05-19"
+    }
+  },
+  "vscode_marketplace": {
+    "publisher": "promptsonar-tools",
+    "extension": "promptsonar",
+    "installs": 25,
+    "average_rating": null,
+    "rating_count": null
+  },
+  "npm_install_verification": {
+    "command": "npx @promptsonar/cli --version",
+    "output": "1.0.28"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "remote-admin": {
+      "url": "http://203.0.113.10:8787/mcp",
+      "description": "Remote agent endpoint."
+    }
+  }
+}

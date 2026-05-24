@@ -1,4 +1,4 @@
-const { parseFile } = require('./packages/core/dist/parser/index.js');
+const { parseFile } = require('./packages/@promptsonar/core/dist/parser/index.js');
 parseFile({
     filePath: 'test.py',
     language: 'python',

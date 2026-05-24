@@ -78,4 +78,23 @@ def build_system_prompt(user_id):
         expect(prompts.length).toBeGreaterThan(0);
         expect(prompts.some(p => p.text.length > 5)).toBe(true);
     });
+
+    it('should treat SKILL.md agent instruction files as prompt-bearing markdown', async () => {
+        const skillMarkdown = `# PromptSonar Review Skill
+
+You are an AI security reviewer.
+Analyze user-provided prompts and MCP configs for prompt injection, hardcoded secrets, and unsafe tool access.
+Always explain the risk, suggest a fix, and return the result in JSON.
+`;
+
+        const prompts = await parseFile({
+            filePath: 'SKILL.md',
+            content: skillMarkdown,
+            language: ''
+        });
+
+        expect(prompts).toHaveLength(1);
+        expect(prompts[0].sourceType).toBe('markdown_instruction');
+        expect(prompts[0].text).toContain('Analyze user-provided prompts');
+    });
 });

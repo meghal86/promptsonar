@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import fg from 'fast-glob';
-import { parseFile, evaluatePrompt, RuleResult, loadWaivers, getActiveWaivers, isFindingWaived, Waiver } from 'core';
-import { formatToSarif } from 'core/dist/formatter/sarif';
+import { parseFile, evaluatePrompt, RuleResult, loadWaivers, getActiveWaivers, isFindingWaived, Waiver } from '@promptsonar/core';
+import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
 export interface ScanResult {
     filePath: string;
@@ -15,6 +15,7 @@ export interface ScanResult {
 
 export interface ScanFinding {
     rule_id: string;
+    category: string;
     severity: string;
     line: number;
     column: number;
@@ -27,7 +28,14 @@ export interface ScanFinding {
 
 // Maps rule IDs to their OWASP references
 function getOwaspRef(ruleId: string): string {
-    if (ruleId.startsWith('sec_owasp_llm01') || ruleId.startsWith('sec_unicode') || ruleId === 'sec_unbounded_persona') return 'LLM01';
+    if (
+        ruleId.startsWith('sec_owasp_llm01') ||
+        ruleId.startsWith('sec_unicode') ||
+        ruleId === 'sec_unbounded_persona' ||
+        ruleId === 'sec_base64_encoded_payload' ||
+        ruleId === 'sec_homoglyph_evasion' ||
+        ruleId === 'sec_zero_width_injection'
+    ) return 'LLM01';
     if (ruleId.startsWith('sec_owasp_llm02')) return 'LLM02';
     if (ruleId === 'sec_unbounded_access' || ruleId === 'sec_rag_injection') return 'LLM07';
     return '';
@@ -89,6 +97,50 @@ const SUPPORTED_EXTENSIONS = [
     '.json', '.yml', '.yaml',
 ];
 
+const SUPPORTED_MARKDOWN_PROMPT_FILES = new Set([
+    'skill.md',
+    'skills.md',
+    'agent.md',
+    'agents.md',
+]);
+
+const DEFAULT_IGNORE_PATTERNS = [
+    '**/node_modules/**',
+    '**/dist/**',
+    '**/out/**',
+    '**/build/**',
+    '**/coverage/**',
+    '**/.next/**',
+    '**/.turbo/**',
+    '**/.cache/**',
+    '**/.git/**',
+    '**/.vscode-test/**',
+    '**/tests/**',
+    '**/test/**',
+    '**/__tests__/**',
+    '**/docs/**',
+    '**/evidence/**',
+    '**/benchmarks/**',
+    '**/examples/reports/**',
+    '**/Agentsabha-angigravity/**',
+    '**/custom-writer-skill/**',
+    '**/my-writer-agent/**',
+    '**/scratch/**',
+    '**/*.min.js',
+    '**/*.bundle.js',
+    '**/*.hot-update.js',
+    '**/package-lock.json',
+    '**/pnpm-lock.yaml',
+    '**/yarn.lock',
+    '**/dummy_test.*',
+    '**/generate_test.*',
+    '**/generate_tests.*',
+    '**/generate_dummies.*',
+    '**/debug_*',
+    '**/test_parser.*',
+    '**/test_parse.*',
+];
+
 function getLanguageForExt(ext: string): string {
     switch (ext) {
         case '.py': return 'python';
@@ -129,8 +181,20 @@ export async function scanFiles(targetPath: string, options: {
         files = await fg(patterns, {
             cwd: resolvedPath,
             absolute: true,
-            ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**'],
+            ignore: DEFAULT_IGNORE_PATTERNS,
         });
+
+        const markdownPromptFiles = await fg(['**/*.md'], {
+            cwd: resolvedPath,
+            absolute: true,
+            ignore: DEFAULT_IGNORE_PATTERNS,
+        });
+        files.push(
+            ...markdownPromptFiles.filter(filePath =>
+                SUPPORTED_MARKDOWN_PROMPT_FILES.has(path.basename(filePath).toLowerCase())
+            )
+        );
+        files = Array.from(new Set(files));
     } else {
         files = [resolvedPath];
     }
@@ -152,6 +216,7 @@ export async function scanFiles(targetPath: string, options: {
                     const waived = isFindingWaived(f.rule_id, filePath, activeWaivers);
                     return {
                         rule_id: f.rule_id,
+                        category: getCategoryForRule(f.rule_id),
                         severity: f.severity,
                         line: prompt.startLine,
                         column: 1,

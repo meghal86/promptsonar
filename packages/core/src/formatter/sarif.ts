@@ -1,5 +1,25 @@
 import { Finding } from '../rules/types';
 
+function getOwaspMapping(ruleId: string): string | undefined {
+    if (
+        ruleId.startsWith('sec_owasp_llm01') ||
+        ruleId.startsWith('sec_unicode') ||
+        ruleId === 'sec_unbounded_persona' ||
+        ruleId === 'sec_base64_encoded_payload' ||
+        ruleId === 'sec_homoglyph_evasion' ||
+        ruleId === 'sec_zero_width_injection'
+    ) {
+        return 'OWASP LLM01';
+    }
+    if (ruleId.startsWith('sec_owasp_llm02')) {
+        return 'OWASP LLM02';
+    }
+    if (ruleId === 'sec_unbounded_access' || ruleId === 'sec_rag_injection') {
+        return 'OWASP LLM07';
+    }
+    return undefined;
+}
+
 export function formatToSarif(findings: Finding[], filePath: string): string {
     const sarifOutput = {
         version: "2.1.0",
@@ -37,6 +57,7 @@ export function formatToSarif(findings: Finding[], filePath: string): string {
                 },
                 properties: {
                     category: f.category,
+                    owasp: getOwaspMapping(f.rule_id),
                     precision: "very-high"
                 }
             });
@@ -53,6 +74,9 @@ export function formatToSarif(findings: Finding[], filePath: string): string {
             level: level,
             message: {
                 text: f.explanation + " - Fix: " + (f.suggested_fix || "None")
+            },
+            properties: {
+                owasp: getOwaspMapping(f.rule_id)
             },
             locations: [
                 {

@@ -1,0 +1,14 @@
+repos:
+  - repo: local
+    hooks:
+      - id: promptsonar-scan
+        name: PromptSonar prompt security scan
+        entry: npx @promptsonar/cli scan .
+        language: system
+        pass_filenames: false
+
+      - id: promptsonar-audit-mcp
+        name: PromptSonar MCP config audit
+        entry: npx @promptsonar/cli audit-mcp
+        language: system
+        pass_filenames: false

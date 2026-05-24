@@ -1,1 +1,40 @@
-node_modules
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+
+# Test and coverage artifacts
+coverage/
+*.tsbuildinfo
+
+# Packaged extensions and local package artifacts
+*.vsix
+*.tgz
+
+# Local environments
+venv/
+.venv/
+
+# Logs and local env files
+*.log
+.env
+.env.*
+!.env.example
+
+# Local scratch/generated artifacts
+scratch/
+report.html
+security-report.html
+
+# Local unrelated project/artifact folders kept out of PromptSonar release
+Agentsabha-angigravity/
+custom-writer-skill/
+my-writer-agent/
+PromptSonar_Antigravity_*.md
+PromptSonar_Medium_Article_*.docx
+PromptSonar_Test_Engineering_Prompt.md
+promptsonar_cover*.png
+promptsonar_cover*.jpg

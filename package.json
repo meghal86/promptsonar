@@ -9,7 +9,11 @@
         "build": "npm run build --workspaces --if-present",
         "test": "npm run test --workspaces --if-present",
         "lint": "eslint 'packages/*/src/**/*.ts' 'action/src/**/*.ts'",
-        "clean": "rimraf packages/*/dist action/dist"
+        "clean": "rimraf packages/*/dist action/dist",
+        "adoption:metrics": "node scripts/capture-adoption-metrics.js",
+        "release:hygiene": "node scripts/check-release-hygiene.js",
+        "smoke:features": "npm run build --workspace packages/core && npm run build --workspace packages/cli && node scripts/run-feature-smoke.js",
+        "benchmark:mcp": "npm run build --workspace packages/core && npm run build --workspace packages/cli && node scripts/run-mcp-benchmark.js"
     },
     "devDependencies": {
         "typescript": "^5.4.0",
@@ -17,5 +21,6 @@
         "eslint": "^8.57.0",
         "@typescript-eslint/parser": "^7.0.0",
         "@typescript-eslint/eslint-plugin": "^7.0.0"
-    }
+    },
+    "version": "1.1.0"
 }

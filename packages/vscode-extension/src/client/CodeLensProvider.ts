@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 // @ts-ignore
-import { parseFile } from 'core';
+import { parseFile } from '@promptsonar/core';
 
 export class PromptSonarCodeLensProvider implements vscode.CodeLensProvider {
     public async provideCodeLenses(document: vscode.TextDocument, token: vscode.CancellationToken): Promise<vscode.CodeLens[]> {

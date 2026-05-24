@@ -1,22 +1,37 @@
 {
-  "name": "core",
-  "version": "1.0.23",
-  "description": "",
+  "name": "@promptsonar/core",
+  "version": "1.1.0",
+  "description": "Core engine for PromptSonar — Static security scanner for LLM prompts",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist",
     "queries"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meghal86/promptsonar.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/meghal86/promptsonar#readme",
   "scripts": {
     "build": "tsc -b",
     "watch": "tsc -w",
     "clean": "rm -rf dist",
     "test": "vitest run --coverage"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "llm",
+    "security",
+    "prompt-injection",
+    "static-analysis",
+    "ai-safety"
+  ],
+  "author": "Meghal Parikh",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "tree-sitter-wasms": "^0.1.13",
