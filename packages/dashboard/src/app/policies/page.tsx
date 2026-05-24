@@ -1,43 +1,96 @@
+import Link from 'next/link';
+
+const policies = [
+  {
+    name: 'payments-high-risk',
+    version: 'v1.2',
+    match: 'payments/**',
+    minScore: '90+',
+    blockedPatterns: '2 rules',
+    status: 'Enforced',
+    rules: ['max_critical: 0', 'max_high: 2']
+  },
+  {
+    name: 'prompt-injection-gate',
+    version: 'v1.0',
+    match: 'agents/**',
+    minScore: '85+',
+    blockedPatterns: 'LLM01',
+    status: 'Active',
+    rules: ['block: sec_owasp_llm01_injection', 'block: sec_zero_width_injection']
+  }
+];
+
 export default function PoliciesPage() {
   return (
-    <div className="min-h-screen bg-[#07090E] text-slate-200">
-      <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-cyan-900/20 via-[#07090E] to-[#07090E]"></div>
-      
-      <main className="relative z-10 max-w-5xl mx-auto px-6 py-16">
-        <header className="flex justify-between items-center mb-12 border-b border-white/5 pb-8">
+    <div className="min-h-screen bg-[#FAF9F6] text-slate-950">
+      <main className="mx-auto max-w-6xl px-6 py-12">
+        <header className="mb-10 flex flex-col gap-4 border-b border-[#E4E3DE] pb-8 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-3xl font-extrabold text-white tracking-tight">Governance Policies</h1>
-            <p className="mt-2 text-slate-400">Manage DSL configurations for your organization</p>
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">PromptSonar Governance</p>
+            <h1 className="mt-2 text-4xl font-black tracking-tight">Policy Control Center</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#57534E]">
+              Manage DSL guardrails that decide when prompts pass, warn, or block before they ship.
+            </p>
           </div>
-          <button className="bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30 hover:border-cyan-400 px-5 py-2.5 rounded-lg font-medium transition-all duration-300">
-            Import Policy
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/playground" className="rounded-full border border-[#E4E3DE] bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
+              Back to Playground
+            </Link>
+            <button className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800">
+              Import Policy
+            </button>
+          </div>
         </header>
 
-        <div className="space-y-4">
-          <div className="bg-[#0F131D]/80 backdrop-blur-md rounded-xl p-6 border border-white/5 flex flex-col md:flex-row md:items-center justify-between hover:border-cyan-500/30 transition-colors group">
-            <div className="flex-1">
-              <div className="flex items-center space-x-3 mb-2">
-                <h3 className="text-xl font-semibold text-white">payments-high-risk</h3>
-                <span className="text-xs font-mono px-2 py-0.5 bg-slate-800 rounded text-slate-300 border border-slate-700">v1.2</span>
+        <section className="grid gap-4">
+          {policies.map((policy) => (
+            <article key={policy.name} className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="text-xl font-black tracking-tight">{policy.name}</h2>
+                    <span className="rounded-full border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-1 font-mono text-xs font-bold text-[#57534E]">
+                      {policy.version}
+                    </span>
+                    <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-wider text-emerald-700">
+                      {policy.status}
+                    </span>
+                  </div>
+                  <p className="mt-3 inline-flex rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 font-mono text-xs font-bold text-[#57534E]">
+                    match path: &quot;{policy.match}&quot;
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[430px]">
+                  <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Min Score</p>
+                    <p className="mt-2 text-2xl font-black text-emerald-700">{policy.minScore}</p>
+                  </div>
+                  <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Blocked</p>
+                    <p className="mt-2 text-2xl font-black text-red-700">{policy.blockedPatterns}</p>
+                  </div>
+                  <button className="rounded-xl border border-[#E4E3DE] bg-white p-4 text-left transition hover:bg-slate-50">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Action</p>
+                    <p className="mt-2 text-sm font-black text-slate-900">Edit DSL</p>
+                  </button>
+                </div>
               </div>
-              <p className="text-slate-400 text-sm font-mono bg-black/30 p-2 rounded shrink-0 self-start">match path: &quot;payments/**&quot;</p>
-            </div>
-            <div className="mt-4 md:mt-0 flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-8 text-sm">
-              <div className="flex flex-col">
-                <span className="text-slate-500 mb-1">Min Score</span>
-                <span className="text-emerald-400 font-bold">90+</span>
+
+              <div className="mt-5 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Policy Rules</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {policy.rules.map((rule) => (
+                    <span key={rule} className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-2 font-mono text-xs font-bold text-[#57534E]">
+                      {rule}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-col">
-                <span className="text-slate-500 mb-1">Blocked Patterns</span>
-                <span className="text-rose-400 font-bold">2 rules</span>
-              </div>
-              <button className="text-slate-400 hover:text-white transition-colors bg-white/5 px-4 py-2 rounded-lg">
-                Edit DSL
-              </button>
-            </div>
-          </div>
-        </div>
+            </article>
+          ))}
+        </section>
       </main>
     </div>
   );

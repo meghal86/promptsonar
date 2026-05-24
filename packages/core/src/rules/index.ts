@@ -9,6 +9,7 @@ import { checkTokenLimit } from './efficiency/token_limit';
 import { checkUnboundedPersona } from './security/unbounded_persona';
 import { checkUnboundedAccess } from './security/unbounded_access';
 import { checkRagInjection } from './security/rag_injection';
+import { checkEvasionPatterns } from './security/evasion';
 import { checkEthics } from './ethics';
 
 export * from './types';
@@ -20,6 +21,7 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
         ...checkBestPractices(input),
         ...checkConsistency(input),
         ...checkOwaspPatterns(input),
+        ...checkEvasionPatterns(input),
         ...checkPii(input),
         ...checkUnboundedPersona(input),
         ...checkUnboundedAccess(input),
@@ -53,6 +55,22 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
     if (hasCritical) {
         score = Math.min(score, 49); // Hard fail ceiling
         status = "fail";
+    }
+
+    const hasHighRisk = findings.some(f =>
+        f.severity === 'high' && (f.category === 'security' || f.category === 'ethics')
+    );
+    if (hasHighRisk) {
+        score = Math.min(score, 69);
+        status = "fail";
+    }
+
+    const hasMediumRisk = findings.some(f =>
+        f.severity === 'medium' && (f.category === 'security' || f.category === 'ethics')
+    );
+    if (hasMediumRisk && status === "pass") {
+        score = Math.min(score, 84);
+        status = "warn";
     }
 
     // Strip internal fields like penalty_score from output

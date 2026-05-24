@@ -1,0 +1,466 @@
+{
+  "timestamp": "2026-05-23T14:45:22.099Z",
+  "endpoint": "http://127.0.0.1:3000/api/playground",
+  "total": 10,
+  "results": [
+    {
+      "id": "clean_support_contract",
+      "expected": "pass",
+      "httpStatus": 200,
+      "score": 100,
+      "status": "pass",
+      "contractPassed": true,
+      "findingCount": 0,
+      "findings": [],
+      "roi": {
+        "originalTokens": 145,
+        "newTokens": 145,
+        "tokensSaved": 0,
+        "compressionRatio": "0.0%",
+        "dollarsSavedPer10kCalls": 0
+      },
+      "crossModel": {
+        "safety_pass_rate": 100,
+        "regressions_detected": false
+      }
+    },
+    {
+      "id": "classic_prompt_injection",
+      "expected": "fail",
+      "httpStatus": 200,
+      "score": 49,
+      "status": "fail",
+      "contractPassed": null,
+      "findingCount": 3,
+      "findings": [
+        {
+          "rule_id": "bp_missing_few_shot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt lacks few-shot examples. Abstract instructions are often harder for LLMs to follow perfectly."
+        },
+        {
+          "rule_id": "bp_missing_cot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Task appears complex but lacks Chain-of-Thought prompting."
+        },
+        {
+          "rule_id": "sec_owasp_llm01_injection",
+          "category": "security",
+          "severity": "critical",
+          "explanation": "Potential prompt injection vulnerability (OWASP LLM01) detected: matched malicious pattern against rules."
+        }
+      ],
+      "roi": {
+        "originalTokens": 36,
+        "newTokens": 36,
+        "tokensSaved": 0,
+        "compressionRatio": "0.0%",
+        "dollarsSavedPer10kCalls": 0
+      },
+      "crossModel": {
+        "safety_pass_rate": 44,
+        "regressions_detected": true
+      }
+    },
+    {
+      "id": "hardcoded_openai_key",
+      "expected": "fail",
+      "httpStatus": 200,
+      "score": 69,
+      "status": "fail",
+      "contractPassed": null,
+      "findingCount": 5,
+      "findings": [
+        {
+          "rule_id": "struct_missing_format_enforcer",
+          "category": "structure",
+          "severity": "medium",
+          "explanation": "Output formatting requested but no strong format enforcer (JSON, YAML, Markdown syntax) is present."
+        },
+        {
+          "rule_id": "bp_missing_persona",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt is missing a role or persona. Establishing an expert persona improves response focus and quality."
+        },
+        {
+          "rule_id": "bp_missing_few_shot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt lacks few-shot examples. Abstract instructions are often harder for LLMs to follow perfectly."
+        },
+        {
+          "rule_id": "bp_missing_cot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Task appears complex but lacks Chain-of-Thought prompting."
+        },
+        {
+          "rule_id": "sec_owasp_llm02_pii",
+          "category": "security",
+          "severity": "high",
+          "explanation": "Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded OpenAI API Key found in prompt."
+        }
+      ],
+      "roi": {
+        "originalTokens": 37,
+        "newTokens": 37,
+        "tokensSaved": 0,
+        "compressionRatio": "0.0%",
+        "dollarsSavedPer10kCalls": 0
+      },
+      "crossModel": {
+        "safety_pass_rate": 69,
+        "regressions_detected": false
+      }
+    },
+    {
+      "id": "rag_raw_user_input",
+      "expected": "fail",
+      "httpStatus": 200,
+      "score": 69,
+      "status": "fail",
+      "contractPassed": null,
+      "findingCount": 5,
+      "findings": [
+        {
+          "rule_id": "bp_missing_persona",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt is missing a role or persona. Establishing an expert persona improves response focus and quality."
+        },
+        {
+          "rule_id": "bp_missing_few_shot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt lacks few-shot examples. Abstract instructions are often harder for LLMs to follow perfectly."
+        },
+        {
+          "rule_id": "bp_missing_cot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Task appears complex but lacks Chain-of-Thought prompting."
+        },
+        {
+          "rule_id": "sec_rag_injection",
+          "category": "security",
+          "severity": "high",
+          "explanation": "RAG injection risk: raw user input passed directly to retrieval query"
+        },
+        {
+          "rule_id": "sec_rag_injection",
+          "category": "security",
+          "severity": "high",
+          "explanation": "RAG injection risk: raw user input passed directly to retrieval query"
+        }
+      ],
+      "roi": {
+        "originalTokens": 35,
+        "newTokens": 35,
+        "tokensSaved": 0,
+        "compressionRatio": "0.0%",
+        "dollarsSavedPer10kCalls": 0
+      },
+      "crossModel": {
+        "safety_pass_rate": 69,
+        "regressions_detected": false
+      }
+    },
+    {
+      "id": "contradictory_output",
+      "expected": "warn_or_fail",
+      "httpStatus": 200,
+      "score": 96,
+      "status": "pass",
+      "contractPassed": null,
+      "findingCount": 5,
+      "findings": [
+        {
+          "rule_id": "bp_missing_persona",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt is missing a role or persona. Establishing an expert persona improves response focus and quality."
+        },
+        {
+          "rule_id": "bp_missing_few_shot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt lacks few-shot examples. Abstract instructions are often harder for LLMs to follow perfectly."
+        },
+        {
+          "rule_id": "bp_missing_cot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Task appears complex but lacks Chain-of-Thought prompting."
+        },
+        {
+          "rule_id": "consist_contradiction",
+          "category": "consistency",
+          "severity": "medium",
+          "explanation": "Contradicting instructions found: 'etailed' and 'short'."
+        },
+        {
+          "rule_id": "consist_contradiction",
+          "category": "consistency",
+          "severity": "medium",
+          "explanation": "Contradicting instructions found: 'detailed' and 'short'."
+        }
+      ],
+      "roi": {
+        "originalTokens": 28,
+        "newTokens": 28,
+        "tokensSaved": 0,
+        "compressionRatio": "0.0%",
+        "dollarsSavedPer10kCalls": 0
+      },
+      "crossModel": {
+        "safety_pass_rate": 96,
+        "regressions_detected": false
+      }
+    },
+    {
+      "id": "vague_marketing_prompt",
+      "expected": "warn_or_pass",
+      "httpStatus": 200,
+      "score": 96,
+      "status": "pass",
+      "contractPassed": null,
+      "findingCount": 6,
+      "findings": [
+        {
+          "rule_id": "clarity_vague_words",
+          "category": "clarity",
+          "severity": "low",
+          "explanation": "Prompt contains vague word 'try'. Be more specific to improve LLM response quality."
+        },
+        {
+          "rule_id": "clarity_vague_words",
+          "category": "clarity",
+          "severity": "low",
+          "explanation": "Prompt contains vague word 'maybe'. Be more specific to improve LLM response quality."
+        },
+        {
+          "rule_id": "clarity_vague_words",
+          "category": "clarity",
+          "severity": "low",
+          "explanation": "Prompt contains vague word 'some'. Be more specific to improve LLM response quality."
+        },
+        {
+          "rule_id": "clarity_vague_words",
+          "category": "clarity",
+          "severity": "low",
+          "explanation": "Prompt contains vague word 'good'. Be more specific to improve LLM response quality."
+        },
+        {
+          "rule_id": "bp_missing_persona",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt is missing a role or persona. Establishing an expert persona improves response focus and quality."
+        },
+        {
+          "rule_id": "bp_missing_few_shot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt lacks few-shot examples. Abstract instructions are often harder for LLMs to follow perfectly."
+        }
+      ],
+      "roi": {
+        "originalTokens": 24,
+        "newTokens": 24,
+        "tokensSaved": 0,
+        "compressionRatio": "0.0%",
+        "dollarsSavedPer10kCalls": 0
+      },
+      "crossModel": {
+        "safety_pass_rate": 96,
+        "regressions_detected": false
+      }
+    },
+    {
+      "id": "token_bloat_prompt",
+      "expected": "warn_or_fail",
+      "httpStatus": 200,
+      "score": 97,
+      "status": "pass",
+      "contractPassed": null,
+      "findingCount": 4,
+      "findings": [
+        {
+          "rule_id": "bp_missing_few_shot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt lacks few-shot examples. Abstract instructions are often harder for LLMs to follow perfectly."
+        },
+        {
+          "rule_id": "bp_missing_cot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Task appears complex but lacks Chain-of-Thought prompting."
+        },
+        {
+          "rule_id": "eff_token_bloat",
+          "category": "efficiency",
+          "severity": "high",
+          "explanation": "Prompt exceeds 8000 chars (~2000 tokens) – risk of truncation or high cost."
+        },
+        {
+          "rule_id": "eff_compression_potential",
+          "category": "efficiency",
+          "severity": "low",
+          "explanation": "Prompt is long and has high compression potential (>40%)."
+        }
+      ],
+      "roi": {
+        "originalTokens": 3889,
+        "newTokens": 3889,
+        "tokensSaved": 0,
+        "compressionRatio": "0.0%",
+        "dollarsSavedPer10kCalls": 0
+      },
+      "crossModel": {
+        "safety_pass_rate": 97,
+        "regressions_detected": false
+      }
+    },
+    {
+      "id": "unicode_obfuscated_injection",
+      "expected": "fail",
+      "httpStatus": 200,
+      "score": 49,
+      "status": "fail",
+      "contractPassed": null,
+      "findingCount": 3,
+      "findings": [
+        {
+          "rule_id": "bp_missing_persona",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt is missing a role or persona. Establishing an expert persona improves response focus and quality."
+        },
+        {
+          "rule_id": "bp_missing_few_shot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt lacks few-shot examples. Abstract instructions are often harder for LLMs to follow perfectly."
+        },
+        {
+          "rule_id": "sec_owasp_llm01_injection",
+          "category": "security",
+          "severity": "critical",
+          "explanation": "Potential prompt injection vulnerability (OWASP LLM01) detected: matched malicious pattern against rules."
+        }
+      ],
+      "roi": {
+        "originalTokens": 25,
+        "newTokens": 25,
+        "tokensSaved": 0,
+        "compressionRatio": "0.0%",
+        "dollarsSavedPer10kCalls": 0
+      },
+      "crossModel": {
+        "safety_pass_rate": 44,
+        "regressions_detected": true
+      }
+    },
+    {
+      "id": "base64_encoded_injection",
+      "expected": "fail",
+      "httpStatus": 200,
+      "score": 49,
+      "status": "fail",
+      "contractPassed": null,
+      "findingCount": 4,
+      "findings": [
+        {
+          "rule_id": "bp_missing_persona",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt is missing a role or persona. Establishing an expert persona improves response focus and quality."
+        },
+        {
+          "rule_id": "bp_missing_few_shot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt lacks few-shot examples. Abstract instructions are often harder for LLMs to follow perfectly."
+        },
+        {
+          "rule_id": "bp_missing_cot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Task appears complex but lacks Chain-of-Thought prompting."
+        },
+        {
+          "rule_id": "sec_owasp_llm01_injection",
+          "category": "security",
+          "severity": "critical",
+          "explanation": "Potential prompt injection vulnerability (OWASP LLM01) detected: matched malicious pattern against rules."
+        }
+      ],
+      "roi": {
+        "originalTokens": 28,
+        "newTokens": 28,
+        "tokensSaved": 0,
+        "compressionRatio": "0.0%",
+        "dollarsSavedPer10kCalls": 0
+      },
+      "crossModel": {
+        "safety_pass_rate": 44,
+        "regressions_detected": true
+      }
+    },
+    {
+      "id": "manipulative_urgency",
+      "expected": "warn_or_fail",
+      "httpStatus": 200,
+      "score": 69,
+      "status": "fail",
+      "contractPassed": null,
+      "findingCount": 5,
+      "findings": [
+        {
+          "rule_id": "struct_missing_format_enforcer",
+          "category": "structure",
+          "severity": "medium",
+          "explanation": "Output formatting requested but no strong format enforcer (JSON, YAML, Markdown syntax) is present."
+        },
+        {
+          "rule_id": "bp_missing_persona",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt is missing a role or persona. Establishing an expert persona improves response focus and quality."
+        },
+        {
+          "rule_id": "bp_missing_few_shot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Prompt lacks few-shot examples. Abstract instructions are often harder for LLMs to follow perfectly."
+        },
+        {
+          "rule_id": "bp_missing_cot",
+          "category": "best_practices",
+          "severity": "low",
+          "explanation": "Task appears complex but lacks Chain-of-Thought prompting."
+        },
+        {
+          "rule_id": "ethics_manipulation",
+          "category": "ethics",
+          "severity": "high",
+          "explanation": "Manipulative patterns detected: Prompt requests generation of fake urgency or psychological pressure."
+        }
+      ],
+      "roi": {
+        "originalTokens": 29,
+        "newTokens": 29,
+        "tokensSaved": 0,
+        "compressionRatio": "0.0%",
+        "dollarsSavedPer10kCalls": 0
+      },
+      "crossModel": {
+        "safety_pass_rate": 69,
+        "regressions_detected": false
+      }
+    }
+  ]
+}

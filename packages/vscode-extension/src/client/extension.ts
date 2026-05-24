@@ -35,6 +35,91 @@ const SUPPORTED_LANGUAGES = new Set([
     'go', 'java', 'rust', 'csharp'
 ]);
 
+const WORKSPACE_SCAN_GLOB = '**/*.{ts,tsx,js,jsx,py,go,java,rs,cs,prompt,ai,chat,json,yml,yaml}';
+
+const SUPPORTED_MARKDOWN_PROMPT_FILES = new Set([
+    'skill.md',
+    'skills.md',
+    'agent.md',
+    'agents.md',
+]);
+
+const WORKSPACE_EXCLUDE_SEGMENTS = [
+    'node_modules',
+    'dist',
+    'out',
+    'build',
+    'coverage',
+    '.next',
+    '.turbo',
+    '.cache',
+    '.git',
+    '.vscode-test',
+    'tests',
+    'test',
+    '__tests__',
+    'docs',
+    'evidence',
+    'benchmarks',
+    'examples/reports',
+    'agentsabha-angigravity',
+    'custom-writer-skill',
+    'my-writer-agent',
+    'scratch',
+    // PromptSonar's own implementation stores detector strings and simulated
+    // model outputs here; they are not application prompts.
+    'packages/core/src/rules',
+    'packages/core/src/mcp',
+    'packages/core/src/evaluation',
+    'packages/core/src/parser',
+    'packages/vscode-extension/src/client',
+];
+
+const WORKSPACE_EXCLUDE_PATH_PARTS = [
+    '/packages/cli/src/mcpauditor.ts',
+    '/action/src/action.ts',
+];
+
+const WORKSPACE_EXCLUDE_FILE_SUFFIXES = [
+    '.min.js',
+    '.bundle.js',
+    '.hot-update.js',
+    'package-lock.json',
+    'pnpm-lock.yaml',
+    'yarn.lock',
+];
+
+const WORKSPACE_EXCLUDE_FILE_PREFIXES = [
+    'demo_',
+    'dummy_test.',
+    'generate_test.',
+    'generate_tests.',
+    'generate_dummies.',
+    'debug_',
+    'test_',
+    'test_parser.',
+    'test_parse.',
+];
+
+function isIgnoredWorkspaceFile(filePath: string): boolean {
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    const basename = path.basename(normalized);
+
+    if (WORKSPACE_EXCLUDE_FILE_SUFFIXES.some(suffix => basename.endsWith(suffix))) {
+        return true;
+    }
+
+    if (WORKSPACE_EXCLUDE_FILE_PREFIXES.some(prefix => basename.startsWith(prefix))) {
+        return true;
+    }
+
+    if (WORKSPACE_EXCLUDE_PATH_PARTS.some(part => normalized.includes(part))) {
+        return true;
+    }
+
+    return WORKSPACE_EXCLUDE_SEGMENTS.some(segment => normalized.includes(`/${segment}/`));
+}
+
 function isSupportedLanguage(languageId: string): boolean {
     return SUPPORTED_LANGUAGES.has(languageId);
 }
@@ -257,6 +342,34 @@ export function activate(context: ExtensionContext) {
             "unrestricted mode", "god mode", "dan mode", "you are dan",
         ];
 
+        const containsPromptKeyword = (text: string): boolean => {
+            const lowerText = text.toLowerCase();
+            const hasIndicator = promptIndicators.some(indicator => lowerText.includes(indicator));
+            const hasRoleWord = /\b(user|system|assistant|llm|ai|bot|agent|model)\b/.test(lowerText);
+            const hasPromptWord = /\b(prompt|instruction|instructions|query|task|respond|response|answer|generate|analyze|summarize|explain)\b/.test(lowerText);
+            return hasIndicator || (hasRoleWord && hasPromptWord);
+        };
+
+        // Agent instruction markdown is prompt-bearing, but normal docs are excluded above.
+        if (ext === '.md' && SUPPORTED_MARKDOWN_PROMPT_FILES.has(path.basename(filePath).toLowerCase()) && containsPromptKeyword(content)) {
+            return [{ text: content, startLine: 1, endLine: content.split('\n').length }];
+        }
+
+        // Config prompt fragments can live in JSON/YAML keys without code string syntax.
+        if (['.json', '.yml', '.yaml'].includes(ext) && !path.basename(filePath).toLowerCase().endsWith('package.json')) {
+            const lines = content.split('\n');
+            lines.forEach((line, index) => {
+                const trimmed = line.trim();
+                if (trimmed.length > 20 && containsPromptKeyword(trimmed)) {
+                    prompts.push({
+                        text: trimmed,
+                        startLine: index + 1,
+                        endLine: index + 1,
+                    });
+                }
+            });
+        }
+
         // 1. Extract strings from code: template literals, regular strings, triple-quoted
         const stringPatterns = [
             /`([^`]{20,})`/gs,                              // template literals
@@ -275,10 +388,11 @@ export function activate(context: ExtensionContext) {
                 // Check if this string contains prompt indicators
                 const isPrompt = promptIndicators.some(indicator => lowerText.includes(indicator));
 
-                // Also check keyword combos
+                // Also check keyword combos. Avoid treating normal UI copy like
+                // "Prompt security scan" as an LLM prompt unless role/task terms co-occur.
                 const hasRoleWord = /\b(user|system|assistant|llm|ai|bot|agent|model)\b/.test(lowerText);
                 const hasPromptWord = /\b(prompt|instruction|instructions|query|task|respond|response|answer|generate|analyze|summarize|explain)\b/.test(lowerText);
-                const keywordMatch = (hasRoleWord && hasPromptWord) || (text.length > 80 && (hasRoleWord || hasPromptWord));
+                const keywordMatch = hasRoleWord && hasPromptWord;
 
                 if (isPrompt || keywordMatch) {
                     const linesBefore = content.slice(0, match.index).split('\n').length;
@@ -335,26 +449,13 @@ export function activate(context: ExtensionContext) {
                 cancellable: false
             }, async (progress) => {
                 try {
-                    const rawFiles = await workspace.findFiles('**/*.{ts,js,py,go,java,rs,cs,prompt,ai,chat}', '**/node_modules/**');
+                    const sourceFiles = await workspace.findFiles(WORKSPACE_SCAN_GLOB, undefined);
+                    const markdownInstructionFiles = await workspace.findFiles('**/{SKILL.md,skills.md,AGENT.md,AGENTS.md,agent.md,agents.md}', undefined);
+                    const rawFiles = [...sourceFiles, ...markdownInstructionFiles];
+                    const files = rawFiles.filter(f => !isIgnoredWorkspaceFile(f.fsPath));
+                    const excludedCount = rawFiles.length - files.length;
 
-                    const excludeKeywords = [
-                        '/node_modules/', '\\node_modules\\',
-                        '/dist/', '\\dist\\',
-                        '/out/', '\\out\\',
-                        '/build/', '\\build\\',
-                        '/vendor/', '\\vendor\\',
-                        '/.git/', '\\.git\\',
-                        '/venv/', '\\venv\\',
-                        '/tests/', '\\tests\\',
-                        '/coverage/', '\\coverage\\',
-                        '/docs/', '\\docs\\',
-                        '/.vscode-test/', '\\.vscode-test\\',
-                        'dummy_test.', 'generate_test.', 'test_parser.', 'test_regex.', 'debug_scan.', 'test_parse.'
-                    ];
-
-                    const files = rawFiles.filter(f => !excludeKeywords.some(kw => f.fsPath.toLowerCase().includes(kw)));
-
-                    scanLog.appendLine(`Found ${files.length} scannable files (excluded node_modules, dist, build, etc.)\n`);
+                    scanLog.appendLine(`Found ${files.length} scannable files (${excludedCount} generated/test/doc files excluded)\n`);
 
                     if (files.length === 0) {
                         window.showInformationMessage('No scannable files found in the workspace.');
@@ -388,7 +489,7 @@ export function activate(context: ExtensionContext) {
                         for (const prompt of detectedPrompts) {
                             try {
                                 const result = evaluatePrompt({ text: prompt.text, context: { filePath: file.fsPath } }, config);
-                                allFindings.push(...result.findings.map((f: any) => ({ ...f, file: basename })));
+                                allFindings.push(...result.findings.map((f: any) => ({ ...f, file: basename, line: prompt.startLine })));
                                 totalScore += result.score;
                                 promptsEvaluated++;
                                 combinedText += prompt.text + '\n\n';

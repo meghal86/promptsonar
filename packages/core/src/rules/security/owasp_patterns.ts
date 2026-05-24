@@ -14,7 +14,7 @@ const INJECTION_SOURCES: RegExp[] = [
     /role\s*:\s*(admin|developer|god|unrestricted|dan|do\s+anything\s+now)/i,
 
     // DAN & variants (very common jailbreaks)
-    /DAN\s*(?:\d+\.?\d*)?\s*(mode|persona|version)?/i,
+    /\bDAN\b\s*(?:\d+\.?\d*)?\s*(mode|persona|version)?/i,
     /do\s+anything\s+now/i,
     /(developer\s+mode|devmode)/i,
     /hypothetical\s+response/i,
@@ -61,8 +61,10 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
         return match;
     });
 
-    // B. Strip zero-width and control characters (replace with space to keep words separate)
-    normalizedText = normalizedText.replace(/(\\u200[bcd]|\\ufeff|[\u200B-\u200D\uFEFF\u0000-\u0008\u000B\u000C\u000E-\u001F])/gi, ' ');
+    // B. Strip zero-width characters inside words, then space out other controls.
+    normalizedText = normalizedText
+        .replace(/(\\u200[bcd]|\\ufeff|[\u200B-\u200D\uFEFF])/gi, '')
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ');
 
     // C. Homoglyph Normalization (Expanded map including uppercase and common Cyrillic/Greek/Fullwidth)
     const homoglyphMap: Record<string, string> = {

@@ -1,55 +1,70 @@
 import Link from 'next/link';
 
+const projects = [
+  { id: 1, name: 'Payment Service', repo: 'github.com/org/payment-service', score: 95, status: 'Protected', lastScan: '2h ago' },
+  { id: 2, name: 'Support Agent', repo: 'github.com/org/support-agent', score: 88, status: 'Watch', lastScan: '4h ago' },
+  { id: 3, name: 'RAG Gateway', repo: 'github.com/org/rag-gateway', score: 79, status: 'Needs review', lastScan: '1d ago' }
+];
+
 export default function ProjectsPage() {
   return (
-    <div className="min-h-screen bg-[#07090E] text-slate-200 selection:bg-indigo-500/30 font-sans">
-      <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-900/20 via-[#07090E] to-[#07090E]"></div>
-      
-      <main className="relative z-10 max-w-7xl mx-auto px-6 py-16">
-        <header className="flex justify-between items-center mb-16">
+    <div className="min-h-screen bg-[#FAF9F6] text-slate-950">
+      <main className="mx-auto max-w-7xl px-6 py-12">
+        <header className="mb-10 flex flex-col gap-4 border-b border-[#E4E3DE] pb-8 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 tracking-tight">
-              PromptSonar
-            </h1>
-            <p className="mt-2 text-slate-400 text-lg">Manage your project security scans</p>
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">PromptSonar Overview</p>
+            <h1 className="mt-2 text-4xl font-black tracking-tight">Project Security Command Center</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#57534E]">
+              Overview of prompt-security posture across apps, agents, and repositories.
+            </p>
           </div>
-          <div className="flex gap-4">
-            <Link href="/playground" className="bg-white/5 border border-white/10 hover:bg-white/10 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300">
-              Interactive Playground →
+          <div className="flex flex-wrap gap-3">
+            <Link href="/playground" className="rounded-full border border-[#E4E3DE] bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
+              Back to Playground
             </Link>
-            <button className="bg-indigo-500 hover:bg-indigo-400 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300 shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] transform hover:-translate-y-0.5">
-              + New Project
+            <button
+              disabled
+              className="cursor-not-allowed rounded-full bg-slate-200 px-5 py-2.5 text-sm font-bold text-slate-500 shadow-sm"
+              title="Project creation requires persistence to be connected first."
+            >
+              Project creation pending
             </button>
           </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1, 2, 3].map((id) => (
-            <Link key={id} href={`/projects/${id}/scans`}>
-              <div className="group relative bg-[#0F131D]/80 backdrop-blur-xl border border-white/5 rounded-2xl p-6 hover:bg-[#151A28]/90 transition-all duration-500 cursor-pointer overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                <div className="flex justify-between items-start mb-4 relative z-10">
-                  <div className="p-3 bg-indigo-500/10 rounded-xl">
-                    <svg className="w-6 h-6 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <section className="mb-8 rounded-2xl border border-amber-200 bg-amber-50/70 p-5 text-sm leading-6 text-amber-900">
+          <div className="text-[11px] font-black uppercase tracking-[0.22em] text-amber-700">Demo workspace data</div>
+          <p className="mt-2 max-w-4xl">
+            These project cards are static seed data rendered by the local dashboard. PromptSonar is not currently saving projects to a database or loading them from GitHub; real persistence should be added before this page is presented as a production project inventory.
+          </p>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {projects.map((project) => (
+            <Link key={project.id} href={`/projects/${project.id}/scans`}>
+              <article className="group rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="flex items-start justify-between">
+                  <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+                    <svg className="h-6 w-6 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                     </svg>
                   </div>
-                  <span className="flex items-center space-x-1 text-xs font-semibold px-2.5 py-1 bg-emerald-500/10 text-emerald-400 rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span>Score 95</span>
+                  <span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wider ${
+                    project.score >= 90 ? 'bg-emerald-50 text-emerald-700' : project.score >= 80 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'
+                  }`}>
+                    Score {project.score}
                   </span>
                 </div>
-                <h3 className="text-xl font-bold text-white mb-2 relative z-10 group-hover:text-indigo-300 transition-colors">Payment Service {id}</h3>
-                <p className="text-slate-400 text-sm mb-6 relative z-10">github.com/org/payment-service-{id}</p>
-                
-                <div className="flex justify-between items-center text-sm border-t border-white/5 pt-4 mt-auto relative z-10">
-                  <span className="text-slate-500">Last scan: 2h ago</span>
-                  <span className="text-indigo-400 group-hover:translate-x-1 transition-transform duration-300">View Scans →</span>
+                <h2 className="mt-6 text-xl font-black tracking-tight group-hover:text-slate-700">{project.name}</h2>
+                <p className="mt-2 font-mono text-xs font-bold text-[#78716C]">{project.repo}</p>
+                <div className="mt-6 flex items-center justify-between border-t border-[#E4E3DE] pt-4 text-sm">
+                  <span className="font-bold text-[#78716C]">Last scan: {project.lastScan}</span>
+                  <span className="font-black text-slate-900 transition group-hover:translate-x-1">View Scans &rarr;</span>
                 </div>
-              </div>
+              </article>
             </Link>
           ))}
-        </div>
+        </section>
       </main>
     </div>
   );

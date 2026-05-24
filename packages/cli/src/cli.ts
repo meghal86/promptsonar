@@ -13,6 +13,24 @@ const VERSION = '1.1.0';
 
 const program = new Command();
 
+function isZodSchemaError(err: any): boolean {
+    return err?.name === 'ZodError' || Array.isArray(err?.issues);
+}
+
+function formatPolicySchemaError(fileName: string): string {
+    return [
+        `Policy file error: Invalid schema in ${fileName}`,
+        'Expected format:',
+        '  policies:',
+        '    - name: my-policy',
+        '      rules:',
+        '        max_critical: 0',
+        '        max_high: 2',
+        '',
+        'See documentation: github.com/meghal86/promptsonar'
+    ].join('\n');
+}
+
 program
     .name('promptsonar')
     .description('Static security scanner for LLM prompts')
@@ -96,7 +114,16 @@ program
             // Governance Evaluation
             if (options.policyFile) {
                 console.log(chalk.blue(`[PromptSonar] Evaluating Governance Policy from ${options.policyFile}...`));
-                const policy = parseGovernancePolicy(options.policyFile);
+                let policy;
+                try {
+                    policy = parseGovernancePolicy(options.policyFile);
+                } catch (err: any) {
+                    if (isZodSchemaError(err)) {
+                        console.error(chalk.red(formatPolicySchemaError(options.policyFile)));
+                        process.exit(1);
+                    }
+                    throw err;
+                }
                 const govResults = evaluateGovernancePolicy(results, policy);
                 
                 if (!govResults.passed) {

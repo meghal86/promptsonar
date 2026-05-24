@@ -28,7 +28,14 @@ export interface ScanFinding {
 
 // Maps rule IDs to their OWASP references
 function getOwaspRef(ruleId: string): string {
-    if (ruleId.startsWith('sec_owasp_llm01') || ruleId.startsWith('sec_unicode') || ruleId === 'sec_unbounded_persona') return 'LLM01';
+    if (
+        ruleId.startsWith('sec_owasp_llm01') ||
+        ruleId.startsWith('sec_unicode') ||
+        ruleId === 'sec_unbounded_persona' ||
+        ruleId === 'sec_base64_encoded_payload' ||
+        ruleId === 'sec_homoglyph_evasion' ||
+        ruleId === 'sec_zero_width_injection'
+    ) return 'LLM01';
     if (ruleId.startsWith('sec_owasp_llm02')) return 'LLM02';
     if (ruleId === 'sec_unbounded_access' || ruleId === 'sec_rag_injection') return 'LLM07';
     return '';

@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { RuleResult, Finding, calculateROI, compressPromptLLMLingua, generateHtmlReport } from '@promptsonar/core';
 
 export class PromptSonarWebviewPanel {
@@ -12,41 +15,54 @@ export class PromptSonarWebviewPanel {
     }
 
     public static async createOrShow(extensionUri: vscode.Uri, result: RuleResult, promptText: string) {
-        const column = vscode.ViewColumn.Beside;
+        const column = vscode.ViewColumn.Active;
 
-        if (PromptSonarWebviewPanel.currentPanel) {
-            PromptSonarWebviewPanel.currentPanel._panel.reveal(column);
-            await PromptSonarWebviewPanel.currentPanel.update(result, promptText);
-            return;
-        }
-
-        const panel = vscode.window.createWebviewPanel(
-            'promptSonarReport',
-            'Prompt Health Dashboard',
-            column,
-            {
-                enableScripts: true,
-                localResourceRoots: [extensionUri]
-            }
-        );
-
-        // Handle messages from the webview
-        panel.webview.onDidReceiveMessage(
-            message => {
-                switch (message.command) {
-                    case 'applyFix':
-                        vscode.window.showInformationMessage('Applying Fix: ' + message.text);
-                        return;
+        try {
+            if (PromptSonarWebviewPanel.currentPanel) {
+                try {
+                    PromptSonarWebviewPanel.currentPanel._panel.reveal(column);
+                    await PromptSonarWebviewPanel.currentPanel.update(result, promptText);
+                    return;
+                } catch {
+                    PromptSonarWebviewPanel.currentPanel.dispose();
                 }
-            },
-            null
-        );
+            }
 
-        PromptSonarWebviewPanel.currentPanel = new PromptSonarWebviewPanel(panel);
-        await PromptSonarWebviewPanel.currentPanel.update(result, promptText);
+            const panel = vscode.window.createWebviewPanel(
+                'promptSonarReport',
+                'Prompt Health Dashboard',
+                column,
+                {
+                    enableScripts: true,
+                    localResourceRoots: [extensionUri]
+                }
+            );
+
+            // Handle messages from the webview
+            panel.webview.onDidReceiveMessage(
+                message => {
+                    switch (message.command) {
+                        case 'applyFix':
+                            vscode.window.showInformationMessage('Applying Fix: ' + message.text);
+                            return;
+                    }
+                },
+                null
+            );
+
+            PromptSonarWebviewPanel.currentPanel = new PromptSonarWebviewPanel(panel);
+            await PromptSonarWebviewPanel.currentPanel.update(result, promptText);
+        } catch (error) {
+            await PromptSonarWebviewPanel.openFallbackHtmlReport(result, promptText, error);
+        }
     }
 
     public async update(result: RuleResult, promptText: string) {
+        this._panel.title = `Score: ${result.score}`;
+        this._panel.webview.html = await PromptSonarWebviewPanel.buildHtml(result, promptText);
+    }
+
+    private static async buildHtml(result: RuleResult, promptText: string): Promise<string> {
         // Run compression to get ROI stats
         let roiHtml = '';
         try {
@@ -84,8 +100,6 @@ export class PromptSonarWebviewPanel {
             </div>`;
         }
 
-        this._panel.title = `Score: ${result.score}`;
-
         // Use the shared report generator from core
         const html = generateHtmlReport(result, promptText, roiHtml);
 
@@ -102,7 +116,17 @@ export class PromptSonarWebviewPanel {
             </script>
         `;
 
-        this._panel.webview.html = html.replace('</body>', `${vscodeScript}</body>`);
+        return html.replace('</body>', `${vscodeScript}</body>`);
+    }
+
+    private static async openFallbackHtmlReport(result: RuleResult, promptText: string, error: unknown) {
+        const html = await PromptSonarWebviewPanel.buildHtml(result, promptText);
+        const reportPath = path.join(os.tmpdir(), `promptsonar-report-${Date.now()}.html`);
+        fs.writeFileSync(reportPath, html, 'utf8');
+        await vscode.env.openExternal(vscode.Uri.file(reportPath));
+        vscode.window.showWarningMessage(
+            `PromptSonar opened the report in your browser because VS Code could not create the webview panel: ${String(error)}`
+        );
     }
 
     public dispose() {

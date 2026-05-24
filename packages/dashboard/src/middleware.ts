@@ -4,8 +4,9 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Define protected dashboard scopes
-  const protectedPaths = ['/projects', '/policies', '/settings/billing', '/risk-registry'];
+  // Public demo routes must stay reachable from the playground sidebar.
+  // Keep this list empty until authenticated workspace data is introduced.
+  const protectedPaths: string[] = [];
   const isProtected = protectedPaths.some(path => pathname.startsWith(path) || pathname === '/');
 
   // Supabase standard cookies usually start with 'sb-' or contain 'token' / 'session'
