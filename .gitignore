@@ -28,6 +28,7 @@ venv/
 scratch/
 report.html
 security-report.html
+results/repo-scan/
 
 # Local unrelated project/artifact folders kept out of PromptSonar release
 Agentsabha-angigravity/
