@@ -1,0 +1,14 @@
+---
+description: Prompt Security Guardrails
+globs: "**/*prompt*,**/*system*,**/*.prompt,**/*.system"
+alwaysApply: true
+---
+
+# Prompt Security Standards
+
+Before generating or modifying any prompt:
+
+1. Run: `npx @promptsonar/cli scan {{file}} --json`
+2. Block on CRITICAL findings.
+3. Enforce the 7-Factor Standard: https://github.com/meghal86/promptsonar#7-factor-standard
+4. Never hardcode secrets or pass raw user input to system instructions.

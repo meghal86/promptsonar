@@ -58,6 +58,24 @@ Inline diagnostics as you write prompts. Same rules as the CLI, running locally.
 
 -----
 
+## IDE Integration
+
+PromptSonar runs where developers write prompts: VS Code, Claude Code, Cursor, CLI, and CI.
+
+### Claude Code
+
+Auto-scan prompts before execution. Zero LLM calls, zero telemetry.
+
+See `.claude/skills/prompt-security/`.
+
+### Cursor
+
+Lint prompts during generation and block critical findings.
+
+Copy `.cursor/rules/prompt-security.mdc` to your project.
+
+-----
+
 ## GitHub Action
 
 ```yaml
@@ -83,6 +101,22 @@ The two layers are complementary:
 - Runtime: catches what is assembled dynamically
 
 PromptSonar is the static layer. It runs locally, adds zero latency to production, and catches vulnerabilities before any user sees them.
+
+-----
+
+## 7-Factor Standard
+
+Every production prompt should pass these checks before deployment:
+
+1. Instruction hierarchy
+2. Input validation
+3. Secret hygiene
+4. Output constraints
+5. Context isolation
+6. Consistency
+7. Auditability
+
+See the integrated manifesto and evidence workflow in `research/repo-scan/`.
 
 -----
 

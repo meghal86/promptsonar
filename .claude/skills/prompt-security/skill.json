@@ -1,0 +1,7 @@
+{
+  "name": "prompt-security",
+  "description": "Scan prompts for injection, secrets, and vulnerabilities. Zero LLM calls. 100% local.",
+  "version": "1.0.0",
+  "tools": ["read_file", "execute_command"],
+  "entrypoint": "scan.ts"
+}
