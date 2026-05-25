@@ -107,3 +107,19 @@ Use `[x]` for completed, `[/]` for in progress, and `[ ]` for pending.
 - [ ] Harden Stripe webhook and Supabase RLS.
 - [ ] Add hosted scan history.
 - [ ] Add org policy management.
+
+## Sprint 5 - v1.2 Launch Checklist
+
+- [x] Align package versions to `1.2.0`.
+- [x] Add `audit-mcp --format` support.
+- [x] Verify MCP exit code tests.
+- [x] Update playground viral/security copy.
+- [x] Capture vulnerable and clean playground screenshots.
+- [x] Capture CLI `audit-mcp` screenshot.
+- [x] Add 100 benchmark fixtures.
+- [x] Update root README.
+- [x] Update `ADOPTION.md`.
+- [x] Run `npm run build`.
+- [x] Run `npm test`.
+- [x] Push v1.2 sprint commit to `main`.
+- [ ] Create remote `7-factor-prompt-security` repo after GitHub CLI/API access is available.

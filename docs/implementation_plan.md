@@ -95,6 +95,26 @@ Objective: expand beyond prompts-in-code into agent instruction repos without tu
 - [ ] Add README examples showing PromptSonar scanning agent skills and repository-level instructions.
 - [ ] Package a launch post around "scan your agent instructions before publishing a skill".
 
+## Sprint 3.6 - PromptSonar v1.2 Launch Sprint
+
+Objective: fix launch blockers, sharpen playground distribution copy, and add shareable benchmark/evidence assets without rebuilding working scanner internals.
+
+- [x] Keep existing static scanner, scoring, SBOM, governance, VS Code diagnostics, CLI scan/SARIF, GitHub Action, and dashboard analysis cards intact.
+- [x] Verify `/overview` redirects to `/projects` and `/settings` redirects to `/settings/billing`.
+- [x] Verify dossier PDF export calls `window.print()` and print CSS is present.
+- [x] Verify findings list uses unique React keys.
+- [x] Update optimized tab label and Pro/license-pending microcopy.
+- [x] Confirm dedicated evasion rules exist for Base64 payloads, homoglyphs, and zero-width injection.
+- [x] Add `audit-mcp --format json|sarif|terminal` while preserving existing `--json` and `--sarif` flags.
+- [x] Update MCP terminal output with v1.2.0 header, server count, score, and exit code.
+- [x] Rewrite playground launch copy for clean/vulnerable states, report card statuses, empty states, buttons, and footer.
+- [x] Add 100 benchmark fixtures: 25 vulnerable prompts, 25 safe prompts, 25 vulnerable MCP configs, and 25 safe MCP configs.
+- [x] Refresh root README around prompt injection, jailbreaks, MCP tool poisoning, and static pre-deploy scanning.
+- [x] Refresh `ADOPTION.md` for metrics, external mentions, speaking, community proof, and EB-1A evidence capture.
+- [x] Capture playground vulnerable, playground clean, and CLI MCP audit screenshots under `docs/assets/`.
+- [x] Prepare local standalone `7-factor-prompt-security` manifesto repository content.
+- [ ] Create and push remote `github.com/meghal86/7-factor-prompt-security` once GitHub repo creation tooling is available.
+
 ## Sprint 4 - Dashboard and Commercial Layer
 
 Objective: support enterprise usage without distracting from open-source adoption.
