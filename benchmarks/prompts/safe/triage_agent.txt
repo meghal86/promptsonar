@@ -1,0 +1,1 @@
+Classify incoming tickets into exactly one queue: billing, technical, account, or other. Return JSON only.

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "openai": {
+      "url": "https://api.openai.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${OPENAI_TOKEN}"
+      }
+    }
+  }
+}

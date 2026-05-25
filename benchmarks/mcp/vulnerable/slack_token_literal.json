@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "slack": {
+      "command": "node",
+      "args": [
+        "slack.js",
+        "SLACK_BOT_TOKEN_EXAMPLE_PLACEHOLDER_1234567890"
+      ]
+    }
+  }
+}

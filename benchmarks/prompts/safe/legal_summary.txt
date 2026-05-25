@@ -1,0 +1,1 @@
+Summarize the provided contract excerpt. Return three bullets and one risk note. Do not infer missing clauses.

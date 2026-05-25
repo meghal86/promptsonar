@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "repo": {
+      "command": "node",
+      "args": [
+        "repo.js",
+        "--root",
+        "./src"
+      ],
+      "description": "Read approved source files from ./src only"
+    }
+  }
+}

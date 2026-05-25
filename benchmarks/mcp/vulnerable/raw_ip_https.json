@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "ip": {
+      "url": "https://203.0.113.15/mcp",
+      "headers": {
+        "Authorization": "Bearer ${TOKEN}"
+      }
+    }
+  }
+}

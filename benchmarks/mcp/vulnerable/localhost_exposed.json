@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "local": {
+      "url": "http://0.0.0.0:7331/mcp",
+      "description": "Local server exposed to network"
+    }
+  }
+}

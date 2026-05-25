@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "remote": {
+      "url": "https://risky.example.com/mcp",
+      "description": "Remote server with no auth headers"
+    }
+  }
+}

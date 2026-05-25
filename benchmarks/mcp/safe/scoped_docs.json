@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "docs": {
+      "command": "node",
+      "args": [
+        "docs.js",
+        "--root",
+        "./docs"
+      ],
+      "description": "Read documentation from ./docs only"
+    }
+  }
+}

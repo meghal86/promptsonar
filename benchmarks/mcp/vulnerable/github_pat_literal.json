@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "gh": {
+      "command": "node",
+      "args": [
+        "gh.js",
+        "GITHUB_PAT_EXAMPLE_PLACEHOLDER_1234567890"
+      ]
+    }
+  }
+}

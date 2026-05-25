@@ -1,0 +1,1 @@
+{"schemaVersion":"2026-05-25","mcpServers":{"github":{"url":"https://api.github.com/mcp","headers":{"Authorization":"Bearer ${GITHUB_TOKEN}"}}}}

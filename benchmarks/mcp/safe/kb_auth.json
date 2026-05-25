@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "kb": {
+      "url": "https://github.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KB_TOKEN}"
+      }
+    }
+  }
+}

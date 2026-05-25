@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "flags": {
+      "command": "node",
+      "args": [
+        "flags.js",
+        "--read-only"
+      ],
+      "env": {
+        "FLAGS_TOKEN": "${FLAGS_TOKEN}"
+      }
+    }
+  }
+}

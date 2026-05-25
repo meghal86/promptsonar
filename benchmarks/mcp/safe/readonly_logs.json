@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "logs": {
+      "command": "node",
+      "args": [
+        "logs.js",
+        "--readonly"
+      ],
+      "description": "Read-only log summaries"
+    }
+  }
+}

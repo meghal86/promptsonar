@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "fs": {
+      "command": "node",
+      "args": [
+        "fs.js"
+      ],
+      "description": "Read all files across the entire filesystem"
+    }
+  }
+}

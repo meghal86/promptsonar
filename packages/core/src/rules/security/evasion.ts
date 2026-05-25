@@ -44,8 +44,8 @@ export function checkEvasionPatterns(input: RuleInput): Finding[] {
             rule_id: 'sec_base64_encoded_payload',
             category: 'security',
             severity: 'high',
-            explanation: 'Base64-encoded payload detected. Potential jailbreak attempt disguised as encoded data.',
-            suggested_fix: 'Remove Base64 encoding from prompt strings. Do not embed encoded instructions in source code.',
+            explanation: 'Base64-encoded payload detected. Potential jailbreak disguised as encoded data.',
+            suggested_fix: 'Remove Base64 encoding from prompt strings.',
             penalty_score: 20,
         });
     }
@@ -55,8 +55,8 @@ export function checkEvasionPatterns(input: RuleInput): Finding[] {
             rule_id: 'sec_homoglyph_evasion',
             category: 'security',
             severity: 'high',
-            explanation: 'Unicode homoglyph substitution detected. Characters from non-Latin scripts are visually identical to Latin but bypass ASCII pattern matching.',
-            suggested_fix: 'Remove non-Latin Unicode characters from prompt strings. Use only ASCII characters.',
+            explanation: 'Unicode homoglyph substitution detected. Non-Latin characters bypass ASCII pattern matching.',
+            suggested_fix: 'Use only ASCII characters in prompt strings.',
             penalty_score: 20,
         });
     }
@@ -66,8 +66,8 @@ export function checkEvasionPatterns(input: RuleInput): Finding[] {
             rule_id: 'sec_zero_width_injection',
             category: 'security',
             severity: 'high',
-            explanation: 'Zero-width character injection detected. Invisible Unicode characters break pattern matching while remaining invisible to code reviewers.',
-            suggested_fix: 'Remove zero-width Unicode characters (U+200B, U+200C, U+200D, U+FEFF) from prompt strings.',
+            explanation: 'Zero-width character injection detected. Invisible Unicode breaks pattern matching.',
+            suggested_fix: 'Remove zero-width Unicode characters.',
             penalty_score: 20,
         });
     }

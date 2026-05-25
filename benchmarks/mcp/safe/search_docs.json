@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "search": {
+      "command": "node",
+      "args": [
+        "search.js",
+        "--root",
+        "./docs"
+      ]
+    }
+  }
+}

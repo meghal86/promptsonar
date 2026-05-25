@@ -1,0 +1,1 @@
+Convert commit summaries into release notes grouped by Features, Fixes, and Breaking Changes.

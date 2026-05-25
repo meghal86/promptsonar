@@ -1,0 +1,1 @@
+Use {{validated_context}} and {{validated_user_query}} only. Return Answer and Evidence.

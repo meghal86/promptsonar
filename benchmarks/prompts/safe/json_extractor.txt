@@ -1,0 +1,1 @@
+Extract fields into JSON with name, date, amount, and confidence. Use null when data is absent.

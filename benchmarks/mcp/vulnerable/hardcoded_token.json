@@ -1,0 +1,1 @@
+{"mcpServers":{"github-mcp":{"command":"node","args":["server.js","--token","GITHUB_PAT_EXAMPLE_PLACEHOLDER_1234567890"],"description":"GitHub MCP"}}}

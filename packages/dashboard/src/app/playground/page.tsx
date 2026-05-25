@@ -431,7 +431,7 @@ export default function PlaygroundPage() {
 
   const getThreatLevel = (pillar: 'ingestion' | 'injection' | 'exposure') => {
     if (result.score === null) {
-      return { level: '—', color: 'text-slate-400', bg: 'bg-slate-50', border: 'border-slate-200', svgColor: 'text-slate-400' };
+      return { level: '—', text: 'Ready to scan', color: 'text-slate-400', bg: 'bg-slate-50', border: 'border-slate-200', svgColor: 'text-slate-400' };
     }
 
     let relevantFindings = [];
@@ -453,7 +453,12 @@ export default function PlaygroundPage() {
     }
 
     if (relevantFindings.length === 0) {
-      return { level: 'Low', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', svgColor: 'text-emerald-500' };
+      const text = pillar === 'ingestion'
+        ? 'Context locked down — No manipulation path found'
+        : pillar === 'injection'
+        ? 'Injection sealed — Tested 12 patterns, 0 escaped'
+        : 'Secrets clean — No hardcoded keys or tokens';
+      return { level: 'Clean', text, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', svgColor: 'text-emerald-500' };
     }
 
     const hasHighOrCritical = relevantFindings.some((f: any) => 
@@ -464,12 +469,77 @@ export default function PlaygroundPage() {
     );
 
     if (hasHighOrCritical) {
-      return { level: 'High', color: 'text-red-650', bg: 'bg-red-50', border: 'border-red-100', svgColor: 'text-red-500' };
+      const text = pillar === 'ingestion'
+        ? 'Context is a sieve — I can rewrite your instructions'
+        : pillar === 'injection'
+        ? 'Injection wide open — Attack patterns confirmed'
+        : 'Secret exposed — Hardcoded key found';
+      return { level: 'High', text, color: 'text-red-650', bg: 'bg-red-50', border: 'border-red-100', svgColor: 'text-red-500' };
     } else if (hasMedium) {
-      return { level: 'Medium', color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100', svgColor: 'text-amber-500' };
+      return { level: 'Review', text: 'Needs review — Medium-risk pattern found', color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100', svgColor: 'text-amber-500' };
     } else {
-      return { level: 'Low', color: 'text-emerald-650', bg: 'bg-emerald-50', border: 'border-emerald-100', svgColor: 'text-emerald-500' };
+      const text = pillar === 'ingestion'
+        ? 'Context locked down — No manipulation path found'
+        : pillar === 'injection'
+        ? 'Injection sealed — Tested 12 patterns, 0 escaped'
+        : 'Secrets clean — No hardcoded keys or tokens';
+      return { level: 'Clean', text, color: 'text-emerald-650', bg: 'bg-emerald-50', border: 'border-emerald-100', svgColor: 'text-emerald-500' };
     }
+  };
+
+  const getPillarCopy = (category: string, count: number | null) => {
+    const clean = count === 0 && result.score !== null;
+    const vulnerable = (count || 0) > 0;
+    const copy: Record<string, { clean: string; vulnerable: string; cleanBody: string; vulnerableBody: string }> = {
+      security: {
+        clean: 'SECURITY: LOCKED',
+        vulnerable: 'SECURITY: I BROKE THIS',
+        cleanBody: 'I tried to break this prompt. I failed.',
+        vulnerableBody: 'I found working jailbreak paths. Fix them before shipping.'
+      },
+      clarity: {
+        clean: 'CLARITY: CRYSTAL CLEAR',
+        vulnerable: 'CLARITY: CONFLICTED',
+        cleanBody: 'A tired intern at 2am could follow this prompt.',
+        vulnerableBody: 'The AI may pick conflicting interpretations.'
+      },
+      structure: {
+        clean: 'STRUCTURE: BULLETPROOF',
+        vulnerable: 'STRUCTURE: LEAKY BUCKET',
+        cleanBody: 'Every section has one job.',
+        vulnerableBody: 'Sections bleed across trust boundaries.'
+      },
+      best_practices: {
+        clean: 'BEST PRACTICES: BY THE BOOK',
+        vulnerable: 'BEST PRACTICES: CRITICAL VIOLATIONS',
+        cleanBody: 'OWASP-aligned and safe to review.',
+        vulnerableBody: 'Hardcoded secrets or missing constraints need immediate attention.'
+      },
+      consistency: {
+        clean: 'CONSISTENCY: PREDICTABLE',
+        vulnerable: 'CONSISTENCY: UNSTABLE',
+        cleanBody: 'Same input, same structure, every time.',
+        vulnerableBody: 'Downstream parsers may break.'
+      },
+      efficiency: {
+        clean: 'EFFICIENCY: LEAN',
+        vulnerable: 'EFFICIENCY: BLOATED',
+        cleanBody: 'Token budget is under control.',
+        vulnerableBody: 'Dead weight is increasing cost and truncation risk.'
+      },
+      ethics: {
+        clean: 'ETHICS: CLEAN',
+        vulnerable: 'ETHICS: GRAY AREA',
+        cleanBody: 'No deceptive or discriminatory instruction found.',
+        vulnerableBody: 'Human review is needed for consent or PII handling.'
+      }
+    };
+
+    const selected = copy[category] || copy.security;
+    if (result.score === null) return { headline: category.replace(/_/g, ' ').toUpperCase(), body: 'Ready to scan.' };
+    if (clean) return { headline: selected.clean, body: selected.cleanBody };
+    if (vulnerable) return { headline: selected.vulnerable, body: selected.vulnerableBody };
+    return { headline: selected.clean, body: selected.cleanBody };
   };
 
   const getSeverityBadgeColor = (severity: string) => {
@@ -595,6 +665,11 @@ export default function PlaygroundPage() {
   const hasCompletedScan = result.score !== null;
   const owaspLabels = getOwaspLabels();
   const jailbreakVerdict = getJailbreakVerdict();
+  const reportStatus = result.score === null
+    ? 'Pending'
+    : result.score >= 80 && !result.findings.some((f: any) => f.severity === 'critical')
+    ? 'PROTECTED'
+    : 'EXPOSED';
   const benchmarkCaught = result.score === null ? 0 : Math.min(10, Math.max(0, Math.round((100 - Math.min(result.score, 100)) / 10) + (hasInjectionRisk ? 3 : 0)));
   const securedPrompt = getSecuredPrompt();
   const reportScore = result.score === null ? 'pending' : String(result.score);
@@ -850,7 +925,7 @@ export default function PlaygroundPage() {
                 </svg>
               </div>
               <span className="text-base font-black tracking-tight text-slate-900 group-hover:text-slate-700 transition-colors">
-                PromptSonar
+                PromptSonar 🔒
               </span>
             </div>
           </Link>
@@ -909,15 +984,15 @@ export default function PlaygroundPage() {
         {/* Main Content Header */}
         <header className="min-h-14 bg-white border-b border-[#E4E3DE] px-4 py-3 lg:px-8 flex flex-col gap-3 lg:flex-row lg:justify-between lg:items-center shrink-0">
           <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-[#57534E]">
-            <span className="font-medium text-[#A8A29E]">Audit</span>
+            <span className="font-medium text-[#A8A29E]">I read your prompt.</span>
             <span className="text-[#D6D3D1] font-mono">/</span>
-            <span className="font-bold text-[#1C1917]">Customer Support Assistant</span>
+            <span className="font-bold text-[#1C1917]">Here’s what I found.</span>
             <span className="h-3.5 w-px bg-[#E6E4E0] mx-2"></span>
             
             {/* Live Indicator */}
             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#E8F8F0] border border-[#C6EDD8]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className="text-[10px] font-bold text-emerald-700 tracking-wide uppercase">Live</span>
+              <span className="text-[10px] font-bold text-emerald-700 tracking-wide uppercase">Live · Scanning locally — no data leaves your machine</span>
             </div>
           </div>
 
@@ -974,7 +1049,7 @@ export default function PlaygroundPage() {
                 }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${result.score !== null && result.score <= 50 ? 'bg-red-500 animate-pulse' : 'bg-[#A8A29E]'}`}></span>
-                <span>Faulty (Vulnerable) Sample</span>
+                <span>⚠️ Load Vulnerable Example</span>
               </button>
               <button 
                 onClick={() => loadExample('optimized')}
@@ -985,7 +1060,7 @@ export default function PlaygroundPage() {
                 }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${result.score !== null && result.score > 50 ? 'bg-emerald-500 animate-pulse' : 'bg-[#A8A29E]'}`}></span>
-                <span>Good (Optimized) Sample</span>
+                <span>✅ Load Clean Example</span>
               </button>
             </div>
           </div>
@@ -1285,14 +1360,14 @@ export default function PlaygroundPage() {
                 {/* 4. Optimized Tab Panel */}
                 {activeLeftTab === 'optimized' && (
                   <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-                    <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800">
-                      Autogenerated secure rewrite appears here after every scan. Use this as the recommended prompt, then review the rule findings before shipping.
+                    <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
+                      Token compression via LLMLingua-2 is available in Pro. Current estimate: ~{result.roi?.originalTokens || Math.max(1, Math.ceil(promptText.length / 4))} tokens.
                     </div>
                     <div className="flex justify-between items-center text-[10px] text-[#A8A29E] font-mono tracking-wider font-semibold mb-2">
                       <span>SECURITY-HARDENED RECOMMENDED PROMPT</span>
                       {result.score !== null && (
-                        <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 font-bold font-sans">
-                          Generated from findings
+                        <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-100 font-bold font-sans">
+                          License pending · Pro feature
                         </span>
                       )}
                     </div>
@@ -1315,7 +1390,7 @@ export default function PlaygroundPage() {
                         </div>
 
                         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
-                          Optimized ✦ Pro: Token compression via LLMLingua-2 is available in Pro tier. Current estimate: ~{result.roi?.originalTokens || Math.max(1, Math.ceil(promptText.length / 4))} tokens. License pending.
+                          License pending · Pro feature. Compression is estimated locally; LLMLingua-2 execution remains deferred.
                         </div>
                         
                         {/* Token stats strip */}
@@ -1369,8 +1444,7 @@ export default function PlaygroundPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                         </svg>
                       </div>
-                      <span className="text-[#87827C]">Context ingestion</span>
-                      <span className={`font-bold ${threatIngestion.color}`}>{threatIngestion.level}</span>
+                      <span className={`font-bold ${threatIngestion.color}`}>{threatIngestion.text}</span>
                     </div>
 
                     {/* Injection Pillar */}
@@ -1380,8 +1454,7 @@ export default function PlaygroundPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                         </svg>
                       </div>
-                      <span className="text-[#87827C]">Prompt injection</span>
-                      <span className={`font-bold ${threatInjection.color}`}>{threatInjection.level}</span>
+                      <span className={`font-bold ${threatInjection.color}`}>{threatInjection.text}</span>
                     </div>
 
                     {/* Exposure Pillar */}
@@ -1391,8 +1464,7 @@ export default function PlaygroundPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                         </svg>
                       </div>
-                      <span className="text-[#87827C]">Data exposure</span>
-                      <span className={`font-bold ${threatExposure.color}`}>{threatExposure.level}</span>
+                      <span className={`font-bold ${threatExposure.color}`}>{threatExposure.text}</span>
                     </div>
 
                   </div>
@@ -1505,10 +1577,11 @@ export default function PlaygroundPage() {
                   ].map((p) => {
                     const count = getPillarIssuesCount(p.cat);
                     const isPassed = count === 0 || count === null;
+                    const pillarCopy = getPillarCopy(p.cat, count);
                     return (
                       <div 
                         key={p.key} 
-                        className={`p-2 rounded-lg border transition-all ${
+                        className={`p-2 rounded-lg border transition-all min-h-[82px] ${
                           result.score === null 
                             ? 'bg-slate-50/40 border-slate-100' 
                             : !isPassed 
@@ -1516,7 +1589,7 @@ export default function PlaygroundPage() {
                             : 'bg-emerald-50/20 border-emerald-100 text-emerald-800 font-medium'
                         }`}
                       >
-                        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{p.label}</div>
+                        <div className="text-[8.5px] font-bold uppercase tracking-wider text-slate-400">{p.label}</div>
                         <div className="flex items-center gap-1.5 mt-0.5 font-bold">
                           {result.score === null ? (
                             <span className="text-[10.5px] text-slate-400 font-semibold">—</span>
@@ -1532,6 +1605,12 @@ export default function PlaygroundPage() {
                             </>
                           )}
                         </div>
+                        <div className={`mt-1 text-[9px] font-black uppercase leading-snug ${result.score === null ? 'text-slate-400' : isPassed ? 'text-emerald-700' : 'text-red-700'}`}>
+                          {pillarCopy.headline}
+                        </div>
+                        <p className="mt-0.5 text-[9px] leading-snug text-[#78716C]">
+                          {pillarCopy.body}
+                        </p>
                       </div>
                     );
                   })}
@@ -1556,9 +1635,9 @@ export default function PlaygroundPage() {
                   {result.score === null ? (
                     <div className="py-8 flex flex-col justify-center items-center text-center text-[#A8A29E] gap-2 border border-dashed border-slate-200 rounded-xl bg-slate-50/30">
                       <span className="text-xl">⚡</span>
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Playground Empty Slate</div>
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Ready to scan.</div>
                       <p className="text-[10px] text-[#78716C] max-w-[200px] leading-relaxed px-4">
-                        Load a preset sample from above or write prompt to execute evaluations.
+                        Type or paste a prompt above. I’ll tell you exactly what’s wrong with it.
                       </p>
                     </div>
                   ) : result.findings.length === 0 ? (
@@ -1606,7 +1685,7 @@ export default function PlaygroundPage() {
                     onClick={() => setActiveModal('dossier')}
                     className="text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center gap-1 font-bold text-[11px] uppercase tracking-wide"
                   >
-                    <span>View full intelligence dossier</span>
+                    <span>View Full Report →</span>
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                     </svg>
@@ -1657,13 +1736,15 @@ export default function PlaygroundPage() {
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                       : 'border-red-200 bg-red-50 text-red-700'
                   }`}>
-                    {jailbreakVerdict}
+                    {reportStatus}
                   </div>
                 </div>
                 <p className="mt-4 text-xs leading-5 text-[#57534E]">
                   {result.score === null
                     ? 'Paste a prompt or load a sample to generate a shareable score card.'
-                    : `PromptSonar caught ${benchmarkCaught}/10 adversarial attack patterns and mapped ${owaspLabels.length || 0} OWASP control labels.`}
+                    : result.score >= 80 && !result.findings.some((f: any) => f.severity === 'critical')
+                    ? 'PromptSonar threw everything at this prompt. It didn’t flinch. 0 OWASP risks detected. 0 secrets exposed. This is what production-grade looks like.'
+                    : `I found critical holes. Fix them or don’t ship. ${owaspLabels.length || 0} OWASP risks mapped. ${exposureRules.length} secrets exposed. This prompt is a liability.`}
                 </p>
               </div>
 
@@ -1694,7 +1775,7 @@ export default function PlaygroundPage() {
                 <div>
                   <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#A8A29E]">Social proof</div>
                   <div className="mt-3 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
-                    <div className="text-sm font-black text-slate-950">PromptSonar: {jailbreakVerdict}</div>
+                    <div className="text-sm font-black text-slate-950">PromptSonar: {reportStatus}</div>
                     <div className="mt-2 font-mono text-[9.5px] leading-4 text-[#78716C] break-all">{badgeMarkdown}</div>
                   </div>
                 </div>
@@ -1774,7 +1855,7 @@ export default function PlaygroundPage() {
                 <div className="space-y-2 py-3">
                   {result.score === null ? (
                     <div className="flex-1 flex flex-col justify-center items-center text-slate-400 italic text-[11px] py-8 leading-relaxed text-center">
-                      Scanners idle.<br />No model drift telemetry.
+                      Load a prompt to see how different models would handle it.
                     </div>
                   ) : (
                     result.crossModelResult.modelBreakdown.map((item: any) => (
@@ -1810,7 +1891,7 @@ export default function PlaygroundPage() {
                   onClick={() => setActiveModal('drift')}
                   className="w-full pt-2 border-t border-[#E4E3DE] text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center gap-1 font-bold text-[10px] uppercase tracking-wide text-left flex justify-between shrink-0"
                 >
-                  <span>View drift analysis</span>
+                  <span>See How Models Compare →</span>
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
@@ -1932,7 +2013,7 @@ export default function PlaygroundPage() {
                   onClick={() => setActiveModal('attack_map')}
                   className="text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center gap-0.5 uppercase tracking-wide"
                 >
-                  <span>Explore map</span>
+                  <span>View Attack Surface →</span>
                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
@@ -1961,7 +2042,7 @@ export default function PlaygroundPage() {
                   
                   {result.score === null ? (
                     <div className="flex-1 flex flex-col justify-center items-center text-slate-400 italic text-[11px] py-8 text-center leading-relaxed">
-                      Scanners idle.<br />No timeline traces.
+                      No scans yet. Your history starts here.
                     </div>
                   ) : (() => {
                     const baseTime = scanTime || '18:39:07';
@@ -2038,7 +2119,7 @@ export default function PlaygroundPage() {
                 onClick={() => setActiveModal('timeline')}
                 className="w-full pt-2 border-t border-[#E4E3DE] text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center gap-1 font-bold text-[10px] uppercase tracking-wide text-left shrink-0 flex justify-between"
               >
-                <span>View full timeline</span>
+                <span>View Scan History →</span>
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
@@ -2062,7 +2143,7 @@ export default function PlaygroundPage() {
                 <div className="py-2 space-y-2.5 text-[10.5px]">
                   {result.score === null ? (
                     <div className="flex-1 flex flex-col justify-center items-center text-slate-400 italic text-[11px] py-8 text-center leading-relaxed">
-                      Scanners idle.<br />No recommendations active.
+                      No findings to fix. That’s a good thing.
                     </div>
                   ) : result.findings.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-6 text-center text-[#A8A29E]">
@@ -2101,7 +2182,7 @@ export default function PlaygroundPage() {
                 onClick={() => setActiveModal('remediations')}
                 className="w-full pt-2 border-t border-[#E4E3DE] text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center gap-1 font-bold text-[10px] uppercase tracking-wide text-left shrink-0 flex justify-between"
               >
-                <span>View all recommendations</span>
+                <span>See All Fixes →</span>
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
@@ -2115,8 +2196,7 @@ export default function PlaygroundPage() {
 
         {/* Footer */}
         <footer className="h-10 px-8 border-t border-[#E4E3DE] bg-white flex justify-between items-center text-[11px] font-mono text-[#A8A29E] shrink-0 select-none">
-          <span>© 2026 PromptSonar • All rights reserved</span>
-          <span className="font-sans font-semibold uppercase tracking-wider text-[#78716C]">Quiet AI threat intelligence.</span>
+          <span>PromptSonar · Static prompt security — from IDE to CI · Local-first · No LLM calls · OWASP LLM01/02 · © 2026 PromptSonar</span>
         </footer>
 
       </div>

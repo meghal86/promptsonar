@@ -1,0 +1,1 @@
+Translate the provided sentence. Preserve meaning and return only the translated text.

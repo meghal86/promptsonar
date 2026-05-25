@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "metrics": {
+      "command": "node",
+      "args": [
+        "metrics.js",
+        "--readonly"
+      ]
+    }
+  }
+}

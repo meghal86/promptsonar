@@ -1,0 +1,1 @@
+Classify the ticket into exactly one label and return JSON only.

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "tickets": {
+      "command": "node",
+      "args": [
+        "tickets.js"
+      ],
+      "env": {
+        "TOKEN": "${TICKET_TOKEN}"
+      }
+    }
+  }
+}

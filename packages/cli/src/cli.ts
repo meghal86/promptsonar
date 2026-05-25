@@ -9,7 +9,7 @@ import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './form
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult } from '@promptsonar/core';
 import { runPromptTests } from './tester';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 const program = new Command();
 
@@ -150,6 +150,7 @@ function formatMcpTerminal(results: McpAuditResult[]): string {
     if (results.length === 0) {
         return [
             '',
+            chalk.bold(`PromptSonar MCP Audit v${VERSION}`),
             chalk.yellow('No MCP config files found.'),
             chalk.dim('Checked Claude, Cursor, and local mcp.json discovery paths.'),
             '',
@@ -157,29 +158,46 @@ function formatMcpTerminal(results: McpAuditResult[]): string {
     }
 
     const lines: string[] = [];
+    const allFindings = results.flatMap(result => result.findings);
+    const serverCount = results.reduce((count, result) => {
+        try {
+            const raw = fs.readFileSync(result.filePath, 'utf-8');
+            const parsed = JSON.parse(raw);
+            const servers = parsed?.mcpServers || parsed?.servers || {};
+            return count + (Array.isArray(servers) ? servers.length : Object.keys(servers).length);
+        } catch {
+            return count;
+        }
+    }, 0);
+    const exitCode = getMcpExitCode(results);
+    const score = Math.max(0, 100 - allFindings.reduce((total, finding) => {
+        if (finding.severity === 'critical') return total + 40;
+        if (finding.severity === 'high') return total + 25;
+        if (finding.severity === 'medium') return total + 12;
+        return total + 5;
+    }, 0));
+
+    lines.push(chalk.bold(`PromptSonar MCP Audit v${VERSION}`));
+    lines.push(`Scanning: ${results.map(result => result.filePath).join(', ')}`);
+    lines.push(`Found ${serverCount} MCP server${serverCount === 1 ? '' : 's'}`);
+
     for (const result of results) {
-        lines.push('');
-        lines.push(chalk.bold(`PromptSonar v${VERSION} — MCP audit ${chalk.underline(result.filePath)}`));
         lines.push('');
 
         if (result.findings.length === 0) {
-            lines.push(chalk.green('  No MCP findings. Config looks clean.'));
+            lines.push(chalk.green(`✓ PASS · ${path.basename(result.filePath)} · 0 findings`));
         } else {
             for (const finding of result.findings) {
                 const color = finding.severity === 'critical' ? chalk.red : finding.severity === 'high' ? chalk.hex('#FF8C00') : finding.severity === 'medium' ? chalk.yellow : chalk.blue;
-                lines.push(`  ${color(finding.severity.toUpperCase().padEnd(10))} ${chalk.bold(finding.rule_id)} ${finding.server ? chalk.dim(`[${finding.server}]`) : ''}`);
-                lines.push(`     Path: ${finding.path}`);
-                lines.push(`     ${finding.message}`);
-                lines.push(`     Fix: ${finding.fix}`);
+                lines.push(`${color('✗')} ${color(finding.severity.toUpperCase())} · ${chalk.bold(finding.rule_id)}${finding.server ? ` · server: "${finding.server}"` : ''}`);
+                lines.push(`${finding.message}`);
+                lines.push(`Fix: ${finding.fix}`);
                 lines.push('');
             }
         }
-
-        const statusColor = result.status === 'pass' ? chalk.green : result.status === 'warn' ? chalk.yellow : chalk.red;
-        lines.push(statusColor(`Status: ${result.status.toUpperCase()} (${result.findings.length} findings)`));
-        lines.push('');
     }
 
+    lines.push(`Score: ${score}/100 · Exit code ${exitCode}`);
     return lines.join('\n');
 }
 
@@ -230,15 +248,22 @@ program
     .command('audit-mcp')
     .description('Audit MCP config files for unsafe servers, secrets, and tool poisoning risks')
     .argument('[path]', 'Optional path to claude_desktop_config.json, .cursor/mcp.json, or mcp.json')
+    .option('--format <type>', 'Output format (terminal|json|sarif)', 'terminal')
     .option('--json', 'Output audit results as JSON')
     .option('--sarif', 'Output audit results as SARIF')
     .option('--output <file>', 'Write audit output to a file')
     .action((targetPath, options) => {
         try {
             const results = auditDiscoveredMcpConfigs(targetPath);
-            const output = options.sarif
+            const selectedFormat = options.sarif ? 'sarif' : options.json ? 'json' : options.format;
+            if (!['terminal', 'json', 'sarif'].includes(selectedFormat)) {
+                console.error(chalk.red(`[PromptSonar] MCP audit error: unknown format "${selectedFormat}". Use terminal, json, or sarif.`));
+                process.exit(1);
+            }
+
+            const output = selectedFormat === 'sarif'
                 ? formatMcpSarif(results)
-                : options.json
+                : selectedFormat === 'json'
                     ? JSON.stringify(results, null, 2)
                     : formatMcpTerminal(results);
 

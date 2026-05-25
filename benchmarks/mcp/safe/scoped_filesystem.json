@@ -1,0 +1,1 @@
+{"schemaVersion":"2026-05-25","mcpServers":{"filesystem":{"command":"node","args":["server.js","--root","./docs"],"description":"Read documentation files from ./docs only"}}}

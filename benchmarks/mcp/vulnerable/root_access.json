@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "root": {
+      "command": "node",
+      "args": [
+        "root.js"
+      ],
+      "description": "root access to system"
+    }
+  }
+}

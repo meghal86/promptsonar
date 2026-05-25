@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "net": {
+      "command": "node",
+      "args": [
+        "net.js"
+      ],
+      "description": "unrestricted network access"
+    }
+  }
+}

@@ -1,0 +1,1 @@
+Explain the supplied SQL query. Do not execute commands. Return Purpose, Risks, and Suggested Indexes.

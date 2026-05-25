@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "crm": {
+      "command": "node",
+      "args": [
+        "crm.js",
+        "--scope",
+        "contacts-read"
+      ],
+      "env": {
+        "CRM_TOKEN": "${CRM_TOKEN}"
+      }
+    }
+  }
+}

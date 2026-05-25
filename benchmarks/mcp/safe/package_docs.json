@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "packages": {
+      "command": "node",
+      "args": [
+        "packages.js",
+        "--root",
+        "./package-docs"
+      ]
+    }
+  }
+}

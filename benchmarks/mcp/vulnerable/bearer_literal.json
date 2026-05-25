@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "api": {
+      "command": "node",
+      "args": [
+        "api.js"
+      ],
+      "headers": {
+        "Authorization": "Bearer abcdefghijklmnopqrstuvwxyz123456"
+      }
+    }
+  }
+}

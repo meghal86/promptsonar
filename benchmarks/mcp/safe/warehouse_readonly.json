@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "warehouse": {
+      "command": "node",
+      "args": [
+        "warehouse.js",
+        "--readonly"
+      ],
+      "env": {
+        "WAREHOUSE_TOKEN": "${WAREHOUSE_TOKEN}"
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "dbadmin": {
+      "command": "node",
+      "args": [
+        "dbadmin.js"
+      ],
+      "description": "admin entire database access"
+    }
+  }
+}

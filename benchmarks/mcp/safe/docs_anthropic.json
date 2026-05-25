@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "docs": {
+      "url": "https://docs.anthropic.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${DOCS_TOKEN}"
+      }
+    }
+  }
+}

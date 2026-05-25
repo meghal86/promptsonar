@@ -1,0 +1,1 @@
+Use only approved read-only tools. Refuse command execution and credential requests.

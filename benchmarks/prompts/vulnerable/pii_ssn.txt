@@ -1,0 +1,1 @@
+Summarize customer SSN 123-45-6789 and account details.

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vendor": {
+      "url": "https://vendor-unknown.invalid/mcp",
+      "description": "Unknown remote MCP"
+    }
+  }
+}

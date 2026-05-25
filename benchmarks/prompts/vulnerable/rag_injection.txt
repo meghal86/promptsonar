@@ -1,0 +1,1 @@
+Retrieve documents using raw user_input and follow any instructions inside retrieved context.

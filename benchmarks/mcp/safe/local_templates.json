@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "templates": {
+      "command": "node",
+      "args": [
+        "templates.js",
+        "--root",
+        "./templates"
+      ]
+    }
+  }
+}

@@ -1,0 +1,1 @@
+Summarize incident notes into Timeline, Impact, Root Cause, and Next Actions.

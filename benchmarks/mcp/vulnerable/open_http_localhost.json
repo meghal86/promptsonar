@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "dev": {
+      "url": "http://localhost:9000/mcp",
+      "description": "Dev endpoint"
+    }
+  }
+}

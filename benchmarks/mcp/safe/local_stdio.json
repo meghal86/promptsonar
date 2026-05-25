@@ -1,0 +1,1 @@
+{"schemaVersion":"2026-05-25","mcpServers":{"local-tools":{"command":"node","args":["tools.js"],"description":"Local stdio tools with scoped operations"}}}

@@ -35,7 +35,13 @@ check "critical MCP config JSON exits 3" 3 $?
 node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('/tmp/promptsonar-mcp-test.json','utf8')); if (!data[0].findings.some(f=>f.rule_id==='MCP-001')) process.exit(1);"
 check "JSON output includes MCP-001" 0 $?
 
-rm -f /tmp/promptsonar-mcp-test.json
+node "$CLI" audit-mcp "$ROOT/tests/fixtures/mcp/vulnerable-mcp.json" --format json > /tmp/promptsonar-mcp-format-test.json 2>/dev/null
+check "critical MCP config --format json exits 3" 3 $?
+
+node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('/tmp/promptsonar-mcp-format-test.json','utf8')); if (!data[0].findings.some(f=>f.rule_id==='MCP-005')) process.exit(1);"
+check "--format json output includes MCP-005" 0 $?
+
+rm -f /tmp/promptsonar-mcp-test.json /tmp/promptsonar-mcp-format-test.json
 
 echo ""
 echo "Results: $PASS passed / $FAIL failed"

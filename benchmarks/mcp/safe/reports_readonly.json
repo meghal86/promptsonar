@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "reports": {
+      "command": "node",
+      "args": [
+        "reports.js",
+        "--readonly"
+      ]
+    }
+  }
+}

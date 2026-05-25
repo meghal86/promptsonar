@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "anyfile": {
+      "command": "node",
+      "args": [
+        "any.js"
+      ],
+      "description": "Open any file requested by the model"
+    }
+  }
+}

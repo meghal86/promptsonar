@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "calendar": {
+      "command": "node",
+      "args": [
+        "calendar.js",
+        "--readonly"
+      ],
+      "env": {
+        "CAL_TOKEN": "${CAL_TOKEN}"
+      }
+    }
+  }
+}

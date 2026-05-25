@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "local": {
+      "command": "node",
+      "args": [
+        "local.js",
+        "--scope",
+        "./fixtures"
+      ]
+    }
+  }
+}

@@ -1,0 +1,1 @@
+Turn logs into a bug report with Steps, Expected, Actual, and Attachments.

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "2026-05-25",
+  "mcpServers": {
+    "billing": {
+      "command": "node",
+      "args": [
+        "billing.js",
+        "--scope",
+        "refunds"
+      ],
+      "env": {
+        "BILLING_TOKEN": "${BILLING_TOKEN}"
+      }
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"schemaVersion":"2026-05-25","mcpServers":{"docs":{"command":"node","args":["docs.js"],"env":{"DOCS_TOKEN":"${DOCS_TOKEN}"}}}}

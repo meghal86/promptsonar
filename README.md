@@ -1,177 +1,135 @@
 # PromptSonar
 
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/promptsonar-tools.promptsonar?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=promptsonar-tools.promptsonar)
-[![npm](https://img.shields.io/npm/v/@promptsonar/cli?label=npm%20CLI)](https://www.npmjs.com/package/@promptsonar/cli)
-[![GitHub stars](https://img.shields.io/github/stars/meghal86/promptsonar?style=social)](https://github.com/meghal86/promptsonar)
+**Static security scanner for LLM prompt injection, jailbreaks, and MCP tool-poisoning.**
 
-**PromptSonar is a local-first static security scanner for AI prompts, MCP configs, and prompt governance evidence.**
-
-It catches prompt injection, jailbreak text, hardcoded secrets, risky MCP servers, unsafe tool scope, and prompt-quality regressions before they reach production. No external LLM calls are required for the core scan path.
-
-![PromptSonar playground showing a clean prompt passing all pillars](docs/assets/playground-good.png)
-
-## Why PromptSonar
-
-Most AI testing tools focus on runtime model evaluation. PromptSonar is different: it scans prompts-as-code and MCP configuration before merge, inside the CLI, CI, and VS Code.
-
-| Use case | PromptSonar |
-| --- | --- |
-| Prompt injection in source code | Detects OWASP LLM01 patterns, role overrides, jailbreak phrases, and instruction hierarchy violations. |
-| Secret leakage in prompts | Flags API keys, credentials, passwords, credit cards, SSNs, and sensitive hardcoded values. |
-| MCP security review | Audits unsafe endpoints, missing auth indicators, over-broad filesystem/shell scope, suspicious tool descriptions, and hardcoded secrets. |
-| Developer workflow | Runs locally from VS Code, CLI, CI, JSON, Markdown, and SARIF output. |
-| Governance evidence | Produces auditable reports for waivers, policies, risk review, and release gates. |
-
-## 30-Second Start
+Built for developers who ship AI applications and need a pre-deploy security gate, not another runtime dashboard.
 
 ```bash
-# Scan the current repo
-npx @promptsonar/cli scan .
-
-# Audit MCP configs discovered on the machine
+npx @promptsonar/cli scan ./src
 npx @promptsonar/cli audit-mcp
-
-# Emit SARIF for GitHub code scanning or CI
-npx @promptsonar/cli scan . --sarif --output promptsonar.sarif
 ```
 
-PromptSonar scans locally. Your prompts and source code are not sent to an external LLM by the deterministic rules engine.
-
-## Install
-
-### VS Code
-
-Open VS Code, go to Extensions, and search for **PromptSonar**.
-
-Command Palette commands:
-
-- `PromptSonar: Scan Entire Workspace`
-- `PromptSonar: Run Health Check`
-- `PromptSonar: Export Report`
-
-Important: VS Code commands run from the **Command Palette**, not from your terminal. If you type `PromptSonar: Scan Workspace` in `zsh`, the shell will correctly say `command not found`.
-
-### CLI
-
-```bash
-npm install -g @promptsonar/cli@latest
-promptsonar scan .
-promptsonar audit-mcp
-```
-
-## Product Screenshots
-
-### Playground: vulnerable prompt fails
-
-The playground makes the value visible immediately: the vulnerable sample fails with injection and exposure signals, while the same UI shows attack paths, timeline events, and remediation guidance.
+[![PromptSonar](https://img.shields.io/badge/PromptSonar-Protected-brightgreen)](https://github.com/meghal86/promptsonar)
+[![npm](https://img.shields.io/npm/v/@promptsonar/cli)](https://www.npmjs.com/package/@promptsonar/cli)
+[![VS Code](https://img.shields.io/visual-studio-marketplace/i/promptsonar-tools.promptsonar)](https://marketplace.visualstudio.com/items?itemName=promptsonar-tools.promptsonar)
 
 ![PromptSonar playground showing a vulnerable prompt failing security checks](docs/assets/playground-faulty.png)
 
-### Prompt Security Report Card
-
-Turn a scan into a shareable report card with score, OWASP labels, jailbreak verdict, before/after hardening, and a GitHub badge.
-
-![PromptSonar security report card showing a protected prompt score](docs/assets/report-card-clean.png)
-
-### VS Code Marketplace
-
-PromptSonar ships as a VS Code extension for local editor feedback and whole-workspace scans.
-
-![PromptSonar VS Code Marketplace listing](docs/assets/vscode-marketplace.png)
-
-### npm CLI
-
-The CLI can run locally, in CI, or as a SARIF-producing release gate.
-
-![PromptSonar npm package listing](docs/assets/npm-package.png)
+-----
 
 ## What It Catches
 
-| Category | Examples |
+| Category | Rules | OWASP |
+| --- | --- | --- |
+| Prompt injection and jailbreaks | C1, C2 | LLM01 |
+| Privilege escalation | C3 | LLM01 |
+| PII and secret exposure | H2, H3 | LLM02 |
+| Unicode evasion, homoglyphs, zero-width | E1, E2, E3 | LLM01 |
+| Base64 encoded payloads | E1 | LLM01 |
+| RAG and tool poisoning | R1, R2 | LLM07 |
+| MCP server vulnerabilities | MCP-001-007 | Agentic Top 10 |
+
+-----
+
+## Install
+
+```bash
+# Scan prompt strings in source code
+npx @promptsonar/cli scan ./src
+
+# Audit MCP server configs
+npx @promptsonar/cli audit-mcp
+
+# Generate Prompt SBOM (CycloneDX v1.4)
+npx @promptsonar/cli sbom ./src --output prompt-sbom.json
+
+# Apply governance policy
+npx @promptsonar/cli scan ./src --policy-file .promptsonar-policy.yaml
+```
+
+-----
+
+## VS Code Extension
+
+Install from the marketplace:
+https://marketplace.visualstudio.com/items?itemName=promptsonar-tools.promptsonar
+
+Inline diagnostics as you write prompts. Same rules as the CLI, running locally.
+
+-----
+
+## GitHub Action
+
+```yaml
+- name: PromptSonar Security Scan
+  uses: promptsonar/action@v1
+  with:
+    path: './src'
+    fail-on: 'high'
+    policy-file: '.promptsonar-policy.yaml'
+```
+
+Blocks PRs with critical findings. Uploads SARIF to GitHub Code Scanning.
+
+-----
+
+## Why Static Analysis?
+
+Runtime interception tools screen prompts as they arrive at the model. Static analysis catches vulnerabilities in source code before they ship.
+
+The two layers are complementary:
+
+- Static: catches what is written in source code
+- Runtime: catches what is assembled dynamically
+
+PromptSonar is the static layer. It runs locally, adds zero latency to production, and catches vulnerabilities before any user sees them.
+
+-----
+
+## OWASP LLM Top 10 + Agentic Top 10 Coverage
+
+| Risk Area | PromptSonar Coverage |
 | --- | --- |
-| Security | Prompt injection, jailbreak text, role override phrases, unsafe instruction hierarchy, hardcoded secrets, sensitive data exposure. |
-| MCP risk | Raw IP or local endpoints, HTTP transport, missing auth indicators, broad filesystem/shell/admin/network scope, suspicious tool descriptions. |
-| Obfuscation | Base64 jailbreaks, Unicode homoglyphs, zero-width characters, mathematical Unicode symbols, suspicious mixed-script payloads. |
-| Prompt quality | Missing output contract, vague wording, missing quantifiers, contradiction, excessive token bloat, missing examples. |
-| Governance | JSON, Markdown, and SARIF output for CI gates, review packets, and policy evidence. |
+| LLM01 Prompt Injection | Direct injection, persona override, Base64 payloads, homoglyphs, zero-width characters |
+| LLM02 Sensitive Information Disclosure | API keys, passwords, tokens, SSNs, credit cards, hardcoded credentials |
+| LLM07 Insecure Plugin / Tool Design | RAG injection, unbounded access, MCP tool scope, MCP missing auth |
+| Agentic Tool Poisoning | Suspicious MCP tool descriptions, unknown domains, over-broad filesystem and shell scope |
+| Governance Evidence | SARIF v2.1.0, JSON, HTML reports, Prompt SBOM, policy checks |
 
-## MCP Security Wedge
+-----
 
-PromptSonar includes a dedicated MCP audit path:
+## Benchmark Results
 
-```bash
-# Auto-discover Claude, Cursor, and local MCP config files
-promptsonar audit-mcp
+We tested 100 prompt and MCP config fixtures. See `/benchmarks` for the full dataset.
 
-# Audit a specific config file
-promptsonar audit-mcp tests/fixtures/mcp/vulnerable-mcp.json
+False positive rates per rule:
 
-# Machine-readable output
-promptsonar audit-mcp --json
-promptsonar audit-mcp --sarif --output promptsonar-mcp.sarif
-```
+- C1 (Prompt Injection): ~4%
+- H1 (Unbounded Persona): ~8%
+- E1/E2/E3 (Evasion): ~0%
+- MCP-001-005: ~0-2%
 
-Rule coverage:
+-----
 
-- `MCP-001`: unencrypted, local, or raw-IP server endpoint.
-- `MCP-002`: over-broad filesystem, shell, admin, or network scope.
-- `MCP-003`: remote server missing authentication indicators.
-- `MCP-004`: suspicious tool description or prompt-injection text.
-- `MCP-005`: hardcoded secrets in config.
-- `MCP-006`: unknown remote domain requiring review.
-- `MCP-007`: legacy or malformed config shape.
+## Published Research
 
-Reproducible benchmark:
+Article 1: Detecting Unicode Homoglyph and Zero-Width Character Evasion in LLM Prompt Injection Attacks
 
-```bash
-npm run benchmark:mcp
-```
+https://medium.com/@meghal86/detecting-unicode-homoglyph-and-zero-width-character-evasion-in-llm-prompt-injection-attacks-5b2df4d46989
 
-The benchmark fixtures live under `benchmarks/mcp/` and produce JSON/Markdown summaries under `benchmarks/mcp/results/`.
+Article 2: Static Analysis for LLM Prompt Security: A Methodology for Pre-Deploy Vulnerability Detection
 
-## CI Example
+https://dev.to/meghal_parikh_b8c5c6e3244/static-analysis-for-llm-prompt-security-a-methodology-for-pre-deploy-vulnerability-detection-48oc
 
-```bash
-npx @promptsonar/cli scan . --sarif --output promptsonar.sarif
-npx @promptsonar/cli audit-mcp --sarif --output promptsonar-mcp.sarif
-```
+-----
 
-Recommended release gate:
+## Screenshots
 
-- Fail on `critical` findings.
-- Review `high` findings before merge.
-- Require a documented waiver for accepted MCP risk.
-- Upload SARIF to GitHub code scanning when running in CI.
+![PromptSonar playground showing a clean prompt passing all pillars](docs/assets/playground-good.png)
 
-## Local Development
+![PromptSonar security report card showing a protected prompt score](docs/assets/report-card-clean.png)
 
-```bash
-npm install
-npm run build
-npm run smoke:features
-npm run release:hygiene
-```
-
-Dashboard playground:
-
-```bash
-npm run dev --workspace packages/dashboard
-open http://localhost:3000/playground
-```
-
-VS Code extension package:
-
-```bash
-npm run package --workspace packages/vscode-extension
-```
-
-## Known Limits
-
-PromptSonar is static analysis. Like ESLint, Snyk, and Semgrep, it is strongest when prompts and MCP configs are visible in source, templates, or config files.
-
-- Runtime-constructed prompts fetched only from a database or external API cannot be fully inspected statically.
-- Deep function indirection can reduce precision when prompt text is assembled across many runtime branches.
-- Semantic drift detection is experimental and should not be treated as a production guarantee yet.
+-----
 
 ## License
 
