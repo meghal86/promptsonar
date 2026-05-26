@@ -1,7 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import fg from 'fast-glob';
-import { parseFile, evaluatePrompt, RuleResult, loadWaivers, getActiveWaivers, isFindingWaived, Waiver } from '@promptsonar/core';
+import {
+    parseFile,
+    evaluatePrompt,
+    RuleResult,
+    loadWaivers,
+    getActiveWaivers,
+    getActiveSuppressions,
+    getWaiverSuppressions,
+    isFindingSuppressed,
+    normalizeRuleId,
+    Suppression,
+} from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
 export interface ScanResult {
@@ -26,8 +37,12 @@ export interface ScanFinding {
     recommendation: string;
     evidence: string;
     confidence: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
+    why: string;
+    risk: string;
     docs_url: string;
     waived: boolean;
+    suppression_reason?: string;
+    suppression_source?: string;
 }
 
 // Maps rule IDs to their OWASP references
@@ -81,6 +96,63 @@ function getConfidenceForFinding(ruleId: string, severity: string): ScanFinding[
     return 'LOW';
 }
 
+function getRuleDocsUrl(ruleId: string): string {
+    return `https://github.com/meghal86/promptsonar/blob/main/docs/rules.md#${ruleId.toLowerCase()}`;
+}
+
+function getRiskExplanation(ruleId: string): string {
+    if (ruleId === 'sec_owasp_llm01_injection') {
+        return 'User-controlled text may override system instructions, extract hidden prompts, or bypass intended safety boundaries.';
+    }
+    if (ruleId === 'sec_zero_width_injection') {
+        return 'Invisible Unicode can hide jailbreak text from reviewers while changing what the model or scanner sees.';
+    }
+    if (ruleId === 'sec_homoglyph_evasion') {
+        return 'Lookalike Unicode characters can bypass ASCII-only filters and conceal malicious instructions.';
+    }
+    if (ruleId === 'sec_base64_encoded_payload') {
+        return 'Encoded instructions can smuggle jailbreak payloads through review and validation layers.';
+    }
+    if (ruleId.startsWith('sec_owasp_llm02')) {
+        return 'Secrets or sensitive data in prompt text can leak through logs, responses, screenshots, or repository history.';
+    }
+    if (ruleId === 'sec_unbounded_access') {
+        return 'Over-broad tool or data access gives an agent more authority than the task requires.';
+    }
+    if (ruleId === 'sec_rag_injection') {
+        return 'Raw retrieval queries can let untrusted content steer context selection or poison model inputs.';
+    }
+    if (ruleId === 'sec_unbounded_persona') {
+        return 'Unbounded role-play prompts can weaken instruction hierarchy and make policy bypass easier.';
+    }
+    return 'This pattern weakens prompt reliability, auditability, or downstream safety controls.';
+}
+
+function getDeterministicRecommendation(ruleId: string, fallback: string): string {
+    if (ruleId === 'sec_owasp_llm01_injection') {
+        return 'Treat user-provided text as untrusted content. Place it in a clearly delimited data block and state that it cannot modify system instructions.';
+    }
+    if (ruleId === 'sec_zero_width_injection') {
+        return 'Normalize prompt strings before scanning and remove U+200B, U+200C, U+200D, and U+FEFF characters.';
+    }
+    if (ruleId === 'sec_homoglyph_evasion') {
+        return 'Reject or normalize non-Latin homoglyph characters in prompt strings unless the language requirement is explicit.';
+    }
+    if (ruleId === 'sec_base64_encoded_payload') {
+        return 'Do not embed encoded instructions in prompt strings. Decode, review, and store only plain-text approved instructions.';
+    }
+    if (ruleId.startsWith('sec_owasp_llm02')) {
+        return 'Move secrets to environment variables or a secret manager, rotate exposed credentials, and keep only placeholders in prompt templates.';
+    }
+    if (ruleId === 'sec_unbounded_access') {
+        return 'Scope tools to the minimum required paths, commands, tables, or APIs. Deny shell/filesystem access unless explicitly needed.';
+    }
+    if (ruleId === 'sec_rag_injection') {
+        return 'Validate and sanitize retrieval queries before use. Pass only a validated_query object into retrieval code.';
+    }
+    return fallback || 'Review the prompt and apply the documented safer pattern.';
+}
+
 function lineLooksRelevant(line: string, ruleId: string): boolean {
     const lower = line.toLowerCase();
     if (ruleId.includes('llm01') || ruleId.includes('injection')) {
@@ -113,6 +185,70 @@ function extractEvidence(content: string, startLine: number, ruleId: string, max
     const normalized = line.trim().replace(/\s+/g, ' ');
     if (normalized.length <= maxLength) return normalized;
     return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function extractInlineSuppressions(content: string): Map<number, Set<string>> {
+    const suppressions = new Map<number, Set<string>>();
+    const lines = content.split(/\r?\n/);
+    const add = (lineNumber: number, ruleId: string) => {
+        const normalizedRule = normalizeRuleId(ruleId) || ruleId;
+        const existing = suppressions.get(lineNumber) || new Set<string>();
+        existing.add(normalizedRule);
+        suppressions.set(lineNumber, existing);
+    };
+
+    lines.forEach((line, index) => {
+        const currentLine = index + 1;
+        const nextLineMatch = line.match(/promptsonar-ignore-next-line\s+([A-Za-z0-9_-]+)/);
+        if (nextLineMatch) {
+            add(currentLine + 1, nextLineMatch[1]);
+        }
+
+        const sameLineMatch = line.match(/promptsonar-ignore\s+([A-Za-z0-9_-]+)/);
+        if (sameLineMatch && !line.includes('promptsonar-ignore-next-line')) {
+            add(currentLine, sameLineMatch[1]);
+        }
+    });
+
+    return suppressions;
+}
+
+function isInlineSuppressed(ruleId: string, promptStartLine: number, inlineSuppressions: Map<number, Set<string>>): boolean {
+    const normalizedRule = normalizeRuleId(ruleId) || ruleId;
+    return Boolean(inlineSuppressions.get(promptStartLine)?.has(normalizedRule));
+}
+
+function findSuppressionFiles(targetPath: string, explicitWaiverFile?: string): string[] {
+    const files: string[] = [];
+    if (explicitWaiverFile) {
+        files.push(path.resolve(explicitWaiverFile));
+        return files;
+    }
+
+    const resolvedTarget = path.resolve(targetPath);
+    const root = fs.existsSync(resolvedTarget) && fs.statSync(resolvedTarget).isDirectory()
+        ? resolvedTarget
+        : path.dirname(resolvedTarget);
+
+    for (const fileName of ['.promptsonar-waivers.yaml', '.promptsonarignore']) {
+        const candidate = path.join(root, fileName);
+        if (fs.existsSync(candidate)) files.push(candidate);
+    }
+
+    return files;
+}
+
+function loadPromptSonarIgnore(filePath: string): Suppression[] {
+    if (!fs.existsSync(filePath)) return [];
+    return fs.readFileSync(filePath, 'utf-8')
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#'))
+        .map(pattern => ({
+            path: pattern,
+            reason: 'Matched .promptsonarignore path pattern',
+            source: filePath,
+        }));
 }
 
 // Compute per-pillar scores from scan findings
@@ -184,6 +320,9 @@ const DEFAULT_IGNORE_PATTERNS = [
     '**/package-lock.json',
     '**/pnpm-lock.yaml',
     '**/yarn.lock',
+    '**/.promptsonar-waivers.yaml',
+    '**/.promptsonarignore',
+    '**/.promptsonar-policy.yaml',
     '**/dummy_test.*',
     '**/generate_test.*',
     '**/generate_tests.*',
@@ -212,16 +351,21 @@ export async function scanFiles(targetPath: string, options: {
 }): Promise<ScanResult[]> {
     const results: ScanResult[] = [];
 
-    // Load waivers if a waiver file is specified
-    let activeWaivers: Waiver[] = [];
-    if (options.waiverFile) {
-        const waiverResult = loadWaivers(options.waiverFile);
+    let activeSuppressions: Suppression[] = [];
+    for (const suppressionFile of findSuppressionFiles(targetPath, options.waiverFile)) {
+        if (path.basename(suppressionFile) === '.promptsonarignore') {
+            activeSuppressions.push(...loadPromptSonarIgnore(suppressionFile));
+            continue;
+        }
+
+        const waiverResult = loadWaivers(suppressionFile);
         if (waiverResult.errors.length > 0 && options.verbose) {
             for (const err of waiverResult.errors) {
                 console.warn(`[PromptSonar] Waiver warning: ${err}`);
             }
         }
-        activeWaivers = getActiveWaivers(waiverResult.waivers);
+        activeSuppressions.push(...getWaiverSuppressions(getActiveWaivers(waiverResult.waivers)));
+        activeSuppressions.push(...getActiveSuppressions(waiverResult.suppressions));
     }
 
     // Resolve target
@@ -255,6 +399,7 @@ export async function scanFiles(targetPath: string, options: {
         const content = fs.readFileSync(filePath, 'utf-8');
         const ext = path.extname(filePath).toLowerCase();
         const language = getLanguageForExt(ext);
+        const inlineSuppressions = extractInlineSuppressions(content);
 
         try {
             const prompts = await parseFile({ filePath, content, language });
@@ -265,9 +410,11 @@ export async function scanFiles(targetPath: string, options: {
                 );
 
                 const scanFindings: ScanFinding[] = evalResult.findings.map(f => {
-                    const waived = isFindingWaived(f.rule_id, filePath, activeWaivers);
+                    const configSuppression = isFindingSuppressed(f.rule_id, filePath, activeSuppressions);
+                    const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions);
                     const owasp = getOwaspRef(f.rule_id);
-                    const recommendation = f.suggested_fix || '';
+                    const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || '');
+                    const risk = getRiskExplanation(f.rule_id);
                     return {
                         rule_id: f.rule_id,
                         category: getCategoryForRule(f.rule_id),
@@ -281,8 +428,12 @@ export async function scanFiles(targetPath: string, options: {
                         owasp,
                         evidence: extractEvidence(content, prompt.startLine, f.rule_id),
                         confidence: getConfidenceForFinding(f.rule_id, f.severity),
-                        docs_url: `https://github.com/meghal86/promptsonar/wiki/rules/${f.rule_id}`,
-                        waived,
+                        why: f.explanation,
+                        risk,
+                        docs_url: getRuleDocsUrl(f.rule_id),
+                        waived: Boolean(configSuppression || inlineSuppressed),
+                        suppression_reason: configSuppression?.reason || (inlineSuppressed ? 'Inline promptsonar-ignore comment' : undefined),
+                        suppression_source: configSuppression?.source || (inlineSuppressed ? 'inline' : undefined),
                     };
                 });
 
@@ -313,6 +464,14 @@ export function generateSarif(results: ScanResult[]): string {
         severity: any;
         explanation: string;
         suggested_fix?: string;
+        filePath?: string;
+        line?: number;
+        column?: number;
+        evidence?: string;
+        recommendation?: string;
+        owasp?: string;
+        confidence?: string;
+        docs_url?: string;
     }> = [];
     const primaryFile = results.length > 0 ? results[0].filePath : 'unknown';
 
@@ -324,6 +483,14 @@ export function generateSarif(results: ScanResult[]): string {
                 severity: f.severity as any,
                 explanation: f.message,
                 suggested_fix: f.fix,
+                filePath: result.filePath,
+                line: f.line,
+                column: f.column,
+                evidence: f.evidence,
+                recommendation: f.recommendation,
+                owasp: f.owasp,
+                confidence: f.confidence,
+                docs_url: f.docs_url,
             });
         }
     }

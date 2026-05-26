@@ -1,5 +1,16 @@
 import { Finding } from '../rules/types';
 
+type SarifFinding = Finding & {
+    filePath?: string;
+    line?: number;
+    column?: number;
+    evidence?: string;
+    recommendation?: string;
+    owasp?: string;
+    confidence?: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
+    docs_url?: string;
+};
+
 function getOwaspMapping(ruleId: string): string | undefined {
     if (
         ruleId.startsWith('sec_owasp_llm01') ||
@@ -20,7 +31,34 @@ function getOwaspMapping(ruleId: string): string | undefined {
     return undefined;
 }
 
-export function formatToSarif(findings: Finding[], filePath: string): string {
+function getRuleHelpUri(ruleId: string): string {
+    return `https://github.com/meghal86/promptsonar/blob/main/docs/rules.md#${ruleId.toLowerCase()}`;
+}
+
+function getSeverityLevel(severity: string): 'error' | 'warning' | 'note' {
+    if (severity === 'critical' || severity === 'high') return 'error';
+    if (severity === 'medium') return 'warning';
+    return 'note';
+}
+
+function getSecuritySeverity(severity: string): string {
+    if (severity === 'critical') return '9.0';
+    if (severity === 'high') return '7.0';
+    if (severity === 'medium') return '5.0';
+    return '2.0';
+}
+
+function fingerprint(finding: SarifFinding, fallbackFilePath: string): string {
+    return [
+        finding.rule_id,
+        finding.filePath || fallbackFilePath,
+        finding.line || 1,
+        finding.column || 1,
+        finding.evidence || finding.explanation,
+    ].join('|');
+}
+
+export function formatToSarif(findings: SarifFinding[], filePath: string): string {
     const sarifOutput = {
         version: "2.1.0",
         $schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
@@ -29,6 +67,7 @@ export function formatToSarif(findings: Finding[], filePath: string): string {
                 tool: {
                     driver: {
                         name: "PromptSonar",
+                        version: "1.2.0",
                         informationUri: "https://github.com/meghal86/promptsonar",
                         rules: [] as any[]
                     }
@@ -47,49 +86,64 @@ export function formatToSarif(findings: Finding[], filePath: string): string {
             sarifOutput.runs[0].tool.driver.rules.push({
                 id: f.rule_id,
                 shortDescription: {
-                    text: f.category.replace('_', ' ').toUpperCase() + " Violation"
+                    text: `${f.rule_id} (${f.category.replace('_', ' ')})`
                 },
                 fullDescription: {
                     text: f.explanation
                 },
                 help: {
-                    text: f.suggested_fix || "Review prompt and apply best practices."
+                    text: f.recommendation || f.suggested_fix || "Review prompt and apply best practices.",
+                    markdown: [
+                        `**Risk:** ${f.explanation}`,
+                        '',
+                        `**Recommended fix:** ${f.recommendation || f.suggested_fix || 'Review prompt and apply best practices.'}`,
+                    ].join('\n')
+                },
+                helpUri: f.docs_url || getRuleHelpUri(f.rule_id),
+                defaultConfiguration: {
+                    level: getSeverityLevel(f.severity),
                 },
                 properties: {
                     category: f.category,
-                    owasp: getOwaspMapping(f.rule_id),
-                    precision: "very-high"
+                    severity: f.severity,
+                    securitySeverity: getSecuritySeverity(f.severity),
+                    owasp: f.owasp || getOwaspMapping(f.rule_id),
+                    confidence: f.confidence || "HIGH",
+                    precision: (f.confidence || "HIGH").toLowerCase().replace('_', '-')
                 }
             });
         }
 
         // Map findings to results
-        // SARIF severity levels: error, warning, note
-        let level = "note";
-        if (f.severity === "critical" || f.severity === "high") level = "error";
-        else if (f.severity === "medium") level = "warning";
+        const findingFile = f.filePath || filePath;
+        const recommendation = f.recommendation || f.suggested_fix || "Review prompt and apply best practices.";
 
         sarifOutput.runs[0].results.push({
             ruleId: f.rule_id,
-            level: level,
+            level: getSeverityLevel(f.severity),
             message: {
-                text: f.explanation + " - Fix: " + (f.suggested_fix || "None")
+                text: `${f.explanation} Recommendation: ${recommendation}`
             },
             properties: {
-                owasp: getOwaspMapping(f.rule_id)
+                owasp: f.owasp || getOwaspMapping(f.rule_id),
+                confidence: f.confidence || "HIGH",
+                recommendation,
+                evidence: f.evidence,
+            },
+            partialFingerprints: {
+                promptsonarFinding: fingerprint(f, filePath),
             },
             locations: [
                 {
                     physicalLocation: {
                         artifactLocation: {
-                            uri: filePath,
+                            uri: findingFile,
                             uriBaseId: "%SRCROOT%"
                         },
                         region: {
-                            // Without explicit line numbers passed into Finding, we default to line 1.
-                            // Assuming we just map to the file level if lines aren't precise in Finding.
-                            startLine: 1,
-                            startColumn: 1
+                            startLine: Math.max(1, f.line || 1),
+                            startColumn: Math.max(1, f.column || 1),
+                            snippet: f.evidence ? { text: f.evidence } : undefined,
                         }
                     }
                 }

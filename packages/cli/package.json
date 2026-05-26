@@ -22,7 +22,8 @@
     "homepage": "https://github.com/meghal86/promptsonar#readme",
     "scripts": {
         "build": "tsup src/cli.ts src/index.ts --format cjs --dts --clean",
-        "dev": "ts-node src/cli.ts"
+        "dev": "ts-node src/cli.ts",
+        "test": "vitest run"
     },
     "keywords": [
         "cli",
@@ -44,6 +45,7 @@
     "devDependencies": {
         "tsup": "^8.0.0",
         "typescript": "^5.9.3",
-        "ts-node": "^10.9.2"
+        "ts-node": "^10.9.2",
+        "vitest": "^4.0.18"
     }
 }

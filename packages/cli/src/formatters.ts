@@ -53,11 +53,23 @@ export function formatTerminal(results: ScanResult[]): string {
                     // Waived findings: dimmed with [WAIVED] tag
                     lines.push(chalk.dim(`  ⚠️  ${sev.label.padEnd(10)} ${f.rule_id}  [WAIVED]`));
                     lines.push(chalk.dim(`     Line ${f.line}:${f.column} — ${f.message}`));
+                    if (f.suppression_reason) {
+                        lines.push(chalk.dim(`     Suppression: ${f.suppression_reason}`));
+                    }
                 } else {
                     lines.push(`  ${sev.emoji} ${sev.color(sev.label.padEnd(10))} ${chalk.bold(f.rule_id)}`);
                     lines.push(`     Line ${f.line}:${f.column} — ${f.message}`);
+                    if (f.evidence) {
+                        lines.push(`     Evidence: ${f.evidence}`);
+                    }
+                    if (f.risk) {
+                        lines.push(`     Risk: ${f.risk}`);
+                    }
                     if (f.fix) {
                         lines.push(`     Fix: ${f.fix}`);
+                    }
+                    if (f.owasp || f.confidence) {
+                        lines.push(`     Metadata: ${[f.owasp ? `OWASP ${f.owasp}` : '', f.confidence ? `Confidence ${f.confidence}` : ''].filter(Boolean).join(' · ')}`);
                     }
                 }
                 lines.push('');

@@ -9,7 +9,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import fg from 'fast-glob';
-import { parseFile, evaluatePrompt, RuleResult, loadWaivers, getActiveWaivers, isFindingWaived, Waiver } from '@promptsonar/core';
+import {
+    parseFile,
+    evaluatePrompt,
+    RuleResult,
+    loadWaivers,
+    getActiveWaivers,
+    getActiveSuppressions,
+    getWaiverSuppressions,
+    isFindingSuppressed,
+    Suppression,
+} from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
 export interface ScanResult {
@@ -30,15 +40,81 @@ export interface ScanFinding {
     message: string;
     fix: string;
     owasp_ref: string;
+    owasp: string;
+    recommendation: string;
+    evidence: string;
+    confidence: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
     docs_url: string;
     waived: boolean;
+    suppression_reason?: string;
+    suppression_source?: string;
 }
 
 function getOwaspRef(ruleId: string): string {
-    if (ruleId.startsWith('sec_owasp_llm01') || ruleId.startsWith('sec_unicode') || ruleId === 'sec_unbounded_persona') return 'LLM01';
+    if (
+        ruleId.startsWith('sec_owasp_llm01') ||
+        ruleId.startsWith('sec_unicode') ||
+        ruleId === 'sec_unbounded_persona' ||
+        ruleId === 'sec_base64_encoded_payload' ||
+        ruleId === 'sec_homoglyph_evasion' ||
+        ruleId === 'sec_zero_width_injection'
+    ) return 'LLM01';
     if (ruleId.startsWith('sec_owasp_llm02')) return 'LLM02';
     if (ruleId === 'sec_unbounded_access' || ruleId === 'sec_rag_injection') return 'LLM07';
     return '';
+}
+
+function getConfidenceForFinding(ruleId: string, severity: string): ScanFinding['confidence'] {
+    if (severity === 'critical') return 'VERY_HIGH';
+    if (ruleId.startsWith('sec_owasp_llm02') || ruleId.includes('evasion') || ruleId.includes('zero_width') || ruleId.includes('base64')) return 'HIGH';
+    if (severity === 'high' || severity === 'medium') return 'MEDIUM';
+    return 'LOW';
+}
+
+function getRuleDocsUrl(ruleId: string): string {
+    return `https://github.com/meghal86/promptsonar/blob/main/docs/rules.md#${ruleId.toLowerCase()}`;
+}
+
+function getDeterministicRecommendation(ruleId: string, fallback: string): string {
+    if (ruleId === 'sec_owasp_llm01_injection') return 'Treat user-provided text as untrusted content. Place it in a clearly delimited data block and state that it cannot modify system instructions.';
+    if (ruleId === 'sec_zero_width_injection') return 'Normalize prompt strings before scanning and remove U+200B, U+200C, U+200D, and U+FEFF characters.';
+    if (ruleId === 'sec_homoglyph_evasion') return 'Reject or normalize non-Latin homoglyph characters in prompt strings unless the language requirement is explicit.';
+    if (ruleId === 'sec_base64_encoded_payload') return 'Do not embed encoded instructions in prompt strings. Decode, review, and store only plain-text approved instructions.';
+    if (ruleId.startsWith('sec_owasp_llm02')) return 'Move secrets to environment variables or a secret manager, rotate exposed credentials, and keep only placeholders in prompt templates.';
+    if (ruleId === 'sec_unbounded_access') return 'Scope tools to the minimum required paths, commands, tables, or APIs. Deny shell/filesystem access unless explicitly needed.';
+    if (ruleId === 'sec_rag_injection') return 'Validate and sanitize retrieval queries before use. Pass only a validated_query object into retrieval code.';
+    return fallback || 'Review the prompt and apply the documented safer pattern.';
+}
+
+function lineLooksRelevant(line: string, ruleId: string): boolean {
+    const lower = line.toLowerCase();
+    if (ruleId.includes('llm01') || ruleId.includes('injection')) return /ignore|disregard|forget|dan|developer mode|system prompt|previous instructions|jailbreak|bypass/.test(lower);
+    if (ruleId.includes('pii')) return /sk-|api[_ -]?key|secret|token|password|bearer|ssn|credit card|\d{3}-\d{2}-\d{4}/.test(lower);
+    if (ruleId.includes('zero_width')) return /[\u200B-\u200D\uFEFF]/.test(line);
+    if (ruleId.includes('homoglyph') || ruleId.includes('unicode')) return /[^\x00-\x7F]/.test(line);
+    return false;
+}
+
+function extractEvidence(content: string, startLine: number, ruleId: string, maxLength: number = 180): string {
+    const lines = content.split(/\r?\n/);
+    const line = lines.find(value => lineLooksRelevant(value, ruleId))
+        || lines[Math.max(0, startLine - 1)]
+        || lines.find(value => value.trim().length > 0)
+        || '';
+    const normalized = line.trim().replace(/\s+/g, ' ');
+    return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function findSuppressionFiles(targetPath: string, explicitWaiverFile?: string): string[] {
+    const files: string[] = [];
+    if (explicitWaiverFile) return [path.resolve(explicitWaiverFile)];
+    const resolvedTarget = path.resolve(targetPath);
+    const root = fs.existsSync(resolvedTarget) && fs.statSync(resolvedTarget).isDirectory()
+        ? resolvedTarget
+        : path.dirname(resolvedTarget);
+    const candidate = path.join(root, '.promptsonar-waivers.yaml');
+    if (fs.existsSync(candidate)) files.push(candidate);
+    return files;
 }
 
 function getCategoryForRule(ruleId: string): string {
@@ -114,6 +190,9 @@ const DEFAULT_IGNORE_PATTERNS = [
     '**/package-lock.json',
     '**/pnpm-lock.yaml',
     '**/yarn.lock',
+    '**/.promptsonar-waivers.yaml',
+    '**/.promptsonarignore',
+    '**/.promptsonar-policy.yaml',
     '**/dummy_test.*',
     '**/generate_test.*',
     '**/generate_tests.*',
@@ -142,10 +221,11 @@ export async function scanFiles(targetPath: string, options: {
 }): Promise<ScanResult[]> {
     const results: ScanResult[] = [];
 
-    let activeWaivers: Waiver[] = [];
-    if (options.waiverFile) {
-        const waiverResult = loadWaivers(options.waiverFile);
-        activeWaivers = getActiveWaivers(waiverResult.waivers);
+    let activeSuppressions: Suppression[] = [];
+    for (const suppressionFile of findSuppressionFiles(targetPath, options.waiverFile)) {
+        const waiverResult = loadWaivers(suppressionFile);
+        activeSuppressions.push(...getWaiverSuppressions(getActiveWaivers(waiverResult.waivers)));
+        activeSuppressions.push(...getActiveSuppressions(waiverResult.suppressions));
     }
 
     const resolvedPath = path.resolve(targetPath);
@@ -188,7 +268,9 @@ export async function scanFiles(targetPath: string, options: {
                 );
 
                 const scanFindings: ScanFinding[] = evalResult.findings.map(f => {
-                    const waived = isFindingWaived(f.rule_id, filePath, activeWaivers);
+                    const suppression = isFindingSuppressed(f.rule_id, filePath, activeSuppressions);
+                    const owasp = getOwaspRef(f.rule_id);
+                    const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || '');
                     return {
                         rule_id: f.rule_id,
                         category: getCategoryForRule(f.rule_id),
@@ -196,10 +278,16 @@ export async function scanFiles(targetPath: string, options: {
                         line: prompt.startLine,
                         column: 1,
                         message: f.explanation,
-                        fix: f.suggested_fix || '',
-                        owasp_ref: getOwaspRef(f.rule_id),
-                        docs_url: `https://github.com/meghal86/promptsonar/wiki/rules/${f.rule_id}`,
-                        waived,
+                        fix: recommendation,
+                        owasp_ref: owasp,
+                        owasp,
+                        recommendation,
+                        evidence: extractEvidence(content, prompt.startLine, f.rule_id),
+                        confidence: getConfidenceForFinding(f.rule_id, f.severity),
+                        docs_url: getRuleDocsUrl(f.rule_id),
+                        waived: Boolean(suppression),
+                        suppression_reason: suppression?.reason,
+                        suppression_source: suppression?.source,
                     };
                 });
 
@@ -237,6 +325,14 @@ export function generateSarif(results: ScanResult[]): string {
                 severity: f.severity as any,
                 explanation: f.message,
                 suggested_fix: f.fix,
+                filePath: result.filePath,
+                line: f.line,
+                column: f.column,
+                evidence: f.evidence,
+                recommendation: f.recommendation,
+                owasp: f.owasp,
+                confidence: f.confidence,
+                docs_url: f.docs_url,
             });
         }
     }
