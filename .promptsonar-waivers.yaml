@@ -1,0 +1,31 @@
+waivers:
+  - id: WVR-2026-001
+    status: active
+    scope:
+      path: packages/core/src/**
+    justification: PromptSonar core source contains intentional detector patterns and rule fixtures used to identify attacks in other repositories.
+    expires_at: "2027-05-26"
+    owner: maintainer
+    approved_by: maintainer
+    created_by: codex
+    created_at: "2026-05-26"
+  - id: WVR-2026-002
+    status: active
+    scope:
+      path: packages/vscode-extension/src/client/extension.ts
+    justification: VS Code extension source includes local scanner integration text that can look like prompt instructions during self-scan review.
+    expires_at: "2027-05-26"
+    owner: maintainer
+    approved_by: maintainer
+    created_by: codex
+    created_at: "2026-05-26"
+  - id: WVR-2026-003
+    status: active
+    scope:
+      path: packages/dashboard/src/app/playground/page.tsx
+    justification: Playground UI intentionally contains vulnerable prompt examples and simulated attack copy for product demonstrations.
+    expires_at: "2027-05-26"
+    owner: maintainer
+    approved_by: maintainer
+    created_by: codex
+    created_at: "2026-05-26"

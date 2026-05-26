@@ -30,6 +30,16 @@ venv/
 scratch/
 report.html
 security-report.html
+promptsonar-report.html
+*.sarif
+*.jsonl
+*.tmp
+*.temp
+tmp/
+temp/
+screenshots/
+screenshot-*.png
+screenshot-*.jpg
 results/repo-scan/
 
 # Local unrelated project/artifact folders kept out of PromptSonar release

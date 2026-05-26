@@ -22,6 +22,10 @@ export interface ScanFinding {
     message: string;
     fix: string;
     owasp_ref: string;
+    owasp: string;
+    recommendation: string;
+    evidence: string;
+    confidence: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
     docs_url: string;
     waived: boolean;
 }
@@ -62,6 +66,53 @@ function getPenaltyForSeverity(severity: string): number {
         case 'low': return 5;
         default: return 5;
     }
+}
+
+function getConfidenceForFinding(ruleId: string, severity: string): ScanFinding['confidence'] {
+    if (severity === 'critical') return 'VERY_HIGH';
+    if (
+        ruleId === 'sec_base64_encoded_payload' ||
+        ruleId === 'sec_zero_width_injection' ||
+        ruleId === 'sec_homoglyph_evasion' ||
+        ruleId.startsWith('sec_owasp_llm02') ||
+        ruleId.startsWith('MCP-')
+    ) return 'HIGH';
+    if (severity === 'high' || severity === 'medium') return 'MEDIUM';
+    return 'LOW';
+}
+
+function lineLooksRelevant(line: string, ruleId: string): boolean {
+    const lower = line.toLowerCase();
+    if (ruleId.includes('llm01') || ruleId.includes('injection')) {
+        return /ignore|disregard|forget|dan|developer mode|system prompt|previous instructions|jailbreak|bypass/.test(lower);
+    }
+    if (ruleId.includes('pii')) {
+        return /sk-|api[_ -]?key|secret|token|password|bearer|ssn|credit card|\d{3}-\d{2}-\d{4}/.test(lower);
+    }
+    if (ruleId.includes('zero_width')) {
+        return /[\u200B-\u200D\uFEFF]/.test(line);
+    }
+    if (ruleId.includes('homoglyph') || ruleId.includes('unicode')) {
+        return /[^\x00-\x7F]/.test(line);
+    }
+    if (ruleId.includes('unbounded_access')) {
+        return /all files|any file|entire|admin|root|shell|network|database|db/.test(lower);
+    }
+    if (ruleId.includes('rag')) {
+        return /user_input|raw user|retrieval|search|query|context/.test(lower);
+    }
+    return false;
+}
+
+function extractEvidence(content: string, startLine: number, ruleId: string, maxLength: number = 180): string {
+    const lines = content.split(/\r?\n/);
+    const line = lines.find(value => lineLooksRelevant(value, ruleId))
+        || lines[Math.max(0, startLine - 1)]
+        || lines.find(value => value.trim().length > 0)
+        || '';
+    const normalized = line.trim().replace(/\s+/g, ' ');
+    if (normalized.length <= maxLength) return normalized;
+    return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
 // Compute per-pillar scores from scan findings
@@ -121,6 +172,7 @@ const DEFAULT_IGNORE_PATTERNS = [
     '**/docs/**',
     '**/evidence/**',
     '**/benchmarks/**',
+    '**/examples/vulnerable-prompts/**',
     '**/examples/reports/**',
     '**/Agentsabha-angigravity/**',
     '**/custom-writer-skill/**',
@@ -214,6 +266,8 @@ export async function scanFiles(targetPath: string, options: {
 
                 const scanFindings: ScanFinding[] = evalResult.findings.map(f => {
                     const waived = isFindingWaived(f.rule_id, filePath, activeWaivers);
+                    const owasp = getOwaspRef(f.rule_id);
+                    const recommendation = f.suggested_fix || '';
                     return {
                         rule_id: f.rule_id,
                         category: getCategoryForRule(f.rule_id),
@@ -221,8 +275,12 @@ export async function scanFiles(targetPath: string, options: {
                         line: prompt.startLine,
                         column: 1,
                         message: f.explanation,
-                        fix: f.suggested_fix || '',
-                        owasp_ref: getOwaspRef(f.rule_id),
+                        fix: recommendation,
+                        recommendation,
+                        owasp_ref: owasp,
+                        owasp,
+                        evidence: extractEvidence(content, prompt.startLine, f.rule_id),
+                        confidence: getConfidenceForFinding(f.rule_id, f.severity),
                         docs_url: `https://github.com/meghal86/promptsonar/wiki/rules/${f.rule_id}`,
                         waived,
                     };

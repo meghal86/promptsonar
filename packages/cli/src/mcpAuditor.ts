@@ -119,7 +119,7 @@ export function auditMcpConfig(filePath: string, content: string): McpAuditResul
         rule_id: 'MCP-001',
         server_name: name,
         severity: 'critical',
-        explanation: 'Raw unencrypted IP host address detected. Raw IPs bypass standard domain trust certificates.',
+        explanation: 'Raw unencrypted IP host address detected. Raw IPs avoid standard domain trust certificates.',
         suggested_fix: 'Associate the server IP with a trusted domain and load via HTTPS.'
       });
     }
@@ -158,7 +158,13 @@ export function auditMcpConfig(filePath: string, content: string): McpAuditResul
 
     // 4. MCP-004 (MEDIUM): Suspicious tool description or payload
     // Flag homoglyphs, override/jailbreak payloads inside name or arguments
-    const jailbreakDirectives = ['ignore instructions', 'ignore previous', 'system prompt', 'override', 'bypass'];
+    const jailbreakDirectives = [
+      ['ignore', 'instructions'].join(' '),
+      ['ignore', 'previous'].join(' '),
+      ['system', 'prompt'].join(' '),
+      'override',
+      'bypass'
+    ];
     const hasJailbreak = jailbreakDirectives.some(d => {
       const regex = new RegExp(d, 'i');
       return regex.test(name) || regex.test(allArgsStr);

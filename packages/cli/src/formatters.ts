@@ -106,9 +106,9 @@ export function getExitCode(results: ScanResult[], failOn: string): number {
     }
 
     // Return the most severe exit code at or above the threshold
-    if (hasCritical && failOnIndex <= 0) return 1;
-    if (hasHigh && failOnIndex <= 1) return 2;
-    if (hasMedium && failOnIndex <= 2) return 3;
+    if (hasCritical && failOnIndex >= 0) return 1;
+    if (hasHigh && failOnIndex >= 1) return 2;
+    if (hasMedium && failOnIndex >= 2) return 3;
 
     return 0;
 }
