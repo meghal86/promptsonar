@@ -2,18 +2,19 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 
 type ReportCardPageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     score?: string;
     verdict?: string;
     findings?: string;
     owasp?: string;
-  };
+  }>;
 };
 
-export function generateMetadata({ searchParams }: ReportCardPageProps): Metadata {
-  const score = searchParams?.score || 'pending';
-  const verdict = searchParams?.verdict || 'Scan pending';
-  const findings = searchParams?.findings || '0';
+export async function generateMetadata({ searchParams }: ReportCardPageProps): Promise<Metadata> {
+  const params = await searchParams;
+  const score = params?.score || 'pending';
+  const verdict = params?.verdict || 'Scan pending';
+  const findings = params?.findings || '0';
   const title = score === 'pending'
     ? 'PromptSonar Security Report Card'
     : `PromptSonar ${score}/100 - ${verdict}`;
@@ -36,13 +37,14 @@ export function generateMetadata({ searchParams }: ReportCardPageProps): Metadat
   };
 }
 
-export default function ReportCardPage({ searchParams }: ReportCardPageProps) {
-  const score = searchParams?.score || 'pending';
+export default async function ReportCardPage({ searchParams }: ReportCardPageProps) {
+  const params = await searchParams;
+  const score = params?.score || 'pending';
   const numericScore = Number(score);
   const hasScore = Number.isFinite(numericScore);
-  const verdict = searchParams?.verdict || 'Scan pending';
-  const findings = searchParams?.findings || '0';
-  const labels = (searchParams?.owasp || '')
+  const verdict = params?.verdict || 'Scan pending';
+  const findings = params?.findings || '0';
+  const labels = (params?.owasp || '')
     .split(',')
     .map((label) => label.trim())
     .filter(Boolean);

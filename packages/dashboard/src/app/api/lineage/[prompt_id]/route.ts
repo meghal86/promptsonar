@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
 export async function GET(
-  request: Request,
-  { params }: { params: { prompt_id: string } }
+  _request: Request,
+  { params }: { params: Promise<{ prompt_id: string }> }
 ) {
-  const promptId = params.prompt_id;
+  const { prompt_id: promptId } = await params;
 
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
     // Return mock data for demo

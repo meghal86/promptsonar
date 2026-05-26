@@ -24,7 +24,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/action.ts
 var core = __toESM(require("@actions/core"));
-var github = __toESM(require("@actions/github"));
 var fs2 = __toESM(require("fs"));
 var path2 = __toESM(require("path"));
 
@@ -300,6 +299,36 @@ function buildPrComment(results, sha, branch, repo) {
 `;
   return comment;
 }
+function readGitHubEvent() {
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (!eventPath || !fs2.existsSync(eventPath)) return void 0;
+  try {
+    return JSON.parse(fs2.readFileSync(eventPath, "utf-8"));
+  } catch (error) {
+    core.warning(`Unable to parse GitHub event payload: ${error.message}`);
+    return void 0;
+  }
+}
+async function postPullRequestComment(body, issueNumber, repo, token) {
+  const [owner, repoName] = repo.split("/");
+  if (!owner || !repoName) {
+    throw new Error(`Invalid GITHUB_REPOSITORY value: ${repo}`);
+  }
+  const response = await fetch(`https://api.github.com/repos/${owner}/${repoName}/issues/${issueNumber}/comments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+      "X-GitHub-Api-Version": "2022-11-28"
+    },
+    body: JSON.stringify({ body })
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`GitHub comment API returned ${response.status}: ${detail}`);
+  }
+}
 async function run() {
   try {
     const failOn = core.getInput("fail-on") || "critical";
@@ -333,20 +362,16 @@ async function run() {
     if (uploadSarif) {
       core.info(`SARIF written to ${sarifPath}. Upload to GitHub Security tab via github/codeql-action/upload-sarif.`);
     }
-    const context2 = github.context;
-    if (context2.payload.pull_request) {
+    const event = readGitHubEvent();
+    const pullRequest = event?.pull_request;
+    if (pullRequest) {
       const token = process.env.GITHUB_TOKEN;
       if (token) {
-        const octokit = github.getOctokit(token);
-        const repo = `${context2.repo.owner}/${context2.repo.repo}`;
-        const sha = context2.payload.pull_request.head.sha || context2.sha;
-        const branch = context2.payload.pull_request.head.ref || "";
+        const repo = event?.repository?.full_name || process.env.GITHUB_REPOSITORY || "";
+        const sha = pullRequest.head?.sha || process.env.GITHUB_SHA || "";
+        const branch = pullRequest.head?.ref || process.env.GITHUB_REF_NAME || "";
         const body = buildPrComment(results, sha, branch, repo);
-        await octokit.rest.issues.createComment({
-          ...context2.repo,
-          issue_number: context2.payload.pull_request.number,
-          body
-        });
+        await postPullRequestComment(body, pullRequest.number, repo, token);
         core.info("PR comment posted successfully.");
       } else {
         core.warning("GITHUB_TOKEN not available. Skipping PR comment.");

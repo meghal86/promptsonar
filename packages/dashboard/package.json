@@ -6,12 +6,12 @@
     "dev": "next dev",
     "build": "npm --prefix ../core run build && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint src"
   },
   "dependencies": {
     "@promptsonar/core": "*",
     "@supabase/supabase-js": "^2.106.0",
-    "next": "14.2.3",
+    "next": "15.5.18",
     "react": "^18",
     "react-dom": "^18",
     "stripe": "^22.1.1"
@@ -21,7 +21,6 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^8",
-    "eslint-config-next": "14.2.3",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"

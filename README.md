@@ -172,6 +172,7 @@ The current 30-repository scan evidence is documented as static-analysis signals
 - PromptSonar makes no external model calls during scanning.
 - Waivers are supported with `--waiver <file>`.
 - Inline ignore comments and `.promptsonarignore` are planned, documented in [docs/suppressions.md](docs/suppressions.md), and intentionally not claimed as implemented.
+- Dependency audit status and any residual moderate advisories are tracked in [docs/security-audit.md](docs/security-audit.md).
 
 -----
 

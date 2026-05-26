@@ -205,7 +205,6 @@ export default function PlaygroundPage() {
     return () => {
       clearTimeout(handler);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promptText, contractYaml, variablesJson]);
 
   // Instantly trigger scan when switching to Audit view if stale
@@ -220,7 +219,6 @@ export default function PlaygroundPage() {
         runAnalysis(promptText, contractYaml, variables);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorMode]);
 
   const handleVariableChange = (key: string, val: string) => {

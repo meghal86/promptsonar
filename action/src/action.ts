@@ -1,8 +1,20 @@
 import * as core from '@actions/core';
-import * as github from '@actions/github';
 import * as fs from 'fs';
 import * as path from 'path';
 import { scanFiles, generateSarif, ScanResult } from './scanner-bridge';
+
+type GitHubPullRequestEvent = {
+    pull_request?: {
+        number: number;
+        head?: {
+            sha?: string;
+            ref?: string;
+        };
+    };
+    repository?: {
+        full_name?: string;
+    };
+};
 
 // ── PR Comment Template ─────────────────────────────────────
 
@@ -47,6 +59,41 @@ function buildPrComment(results: ScanResult[], sha: string, branch: string, repo
     comment += `🔗 [View in GitHub Security](https://github.com/${repo}/security/code-scanning)\n`;
 
     return comment;
+}
+
+function readGitHubEvent(): GitHubPullRequestEvent | undefined {
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    if (!eventPath || !fs.existsSync(eventPath)) return undefined;
+
+    try {
+        return JSON.parse(fs.readFileSync(eventPath, 'utf-8')) as GitHubPullRequestEvent;
+    } catch (error: any) {
+        core.warning(`Unable to parse GitHub event payload: ${error.message}`);
+        return undefined;
+    }
+}
+
+async function postPullRequestComment(body: string, issueNumber: number, repo: string, token: string): Promise<void> {
+    const [owner, repoName] = repo.split('/');
+    if (!owner || !repoName) {
+        throw new Error(`Invalid GITHUB_REPOSITORY value: ${repo}`);
+    }
+
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repoName}/issues/${issueNumber}/comments`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github+json',
+            'Content-Type': 'application/json',
+            'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({ body }),
+    });
+
+    if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`GitHub comment API returned ${response.status}: ${detail}`);
+    }
 }
 
 // ── Main Action ─────────────────────────────────────────────
@@ -97,22 +144,18 @@ async function run(): Promise<void> {
         }
 
         // Post PR comment
-        const context = github.context;
-        if (context.payload.pull_request) {
+        const event = readGitHubEvent();
+        const pullRequest = event?.pull_request;
+        if (pullRequest) {
             const token = process.env.GITHUB_TOKEN;
             if (token) {
-                const octokit = github.getOctokit(token);
-                const repo = `${context.repo.owner}/${context.repo.repo}`;
-                const sha = context.payload.pull_request.head.sha || context.sha;
-                const branch = context.payload.pull_request.head.ref || '';
+                const repo = event?.repository?.full_name || process.env.GITHUB_REPOSITORY || '';
+                const sha = pullRequest.head?.sha || process.env.GITHUB_SHA || '';
+                const branch = pullRequest.head?.ref || process.env.GITHUB_REF_NAME || '';
 
                 const body = buildPrComment(results, sha, branch, repo);
 
-                await octokit.rest.issues.createComment({
-                    ...context.repo,
-                    issue_number: context.payload.pull_request.number,
-                    body,
-                });
+                await postPullRequestComment(body, pullRequest.number, repo, token);
 
                 core.info('PR comment posted successfully.');
             } else {
