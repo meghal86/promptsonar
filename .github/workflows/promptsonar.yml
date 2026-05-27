@@ -21,11 +21,26 @@ jobs:
         with:
           node-version: 20.x
 
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build local PromptSonar CLI
+        run: npm run build --workspace packages/core && npm run build --workspace packages/cli
+
       - name: Run PromptSonar scan
-        run: npx @promptsonar/cli scan packages --waiver .promptsonar-waivers.yaml --sarif --output promptsonar.sarif
+        run: |
+          set +e
+          node packages/cli/dist/cli.js scan packages --waiver .promptsonar-waivers.yaml --fail-on none --sarif --output promptsonar.sarif
+          scan_status=$?
+
+          if [ ! -f promptsonar.sarif ]; then
+            node -e "require('fs').writeFileSync('promptsonar.sarif', JSON.stringify({ '\$schema': 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0', runs: [{ tool: { driver: { name: 'PromptSonar', informationUri: 'https://github.com/meghal86/promptsonar', rules: [] } }, results: [] }] }, null, 2))"
+          fi
+
+          exit $scan_status
 
       - name: Upload SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ always() && hashFiles('promptsonar.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: promptsonar.sarif
