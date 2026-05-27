@@ -1,8 +1,28 @@
 {
-  "safe-local-scoped.json": [],
   "safe-authenticated-remote.json": [],
-  "unsafe-raw-http-ip.json": ["MCP-001", "MCP-003", "MCP-006", "MCP-007"],
-  "unsafe-broad-scope.json": ["MCP-002"],
-  "unsafe-tool-poisoning.json": ["MCP-004"],
-  "unsafe-hardcoded-secret.json": ["MCP-005"]
+  "safe-local-scoped.json": [],
+  "unsafe-broad-scope.json": [
+    "MCP-002"
+  ],
+  "unsafe-broad-write.json": [
+    "MCP-008"
+  ],
+  "unsafe-hardcoded-secret.json": [
+    "MCP-005"
+  ],
+  "unsafe-host-env.json": [
+    "MCP-009"
+  ],
+  "unsafe-raw-http-ip.json": [
+    "MCP-001",
+    "MCP-003",
+    "MCP-006",
+    "MCP-007"
+  ],
+  "unsafe-tool-poisoning.json": [
+    "MCP-004"
+  ],
+  "unsafe-unpinned-package.json": [
+    "MCP-010"
+  ]
 }

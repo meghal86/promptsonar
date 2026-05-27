@@ -20,6 +20,9 @@ The runner builds `@promptsonar/core` and `@promptsonar/cli`, audits every fixtu
 | `unsafe-broad-scope.json` | Broad filesystem/admin/shell scope language. |
 | `unsafe-tool-poisoning.json` | Prompt-injection text in tool description. |
 | `unsafe-hardcoded-secret.json` | Hardcoded OpenAI-style secret in headers. |
+| `unsafe-broad-write.json` | Broad write/delete filesystem access with unsafe scope. |
+| `unsafe-host-env.json` | Sensitive host credentials or sockets passed into an MCP server. |
+| `unsafe-unpinned-package.json` | Mutable or unpinned package execution in MCP server startup. |
 
 ## Evidence Use
 

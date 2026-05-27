@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "2026-05-20",
+  "mcpServers": {
+    "ssh-agent": {
+      "command": "node",
+      "args": ["server.js"],
+      "env": {
+        "SSH_AUTH_SOCK": "${SSH_AUTH_SOCK}"
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "2026-05-20",
+  "mcpServers": {
+    "registry-tool": {
+      "command": "npx",
+      "args": ["some-mcp-server"],
+      "description": "Run a mutable package from the registry."
+    }
+  }
+}

@@ -47,6 +47,33 @@ const BROAD_SCOPE_PATTERNS = [
     /\bnetwork\s+access\b/i,
 ];
 
+const WRITE_SCOPE_PATTERNS = [
+    /\b(write|modify|delete|remove|overwrite)\s+(any|all)\s+(file|files|directory|directories)\b/i,
+    /\bread\s*[-/]?write\b/i,
+    /\bwrite\s+access\b/i,
+    /\bdelete\s+files?\b/i,
+    /\b--write\b/i,
+    /\b--allow-write\b/i,
+];
+
+const DANGEROUS_ENV_KEYS = new Set([
+    'SSH_AUTH_SOCK',
+    'AWS_ACCESS_KEY_ID',
+    'AWS_SECRET_ACCESS_KEY',
+    'GOOGLE_APPLICATION_CREDENTIALS',
+    'KUBECONFIG',
+    'DOCKER_HOST',
+]);
+
+const MUTABLE_PACKAGE_PATTERNS = [
+    /\bnpx\b/i,
+    /\buvx\b/i,
+    /\bpipx\b/i,
+    /:latest\b/i,
+    /(?:git\+https?:\/\/|git@)github\.com[/:][^"'\s]+(?:\.git)?(?:["'\s]|$)/i,
+    /curl\b.*\|\s*(?:sh|bash)/i,
+];
+
 const ALLOWED_REMOTE_DOMAINS = new Set([
     'github.com',
     'api.github.com',
@@ -93,6 +120,16 @@ function extractUrls(value: unknown): string[] {
 function hasAuthIndicator(server: any): boolean {
     const text = stableStringify(server);
     return /authorization|bearer|api[_-]?key|token|oauth|headers|env/i.test(text);
+}
+
+function hasPinnedPackageIndicator(text: string): boolean {
+    return /@[0-9]+\.[0-9]+\.[0-9]+|sha256:|@[a-f0-9]{12,40}\b/i.test(text);
+}
+
+function findDangerousEnvKeys(server: any): string[] {
+    const env = server?.env;
+    if (!env || typeof env !== 'object' || Array.isArray(env)) return [];
+    return Object.keys(env).filter(key => DANGEROUS_ENV_KEYS.has(key));
 }
 
 function auditServer(name: string, server: any, serverPath: string, findings: McpFinding[]): void {
@@ -173,6 +210,40 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             severity: 'high',
             message: `MCP server "${name}" appears to contain a hardcoded secret.`,
             fix: 'Move secrets to environment variables or a managed secret store and rotate exposed credentials.',
+            path: serverPath,
+            server: name,
+        });
+    }
+
+    if (WRITE_SCOPE_PATTERNS.some(pattern => pattern.test(text)) && /\/|root|all|any|filesystem|workspace/i.test(text)) {
+        addFinding(findings, {
+            rule_id: 'MCP-008',
+            severity: 'high',
+            message: `MCP server "${name}" appears to allow write/delete filesystem operations with broad scope.`,
+            fix: 'Restrict write tools to explicit safe directories, prefer read-only mode, and require human approval for destructive actions.',
+            path: serverPath,
+            server: name,
+        });
+    }
+
+    const dangerousEnvKeys = findDangerousEnvKeys(server);
+    if (dangerousEnvKeys.length > 0) {
+        addFinding(findings, {
+            rule_id: 'MCP-009',
+            severity: 'high',
+            message: `MCP server "${name}" exposes sensitive host environment variables: ${dangerousEnvKeys.join(', ')}.`,
+            fix: 'Do not pass host credentials or sockets into MCP servers. Use scoped service tokens with least privilege.',
+            path: serverPath,
+            server: name,
+        });
+    }
+
+    if (MUTABLE_PACKAGE_PATTERNS.some(pattern => pattern.test(text)) && !hasPinnedPackageIndicator(text)) {
+        addFinding(findings, {
+            rule_id: 'MCP-010',
+            severity: 'medium',
+            message: `MCP server "${name}" appears to install or execute an unpinned/mutable tool package.`,
+            fix: 'Pin package versions, container digests, or commit SHAs before allowing the MCP server in CI or production.',
             path: serverPath,
             server: name,
         });

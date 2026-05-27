@@ -35,7 +35,7 @@ PromptSonar helps catch:
 - Hidden Unicode, zero-width, homoglyph, and Base64 obfuscation.
 - Hardcoded API keys, passwords, tokens, SSNs, and credit-card-like values in prompts.
 - Unsafe tool or RAG instructions that grant broad access or pass raw user input.
-- MCP configs with HTTP endpoints, missing auth indicators, hardcoded tokens, or overbroad filesystem/shell scope.
+- MCP configs with HTTP endpoints, missing auth indicators, hardcoded tokens, overbroad filesystem/shell scope, host credential passthrough, or mutable/unpinned tool packages.
 - CI regressions before merge through JSON, SARIF, and GitHub Actions workflows.
 
 -----
@@ -84,7 +84,7 @@ promptsonar demo
 | Secrets / PII | Prompts contain API keys, passwords, tokens, SSNs, or credit-card-like values. | `sk-proj-...` or `password = "..."` inside a prompt template. | Move secrets to environment variables or a secret manager and rotate exposed values. |
 | Structure / output constraints | Prompt asks for output but does not enforce a machine-readable format. | `Return a list of recommendations.` | Specify JSON/YAML/Markdown structure, length bounds, and examples. |
 | RAG / tool access | User input or tools receive unbounded access to files, databases, commands, or retrieval. | `Search all documents using {user_input}` without validation. | Validate retrieval queries and scope tools to specific paths, tables, or domains. |
-| MCP config security | Agent tools are configured with insecure endpoints, missing auth, hardcoded secrets, or suspicious descriptions. | MCP server URL uses `http://` or includes a token in args. | Use HTTPS, env vars, scoped permissions, and trusted domains. |
+| MCP config security | Agent tools are configured with insecure endpoints, missing auth, hardcoded secrets, broad host access, or mutable packages. | MCP server URL uses `http://`, includes a token in args, passes `SSH_AUTH_SOCK`, or runs unpinned `npx`/`uvx`. | Use HTTPS, env vars, scoped permissions, pinned versions, and trusted domains. |
 | Consistency / clarity | Ambiguous or contradictory instructions cause unstable outputs. | `Be concise` and `provide an exhaustive explanation`. | Remove conflicts and use explicit quantifiers and output contracts. |
 
 See the full rule catalog in [docs/rules.md](docs/rules.md).
@@ -135,7 +135,7 @@ Use the CLI in CI and upload SARIF to GitHub Code Scanning:
 | LLM01 Prompt Injection | Direct injection strings, persona override, Base64 payloads, homoglyphs, zero-width characters |
 | LLM02 Sensitive Information Disclosure | API keys, passwords, tokens, SSNs, credit cards, hardcoded credentials |
 | LLM07 Insecure Plugin / Tool Design | RAG injection, unbounded access, MCP tool scope, missing MCP auth indicators |
-| Agentic Tool Poisoning | Suspicious MCP tool descriptions, unknown domains, over-broad filesystem and shell scope |
+| Agentic Tool Poisoning | Suspicious MCP tool descriptions, unknown domains, broad write/delete scope, host credential passthrough, and unpinned mutable tool packages |
 | Governance Evidence | JSON, SARIF v2.1.0, HTML reports, Prompt SBOM, policy checks |
 
 -----
@@ -152,15 +152,23 @@ Every production prompt should pass these checks before deployment:
 6. Consistency
 7. Auditability
 
-Research workflow and launch evidence live in `research/repo-scan/`.
+Research workflow and launch evidence live in `research/repo-scan/` and `research/public-benchmark/`.
 
 -----
 
 ## Benchmarks And Research
 
-PromptSonar includes public benchmark fixtures under `benchmarks/` and a responsible benchmark methodology in [docs/benchmark.md](docs/benchmark.md).
+PromptSonar includes public benchmark fixtures under `benchmarks/`, a responsible benchmark methodology in [docs/benchmark.md](docs/benchmark.md), and a current public repository benchmark in [docs/benchmark-report.md](docs/benchmark-report.md).
 
-The current 30-repository scan evidence is documented as static-analysis signals, not confirmed exploits or CVEs.
+Current public benchmark snapshot:
+
+- 20 public AI/agent repositories scanned locally.
+- 465 prompt candidate files scanned.
+- 8 MCP config candidates audited.
+- 12 repositories had high/critical prompt static-analysis signals.
+- 3 repositories had high/critical MCP static-analysis signals.
+
+These are static-analysis signals, not confirmed exploits, CVEs, or maintainer-verified vulnerabilities.
 
 -----
 

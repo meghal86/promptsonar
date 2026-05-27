@@ -1,0 +1,114 @@
+{
+  "generatedAt": "2026-05-27T00:45:13.852Z",
+  "fixtureCount": 9,
+  "passCount": 9,
+  "failCount": 0,
+  "rows": [
+    {
+      "fixture": "safe-authenticated-remote.json",
+      "expected": [],
+      "actual": [],
+      "status": "pass",
+      "exitCode": 0,
+      "findingCount": 0
+    },
+    {
+      "fixture": "safe-local-scoped.json",
+      "expected": [],
+      "actual": [],
+      "status": "pass",
+      "exitCode": 0,
+      "findingCount": 0
+    },
+    {
+      "fixture": "unsafe-broad-scope.json",
+      "expected": [
+        "MCP-002"
+      ],
+      "actual": [
+        "MCP-002"
+      ],
+      "status": "pass",
+      "exitCode": 2,
+      "findingCount": 1
+    },
+    {
+      "fixture": "unsafe-broad-write.json",
+      "expected": [
+        "MCP-008"
+      ],
+      "actual": [
+        "MCP-008"
+      ],
+      "status": "pass",
+      "exitCode": 2,
+      "findingCount": 1
+    },
+    {
+      "fixture": "unsafe-hardcoded-secret.json",
+      "expected": [
+        "MCP-005"
+      ],
+      "actual": [
+        "MCP-005"
+      ],
+      "status": "pass",
+      "exitCode": 2,
+      "findingCount": 1
+    },
+    {
+      "fixture": "unsafe-host-env.json",
+      "expected": [
+        "MCP-009"
+      ],
+      "actual": [
+        "MCP-009"
+      ],
+      "status": "pass",
+      "exitCode": 2,
+      "findingCount": 1
+    },
+    {
+      "fixture": "unsafe-raw-http-ip.json",
+      "expected": [
+        "MCP-001",
+        "MCP-003",
+        "MCP-006",
+        "MCP-007"
+      ],
+      "actual": [
+        "MCP-001",
+        "MCP-003",
+        "MCP-006",
+        "MCP-007"
+      ],
+      "status": "pass",
+      "exitCode": 3,
+      "findingCount": 4
+    },
+    {
+      "fixture": "unsafe-tool-poisoning.json",
+      "expected": [
+        "MCP-004"
+      ],
+      "actual": [
+        "MCP-004"
+      ],
+      "status": "pass",
+      "exitCode": 1,
+      "findingCount": 1
+    },
+    {
+      "fixture": "unsafe-unpinned-package.json",
+      "expected": [
+        "MCP-010"
+      ],
+      "actual": [
+        "MCP-010"
+      ],
+      "status": "pass",
+      "exitCode": 1,
+      "findingCount": 1
+    }
+  ]
+}

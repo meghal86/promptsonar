@@ -15,7 +15,10 @@
     "MCP-004": "Manually review tool descriptions containing directive-like or prompt-injection text.",
     "MCP-005": "Remove hardcoded secrets, rotate exposed credentials, and use managed environment variables.",
     "MCP-006": "Document domain ownership and trust rationale before approving unknown remote domains.",
-    "MCP-007": "Normalize legacy or malformed configs before production use."
+    "MCP-007": "Normalize legacy or malformed configs before production use.",
+    "MCP-008": "Block broad write/delete filesystem scope until paths and operations are explicitly constrained.",
+    "MCP-009": "Remove host credential passthrough such as SSH agent sockets, cloud credentials, Docker host, or Kubernetes config.",
+    "MCP-010": "Pin package versions, container digests, or commit SHAs before approving MCP server startup commands."
   },
   "approvedRemoteDomains": [
     "api.github.com",
@@ -25,6 +28,8 @@
     "PromptSonar JSON or SARIF output",
     "Reviewer name and approval date",
     "Rationale for every accepted medium or low finding",
-    "Credential rotation ticket for every MCP-005 finding"
+    "Credential rotation ticket for every MCP-005 finding",
+    "Scope review for every MCP-008 or MCP-009 finding",
+    "Pinned package/version evidence for every MCP-010 finding"
   ]
 }

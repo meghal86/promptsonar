@@ -1,0 +1,1119 @@
+{
+  "generatedAt": "2026-05-27T00:41:57.420Z",
+  "repoCount": 20,
+  "successCount": 20,
+  "promptCandidates": 465,
+  "reposWithPromptFindings": 15,
+  "reposWithPromptCriticalHigh": 12,
+  "mcpConfigsParsed": 8,
+  "reposWithMcpFindings": 4,
+  "reposWithMcpCriticalHigh": 3,
+  "promptTopRules": [
+    [
+      "bp_missing_few_shot",
+      888
+    ],
+    [
+      "bp_missing_persona",
+      858
+    ],
+    [
+      "bp_missing_cot",
+      677
+    ],
+    [
+      "struct_missing_format_enforcer",
+      361
+    ],
+    [
+      "eff_compression_potential",
+      194
+    ],
+    [
+      "clarity_missing_quantifier",
+      135
+    ],
+    [
+      "clarity_vague_words",
+      58
+    ],
+    [
+      "eff_token_bloat",
+      15
+    ],
+    [
+      "sec_unicode_injection_obfuscation",
+      10
+    ],
+    [
+      "sec_owasp_llm02_pii",
+      8
+    ]
+  ],
+  "mcpTopRules": [
+    [
+      "MCP-007",
+      10
+    ],
+    [
+      "MCP-006",
+      6
+    ],
+    [
+      "MCP-003",
+      3
+    ]
+  ],
+  "rows": [
+    {
+      "repo": "modelcontextprotocol/typescript-sdk",
+      "status": "scanned",
+      "promptCandidates": 1,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 0,
+      "promptFindingCount": 0,
+      "promptCriticalHigh": 0,
+      "promptRules": [],
+      "promptBySeverity": {},
+      "promptTopRules": [],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "modelcontextprotocol/python-sdk",
+      "status": "scanned",
+      "promptCandidates": 2,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 1,
+      "promptFindingCount": 7,
+      "promptCriticalHigh": 1,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_vague_words",
+        "eff_compression_potential",
+        "sec_unicode_injection_obfuscation"
+      ],
+      "promptBySeverity": {
+        "low": 6,
+        "critical": 1
+      },
+      "promptTopRules": [
+        [
+          "clarity_vague_words",
+          2
+        ],
+        [
+          "bp_missing_persona",
+          1
+        ],
+        [
+          "bp_missing_few_shot",
+          1
+        ],
+        [
+          "bp_missing_cot",
+          1
+        ],
+        [
+          "sec_unicode_injection_obfuscation",
+          1
+        ],
+        [
+          "eff_compression_potential",
+          1
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "modelcontextprotocol/inspector",
+      "status": "scanned",
+      "promptCandidates": 3,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 0,
+      "promptFindingCount": 0,
+      "promptCriticalHigh": 0,
+      "promptRules": [],
+      "promptBySeverity": {},
+      "promptTopRules": [],
+      "mcpConfigCandidates": 1,
+      "mcpConfigsParsed": 1,
+      "mcpFindingCount": 3,
+      "mcpCriticalHigh": 1,
+      "mcpRules": [
+        "MCP-003",
+        "MCP-006",
+        "MCP-007"
+      ],
+      "mcpTopRules": [
+        [
+          "MCP-007",
+          1
+        ],
+        [
+          "MCP-003",
+          1
+        ],
+        [
+          "MCP-006",
+          1
+        ]
+      ]
+    },
+    {
+      "repo": "modelcontextprotocol/servers",
+      "status": "scanned",
+      "promptCandidates": 1,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 0,
+      "promptFindingCount": 0,
+      "promptCriticalHigh": 0,
+      "promptRules": [],
+      "promptBySeverity": {},
+      "promptTopRules": [],
+      "mcpConfigCandidates": 1,
+      "mcpConfigsParsed": 1,
+      "mcpFindingCount": 3,
+      "mcpCriticalHigh": 1,
+      "mcpRules": [
+        "MCP-003",
+        "MCP-006",
+        "MCP-007"
+      ],
+      "mcpTopRules": [
+        [
+          "MCP-007",
+          1
+        ],
+        [
+          "MCP-003",
+          1
+        ],
+        [
+          "MCP-006",
+          1
+        ]
+      ]
+    },
+    {
+      "repo": "upstash/context7",
+      "status": "scanned",
+      "promptCandidates": 11,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 15,
+      "promptFindingCount": 69,
+      "promptCriticalHigh": 1,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_missing_quantifier",
+        "clarity_vague_words",
+        "eff_compression_potential",
+        "sec_unicode_injection_obfuscation",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "low": 54,
+        "medium": 14,
+        "critical": 1
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_few_shot",
+          15
+        ],
+        [
+          "bp_missing_cot",
+          14
+        ],
+        [
+          "bp_missing_persona",
+          13
+        ],
+        [
+          "struct_missing_format_enforcer",
+          11
+        ],
+        [
+          "eff_compression_potential",
+          8
+        ],
+        [
+          "clarity_vague_words",
+          4
+        ],
+        [
+          "clarity_missing_quantifier",
+          3
+        ],
+        [
+          "sec_unicode_injection_obfuscation",
+          1
+        ]
+      ],
+      "mcpConfigCandidates": 3,
+      "mcpConfigsParsed": 3,
+      "mcpFindingCount": 7,
+      "mcpCriticalHigh": 1,
+      "mcpRules": [
+        "MCP-003",
+        "MCP-006",
+        "MCP-007"
+      ],
+      "mcpTopRules": [
+        [
+          "MCP-007",
+          5
+        ],
+        [
+          "MCP-003",
+          1
+        ],
+        [
+          "MCP-006",
+          1
+        ]
+      ]
+    },
+    {
+      "repo": "browser-use/browser-use",
+      "status": "scanned",
+      "promptCandidates": 24,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 34,
+      "promptFindingCount": 140,
+      "promptCriticalHigh": 15,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_missing_quantifier",
+        "clarity_vague_words",
+        "eff_compression_potential",
+        "eff_token_bloat",
+        "eff_token_budget",
+        "sec_owasp_llm01_injection",
+        "sec_owasp_llm02_pii",
+        "sec_unbounded_access",
+        "sec_unicode_injection_obfuscation",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "low": 106,
+        "critical": 5,
+        "high": 10,
+        "medium": 19
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_persona",
+          32
+        ],
+        [
+          "bp_missing_few_shot",
+          31
+        ],
+        [
+          "bp_missing_cot",
+          27
+        ],
+        [
+          "struct_missing_format_enforcer",
+          14
+        ],
+        [
+          "clarity_vague_words",
+          8
+        ],
+        [
+          "eff_compression_potential",
+          8
+        ],
+        [
+          "sec_owasp_llm02_pii",
+          5
+        ],
+        [
+          "eff_token_bloat",
+          4
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "gpt-engineer-org/gpt-engineer",
+      "status": "scanned",
+      "promptCandidates": 5,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 9,
+      "promptFindingCount": 39,
+      "promptCriticalHigh": 0,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "eff_compression_potential",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "medium": 9,
+        "low": 30
+      },
+      "promptTopRules": [
+        [
+          "struct_missing_format_enforcer",
+          9
+        ],
+        [
+          "bp_missing_persona",
+          9
+        ],
+        [
+          "bp_missing_few_shot",
+          9
+        ],
+        [
+          "bp_missing_cot",
+          9
+        ],
+        [
+          "eff_compression_potential",
+          3
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "FlowiseAI/Flowise",
+      "status": "scanned",
+      "promptCandidates": 33,
+      "promptScanParseFailures": 8,
+      "filesWithPromptFindings": 99,
+      "promptFindingCount": 302,
+      "promptCriticalHigh": 2,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_missing_quantifier",
+        "clarity_vague_words",
+        "consist_contradiction",
+        "eff_compression_potential",
+        "sec_owasp_llm02_pii",
+        "sec_unbounded_persona",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "low": 249,
+        "medium": 51,
+        "high": 2
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_few_shot",
+          92
+        ],
+        [
+          "bp_missing_persona",
+          80
+        ],
+        [
+          "bp_missing_cot",
+          64
+        ],
+        [
+          "struct_missing_format_enforcer",
+          32
+        ],
+        [
+          "clarity_missing_quantifier",
+          17
+        ],
+        [
+          "eff_compression_potential",
+          12
+        ],
+        [
+          "consist_contradiction",
+          2
+        ],
+        [
+          "clarity_vague_words",
+          1
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "mendableai/firecrawl",
+      "status": "scanned",
+      "promptCandidates": 3,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 0,
+      "promptFindingCount": 0,
+      "promptCriticalHigh": 0,
+      "promptRules": [],
+      "promptBySeverity": {},
+      "promptTopRules": [],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "langfuse/langfuse",
+      "status": "scanned",
+      "promptCandidates": 41,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 48,
+      "promptFindingCount": 207,
+      "promptCriticalHigh": 19,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_missing_quantifier",
+        "clarity_open_ended",
+        "clarity_vague_words",
+        "consist_contradiction",
+        "eff_compression_potential",
+        "eff_token_bloat",
+        "eff_token_budget",
+        "sec_owasp_llm01_injection",
+        "sec_owasp_llm02_pii",
+        "sec_unicode_injection_obfuscation",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "medium": 29,
+        "low": 159,
+        "critical": 5,
+        "high": 14
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_persona",
+          46
+        ],
+        [
+          "bp_missing_few_shot",
+          41
+        ],
+        [
+          "bp_missing_cot",
+          33
+        ],
+        [
+          "eff_compression_potential",
+          28
+        ],
+        [
+          "clarity_missing_quantifier",
+          12
+        ],
+        [
+          "eff_token_bloat",
+          10
+        ],
+        [
+          "clarity_vague_words",
+          10
+        ],
+        [
+          "struct_missing_format_enforcer",
+          10
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "mem0ai/mem0",
+      "status": "scanned",
+      "promptCandidates": 35,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 72,
+      "promptFindingCount": 286,
+      "promptCriticalHigh": 23,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_missing_quantifier",
+        "clarity_open_ended",
+        "clarity_vague_words",
+        "eff_compression_potential",
+        "eff_token_bloat",
+        "eff_token_budget",
+        "sec_owasp_llm01_injection",
+        "sec_owasp_llm02_pii",
+        "sec_rag_injection",
+        "sec_unicode_injection_obfuscation",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "low": 239,
+        "critical": 10,
+        "high": 13,
+        "medium": 24
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_few_shot",
+          61
+        ],
+        [
+          "bp_missing_persona",
+          59
+        ],
+        [
+          "bp_missing_cot",
+          58
+        ],
+        [
+          "eff_compression_potential",
+          43
+        ],
+        [
+          "clarity_vague_words",
+          16
+        ],
+        [
+          "struct_missing_format_enforcer",
+          15
+        ],
+        [
+          "clarity_missing_quantifier",
+          8
+        ],
+        [
+          "sec_unicode_injection_obfuscation",
+          7
+        ]
+      ],
+      "mcpConfigCandidates": 3,
+      "mcpConfigsParsed": 3,
+      "mcpFindingCount": 6,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [
+        "MCP-006",
+        "MCP-007"
+      ],
+      "mcpTopRules": [
+        [
+          "MCP-007",
+          3
+        ],
+        [
+          "MCP-006",
+          3
+        ]
+      ]
+    },
+    {
+      "repo": "deepset-ai/haystack",
+      "status": "scanned",
+      "promptCandidates": 87,
+      "promptScanParseFailures": 1,
+      "filesWithPromptFindings": 117,
+      "promptFindingCount": 390,
+      "promptCriticalHigh": 1,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_missing_quantifier",
+        "clarity_open_ended",
+        "clarity_vague_words",
+        "eff_compression_potential",
+        "sec_owasp_llm02_pii",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "medium": 53,
+        "low": 336,
+        "high": 1
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_few_shot",
+          114
+        ],
+        [
+          "bp_missing_persona",
+          104
+        ],
+        [
+          "bp_missing_cot",
+          90
+        ],
+        [
+          "struct_missing_format_enforcer",
+          42
+        ],
+        [
+          "eff_compression_potential",
+          24
+        ],
+        [
+          "clarity_missing_quantifier",
+          11
+        ],
+        [
+          "clarity_vague_words",
+          3
+        ],
+        [
+          "clarity_open_ended",
+          1
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "guardrails-ai/guardrails",
+      "status": "scanned",
+      "promptCandidates": 4,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 6,
+      "promptFindingCount": 17,
+      "promptCriticalHigh": 0,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "medium": 2,
+        "low": 15
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_persona",
+          6
+        ],
+        [
+          "bp_missing_few_shot",
+          6
+        ],
+        [
+          "bp_missing_cot",
+          3
+        ],
+        [
+          "struct_missing_format_enforcer",
+          2
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "microsoft/PromptWizard",
+      "status": "scanned",
+      "promptCandidates": 11,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 58,
+      "promptFindingCount": 145,
+      "promptCriticalHigh": 1,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_vague_words",
+        "eff_compression_potential",
+        "eff_token_bloat",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "low": 136,
+        "medium": 8,
+        "high": 1
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_few_shot",
+          58
+        ],
+        [
+          "bp_missing_persona",
+          43
+        ],
+        [
+          "bp_missing_cot",
+          24
+        ],
+        [
+          "struct_missing_format_enforcer",
+          8
+        ],
+        [
+          "eff_compression_potential",
+          6
+        ],
+        [
+          "clarity_vague_words",
+          5
+        ],
+        [
+          "eff_token_bloat",
+          1
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "instructor-ai/instructor",
+      "status": "scanned",
+      "promptCandidates": 2,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 7,
+      "promptFindingCount": 36,
+      "promptCriticalHigh": 2,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_missing_quantifier",
+        "clarity_vague_words",
+        "eff_compression_potential",
+        "sec_owasp_llm02_pii",
+        "sec_unicode_injection_obfuscation",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "medium": 7,
+        "low": 27,
+        "critical": 1,
+        "high": 1
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_persona",
+          7
+        ],
+        [
+          "bp_missing_cot",
+          7
+        ],
+        [
+          "bp_missing_few_shot",
+          6
+        ],
+        [
+          "clarity_missing_quantifier",
+          4
+        ],
+        [
+          "eff_compression_potential",
+          4
+        ],
+        [
+          "clarity_vague_words",
+          3
+        ],
+        [
+          "struct_missing_format_enforcer",
+          3
+        ],
+        [
+          "sec_unicode_injection_obfuscation",
+          1
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "yoheinakajima/babyagi",
+      "status": "scanned",
+      "promptCandidates": 1,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 5,
+      "promptFindingCount": 12,
+      "promptCriticalHigh": 0,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_missing_quantifier",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "low": 10,
+        "medium": 2
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_few_shot",
+          5
+        ],
+        [
+          "bp_missing_persona",
+          4
+        ],
+        [
+          "bp_missing_cot",
+          1
+        ],
+        [
+          "clarity_missing_quantifier",
+          1
+        ],
+        [
+          "struct_missing_format_enforcer",
+          1
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "microsoft/JARVIS",
+      "status": "scanned",
+      "promptCandidates": 0,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 0,
+      "promptFindingCount": 0,
+      "promptCriticalHigh": 0,
+      "promptRules": [],
+      "promptBySeverity": {},
+      "promptTopRules": [],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "TransformerOptimus/SuperAGI",
+      "status": "scanned",
+      "promptCandidates": 56,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 105,
+      "promptFindingCount": 385,
+      "promptCriticalHigh": 1,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_missing_quantifier",
+        "eff_compression_potential",
+        "sec_owasp_llm01_injection",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "low": 308,
+        "medium": 76,
+        "critical": 1
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_persona",
+          105
+        ],
+        [
+          "bp_missing_few_shot",
+          105
+        ],
+        [
+          "bp_missing_cot",
+          93
+        ],
+        [
+          "struct_missing_format_enforcer",
+          62
+        ],
+        [
+          "clarity_missing_quantifier",
+          14
+        ],
+        [
+          "eff_compression_potential",
+          5
+        ],
+        [
+          "sec_owasp_llm01_injection",
+          1
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "microsoft/semantic-kernel",
+      "status": "scanned",
+      "promptCandidates": 107,
+      "promptScanParseFailures": 4,
+      "filesWithPromptFindings": 363,
+      "promptFindingCount": 1194,
+      "promptCriticalHigh": 3,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "clarity_missing_quantifier",
+        "clarity_open_ended",
+        "clarity_vague_words",
+        "eff_compression_potential",
+        "sec_owasp_llm02_pii",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "low": 975,
+        "medium": 216,
+        "high": 3
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_persona",
+          338
+        ],
+        [
+          "bp_missing_few_shot",
+          328
+        ],
+        [
+          "bp_missing_cot",
+          250
+        ],
+        [
+          "struct_missing_format_enforcer",
+          151
+        ],
+        [
+          "clarity_missing_quantifier",
+          65
+        ],
+        [
+          "eff_compression_potential",
+          52
+        ],
+        [
+          "clarity_vague_words",
+          6
+        ],
+        [
+          "sec_owasp_llm02_pii",
+          3
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    },
+    {
+      "repo": "microsoft/autogen",
+      "status": "scanned",
+      "promptCandidates": 38,
+      "promptScanParseFailures": 0,
+      "filesWithPromptFindings": 16,
+      "promptFindingCount": 32,
+      "promptCriticalHigh": 1,
+      "promptRules": [
+        "bp_missing_cot",
+        "bp_missing_few_shot",
+        "bp_missing_persona",
+        "sec_unbounded_persona",
+        "struct_missing_format_enforcer"
+      ],
+      "promptBySeverity": {
+        "medium": 1,
+        "low": 30,
+        "high": 1
+      },
+      "promptTopRules": [
+        [
+          "bp_missing_few_shot",
+          16
+        ],
+        [
+          "bp_missing_persona",
+          11
+        ],
+        [
+          "bp_missing_cot",
+          3
+        ],
+        [
+          "struct_missing_format_enforcer",
+          1
+        ],
+        [
+          "sec_unbounded_persona",
+          1
+        ]
+      ],
+      "mcpConfigCandidates": 0,
+      "mcpConfigsParsed": 0,
+      "mcpFindingCount": 0,
+      "mcpCriticalHigh": 0,
+      "mcpRules": [],
+      "mcpTopRules": []
+    }
+  ]
+}

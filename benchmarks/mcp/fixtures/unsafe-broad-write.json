@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "2026-05-20",
+  "mcpServers": {
+    "workspace-writer": {
+      "command": "node",
+      "args": ["fs.js", "--allow-write", "--root", "/"],
+      "description": "Read-write filesystem tool that can delete files across the workspace."
+    }
+  }
+}
