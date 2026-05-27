@@ -714,6 +714,14 @@ export default function PlaygroundPage() {
     return workflow.path.nodes.map((node: any) => node.type).join(' -> ');
   };
 
+  const formatWorkflowTrust = (trust: string) => {
+    return String(trust || 'unknown').replace(/_/g, '-');
+  };
+
+  const formatWorkflowConfidence = (confidence?: string) => {
+    return confidence ? confidence.toUpperCase() : 'MEDIUM';
+  };
+
   const copyWorkflowJson = () => {
     if (!primaryWorkflowFinding) {
       triggerToast('No workflow finding to copy yet.');
@@ -894,7 +902,7 @@ export default function PlaygroundPage() {
     ctx.fillStyle = '#64748b';
     ctx.font = '900 20px Arial';
     ctx.fillText('OWASP MAPPING', 112, 388);
-    const labels = owaspLabels.length ? owaspLabels : ['No OWASP risks'];
+    const labels = owaspLabels.length ? owaspLabels : ['No OWASP label emitted'];
     labels.slice(0, 3).forEach((label, index) => {
       const x = 112 + index * 150;
       ctx.strokeStyle = '#cbd5e1';
@@ -1269,6 +1277,7 @@ export default function PlaygroundPage() {
                         const isSource = index === 0;
                         const isSink = index === primaryWorkflow.path.nodes.length - 1;
                         const isPrivileged = node.trust === 'privileged';
+                        const workflowEdge = primaryWorkflow.path.edges?.[index];
                         return (
                           <React.Fragment key={`${node.id || node.type}-${index}`}>
                             <div className={`min-w-0 rounded-lg border px-3 py-2 shadow-3xs ${
@@ -1287,12 +1296,32 @@ export default function PlaygroundPage() {
                                 {node.type}
                               </div>
                               <div className="mt-1 text-[9px] font-bold uppercase tracking-wider opacity-70">
-                                {node.trust}
+                                {formatWorkflowTrust(node.trust)}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                <span className="rounded border border-current/20 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider opacity-80">
+                                  {formatWorkflowConfidence(node.confidence)}
+                                </span>
+                                {node.tainted && (
+                                  <span className="rounded border border-red-200 bg-white/70 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-red-700">
+                                    Tainted
+                                  </span>
+                                )}
+                                {node.privilegePropagated && !isSink && (
+                                  <span className="rounded border border-slate-300 bg-white/70 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-700">
+                                    Propagated
+                                  </span>
+                                )}
                               </div>
                             </div>
                             {!isSink && (
-                              <div className="flex items-center justify-center text-slate-400 sm:px-1">
+                              <div className="flex min-w-[48px] flex-col items-center justify-center text-slate-400 sm:px-1">
                                 <span className={`rotate-90 text-lg font-black sm:rotate-0 ${index === 0 ? 'text-amber-600' : isPrivileged ? 'text-red-600' : ''}`}>→</span>
+                                {workflowEdge && (
+                                  <span className="mt-1 hidden rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[7.5px] font-black uppercase tracking-wider text-slate-500 sm:inline-flex">
+                                    {String(workflowEdge.type || '').replace(/_/g, ' ')}
+                                  </span>
+                                )}
                               </div>
                             )}
                           </React.Fragment>
@@ -1312,6 +1341,11 @@ export default function PlaygroundPage() {
                       <div className="mt-1 break-words font-mono text-xs font-bold">
                         {workflowPathText(primaryWorkflow)}
                       </div>
+                      {primaryWorkflow.path.riskStory && (
+                        <p className="mt-2 text-xs font-semibold leading-relaxed text-red-900">
+                          {primaryWorkflow.path.riskStory}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -1324,6 +1358,10 @@ export default function PlaygroundPage() {
                       <div>
                         <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Rule</div>
                         <div className="mt-1 font-mono text-xs font-black text-slate-900">{primaryWorkflowFinding.rule_id}</div>
+                      </div>
+                      <div>
+                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Chain confidence</div>
+                        <div className="mt-1 font-black uppercase text-slate-900">{formatWorkflowConfidence(primaryWorkflow.confidence || primaryWorkflow.path.confidence)}</div>
                       </div>
                       <div>
                         <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Trust boundary crossed</div>
@@ -1340,6 +1378,18 @@ export default function PlaygroundPage() {
                         {primaryWorkflow.recommendation || primaryWorkflow.path.recommendation}
                       </p>
                     </div>
+                    {primaryWorkflow.path.explanation?.length > 0 && (
+                      <div className="mt-4 border-t border-[#E4E3DE] pt-3">
+                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Workflow explanation</div>
+                        <ul className="mt-2 space-y-1.5">
+                          {primaryWorkflow.path.explanation.slice(0, 5).map((item: string, index: number) => (
+                            <li key={index} className="text-[11px] font-semibold leading-relaxed text-slate-700">
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (

@@ -235,6 +235,12 @@ function formatMcpSarif(results: McpAuditResult[]): string {
                         privilegedSinkReached: finding.workflow.path.privilegedSinkReached,
                         pathSummary: finding.workflow.path.summary,
                         risk: finding.workflow.risk,
+                        confidence: finding.workflow.confidence,
+                        nodes: finding.workflow.path.nodes,
+                        edges: finding.workflow.path.edges,
+                        explanation: finding.workflow.path.explanation,
+                        riskStory: finding.workflow.path.riskStory,
+                        severityReason: finding.workflow.path.severityReason,
                     } : undefined,
                 },
                 locations: [{

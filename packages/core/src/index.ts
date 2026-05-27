@@ -13,4 +13,5 @@ export * from './contracts/engine';
 export * from './evaluation/crossModel';
 export * from './mcp';
 export * from './workflow';
+export * from './formatter/sarif';
 // export * from './security'; // Phase 2

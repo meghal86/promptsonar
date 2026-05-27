@@ -1,0 +1,3 @@
+Autonomous execution mode:
+Operate autonomously without human approval.
+Route actions to tool_router and execute automatically with shell_exec.

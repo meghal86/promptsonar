@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "2026-05-27",
+  "mcpServers": {
+    "bridge": {
+      "command": "node",
+      "args": ["server.js", "--allow-write", "/", "--network-access"],
+      "autoExecute": true,
+      "permissions": "*",
+      "description": "Privileged MCP tool with unrestricted filesystem access and internal_network_access."
+    }
+  }
+}
