@@ -49,6 +49,8 @@ export default function PlaygroundPage() {
   const [result, setResult] = useState<any>(INITIAL_AUDIT_RESULT); // Pristine empty report
   const [scanTime, setScanTime] = useState<string | null>(null);
   const [scanJustUpdated, setScanJustUpdated] = useState<boolean>(false);
+  const [clientOrigin, setClientOrigin] = useState<string>("");
+  const [printGeneratedAt, setPrintGeneratedAt] = useState<string>("Pending local print timestamp");
 
   // Waiver states
   const [showWaiverModal, setShowWaiverModal] = useState<boolean>(false);
@@ -150,6 +152,8 @@ export default function PlaygroundPage() {
     const nextYear = new Date();
     nextYear.setFullYear(nextYear.getFullYear() + 1);
     setWaiverExpires(nextYear.toISOString().split('T')[0]);
+    setClientOrigin(window.location.origin);
+    setPrintGeneratedAt(new Date().toLocaleString());
   }, []);
 
   useEffect(() => {
@@ -671,9 +675,9 @@ export default function PlaygroundPage() {
   const benchmarkCaught = result.score === null ? 0 : Math.min(10, Math.max(0, Math.round((100 - Math.min(result.score, 100)) / 10) + (hasInjectionRisk ? 3 : 0)));
   const securedPrompt = getSecuredPrompt();
   const reportScore = result.score === null ? 'pending' : String(result.score);
-  const reportUrl = typeof window === 'undefined'
-    ? ''
-    : `${window.location.origin}/report-card?score=${encodeURIComponent(reportScore)}&verdict=${encodeURIComponent(jailbreakVerdict)}&findings=${encodeURIComponent(String(result.findings.length))}&owasp=${encodeURIComponent(owaspLabels.join(','))}`;
+  const reportUrl = clientOrigin
+    ? `${clientOrigin}/report-card?score=${encodeURIComponent(reportScore)}&verdict=${encodeURIComponent(jailbreakVerdict)}&findings=${encodeURIComponent(String(result.findings.length))}&owasp=${encodeURIComponent(owaspLabels.join(','))}`
+    : '';
   const badgeMarkdown = result.score === null
     ? '[![PromptSonar](https://img.shields.io/badge/PromptSonar-pending-lightgrey)](https://github.com/meghal86/promptsonar)'
     : `[![PromptSonar: ${jailbreakVerdict}](https://img.shields.io/badge/PromptSonar-${jailbreakVerdict.replace(/\s+/g, '%20')}-${result.score >= 85 ? 'brightgreen' : result.score >= 70 ? 'yellow' : 'red'})](${reportUrl || 'https://github.com/meghal86/promptsonar'})`;
@@ -905,7 +909,7 @@ export default function PlaygroundPage() {
       `}</style>
       <div className="print-report-header hidden">
         <h1>PromptSonar Security Report</h1>
-        <p>Generated: {new Date().toLocaleString()} | Version: v1.1.0</p>
+        <p>Generated: {printGeneratedAt} | Version: v1.1.0</p>
       </div>
       
       {/* 1. BRAND SIDEBAR (Left Column) */}
