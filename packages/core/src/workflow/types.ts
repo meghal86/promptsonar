@@ -11,15 +11,20 @@ export type WorkflowNodeType =
     | 'rag_context'
     | 'mcp_server'
     | 'mcp_tool'
+    | 'privileged_tool'
     | 'tool_router'
     | 'tool_execution'
     | 'shell_execution'
     | 'network_access'
     | 'filesystem_access'
+    | 'credential_store'
+    | 'external_api'
+    | 'policy_override'
     | 'secret'
     | 'unknown';
 
-export type WorkflowTrust = 'trusted' | 'untrusted' | 'privileged' | 'unknown';
+export type WorkflowTrust = 'trusted' | 'semi_trusted' | 'untrusted' | 'privileged' | 'unknown';
+export type WorkflowConfidence = 'low' | 'medium' | 'high';
 
 export type WorkflowEdgeType =
     | 'data_flow'
@@ -44,6 +49,12 @@ export interface WorkflowNode {
     label: string;
     type: WorkflowNodeType;
     trust: WorkflowTrust;
+    confidence?: WorkflowConfidence;
+    reason?: string;
+    evidence?: string;
+    inferredBy?: string[];
+    tainted?: boolean;
+    privilegePropagated?: boolean;
     sourceLocation?: WorkflowSourceLocation;
 }
 
@@ -53,6 +64,9 @@ export interface WorkflowEdge {
     type: WorkflowEdgeType;
     risk: WorkflowRisk;
     reason: string;
+    confidence?: WorkflowConfidence;
+    tainted?: boolean;
+    privilegePropagated?: boolean;
 }
 
 export interface WorkflowPath {
@@ -63,6 +77,10 @@ export interface WorkflowPath {
     trustBoundaryCrossed: boolean;
     privilegedSinkReached: boolean;
     recommendation: string;
+    confidence?: WorkflowConfidence;
+    explanation?: string[];
+    riskStory?: string;
+    severityReason?: string;
 }
 
 export interface FindingWorkflow {
@@ -72,6 +90,8 @@ export interface FindingWorkflow {
     trustBoundary: string;
     risk: WorkflowRisk;
     recommendation: string;
+    confidence?: WorkflowConfidence;
+    explanation?: string[];
 }
 
 export interface WorkflowInferenceInput {
