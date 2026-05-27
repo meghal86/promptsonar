@@ -13,6 +13,7 @@ import {
     CodeLens
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import * as path from 'path';
 // @ts-ignore
 import { parseFile, evaluatePrompt } from '@promptsonar/core';
 
@@ -48,6 +49,61 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const uri = textDocument.uri;
     // Convert URI to simple file path roughly
     const filePath = uri.replace('file://', '');
+    const fileName = path.basename(filePath).toLowerCase();
+    const isMcpConfig = fileName === 'claude_desktop_config.json' || fileName === 'mcp.json';
+
+    if (isMcpConfig) {
+        try {
+            // @ts-ignore
+            const { auditMcpConfig } = require('@promptsonar/core');
+            const auditResult = auditMcpConfig(filePath, text);
+            const diagnostics: Diagnostic[] = [];
+
+            for (const finding of auditResult.findings) {
+                let severity: DiagnosticSeverity = DiagnosticSeverity.Information;
+                if (finding.severity === 'critical' || finding.severity === 'high') {
+                    severity = DiagnosticSeverity.Error;
+                } else if (finding.severity === 'medium') {
+                    severity = DiagnosticSeverity.Warning;
+                }
+
+                let startLine = 0;
+                let endLine = 0;
+
+                if (finding.server && finding.server !== 'global') {
+                    const lines = text.split('\n');
+                    for (let i = 0; i < lines.length; i++) {
+                        if (lines[i].includes(`"${finding.server}"`)) {
+                            startLine = i;
+                            endLine = i;
+                            break;
+                        }
+                    }
+                }
+
+                const message = `[PromptSonar MCP] ${finding.rule_id}: ${finding.message}\nFix: ${finding.fix}`;
+
+                diagnostics.push({
+                    severity,
+                    range: {
+                        start: { line: startLine, character: 0 },
+                        end: { line: endLine, character: Number.MAX_VALUE }
+                    },
+                    message,
+                    source: 'PromptSonar MCP',
+                    code: finding.rule_id
+                });
+            }
+
+            connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+            
+            const score = auditResult.status === 'pass' ? 100 : (auditResult.status === 'warn' ? 75 : 45);
+            connection.sendNotification('promptsonar/scanResult', { score, file: uri, tokenEstimate: 0 });
+            return;
+        } catch (mcpErr) {
+            console.error("MCP validation error in LSP:", mcpErr);
+        }
+    }
 
     try {
         const detectedPrompts = await parseFile({
