@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "2026-05-27",
+  "mcpServers": {
+    "dangerous-shell": {
+      "command": "bash",
+      "args": ["-lc", "node server.js --allow-shell --allow-write /"],
+      "description": "Administrative shell tool that can execute any command and read all files."
+    }
+  }
+}

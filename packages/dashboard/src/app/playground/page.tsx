@@ -318,6 +318,7 @@ export default function PlaygroundPage() {
           title: f.rule_id.split('_').slice(1).join(' ') || f.rule_id,
           explanation: f.explanation || f.message,
           suggested_fix: f.suggested_fix || f.fix,
+          workflow: f.workflow,
           waived: false
         })),
         crossModelResult: data.crossModelResult ? {
@@ -1676,6 +1677,17 @@ export default function PlaygroundPage() {
                             {item.suggested_fix}
                           </div>
                         )}
+
+                        <div className="bg-white border border-slate-200 rounded-md px-2.5 py-2 text-[10px] text-slate-600">
+                          <span className="font-bold uppercase tracking-wider text-slate-500 block mb-1">Workflow Path</span>
+                          {item.workflow?.path?.nodes?.length ? (
+                            <div className="font-mono leading-relaxed break-words">
+                              {item.workflow.path.nodes.map((node: any) => `${node.type}${node.trust && node.trust !== 'unknown' ? ` (${node.trust})` : ''}`).join(' -> ')}
+                            </div>
+                          ) : (
+                            <span className="italic text-slate-400">No workflow path inferred.</span>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}

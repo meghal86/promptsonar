@@ -94,6 +94,9 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
                 let message = `[PromptSonar] ${finding.rule_id}`;
                 message += `\n${finding.explanation}`;
                 if (owaspRef) message += `\n${owaspRef}`;
+                if (finding.workflow) {
+                    message += `\nWorkflow: ${finding.workflow.path.summary}`;
+                }
                 message += `\nFix: ${finding.suggested_fix || 'Review and apply best practices.'}`;
                 message += `\nDocs: ${docsUrl}`;
 

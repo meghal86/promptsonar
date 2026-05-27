@@ -1,4 +1,5 @@
 import { Finding } from '../rules/types';
+import { FindingWorkflow, workflowPathSummary } from '../workflow';
 
 type SarifFinding = Finding & {
     filePath?: string;
@@ -9,6 +10,7 @@ type SarifFinding = Finding & {
     owasp?: string;
     confidence?: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
     docs_url?: string;
+    workflow?: FindingWorkflow;
 };
 
 function getOwaspMapping(ruleId: string): string | undefined {
@@ -129,6 +131,14 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                 confidence: f.confidence || "HIGH",
                 recommendation,
                 evidence: f.evidence,
+                workflow: f.workflow ? {
+                    source: f.workflow.source,
+                    sink: f.workflow.sink,
+                    trustBoundaryCrossed: f.workflow.path.trustBoundaryCrossed,
+                    privilegedSinkReached: f.workflow.path.privilegedSinkReached,
+                    pathSummary: workflowPathSummary(f.workflow),
+                    risk: f.workflow.risk,
+                } : undefined,
             },
             partialFingerprints: {
                 promptsonarFinding: fingerprint(f, filePath),

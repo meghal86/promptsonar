@@ -1,3 +1,5 @@
+import type { FindingWorkflow } from '../workflow/types';
+
 export type Severity = "low" | "medium" | "high" | "critical";
 
 export interface Finding {
@@ -6,6 +8,7 @@ export interface Finding {
     severity: Severity;
     explanation: string;
     suggested_fix?: string;
+    workflow?: FindingWorkflow;
     penalty_score?: number; // Internal score deduction
 }
 

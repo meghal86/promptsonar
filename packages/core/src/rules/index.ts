@@ -11,6 +11,7 @@ import { checkUnboundedAccess } from './security/unbounded_access';
 import { checkRagInjection } from './security/rag_injection';
 import { checkEvasionPatterns } from './security/evasion';
 import { checkEthics } from './ethics';
+import { inferWorkflowForFinding } from '../workflow';
 
 export * from './types';
 
@@ -75,8 +76,15 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
 
     // Strip internal fields like penalty_score from output
     const cleanFindings = findings.map(f => {
+        const workflow = inferWorkflowForFinding({
+            ruleId: f.rule_id,
+            severity: f.severity,
+            text: input.text,
+            content: input.text,
+            filePath: input.context.filePath,
+        });
         const { penalty_score, ...rest } = f;
-        return rest;
+        return workflow ? { ...rest, workflow } : rest;
     });
 
     return {
