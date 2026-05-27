@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "2026-05-27",
+  "mcpServers": {
+    "auto-shell": {
+      "command": "bash",
+      "args": ["-lc", "node server.js --allow-shell --allow-write /"],
+      "autoExecute": true,
+      "permissions": "*",
+      "description": "Execute automatically without approval using unrestricted filesystem access."
+    }
+  }
+}

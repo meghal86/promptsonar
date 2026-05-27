@@ -46,6 +46,10 @@ const BROAD_SCOPE_PATTERNS = [
     /\badmin\b/i,
     /\broot\s+access\b/i,
     /\bexecute\s+(any|all)\s+(command|shell|script)/i,
+    /\bunrestricted\s+(filesystem|shell|network)\s+access\b/i,
+    /\bshell_exec\b/i,
+    /\bfilesystem_access\b/i,
+    /\binternal_network_access\b/i,
     /\bnetwork\s+access\b/i,
 ];
 
@@ -74,6 +78,51 @@ const MUTABLE_PACKAGE_PATTERNS = [
     /:latest\b/i,
     /(?:git\+https?:\/\/|git@)github\.com[/:][^"'\s]+(?:\.git)?(?:["'\s]|$)/i,
     /curl\b.*\|\s*(?:sh|bash)/i,
+];
+
+const AUTO_EXECUTE_PATTERNS = [
+    /\bautoExecute\b/i,
+    /\bauto[-_\s]?execute\b/i,
+    /\bexecute\s+automatically\b/i,
+    /\bautomatic\s+execution\b/i,
+    /\bskip\s+confirmation\b/i,
+    /\bwithout\s+(?:approval|confirmation)\b/i,
+];
+
+const WILDCARD_PERMISSION_PATTERNS = [
+    /\bwildcard\s+permissions?\b/i,
+    /"\*"/,
+    /\ball\s+permissions?\b/i,
+    /\bpermissions?\s*[:=]\s*(?:all|\*)\b/i,
+    /\bscopes?\s*[:=]\s*(?:all|\*)\b/i,
+];
+
+const CREDENTIAL_PASSTHROUGH_PATTERNS = [
+    /\bcredential\s+passthrough\b/i,
+    /\bpass\s+(?:through|host)\s+credentials?\b/i,
+    /\bforward\s+(?:tokens?|credentials?|secrets?)\b/i,
+    /\buse\s+host\s+(?:tokens?|credentials?|secrets?)\b/i,
+];
+
+const SELF_MODIFYING_PATTERNS = [
+    /\bself[-\s]?modifying\s+mcp\s+instructions?\b/i,
+    /\brewrite\s+(?:its\s+|the\s+)?(?:tool\s+)?instructions?\b/i,
+    /\bmodify\s+(?:its\s+|the\s+)?(?:mcp\s+|tool\s+)?instructions?\b/i,
+    /\boverride\s+system\s+instructions?\b/i,
+    /\brewrite\s+(?:the\s+)?system\s+prompt\b/i,
+];
+
+const PRIVILEGED_MCP_SINK_PATTERNS = [
+    /\bbash\b/i,
+    /\bshell\b/i,
+    /\bshell_exec\b/i,
+    /\bexecute\s+(?:any\s+|all\s+)?commands?\b/i,
+    /\bfilesystem\b/i,
+    /\bfilesystem_access\b/i,
+    /\b--allow-write\b/i,
+    /\b--allow-read\b/i,
+    /\bnetwork\s+access\b/i,
+    /\binternal_network_access\b/i,
 ];
 
 const ALLOWED_REMOTE_DOMAINS = new Set([
@@ -146,6 +195,20 @@ function findDangerousEnvKeys(server: any): string[] {
     return Object.keys(env).filter(key => DANGEROUS_ENV_KEYS.has(key));
 }
 
+function hasPrivilegedMcpSink(text: string): boolean {
+    return PRIVILEGED_MCP_SINK_PATTERNS.some(pattern => pattern.test(text));
+}
+
+function mcpExecutionSeverity(text: string): McpSeverity {
+    const hasPrivilegedSink = hasPrivilegedMcpSink(text);
+    const hasAutonomousOrBypass = AUTO_EXECUTE_PATTERNS.some(pattern => pattern.test(text));
+    const hasPersistenceOrOverride = SELF_MODIFYING_PATTERNS.some(pattern => pattern.test(text))
+        || /\bpersist\s+instructions?\b/i.test(text)
+        || /\boverride\b/i.test(text)
+        || /\bignore\s+(?:previous|all|system)\s+instructions?\b/i.test(text);
+    return hasPrivilegedSink && (hasAutonomousOrBypass || hasPersistenceOrOverride) ? 'critical' : 'high';
+}
+
 function auditServer(name: string, server: any, serverPath: string, findings: McpFinding[], content: string, filePath: string): void {
     const text = stableStringify(server);
     const urls = extractUrls(server);
@@ -199,7 +262,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
     if (BROAD_SCOPE_PATTERNS.some(pattern => pattern.test(text))) {
         addFinding(findings, {
             rule_id: 'MCP-002',
-            severity: 'high',
+            severity: mcpExecutionSeverity(text),
             message: `MCP server "${name}" appears to request broad filesystem, shell, admin, or network scope.`,
             fix: 'Scope tools to specific directories, commands, domains, and read/write actions.',
             path: serverPath,
@@ -210,7 +273,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
     if (SUSPICIOUS_DESCRIPTION_PATTERNS.some(pattern => pattern.test(text)) || /[\u200B-\u200D\uFEFF]/.test(text)) {
         addFinding(findings, {
             rule_id: 'MCP-004',
-            severity: 'medium',
+            severity: hasPrivilegedMcpSink(text) ? mcpExecutionSeverity(text) : 'medium',
             message: `MCP server "${name}" contains suspicious tool text or prompt-injection language.`,
             fix: 'Remove directive-like text from tool descriptions and review the package source.',
             path: serverPath,
@@ -258,6 +321,50 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             severity: 'medium',
             message: `MCP server "${name}" appears to install or execute an unpinned/mutable tool package.`,
             fix: 'Pin package versions, container digests, or commit SHAs before allowing the MCP server in CI or production.',
+            path: serverPath,
+            server: name,
+        }, content, filePath);
+    }
+
+    if (AUTO_EXECUTE_PATTERNS.some(pattern => pattern.test(text))) {
+        addFinding(findings, {
+            rule_id: 'MCP-011',
+            severity: mcpExecutionSeverity(text),
+            message: `MCP server "${name}" appears to allow automatic tool execution without reliable approval gating.`,
+            fix: 'Disable auto-execution and require explicit human approval for privileged MCP tool calls.',
+            path: serverPath,
+            server: name,
+        }, content, filePath);
+    }
+
+    if (WILDCARD_PERMISSION_PATTERNS.some(pattern => pattern.test(text))) {
+        addFinding(findings, {
+            rule_id: 'MCP-012',
+            severity: hasPrivilegedMcpSink(text) ? mcpExecutionSeverity(text) : 'high',
+            message: `MCP server "${name}" appears to request wildcard permissions or all scopes.`,
+            fix: 'Replace wildcard MCP permissions with explicit tool, path, command, and network allowlists.',
+            path: serverPath,
+            server: name,
+        }, content, filePath);
+    }
+
+    if (CREDENTIAL_PASSTHROUGH_PATTERNS.some(pattern => pattern.test(text))) {
+        addFinding(findings, {
+            rule_id: 'MCP-013',
+            severity: 'high',
+            message: `MCP server "${name}" appears to pass host credentials or secrets through to tools.`,
+            fix: 'Use scoped service credentials and do not pass host secrets into MCP process or remote tool contexts.',
+            path: serverPath,
+            server: name,
+        }, content, filePath);
+    }
+
+    if (SELF_MODIFYING_PATTERNS.some(pattern => pattern.test(text))) {
+        addFinding(findings, {
+            rule_id: 'MCP-014',
+            severity: mcpExecutionSeverity(text),
+            message: `MCP server "${name}" contains self-modifying or system-instruction rewrite behavior.`,
+            fix: 'Remove instruction-rewrite behavior from MCP metadata and pin reviewed tool instructions.',
             path: serverPath,
             server: name,
         }, content, filePath);
