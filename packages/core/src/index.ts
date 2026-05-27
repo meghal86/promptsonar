@@ -12,4 +12,5 @@ export * from './governance/engine';
 export * from './contracts/engine';
 export * from './evaluation/crossModel';
 export * from './mcp';
+export * from './workflow';
 // export * from './security'; // Phase 2

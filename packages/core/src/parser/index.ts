@@ -150,6 +150,14 @@ function containsPromptKeyword(text: string): boolean {
     return false;
 }
 
+function isWorkflowRelevantInstructionFile(filePath: string): boolean {
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    return (
+        /(^|\/)(prompts|agents|ai|rag)\//.test(normalized) ||
+        /(^|\/)[^/]+\.prompt\.[^/]+$/.test(normalized)
+    );
+}
+
 export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[]> {
     const { filePath, content, language } = options;
     const ext = path.extname(filePath).toLowerCase();
@@ -174,6 +182,16 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
             endLine: content.split('\n').length,
             text: content,
             sourceType: "markdown_instruction"
+        }];
+    }
+
+    if (isWorkflowRelevantInstructionFile(filePath) && containsPromptKeyword(content)) {
+        return [{
+            filePath,
+            startLine: 1,
+            endLine: content.split('\n').length,
+            text: content,
+            sourceType: "full_file"
         }];
     }
 

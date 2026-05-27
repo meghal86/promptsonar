@@ -12,6 +12,10 @@ import {
     isFindingSuppressed,
     normalizeRuleId,
     Suppression,
+    FindingWorkflow,
+    inferWorkflowForFinding,
+    auditMcpConfig,
+    McpFinding,
 } from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
@@ -41,6 +45,7 @@ export interface ScanFinding {
     risk: string;
     docs_url: string;
     waived: boolean;
+    workflow?: FindingWorkflow;
     suppression_reason?: string;
     suppression_source?: string;
 }
@@ -282,6 +287,7 @@ const SUPPORTED_EXTENSIONS = [
     '.cs',
     '.prompt', '.ai', '.chat',
     '.json', '.yml', '.yaml',
+    '.md', '.txt',
 ];
 
 const SUPPORTED_MARKDOWN_PROMPT_FILES = new Set([
@@ -332,6 +338,14 @@ const DEFAULT_IGNORE_PATTERNS = [
     '**/test_parse.*',
 ];
 
+const WORKFLOW_RELEVANT_PATTERNS = [
+    'prompts/**/*',
+    'agents/**/*',
+    'ai/**/*',
+    'rag/**/*',
+    '**/*.prompt.*',
+];
+
 function getLanguageForExt(ext: string): string {
     switch (ext) {
         case '.py': return 'python';
@@ -342,6 +356,55 @@ function getLanguageForExt(ext: string): string {
         case '.cs': return 'c_sharp';
         default: return '';
     }
+}
+
+function isRecognizedMcpConfig(filePath: string): boolean {
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    return normalized.endsWith('/mcp.json')
+        || normalized.endsWith('/.vscode/mcp.json')
+        || normalized.endsWith('/claude_desktop_config.json')
+        || normalized === 'mcp.json'
+        || normalized === 'claude_desktop_config.json';
+}
+
+function scoreFromFindings(findings: ScanFinding[]): number {
+    return Math.max(0, 100 - findings.reduce((total, finding) => total + getPenaltyForSeverity(finding.severity), 0));
+}
+
+function statusFromFindings(findings: ScanFinding[]): ScanResult['status'] {
+    if (findings.some(finding => finding.severity === 'critical' || finding.severity === 'high')) return 'fail';
+    if (findings.length > 0) return 'warn';
+    return 'pass';
+}
+
+function mapMcpFinding(finding: McpFinding, filePath: string): ScanFinding {
+    const recommendation = finding.fix;
+    const workflow = finding.workflow || inferWorkflowForFinding({
+        ruleId: finding.rule_id,
+        severity: finding.severity,
+        text: `${finding.message}\n${finding.fix}`,
+        filePath,
+        message: finding.message,
+    });
+    return {
+        rule_id: finding.rule_id,
+        category: 'security',
+        severity: finding.severity,
+        line: 1,
+        column: 1,
+        message: finding.message,
+        fix: recommendation,
+        recommendation,
+        owasp_ref: '',
+        owasp: '',
+        evidence: finding.server ? `server: ${finding.server}; path: ${finding.path}` : finding.path,
+        confidence: getConfidenceForFinding(finding.rule_id, finding.severity),
+        why: finding.message,
+        risk: 'MCP configuration may expose tools, credentials, or execution capability beyond the agent workflow trust boundary.',
+        docs_url: getRuleDocsUrl(finding.rule_id),
+        waived: false,
+        workflow,
+    };
 }
 
 export async function scanFiles(targetPath: string, options: {
@@ -390,6 +453,12 @@ export async function scanFiles(targetPath: string, options: {
                 SUPPORTED_MARKDOWN_PROMPT_FILES.has(path.basename(filePath).toLowerCase())
             )
         );
+        files.push(...await fg(WORKFLOW_RELEVANT_PATTERNS, {
+            cwd: resolvedPath,
+            absolute: true,
+            onlyFiles: true,
+            ignore: DEFAULT_IGNORE_PATTERNS,
+        }));
         files = Array.from(new Set(files));
     } else {
         files = [resolvedPath];
@@ -402,6 +471,22 @@ export async function scanFiles(targetPath: string, options: {
         const inlineSuppressions = extractInlineSuppressions(content);
 
         try {
+            if (isRecognizedMcpConfig(filePath)) {
+                const mcpResult = auditMcpConfig(filePath, content);
+                if (mcpResult.findings.length > 0) {
+                    const scanFindings = mcpResult.findings.map(finding => mapMcpFinding(finding, filePath));
+                    results.push({
+                        filePath,
+                        overall_score: scoreFromFindings(scanFindings),
+                        status: statusFromFindings(scanFindings),
+                        pillar_scores: computePillarScores(scanFindings),
+                        findings_count: scanFindings.length,
+                        findings: scanFindings,
+                    });
+                    continue;
+                }
+            }
+
             const prompts = await parseFile({ filePath, content, language });
 
             for (const prompt of prompts) {
@@ -415,6 +500,16 @@ export async function scanFiles(targetPath: string, options: {
                     const owasp = getOwaspRef(f.rule_id);
                     const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || '');
                     const risk = getRiskExplanation(f.rule_id);
+                    const workflow = inferWorkflowForFinding({
+                        ruleId: f.rule_id,
+                        severity: f.severity,
+                        text: prompt.text,
+                        content,
+                        filePath,
+                        line: prompt.startLine,
+                        column: 1,
+                        message: f.explanation,
+                    });
                     return {
                         rule_id: f.rule_id,
                         category: getCategoryForRule(f.rule_id),
@@ -432,6 +527,7 @@ export async function scanFiles(targetPath: string, options: {
                         risk,
                         docs_url: getRuleDocsUrl(f.rule_id),
                         waived: Boolean(configSuppression || inlineSuppressed),
+                        workflow,
                         suppression_reason: configSuppression?.reason || (inlineSuppressed ? 'Inline promptsonar-ignore comment' : undefined),
                         suppression_source: configSuppression?.source || (inlineSuppressed ? 'inline' : undefined),
                     };
@@ -472,6 +568,7 @@ export function generateSarif(results: ScanResult[]): string {
         owasp?: string;
         confidence?: string;
         docs_url?: string;
+        workflow?: FindingWorkflow;
     }> = [];
     const primaryFile = results.length > 0 ? results[0].filePath : 'unknown';
 
@@ -491,6 +588,7 @@ export function generateSarif(results: ScanResult[]): string {
                 owasp: f.owasp,
                 confidence: f.confidence,
                 docs_url: f.docs_url,
+                workflow: f.workflow,
             });
         }
     }

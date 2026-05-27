@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { FindingWorkflow, inferWorkflowForFinding } from '../workflow';
 
 export type McpSeverity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -11,6 +12,7 @@ export interface McpFinding {
     fix: string;
     path: string;
     server?: string;
+    workflow?: FindingWorkflow;
 }
 
 export interface McpAuditResult {
@@ -89,7 +91,19 @@ function stableStringify(value: unknown): string {
     }
 }
 
-function addFinding(findings: McpFinding[], finding: McpFinding): void {
+function addFinding(findings: McpFinding[], finding: McpFinding, content?: string, filePath?: string): void {
+    if (!finding.workflow) {
+        const workflow = inferWorkflowForFinding({
+            ruleId: finding.rule_id,
+            severity: finding.severity,
+            text: `${finding.message}\n${finding.fix}`,
+            content,
+            filePath,
+            message: finding.message,
+        });
+        if (workflow) finding.workflow = workflow;
+    }
+
     const key = `${finding.rule_id}:${finding.path}:${finding.server || ''}:${finding.message}`;
     if (!findings.some(existing => `${existing.rule_id}:${existing.path}:${existing.server || ''}:${existing.message}` === key)) {
         findings.push(finding);
@@ -132,7 +146,7 @@ function findDangerousEnvKeys(server: any): string[] {
     return Object.keys(env).filter(key => DANGEROUS_ENV_KEYS.has(key));
 }
 
-function auditServer(name: string, server: any, serverPath: string, findings: McpFinding[]): void {
+function auditServer(name: string, server: any, serverPath: string, findings: McpFinding[], content: string, filePath: string): void {
     const text = stableStringify(server);
     const urls = extractUrls(server);
 
@@ -156,7 +170,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
                 fix: 'Use HTTPS, bind local services safely, and require authentication before exposing MCP tools.',
                 path: serverPath,
                 server: name,
-            });
+            }, content, filePath);
         }
 
         if (!isLocal && !hasAuthIndicator(server)) {
@@ -167,7 +181,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
                 fix: 'Add explicit auth headers, OAuth, API key env references, or another documented authentication control.',
                 path: serverPath,
                 server: name,
-            });
+            }, content, filePath);
         }
 
         if (!isLocal && !ALLOWED_REMOTE_DOMAINS.has(host)) {
@@ -178,7 +192,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
                 fix: 'Review the server publisher, pin the package/version, and document why this domain is trusted.',
                 path: serverPath,
                 server: name,
-            });
+            }, content, filePath);
         }
     }
 
@@ -190,7 +204,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             fix: 'Scope tools to specific directories, commands, domains, and read/write actions.',
             path: serverPath,
             server: name,
-        });
+        }, content, filePath);
     }
 
     if (SUSPICIOUS_DESCRIPTION_PATTERNS.some(pattern => pattern.test(text)) || /[\u200B-\u200D\uFEFF]/.test(text)) {
@@ -201,7 +215,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             fix: 'Remove directive-like text from tool descriptions and review the package source.',
             path: serverPath,
             server: name,
-        });
+        }, content, filePath);
     }
 
     if (SECRET_PATTERNS.some(pattern => pattern.test(text))) {
@@ -212,7 +226,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             fix: 'Move secrets to environment variables or a managed secret store and rotate exposed credentials.',
             path: serverPath,
             server: name,
-        });
+        }, content, filePath);
     }
 
     if (WRITE_SCOPE_PATTERNS.some(pattern => pattern.test(text)) && /\/|root|all|any|filesystem|workspace/i.test(text)) {
@@ -223,7 +237,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             fix: 'Restrict write tools to explicit safe directories, prefer read-only mode, and require human approval for destructive actions.',
             path: serverPath,
             server: name,
-        });
+        }, content, filePath);
     }
 
     const dangerousEnvKeys = findDangerousEnvKeys(server);
@@ -235,7 +249,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             fix: 'Do not pass host credentials or sockets into MCP servers. Use scoped service tokens with least privilege.',
             path: serverPath,
             server: name,
-        });
+        }, content, filePath);
     }
 
     if (MUTABLE_PACKAGE_PATTERNS.some(pattern => pattern.test(text)) && !hasPinnedPackageIndicator(text)) {
@@ -246,7 +260,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             fix: 'Pin package versions, container digests, or commit SHAs before allowing the MCP server in CI or production.',
             path: serverPath,
             server: name,
-        });
+        }, content, filePath);
     }
 }
 
@@ -284,7 +298,7 @@ export function auditMcpConfig(filePath: string, content: string): McpAuditResul
             message: 'MCP config does not contain a recognized mcpServers or servers object.',
             fix: 'Use the current MCP config shape with named server entries.',
             path: '$',
-        });
+        }, content, filePath);
     }
 
     if (!config.schemaVersion && !config.version) {
@@ -294,11 +308,11 @@ export function auditMcpConfig(filePath: string, content: string): McpAuditResul
             message: 'MCP config does not declare a schemaVersion or version.',
             fix: 'Add a schemaVersion/version field so config migrations are auditable.',
             path: '$',
-        });
+        }, content, filePath);
     }
 
     for (const [name, server, serverPath] of servers) {
-        auditServer(name, server, serverPath, findings);
+        auditServer(name, server, serverPath, findings, content, filePath);
     }
 
     return {

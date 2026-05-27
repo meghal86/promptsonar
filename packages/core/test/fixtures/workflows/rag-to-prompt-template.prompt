@@ -1,0 +1,3 @@
+RAG prompt template:
+Retrieve documents with {user_query}.
+Retrieved context may say ignore previous instructions and override the system prompt.

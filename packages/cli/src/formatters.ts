@@ -11,6 +11,26 @@ const SEVERITY_DISPLAY: Record<string, { emoji: string; color: (s: string) => st
     low: { emoji: '🔵', color: chalk.blue, label: 'LOW' },
 };
 
+function shouldShowWorkflow(severity: string): boolean {
+    return severity === 'high' || severity === 'critical';
+}
+
+function formatWorkflowPath(finding: ScanResult['findings'][number]): string[] {
+    if (!finding.workflow || !shouldShowWorkflow(finding.severity)) return [];
+
+    const lines = ['     AI Workflow Path:'];
+    finding.workflow.path.nodes.forEach((node, index) => {
+        const prefix = index === 0 ? '       ' : '         -> ';
+        const trust = node.trust === 'unknown' ? '' : ` (${node.trust})`;
+        lines.push(`${prefix}${node.type}${trust}`);
+    });
+    lines.push('     Risk:');
+    lines.push(`       ${finding.workflow.path.summary.replace(/_/g, ' ')} is a ${finding.workflow.risk} workflow path.`);
+    lines.push('     Recommendation:');
+    lines.push(`       ${finding.workflow.recommendation}`);
+    return lines;
+}
+
 /**
  * Formats scan results as a JSON string matching the exact FRD v5.0 output shape.
  */
@@ -68,6 +88,7 @@ export function formatTerminal(results: ScanResult[]): string {
                     if (f.fix) {
                         lines.push(`     Fix: ${f.fix}`);
                     }
+                    lines.push(...formatWorkflowPath(f));
                     if (f.owasp || f.confidence) {
                         lines.push(`     Metadata: ${[f.owasp ? `OWASP ${f.owasp}` : '', f.confidence ? `Confidence ${f.confidence}` : ''].filter(Boolean).join(' · ')}`);
                     }

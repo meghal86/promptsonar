@@ -192,6 +192,16 @@ function formatMcpTerminal(results: McpAuditResult[]): string {
                 lines.push(`${color('✗')} ${color(finding.severity.toUpperCase())} · ${chalk.bold(finding.rule_id)}${finding.server ? ` · server: "${finding.server}"` : ''}`);
                 lines.push(`${finding.message}`);
                 lines.push(`Fix: ${finding.fix}`);
+                if (finding.workflow && (finding.severity === 'high' || finding.severity === 'critical')) {
+                    lines.push('AI Workflow Path:');
+                    finding.workflow.path.nodes.forEach((node, index) => {
+                        const prefix = index === 0 ? '  ' : '    -> ';
+                        const trust = node.trust === 'unknown' ? '' : ` (${node.trust})`;
+                        lines.push(`${prefix}${node.type}${trust}`);
+                    });
+                    lines.push(`Risk: ${finding.workflow.path.summary.replace(/_/g, ' ')} is a ${finding.workflow.risk} workflow path.`);
+                    lines.push(`Recommendation: ${finding.workflow.recommendation}`);
+                }
                 lines.push('');
             }
         }
@@ -217,6 +227,16 @@ function formatMcpSarif(results: McpAuditResult[]): string {
                 ruleId: finding.rule_id,
                 level: finding.severity === 'critical' || finding.severity === 'high' ? 'error' : finding.severity === 'medium' ? 'warning' : 'note',
                 message: { text: `${finding.message} Fix: ${finding.fix}` },
+                properties: {
+                    workflow: finding.workflow ? {
+                        source: finding.workflow.source,
+                        sink: finding.workflow.sink,
+                        trustBoundaryCrossed: finding.workflow.path.trustBoundaryCrossed,
+                        privilegedSinkReached: finding.workflow.path.privilegedSinkReached,
+                        pathSummary: finding.workflow.path.summary,
+                        risk: finding.workflow.risk,
+                    } : undefined,
+                },
                 locations: [{
                     physicalLocation: {
                         artifactLocation: { uri: result.filePath },
