@@ -1,5 +1,26 @@
 import { Finding, RuleInput, Severity } from '../types';
 
+const BENIGN_CONTEXT_PATTERNS = [
+    /\bdocumentation\s+only\b/i,
+    /\beducational\s+example\b/i,
+    /\blinux\s+tutorials?\b/i,
+    /\bbeginner-friendly\b/i,
+    /\bexplain\s+what\s+(?:the\s+)?command\s+does\b/i,
+    /\bwriting\s+assistant\b/i,
+    /\bsummarize\s+(?:the\s+)?article\b/i,
+    /\bdocumentation\s+snippet\b/i,
+];
+
+const NEGATION_PATTERNS = [
+    /\bdo\s+not\s+(?:execute|access|run|persist|rewrite|bypass)\b/i,
+    /\bnever\s+(?:execute|access|run|persist|rewrite|bypass)\b/i,
+    /\bno\s+(?:filesystem|network|shell)\s+access\b/i,
+    /\bnot\s+access\s+tools\b/i,
+    /\bnot\s+execute\s+commands\b/i,
+    /\bnot\s+persist\s+(?:user\s+)?data\b/i,
+    /\bnot\s+execute\s+changes\b/i,
+];
+
 const CRITICAL_PATTERNS = [
     /\bshell_exec\b/i,
     /\bbash\b/i,
@@ -90,6 +111,21 @@ function pushUnique(findings: Finding[], finding: Finding): void {
 export function checkWorkflowEscalation(input: RuleInput): Finding[] {
     const text = input.text;
     const findings: Finding[] = [];
+
+    // Calibrate false positives: suppress findings for benign/educational contexts and negated constraints,
+    // UNLESS there is a strong override or bypass directive present.
+    const isBenign = (hasAny(text, BENIGN_CONTEXT_PATTERNS) || hasAny(text, NEGATION_PATTERNS))
+        && !hasAny(text, [
+            /\bignore\s+(?:previous|all|prior|earlier|above)?\s*(?:instructions?|restrictions?|rules?|approval|guardrails?)\b/i,
+            /\boverride\s+system\s+instructions?\b/i,
+            /\bdo\s+anything\s+now\b/i,
+            /\bautoExecute\b/i,
+            /\bwildcard\s+permissions?\b/i,
+        ]);
+
+    if (isBenign) {
+        return [];
+    }
     const hasCritical = hasAny(text, CRITICAL_PATTERNS);
     const hasHigh = hasAny(text, HIGH_PATTERNS);
     const hasSink = hasAny(text, SINK_PATTERNS);
