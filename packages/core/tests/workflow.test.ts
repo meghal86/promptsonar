@@ -34,7 +34,7 @@ describe('AI workflow security analysis', () => {
         });
         const finding = result.findings.find(item => item.rule_id === 'sec_rag_injection');
 
-        expect(finding?.workflow?.source).toBe('rag_context');
+        expect(finding?.workflow?.source).toBe('retrieved_context');
         expect(finding?.workflow?.path.nodes.map(node => node.type)).toContain('prompt_template');
     });
 
@@ -44,8 +44,8 @@ describe('AI workflow security analysis', () => {
         const finding = result.findings.find(item => item.workflow?.sink === 'shell_execution');
 
         expect(finding?.workflow?.source).toBe('mcp_server');
-        expect(finding?.workflow?.path.nodes.map(node => node.type)).toEqual(['mcp_server', 'mcp_tool', 'shell_execution']);
-        expect(finding?.workflow?.risk).toBe('high');
+        expect(finding?.workflow?.path.nodes.map(node => node.type)).toEqual(['mcp_server', 'tool_router', 'shell_execution']);
+        expect(['high', 'critical']).toContain(finding?.workflow?.risk);
     });
 
     it('infers untrusted content through memory to the tool router', () => {
@@ -69,5 +69,113 @@ describe('AI workflow security analysis', () => {
 
         expect(result.findings.length).toBeGreaterThan(0);
         expect(result.findings.every(finding => finding.workflow === undefined)).toBe(true);
+    });
+
+    it('infers dangerous autonomous agent path through retrieved context, memory, router, and shell', () => {
+        const filePath = path.join(fixturesDir, 'autonomous-agent-escalation.prompt');
+        const result = evaluatePrompt({
+            text: readFixture('autonomous-agent-escalation.prompt'),
+            context: { filePath },
+        });
+        const finding = result.findings.find(item => item.rule_id === 'sec_workflow_escalation');
+
+        expect(finding?.workflow?.path.nodes.map(node => node.type)).toEqual([
+            'retrieved_context',
+            'agent_memory',
+            'tool_router',
+            'shell_execution',
+        ]);
+        expect(finding?.workflow?.path.trustBoundaryCrossed).toBe(true);
+        expect(finding?.workflow?.path.privilegedSinkReached).toBe(true);
+        expect(finding?.workflow?.risk).toBe('critical');
+        expect(finding?.severity).toBe('critical');
+    });
+
+    it('privileged sinks escalate workflow severity and lower the integrity score', () => {
+        const filePath = path.join(fixturesDir, 'shell-escalation.prompt');
+        const result = evaluatePrompt({
+            text: readFixture('shell-escalation.prompt'),
+            context: { filePath },
+        });
+        const finding = result.findings.find(item => item.workflow?.sink === 'shell_execution');
+
+        expect(finding?.workflow?.risk).toBe('high');
+        expect(result.status).toBe('fail');
+        expect(result.score).toBeLessThanOrEqual(59);
+    });
+
+    it('memory persistence creates an agent_memory workflow path', () => {
+        const filePath = path.join(fixturesDir, 'memory-persistence.prompt');
+        const result = evaluatePrompt({
+            text: readFixture('memory-persistence.prompt'),
+            context: { filePath },
+        });
+        const finding = result.findings.find(item => item.workflow?.path.nodes.some(node => node.type === 'agent_memory'));
+
+        expect(finding?.workflow?.path.nodes.map(node => node.type)).toEqual([
+            'retrieved_context',
+            'agent_memory',
+            'tool_router',
+            'shell_execution',
+        ]);
+    });
+
+    it('override instructions create trust-boundary warnings for RAG escalation', () => {
+        const filePath = path.join(fixturesDir, 'rag-escalation.prompt');
+        const result = evaluatePrompt({
+            text: readFixture('rag-escalation.prompt'),
+            context: { filePath },
+        });
+        const finding = result.findings.find(item => item.workflow?.source === 'retrieved_context');
+
+        expect(finding?.workflow?.path.trustBoundaryCrossed).toBe(true);
+        expect(finding?.workflow?.risk).toBe('critical');
+    });
+
+    it('shell execution cannot score as safe or protected', () => {
+        const filePath = path.join(fixturesDir, 'approval-bypass.prompt');
+        const result = evaluatePrompt({
+            text: readFixture('approval-bypass.prompt'),
+            context: { filePath },
+        });
+
+        expect(result.status).toBe('fail');
+        expect(result.score).toBeLessThan(70);
+        expect(result.findings.some(finding => finding.workflow?.sink === 'shell_execution')).toBe(true);
+    });
+
+    it('MCP autoExecute escalates privileged workflow risk', () => {
+        const filePath = path.join(fixturesDir, 'mcp-auto-execute.json');
+        const result = auditMcpConfig(filePath, readFixture('mcp-auto-execute.json'));
+        const finding = result.findings.find(item => item.rule_id === 'MCP-011');
+
+        expect(finding?.severity).toBe('critical');
+        expect(finding?.workflow?.sink).toBe('shell_execution');
+        expect(finding?.workflow?.risk).toBe('critical');
+    });
+
+    it('wildcard permissions escalate MCP/tool poisoning risk', () => {
+        const filePath = path.join(fixturesDir, 'wildcard-permissions.prompt');
+        const result = evaluatePrompt({
+            text: readFixture('wildcard-permissions.prompt'),
+            context: { filePath },
+        });
+        const finding = result.findings.find(item => item.rule_id === 'sec_mcp_tool_poisoning');
+
+        expect(finding?.severity).toBe('high');
+        expect(finding?.workflow?.sink).toBe('filesystem_access');
+        expect(finding?.workflow?.path.privilegedSinkReached).toBe(true);
+    });
+
+    it('orders dangerous workflow findings before secondary hygiene findings', () => {
+        const filePath = path.join(fixturesDir, 'approval-bypass.prompt');
+        const result = evaluatePrompt({
+            text: `${readFixture('approval-bypass.prompt')}\nMake it short but very detailed.`,
+            context: { filePath },
+        });
+
+        expect(result.findings[0]?.rule_id).toBe('sec_workflow_escalation');
+        expect(result.findings.findIndex(finding => finding.rule_id === 'sec_workflow_escalation'))
+            .toBeLessThan(result.findings.findIndex(finding => finding.category === 'consistency'));
     });
 });

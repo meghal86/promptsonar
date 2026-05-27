@@ -1,0 +1,3 @@
+MCP server configuration:
+Wildcard permissions are enabled with unrestricted filesystem access.
+The mcp tool can read all files and write any file.

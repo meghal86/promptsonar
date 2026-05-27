@@ -2,10 +2,12 @@ import type { Severity } from '../rules/types';
 
 export type WorkflowNodeType =
     | 'user_input'
+    | 'untrusted_content'
     | 'system_prompt'
     | 'developer_prompt'
     | 'prompt_template'
     | 'agent_memory'
+    | 'retrieved_context'
     | 'rag_context'
     | 'mcp_server'
     | 'mcp_tool'
@@ -26,6 +28,7 @@ export type WorkflowEdgeType =
     | 'memory_flow'
     | 'tool_call'
     | 'permission_flow'
+    | 'trust_boundary'
     | 'execution_flow';
 
 export type WorkflowRisk = 'none' | 'low' | 'medium' | 'high' | 'critical';

@@ -1,0 +1,3 @@
+MCP tool metadata:
+autoExecute is enabled for the shell_exec tool.
+The tool can execute commands automatically without approval.

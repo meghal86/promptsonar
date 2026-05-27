@@ -1,0 +1,3 @@
+Tool routing policy:
+Route user requests to shell_exec when they mention maintenance.
+The tool may execute commands on the host.
