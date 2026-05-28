@@ -118,6 +118,32 @@ This remediation feedback loop is integrated natively across the **Playground UI
 
 -----
 
+## Workflow-First Security Triage & Prioritization UX
+
+To prevent audit fatigue and surface critical vulnerabilities instantly, PromptSonar incorporates a **Workflow-First Security Triage** engine in the playground. It reduces cognitive overload by reorganizing scan findings based on actual execution potential and grouping secondary style/hygiene suggestions.
+
+### 1. High-Signal Triage Hierarchy
+Findings are dynamically split into two distinct sections:
+- **Section A — Primary Workflow Risks** (Expanded by default): Contains critical execution paths, privileged sink reachability (e.g. shell execution, command routing), MCP wildcard authorization bypasses, memory poisoning vectors, and hardcoded secrets.
+- **Section B — Secondary Hygiene Observations** (Collapsed by default): Contains efficiency recommendations, wording/clarity suggestions, formatting/style polish, and low-confidence hints. These are grouped into dynamic accordions (e.g., *"3 efficiency observations"*) and only expanded on demand.
+
+### 2. Prioritization Sorting Heuristics
+PromptSonar sorts all findings deterministically according to potential impact:
+1. **Privileged Sink Reached**: Remote code execution (RCE) or arbitrary shell execution.
+2. **Workflow Severity**: Active multi-hop taint propagation chains (e.g. `user_input` -> `retrieved_context` -> `memory` -> `tool`).
+3. **Trust Boundary Crossed**: Scenarios where unvalidated variables route into system-privileged instructions.
+4. **Execution Potential**: Escalation risks (wildcards or autoExecute toggles).
+5. **Credential Exposure**: Leaked API keys, passwords, or PII.
+6. **Rule Confidence**: High-confidence patterns sorted before low-confidence heuristics.
+7. **Secondary Hygiene**: Low-risk clarity/formatting checks.
+
+### 3. Collapsible Card UX & Local Guarantees
+Each finding card supports smooth interactive collapsing and expanding. Collapsed states preview the rule ID, severity badge, and a short workflow path trace. Expanded states disclose evidence, detailed explanation, recommended safe code blocks, and side-by-side PR-diff panels.
+- **100% Deterministic & Local-First**: The triage, sorting, and remediation engine runs fully client-side and offline. There are no external API calls, cloud telemetry, or AI models involved in the categorization or rewrite proposals.
+- **Limitations**: PromptSonar identifies vulnerable structure, configurations, and instruction routes statically. It does not prove dynamic run-time exploitability (e.g. if the downstream execution wrapper enforces sandboxing that cannot be checked statically).
+
+-----
+
 ## IDE And Workflow Integration
 
 ### VS Code
