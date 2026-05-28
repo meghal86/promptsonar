@@ -818,12 +818,21 @@ Define your custom agent skill instructions and guidelines.
 
   // Track the inputs of the last successfully initiated or completed scan
   const lastAnalyzedRef = useRef<{ promptText: string; contractYaml: string; variables: string }>({
-    promptText: '',
-    contractYaml: '',
-    variables: ''
+    promptText: DANGEROUS_SAMPLE_PROMPT,
+    contractYaml: DANGEROUS_SAMPLE_CONTRACT,
+    variables: JSON.stringify(DANGEROUS_SAMPLE_VARIABLES)
   });
   const analysisRequestIdRef = useRef(0);
+  const hasScannedRef = useRef(false);
   const variablesJson = JSON.stringify(variables);
+
+  // Trigger single initial scan on mount exactly once to prevent blank state
+  useEffect(() => {
+    if (!hasScannedRef.current) {
+      hasScannedRef.current = true;
+      runAnalysis(DANGEROUS_SAMPLE_PROMPT, DANGEROUS_SAMPLE_CONTRACT, DANGEROUS_SAMPLE_VARIABLES);
+    }
+  }, []);
 
   // Debounced auto-scan when promptText, contractYaml, or variables change
   useEffect(() => {
@@ -1125,8 +1134,26 @@ Define your custom agent skill instructions and guidelines.
   };
 
   const getThreatLevel = (pillar: 'ingestion' | 'injection' | 'exposure') => {
+    if (loading) {
+      return {
+        level: '—',
+        text: pillar === 'ingestion' ? 'Ingestion: Analyzing...' : pillar === 'injection' ? 'Injection: Analyzing...' : 'Exposure: Checking...',
+        color: 'text-slate-400 animate-pulse',
+        bg: 'bg-slate-50/50',
+        border: 'border-slate-200/50',
+        svgColor: 'text-slate-400'
+      };
+    }
+
     if (result.score === null) {
-      return { level: '—', text: 'Ready to scan', color: 'text-slate-400', bg: 'bg-slate-50', border: 'border-slate-200', svgColor: 'text-slate-400' };
+      return {
+        level: '—',
+        text: pillar === 'ingestion' ? 'Ingestion: Awaiting scan' : pillar === 'injection' ? 'Injection: Awaiting scan' : 'Exposure: Awaiting scan',
+        color: 'text-slate-400',
+        bg: 'bg-slate-50',
+        border: 'border-slate-200',
+        svgColor: 'text-slate-400'
+      };
     }
 
     let relevantFindings = [];
@@ -1231,7 +1258,7 @@ Define your custom agent skill instructions and guidelines.
     };
 
     const selected = copy[category] || copy.security;
-    if (result.score === null) return { headline: category.replace(/_/g, ' ').toUpperCase(), body: 'Ready to scan.' };
+    if (result.score === null) return { headline: category.replace(/_/g, ' ').toUpperCase(), body: 'Awaiting prompt.' };
     if (clean) return { headline: selected.clean, body: selected.cleanBody };
     if (vulnerable) return { headline: selected.vulnerable, body: selected.vulnerableBody };
     return { headline: selected.clean, body: selected.cleanBody };
@@ -1824,7 +1851,7 @@ Define your custom agent skill instructions and guidelines.
         <div className="bg-white border-b border-[#E4E3DE] px-4 py-3 lg:px-8 flex flex-col gap-3 xl:flex-row xl:justify-between xl:items-center shrink-0 shadow-2xs z-10">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
             <label htmlFor="ps-preset-select" className="text-xs font-bold uppercase tracking-wider text-[#A8A29E] shrink-0">
-              Load example:
+              Try example:
             </label>
             <select
               id="ps-preset-select"
