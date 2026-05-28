@@ -144,6 +144,26 @@ Each finding card supports smooth interactive collapsing and expanding. Collapse
 
 -----
 
+## Visual AI Workflow Graph
+
+The playground renders a visual node/edge graph for any finding that emits a `workflow` path — the same deterministic source-to-sink chain the scanner uses for triage, just drawn instead of described.
+
+It tells one risk story:
+
+> untrusted AI input → trust boundary → privileged execution
+
+- **Real scanner output.** Nodes and edges come straight from `finding.workflow.path` (the inference engine in `packages/core/src/workflow`). There is no synthetic graph data, no fake demo path, and no LLM call involved in producing the diagram.
+- **Trust-coloured nodes.** Untrusted sources, semi-trusted context, MCP / tool routers, and privileged sinks each get a distinct, muted palette. Trust state, confidence, taint, and privilege propagation are shown as small chips and a confidence dot trio — never colour alone.
+- **Edge intent is visible.** A dashed amber line marks a trust-boundary crossing; a solid rose line marks privileged propagation; tainted flow is highlighted; ordinary data flow stays quiet.
+- **Bounded complexity.** Long chains are simplified to ≤ 6 visible nodes, preserving the source, the sink, and any node where the trust level changes. Collapsed middle steps appear as a `+N steps` placeholder that expands on demand.
+- **Calm and developer-first.** Deterministic left-to-right layout, no physics, no neon, no SOC dashboard. Designed to be screenshot-worthy at a glance and readable on mobile via a controlled horizontal scroll.
+- **Local-first.** Renders fully client-side in the dashboard. No telemetry, no cloud calls, no auth, no database.
+- **No exploit guarantee.** The graph visualises a *statically inferred* execution path. It does not prove dynamic exploitability; downstream sandboxing, allowlists, and approval gates can still neutralise the chain at runtime.
+
+When the scanner cannot infer a high-confidence source-to-sink path, the panel shows a neutral empty state — "No high-confidence source-to-sink execution path inferred." — rather than declaring the prompt safe.
+
+-----
+
 ## IDE And Workflow Integration
 
 ### VS Code

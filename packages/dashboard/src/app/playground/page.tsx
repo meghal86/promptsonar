@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { WorkflowGraph } from '@/components/WorkflowGraph';
 
 // Pre-loaded neutral/empty initial audit result to avoid showing mock values on load
 const INITIAL_AUDIT_RESULT = {
@@ -1357,10 +1358,6 @@ Define your custom agent skill instructions and guidelines.
     return workflow.path.nodes.map((node: any) => node.type).join(' -> ');
   };
 
-  const formatWorkflowTrust = (trust: string) => {
-    return String(trust || 'unknown').replace(/_/g, '-');
-  };
-
   const formatWorkflowConfidence = (confidence?: string) => {
     return confidence ? confidence.toUpperCase() : 'MEDIUM';
   };
@@ -1973,62 +1970,7 @@ Define your custom agent skill instructions and guidelines.
               ) : primaryWorkflow ? (
                 <div className="grid gap-5 xl:grid-cols-[1.35fr_0.9fr]">
                   <div className="min-w-0">
-                    <div className="flex items-stretch gap-3 overflow-x-auto py-2 pr-4 scrollbar-none flex-nowrap max-w-full">
-                      {primaryWorkflow.path.nodes.map((node: any, index: number) => {
-                        const isSource = index === 0;
-                        const isSink = index === primaryWorkflow.path.nodes.length - 1;
-                        const isPrivileged = node.trust === 'privileged';
-                        const workflowEdge = primaryWorkflow.path.edges?.[index];
-                        return (
-                          <React.Fragment key={`${node.id || node.type}-${index}`}>
-                            <div className={`min-w-[150px] sm:min-w-[170px] xl:min-w-0 xl:flex-1 shrink-0 rounded-lg border px-3 py-2 shadow-3xs ${
-                              isSource
-                                ? 'border-red-200 bg-red-50 text-red-800 ring-1 ring-red-100'
-                                : isSink || isPrivileged
-                                ? 'border-slate-900 bg-slate-950 text-white ring-2 ring-red-100'
-                                : index === 1
-                                ? 'border-amber-200 bg-amber-50 text-amber-900 ring-1 ring-amber-100'
-                                : 'border-[#E4E3DE] bg-white text-slate-800'
-                            }`}>
-                              <div className="text-[8.5px] font-black uppercase tracking-widest opacity-70">
-                                {isSource ? 'Untrusted source' : isSink ? 'Privileged sink' : index === 1 ? 'Trust boundary' : 'Workflow node'}
-                              </div>
-                              <div className="mt-1 break-words font-mono text-xs font-black">
-                                {node.type}
-                              </div>
-                              <div className="mt-1 text-[9px] font-bold uppercase tracking-wider opacity-70">
-                                {formatWorkflowTrust(node.trust)}
-                              </div>
-                              <div className="mt-2 flex flex-wrap gap-1">
-                                <span className="rounded border border-current/20 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider opacity-80">
-                                  {formatWorkflowConfidence(node.confidence)}
-                                </span>
-                                {node.tainted && (
-                                  <span className="rounded border border-red-200 bg-white/70 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-red-700">
-                                    Tainted
-                                  </span>
-                                )}
-                                {node.privilegePropagated && !isSink && (
-                                  <span className="rounded border border-slate-300 bg-white/70 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-700">
-                                    Propagated
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            {!isSink && (
-                              <div className="flex min-w-[40px] flex-col items-center justify-center text-slate-400 shrink-0 px-1">
-                                <span className={`text-lg font-black ${index === 0 ? 'text-amber-605' : isPrivileged ? 'text-red-650' : ''}`}>→</span>
-                                {workflowEdge && (
-                                  <span className="mt-1 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[7.5px] font-black uppercase tracking-wider text-slate-500 inline-flex whitespace-nowrap">
-                                    {String(workflowEdge.type || '').replace(/_/g, ' ')}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
+                    <WorkflowGraph workflow={primaryWorkflow} />
 
                     <div className="mt-4 rounded-lg border border-red-100 bg-red-50/60 p-3 text-sm text-red-900">
                       <div className="flex items-center justify-between gap-2">
@@ -2110,12 +2052,12 @@ Define your custom agent skill instructions and guidelines.
                 <div className="rounded-lg border border-dashed border-slate-200 bg-[#FAF9F6] p-6 text-sm font-semibold text-slate-500 text-center flex flex-col items-center justify-center gap-2">
                   <span className="text-xl">⚡</span>
                   <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    {result.score === null ? 'System Ready to Scan' : 'Workflow Integrity Verified'}
+                    {result.score === null ? 'Awaiting prompt' : 'No execution path inferred'}
                   </div>
                   <p className="text-[10px] text-[#78716C] max-w-sm leading-relaxed">
                     {result.score === null
                       ? 'Type or paste a prompt in the editor above, or load one of our presets to trace system-to-sink workflows.'
-                      : 'PromptSonar successfully analyzed this prompt and found isolated warnings but no dangerous end-to-end execution flow.'}
+                      : 'No high-confidence source-to-sink execution path inferred for this prompt.'}
                   </p>
                 </div>
               )}
