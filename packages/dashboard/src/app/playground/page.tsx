@@ -789,15 +789,6 @@ Define your custom agent skill instructions and guidelines.
     setWaiverExpires(nextYear.toISOString().split('T')[0]);
     setClientOrigin(window.location.origin);
     setPrintGeneratedAt(new Date().toLocaleString());
-
-    // Auto-run the initial scan with a gorgeous 1.5-second premium scanning delay!
-    const runInitialScan = async () => {
-      setLoading(true);
-      setError(null);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      await runAnalysis(DANGEROUS_SAMPLE_PROMPT, DANGEROUS_SAMPLE_CONTRACT, DANGEROUS_SAMPLE_VARIABLES);
-    };
-    runInitialScan();
   }, []);
 
   useEffect(() => {
@@ -825,9 +816,9 @@ Define your custom agent skill instructions and guidelines.
 
   // Track the inputs of the last successfully initiated or completed scan
   const lastAnalyzedRef = useRef<{ promptText: string; contractYaml: string; variables: string }>({
-    promptText: DANGEROUS_SAMPLE_PROMPT,
-    contractYaml: DANGEROUS_SAMPLE_CONTRACT,
-    variables: JSON.stringify(DANGEROUS_SAMPLE_VARIABLES)
+    promptText: '',
+    contractYaml: '',
+    variables: ''
   });
   const analysisRequestIdRef = useRef(0);
   const variablesJson = JSON.stringify(variables);
