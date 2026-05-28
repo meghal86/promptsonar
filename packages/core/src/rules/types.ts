@@ -10,6 +10,7 @@ export interface Finding {
     suggested_fix?: string;
     workflow?: FindingWorkflow;
     penalty_score?: number; // Internal score deduction
+    matchedText?: string;
 }
 
 export interface RuleContext {

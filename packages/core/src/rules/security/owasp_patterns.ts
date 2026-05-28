@@ -30,7 +30,6 @@ const INJECTION_SOURCES: RegExp[] = [
 
     // Encoding / obfuscation attempts
     /(?:rot13|base64|hex|encoded|decode)\s+(?:text|string|prompt|instructions|output)/i,
-    /[^\x00-\x7F]{10,}/,
 
     // Tool / privilege abuse
     /use\s+(tool|function|command)\s+without\s+permission/i,
@@ -79,12 +78,14 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
 
     // 1. Single-pass evaluation checking each source explicitly
     for (const regex of INJECTION_SOURCES) {
-        if (regex.test(searchResult)) {
+        const match = regex.exec(searchResult);
+        if (match) {
             findings.push({
                 rule_id: "sec_owasp_llm01_injection",
                 category: "security",
                 severity: "critical",
-                explanation: 'Potential prompt injection vulnerability (OWASP LLM01) detected: matched malicious pattern against rules.',
+                matchedText: match[0],  // actual matched substring
+                explanation: `Prompt injection pattern detected: "${match[0]}"`,
                 suggested_fix: 'Remove this pattern and rely on strict system boundaries or delimiters.',
                 penalty_score: 30
             });
@@ -118,7 +119,11 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
 
     // Heuristic: If we still have many non-ascii characters and common injection words are present
     const nonAsciiCount = (normalizedText.match(/[^\x00-\x7F]/g) || []).length;
-    if (nonAsciiCount > 10 && /ignore|reveal|prompt|instruction|system/i.test(normalizedText)) {
+    const hasInjectionKeyword = /ignore|reveal|prompt|instruction|system/i.test(normalizedText);
+    const hasProximity = 
+      /[^\x00-\x7F].{0,20}(?:ignore|reveal|system)/i.test(normalizedText) ||
+      /(?:ignore|reveal|system).{0,20}[^\x00-\x7F]/i.test(normalizedText);
+    if (nonAsciiCount > 10 && hasInjectionKeyword && hasProximity) {
         findings.push({
             rule_id: "sec_unicode_injection_obfuscation",
             category: "security",
@@ -133,7 +138,7 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
     const uniqueFindings = [];
     const seen = new Set();
     for (const f of findings) {
-        const key = f.rule_id + f.explanation;
+        const key = f.rule_id + (f.matchedText ?? '') + f.explanation;
         if (!seen.has(key)) {
             seen.add(key);
             uniqueFindings.push(f);

@@ -8,7 +8,35 @@ const PII_REGEXES = [
     { name: "GitHub PAT", pattern: /ghp_[a-zA-Z0-9]{36}/i },
     { name: "Generic API Key", pattern: /(?:api[_-]?key|secret|token)[\s:=]+["'][a-zA-Z0-9_\-]{16,}["']/i },
     { name: "Credential/Key", pattern: /\b(?:key|api_?key|secret|token)\b\s*(?:is|[:=])\s*[a-zA-Z0-9_\-]{4,}\b/i },
-    { name: "Password", pattern: /\b(?:password|passwd|pwd)\b\s*(?:is|[:=])\s*[a-zA-Z0-9_\-]{4,}\b/i }
+    { name: "Password", pattern: /\b(?:password|passwd|pwd)\b\s*(?:is|[:=])\s*[a-zA-Z0-9_\-]{4,}\b/i },
+    { 
+        name: "OpenAI API Key (legacy)", 
+        pattern: /\bsk-[a-zA-Z0-9]{48}\b/i 
+    },
+    { 
+        name: "AWS Access Key ID", 
+        pattern: /\bAKIA[0-9A-Z]{16}\b/ 
+    },
+    { 
+        name: "AWS Secret Access Key", 
+        pattern: /\b[a-zA-Z0-9/+=]{40}\b(?=.*aws|.*secret)/i 
+    },
+    { 
+        name: "Stripe Secret Key", 
+        pattern: /\bsk_live_[a-zA-Z0-9]{24,}\b/i 
+    },
+    { 
+        name: "Stripe Restricted Key", 
+        pattern: /\brk_live_[a-zA-Z0-9]{24,}\b/i 
+    },
+    { 
+        name: "JWT Token", 
+        pattern: /\beyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b/ 
+    },
+    { 
+        name: "Generic Unquoted Secret", 
+        pattern: /(?:API_KEY|SECRET_KEY|ACCESS_TOKEN|AUTH_TOKEN)\s*=\s*[a-zA-Z0-9_\-]{16,}/i 
+    }
 ];
 
 export function checkPii(input: RuleInput): Finding[] {
