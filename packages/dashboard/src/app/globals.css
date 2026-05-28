@@ -31,3 +31,32 @@ body {
     text-wrap: balance;
   }
 }
+
+/* Workflow graph: barely-visible pulse on critical execution-path nodes.
+   Honors prefers-reduced-motion. */
+@keyframes ps-risk-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15); }
+}
+
+.ps-critical-node {
+  animation: ps-risk-pulse 3s ease-in-out infinite;
+}
+
+/* Skeleton loader used in place of "ANALYZING..." text states. */
+@keyframes ps-skeleton {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.85; }
+}
+
+.ps-skeleton {
+  background: #ECEAE5;
+  animation: ps-skeleton 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-critical-node { animation: none; }
+  .ps-skeleton      { animation: none; }
+}
+

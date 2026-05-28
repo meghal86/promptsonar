@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { WorkflowGraph } from '@/components/WorkflowGraph';
+import { PROMPTSONAR_VERSION } from '@/lib/version';
 
 // Pre-loaded neutral/empty initial audit result to avoid showing mock values on load
 const INITIAL_AUDIT_RESULT = {
@@ -408,7 +409,6 @@ Define your custom agent skill instructions and guidelines.
   const [contractTypes, setContractTypes] = useState<Record<string, 'string' | 'number' | 'boolean'>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeRightTab, setActiveRightTab] = useState<'pillars' | 'roi' | 'cross_model' | 'timeline'>('pillars');
   const [result, setResult] = useState<any>(INITIAL_AUDIT_RESULT); // Pristine empty report
   const [scanTime, setScanTime] = useState<string | null>(null);
   const [scanJustUpdated, setScanJustUpdated] = useState<boolean>(false);
@@ -427,6 +427,7 @@ Define your custom agent skill instructions and guidelines.
   const [activeModal, setActiveModal] = useState<'attack_map' | 'timeline' | 'drift' | 'remediations' | 'dossier' | null>(null);
   const [expandedRemediations, setExpandedRemediations] = useState<Record<string, boolean>>({});
   const [expandedFindings, setExpandedFindings] = useState<Record<string, boolean>>({});
+  const [showAllAdditional, setShowAllAdditional] = useState<boolean>(false);
   const [expandedSecondaryGroups, setExpandedSecondaryGroups] = useState<Record<string, boolean>>({
     efficiency: false,
     consistency: false,
@@ -1692,7 +1693,7 @@ Define your custom agent skill instructions and guidelines.
       `}</style>
       <div className="print-report-header hidden">
         <h1>PromptSonar Security Report</h1>
-        <p>Generated: {printGeneratedAt} | Version: v1.1.0</p>
+        <p>Generated: {printGeneratedAt} | Version: v{PROMPTSONAR_VERSION}</p>
       </div>
       
       {/* 1. BRAND SIDEBAR (Left Column) */}
@@ -1821,55 +1822,84 @@ Define your custom agent skill instructions and guidelines.
 
         {/* Top-Level Workbench Bar */}
         <div className="bg-white border-b border-[#E4E3DE] px-4 py-3 lg:px-8 flex flex-col gap-3 xl:flex-row xl:justify-between xl:items-center shrink-0 shadow-2xs z-10">
-          <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#A8A29E]">Workbench Preset</span>
-            
-            <div className="flex w-full items-center overflow-x-auto gap-2 py-1 scrollbar-none flex-nowrap pr-4 max-w-full">
-              <button 
-                onClick={() => loadExample('direct_injection')}
-                className={`shrink-0 px-3 py-1.5 rounded-full border text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-2 shadow-3xs ${
-                  result.score !== null && result.score <= 50
-                    ? 'bg-red-50 border-red-200 text-red-700'
-                    : 'bg-white border-[#E4E3DE] text-[#87827C] hover:text-[#1C1917] hover:border-[#cbd5e1]'
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${result.score !== null && result.score <= 50 ? 'bg-red-500 animate-pulse' : 'bg-[#A8A29E]'}`}></span>
-                <span>Direct Prompt Injection</span>
-              </button>
-              {[
-                ['unicode_evasion', 'Unicode Evasion'],
-                ['rag_injection', 'RAG Injection'],
-                ['agent_memory_router', 'Agent Memory -> Tool Router'],
-                ['mcp_tool_poisoning', 'MCP Tool Poisoning'],
-                ['autonomous_agent', 'Autonomous Critical'],
-              ].map(([preset, label]) => (
-              <button
-                key={preset}
-                onClick={() => loadExample(preset as PlaygroundPreset)}
-                className="shrink-0 px-3 py-1.5 rounded-full border border-[#E4E3DE] bg-white text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-2 text-[#87827C] hover:text-[#1C1917] hover:border-[#cbd5e1] shadow-3xs"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-[#A8A29E]"></span>
-                <span>{label}</span>
-              </button>
-              ))}
-              <button 
-                onClick={() => loadExample('optimized')}
-                className={`shrink-0 px-3 py-1.5 rounded-full border text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-2 shadow-3xs ${
-                  result.score !== null && result.score > 50
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                    : 'bg-white border-[#E4E3DE] text-[#87827C] hover:text-[#1C1917] hover:border-[#cbd5e1]'
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${result.score !== null && result.score > 50 ? 'bg-emerald-500 animate-pulse' : 'bg-[#A8A29E]'}`}></span>
-                <span>Clean Example</span>
-              </button>
-            </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <label htmlFor="ps-preset-select" className="text-xs font-bold uppercase tracking-wider text-[#A8A29E] shrink-0">
+              Load example:
+            </label>
+            <select
+              id="ps-preset-select"
+              value=""
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return;
+                loadExample(v as PlaygroundPreset);
+              }}
+              className="shrink-0 max-w-[260px] bg-white border border-[#E4E3DE] text-[#1C1917] text-[12px] font-bold rounded-lg px-3 py-1.5 shadow-3xs focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
+            >
+              <option value="" disabled>Select a workbench preset…</option>
+              <option value="direct_injection">⚠ Direct Prompt Injection</option>
+              <option value="unicode_evasion">⚠ Agentic / Unicode Evasion</option>
+              <option value="rag_injection">⚠ RAG Injection</option>
+              <option value="agent_memory_router">⚠ Agent Memory Escalation</option>
+              <option value="mcp_tool_poisoning">⚠ MCP Tool Poisoning</option>
+              <option value="autonomous_agent">⚠ Autonomous Critical</option>
+              <option value="optimized">✓ Clean (Secure) Example</option>
+            </select>
+            <button
+              onClick={() => runAnalysis()}
+              disabled={loading || !promptText.trim()}
+              aria-label="Re-scan current prompt"
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#1C1917] shadow-3xs hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3 3L22 4" />
+              </svg>
+              <span>{loading ? 'Scanning…' : 'Re-scan'}</span>
+            </button>
           </div>
 
-          <div className="text-[11px] text-[#57534E] flex flex-wrap items-center gap-2 font-medium">
-            <span>Contract Spec:</span>
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#57534E] font-medium">
+            {/* Mini score chip (Fix 6) */}
+            {loading ? (
+              <div className="ps-skeleton h-6 w-[120px]" aria-label="Score loading" />
+            ) : result.score !== null ? (
+              (() => {
+                const score: number = result.score;
+                const verdict = score <= 50 ? 'HIGH-RISK PATH' : score < 100 ? 'FAILED REVIEW' : 'NO HIGH-RISK PATH';
+                const pill = score <= 50
+                  ? 'bg-rose-50 border-rose-200 text-rose-700'
+                  : score < 100
+                  ? 'bg-amber-50 border-amber-200 text-amber-800'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-700';
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const reportCard = reportCardRef.current;
+                      const scrollContainer = reportCard?.closest('main') as HTMLElement | null;
+                      if (reportCard && scrollContainer) {
+                        const targetTop = reportCard.offsetTop - scrollContainer.offsetTop - 16;
+                        scrollContainer.scrollTo({ top: Math.max(targetTop, 0), behavior: 'smooth' });
+                      } else {
+                        reportCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    }}
+                    aria-label={`Score ${score} of 100, verdict ${verdict}. Click to scroll to the full report card.`}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#E4E3DE] bg-white px-2.5 py-1 shadow-3xs hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                  >
+                    <span className="font-mono text-[12px] font-black tracking-tight text-slate-900">
+                      {score}/100
+                    </span>
+                    <span className={`rounded-full border px-2 py-[1px] text-[9.5px] font-black uppercase tracking-wider ${pill}`}>
+                      {verdict}
+                    </span>
+                  </button>
+                );
+              })()
+            ) : null}
+            <span>Contract:</span>
             <span className="font-mono font-bold text-slate-800 bg-[#FAF9F6] px-2 py-0.5 rounded border border-[#E4E3DE] text-xs">
-              {contractYaml.trim() ? (result.contractResult?.contractId || getContractIdFromYaml() || 'no-contract-id') : 'None (Prompt Only)'}
+              {contractYaml.trim() ? (result.contractResult?.contractId || getContractIdFromYaml() || 'no-contract-id') : 'None'}
             </span>
             <span className="text-[#A8A29E]">•</span>
             <span>Last Scan: <strong className="font-mono text-slate-800">{scanTime || 'Never'}</strong></span>
@@ -1883,12 +1913,30 @@ Define your custom agent skill instructions and guidelines.
           <section className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0">
             <div className="px-5 py-4 border-b border-[#E4E3DE] bg-[#FAF9F6] flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-500">
-                <span className={`h-2 w-2 rounded-full ${primaryWorkflow ? 'bg-red-500 animate-pulse' : result.score === null ? 'bg-slate-300' : 'bg-slate-500'}`}></span>
-                  <span>AI Workflow Path</span>
-                </div>
-                <p className="mt-1 max-w-3xl text-sm text-[#57534E] leading-relaxed">
-                  PromptSonar does more than flag risky text. It tracks when untrusted content can reach privileged agent/tool execution. Most prompt scanners do not analyze MCP-style execution paths.
+                {(() => {
+                  const hasPrivPath = !!primaryWorkflow?.path?.privilegedSinkReached || hasHighRiskWorkflow;
+                  const scannedClean = result.score !== null && !primaryWorkflow;
+                  const headline = hasPrivPath
+                    ? 'CRITICAL EXECUTION PATH DETECTED'
+                    : scannedClean
+                    ? 'NO PRIVILEGED EXECUTION PATH FOUND'
+                    : 'AI WORKFLOW PATH';
+                  const tone = hasPrivPath
+                    ? 'text-[#EF4444]'
+                    : scannedClean
+                    ? 'text-[#22C55E]'
+                    : 'text-slate-500';
+                  return (
+                    <div
+                      className={`text-[14px] font-black uppercase ${tone}`}
+                      style={{ letterSpacing: '0.05em' }}
+                    >
+                      {headline}
+                    </div>
+                  );
+                })()}
+                <p className="mt-1 text-[12px] italic text-slate-500">
+                  Tracing how untrusted input reaches execution
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1934,43 +1982,51 @@ Define your custom agent skill instructions and guidelines.
                   </div>
                 </div>
               ) : loading ? (
-                <div className="animate-pulse space-y-4">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tracing execution flow paths...</div>
-                  <div className="flex items-stretch gap-3 overflow-x-auto py-2 pr-4 scrollbar-none flex-nowrap max-w-full">
-                    {[
-                      { label: "Untrusted source", val: "user_input" },
-                      { label: "Trust boundary", val: "retrieved_context" },
-                      { label: "Tool router", val: "tool_router" },
-                      { label: "Privileged sink", val: "shell_execution" }
-                    ].map((node, index) => (
-                      <React.Fragment key={index}>
-                        <div className="min-w-[140px] sm:flex-1 shrink-0 rounded-lg border border-slate-200 bg-slate-50/30 p-3 shadow-3xs flex flex-col justify-between">
-                          <div>
-                            <div className="text-[8px] font-black uppercase tracking-wider text-slate-400">{node.label}</div>
-                            <div className="mt-1 font-mono text-xs font-black text-slate-350">{node.val}</div>
-                          </div>
-                          <div className="mt-3 flex gap-1">
-                            <span className="h-4 bg-slate-200 rounded w-10 border border-slate-300/30"></span>
-                            <span className="h-4 bg-slate-250 rounded w-12 border border-slate-300/30"></span>
-                          </div>
-                        </div>
-                        {index < 3 && (
-                          <div className="flex min-w-[32px] items-center justify-center text-slate-300 shrink-0">
-                            <span className="text-lg font-black animate-pulse">→</span>
-                          </div>
-                        )}
-                      </React.Fragment>
-                    ))}
+                <div className="space-y-3" aria-busy="true" aria-label="Scanning prompt">
+                  <div className="flex items-stretch gap-2 py-2 pr-4 scrollbar-none flex-nowrap max-w-full">
+                    <div className="ps-skeleton min-w-[160px] h-[96px]" />
+                    <div className="ps-skeleton w-12 h-[96px] opacity-60" />
+                    <div className="ps-skeleton min-w-[160px] h-[96px]" />
+                    <div className="ps-skeleton w-12 h-[96px] opacity-60" />
+                    <div className="ps-skeleton min-w-[160px] h-[96px]" />
+                    <div className="ps-skeleton w-12 h-[96px] opacity-60" />
+                    <div className="ps-skeleton min-w-[160px] h-[96px]" />
                   </div>
-                  <div className="rounded-lg border border-slate-150 bg-slate-50/40 p-3.5 flex items-center justify-between gap-3">
-                    <div className="h-3 bg-slate-200 rounded w-1/3"></div>
-                    <div className="h-4 bg-slate-250 rounded w-16"></div>
-                  </div>
+                  <div className="ps-skeleton h-4 w-3/5" />
+                  <div className="ps-skeleton h-3 w-2/5" />
                 </div>
               ) : primaryWorkflow ? (
                 <div className="grid gap-5 xl:grid-cols-[1.35fr_0.9fr]">
                   <div className="min-w-0">
-                    <WorkflowGraph workflow={primaryWorkflow} />
+                    <div className="min-h-[250px]">
+                      <WorkflowGraph workflow={primaryWorkflow} />
+                    </div>
+
+                    {(() => {
+                      const nodes = primaryWorkflow.path?.nodes || [];
+                      if (nodes.length === 0) return null;
+                      const source = nodes[0]?.type || '—';
+                      const sinkTypes = nodes
+                        .filter((n: any) => n.trust === 'privileged')
+                        .map((n: any) => n.type);
+                      const trustValues = nodes.map((n: any) => n.trust);
+                      let boundaryCount = 0;
+                      for (let i = 1; i < trustValues.length; i++) {
+                        if (trustValues[i] !== trustValues[i - 1]) boundaryCount++;
+                      }
+                      const sev = (primaryWorkflow.risk || 'low').toUpperCase();
+                      return (
+                        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-slate-500">
+                          <span><span className="font-bold text-slate-600">Source:</span> <span className="font-mono text-slate-700">{source}</span></span>
+                          <span className="text-slate-300">|</span>
+                          <span><span className="font-bold text-slate-600">Trust boundaries crossed:</span> <span className="font-mono text-slate-700">{boundaryCount}</span></span>
+                          <span className="text-slate-300">|</span>
+                          <span><span className="font-bold text-slate-600">Privileged sinks:</span> <span className="font-mono text-slate-700">{sinkTypes.length ? sinkTypes.join(', ') : '—'}</span></span>
+                          <span className="text-slate-300">|</span>
+                          <span><span className="font-bold text-slate-600">Severity:</span> <span className={`font-black ${sev === 'CRITICAL' || sev === 'HIGH' ? 'text-rose-700' : sev === 'MEDIUM' ? 'text-amber-700' : 'text-slate-700'}`}>{sev}</span></span>
+                        </div>
+                      );
+                    })()}
 
                     <div className="mt-4 rounded-lg border border-red-100 bg-red-50/60 p-3 text-sm text-red-900">
                       <div className="flex items-center justify-between gap-2">
@@ -2077,7 +2133,7 @@ Define your custom agent skill instructions and guidelines.
               <div className="px-4 py-3 lg:px-6 border-b border-[#E4E3DE] flex flex-col gap-3 lg:flex-row lg:justify-between lg:items-center bg-white shrink-0">
                 <div className="flex min-w-0 items-center gap-2">
                   <h2 className="text-sm font-bold text-[#1C1917] tracking-tight uppercase">Live Prompt Audit</h2>
-                  <span className={`w-1.5 h-1.5 rounded-full ${result.score === null ? 'bg-amber-400' : 'bg-emerald-500 animate-pulse'}`}></span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${result.score === null ? 'bg-amber-400' : 'bg-slate-400'}`}></span>
                   <span className="text-[11px] text-[#A8A29E] font-medium">• {result.score === null ? 'Idle' : 'Scanned just now'}</span>
                 </div>
 
@@ -2110,7 +2166,7 @@ Define your custom agent skill instructions and guidelines.
                     disabled={loading || !promptText.trim()}
                     className={`px-3 py-1.5 border font-bold rounded-lg text-xs transition-all flex items-center gap-2 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed ${
                       scanJustUpdated
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        ? 'bg-slate-50 border-slate-200 text-slate-700'
                         : 'bg-white hover:bg-slate-50 border-[#E4E3DE] text-[#1C1917]'
                     }`}
                   >
@@ -2661,24 +2717,104 @@ Define your custom agent skill instructions and guidelines.
                           {/* Execution Risk Summary Bar */}
                           {renderExecutionRiskSummary(result.findings)}
 
-                          {/* Section A — PRIMARY WORKFLOW RISKS */}
+                          {/* Section A — PRIMARY FINDING (hero) + additional findings collapsed */}
                           {primaryFindings.length > 0 ? (
-                            <div className="space-y-2.5">
-                              <div className="flex items-center justify-between select-none px-0.5">
-                                <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-500">
-                                  Section A — Primary Workflow Risks ({primaryFindings.length})
-                                </span>
-                                <span className="text-[8px] font-mono font-bold uppercase tracking-wider text-red-650 bg-red-50 border border-red-200/50 px-1.5 py-0.5 rounded">
-                                  active execution threat
-                                </span>
-                              </div>
-                              <div className="space-y-2.5">
-                                {primaryFindings.map((item, idx) => renderFindingCard(item, idx))}
-                              </div>
-                            </div>
+                            (() => {
+                              const hero = primaryFindings[0];
+                              const restPrimary = primaryFindings.slice(1);
+                              const heroRemedy = getRemediation(hero);
+                              const sevTint =
+                                hero.severity?.toLowerCase() === 'critical'
+                                  ? 'border-l-rose-500'
+                                  : hero.severity?.toLowerCase() === 'high'
+                                  ? 'border-l-rose-400'
+                                  : 'border-l-amber-400';
+                              const additionalCount = restPrimary.length;
+                              return (
+                                <div className="space-y-4">
+                                  {/* Hero block */}
+                                  <div>
+                                    <div className="mb-1.5 text-[9.5px] font-black uppercase tracking-widest text-slate-500">
+                                      Primary finding
+                                    </div>
+                                    <div className={`rounded-xl border border-[#E4E3DE] bg-white shadow-xs border-l-4 ${sevTint} p-4 space-y-3`}>
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <span className={`rounded border px-1.5 py-0.5 text-[8.5px] font-black font-sans uppercase tracking-wider ${getSeverityBadgeColor(hero.severity)}`}>
+                                            {hero.severity}
+                                          </span>
+                                          <span className="font-mono text-[12.5px] font-black text-slate-900 tracking-tight truncate">{hero.rule_id}</span>
+                                        </div>
+                                        <button
+                                          onClick={() => handleCopySnippet(heroRemedy.after, heroRemedy.type || 'pattern')}
+                                          className="rounded bg-white border border-[#E4E3DE] hover:bg-slate-50 hover:border-slate-350 px-2.5 py-1 text-[9.5px] font-black uppercase tracking-wider text-slate-700 shadow-2xs transition-all flex items-center gap-1 shrink-0"
+                                        >
+                                          Copy Safer Pattern
+                                        </button>
+                                      </div>
+                                      <p className="text-[12.5px] text-slate-700 leading-relaxed">
+                                        {hero.explanation}
+                                      </p>
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div className="rounded-lg border border-rose-200 bg-rose-50/30 flex flex-col overflow-hidden">
+                                          <div className="bg-rose-50/55 border-b border-rose-200/40 px-2.5 py-1 text-[8.5px] font-black uppercase tracking-wider text-rose-800 font-sans">
+                                            Vulnerable Pattern
+                                          </div>
+                                          <pre className="p-2.5 font-mono text-[10.5px] leading-relaxed text-rose-900 overflow-x-auto whitespace-pre-wrap break-all">
+                                            {heroRemedy.before}
+                                          </pre>
+                                        </div>
+                                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/30 flex flex-col overflow-hidden">
+                                          <div className="bg-emerald-50/55 border-b border-emerald-200/40 px-2.5 py-1 text-[8.5px] font-black uppercase tracking-wider text-emerald-800 font-sans">
+                                            Safer Pattern
+                                          </div>
+                                          <pre className="p-2.5 font-mono text-[10.5px] leading-relaxed text-emerald-900 overflow-x-auto whitespace-pre-wrap break-all">
+                                            {heroRemedy.after}
+                                          </pre>
+                                        </div>
+                                      </div>
+                                      {heroRemedy.rationale && (
+                                        <p className="text-[11px] text-slate-600 leading-relaxed">
+                                          <span className="font-bold text-slate-700">Why:</span> {heroRemedy.rationale}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Additional findings */}
+                                  {additionalCount > 0 && (
+                                    <div className="space-y-2.5">
+                                      <div className="flex items-center justify-between px-0.5">
+                                        <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-500">
+                                          {additionalCount} additional finding{additionalCount === 1 ? '' : 's'}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const next = !showAllAdditional;
+                                            setShowAllAdditional(next);
+                                            setExpandedFindings((prev) => {
+                                              const copy = { ...prev };
+                                              restPrimary.forEach((f) => { copy[f.rule_id] = next; });
+                                              return copy;
+                                            });
+                                          }}
+                                          className="text-[9.5px] font-black uppercase tracking-wider text-slate-600 hover:text-slate-900 border border-slate-200 bg-white rounded-full px-2 py-0.5 shadow-3xs"
+                                        >
+                                          {showAllAdditional ? 'Collapse all' : 'Show all'}
+                                        </button>
+                                      </div>
+                                      <div className="space-y-2.5">
+                                        {restPrimary.map((item, idx) => renderFindingCard(item, idx))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()
                           ) : (
-                            <div className="py-5 text-center text-slate-400 italic text-[11.5px] border border-dashed border-slate-200 rounded-xl bg-slate-50/20 select-none">
-                              No privileged execution path detected. (Isolated hygiene findings only)
+                            <div className="py-5 text-center text-slate-500 text-[11.5px] border border-dashed border-emerald-200 rounded-xl bg-emerald-50/30 select-none">
+                              <span className="font-black uppercase tracking-wider text-emerald-700">No high-risk patterns detected</span>
                             </div>
                           )}
 
@@ -2855,34 +2991,9 @@ Define your custom agent skill instructions and guidelines.
               <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 min-h-[500px] xl:h-full overflow-hidden">
                 
                 {/* Header */}
-                <div className="flex flex-col gap-3 pb-2 border-b border-[#E4E3DE] shrink-0">
+                <div className="flex flex-col gap-2 pb-2 border-b border-[#E4E3DE] shrink-0">
                   <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
-                    <span>Telemetry & Diagnostics</span>
-                    <svg className="w-3.5 h-3.5 text-[#C6C2BE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                  </div>
-                  
-                  {/* Tab Navigation */}
-                  <div className="flex bg-[#F5F5F4] p-0.5 rounded-lg border border-[#E4E3DE] w-full">
-                    {([
-                      { id: 'pillars', label: 'Attack Surface' },
-                      { id: 'roi', label: 'ROI Savings' },
-                      { id: 'cross_model', label: 'Model Drift' },
-                      { id: 'timeline', label: 'Audit History' }
-                    ] as const).map((tab) => (
-                      <button
-                        key={tab.id}
-                        onClick={() => setActiveRightTab(tab.id as any)}
-                        className={`flex-1 text-center py-1.5 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${
-                          activeRightTab === tab.id
-                            ? 'bg-white text-[#1C1917] shadow-xs border border-[#E4E3DE]'
-                            : 'text-[#A8A29E] hover:text-[#1C1917]'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
+                    <span>Pillar Diagnostics</span>
                   </div>
                 </div>
 
@@ -2890,382 +3001,66 @@ Define your custom agent skill instructions and guidelines.
                 <div className="flex-1 overflow-y-auto min-h-0 py-1">
                   
                   {/* Tab 1: Attack Surface */}
-                  {activeRightTab === 'pillars' && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {[
-                          { key: 'security', label: 'Security', cat: 'security' },
-                          { key: 'clarity', label: 'Clarity', cat: 'clarity' },
-                          { key: 'structure', label: 'Structure', cat: 'structure' },
-                          { key: 'best_practices', label: 'Best Practices', cat: 'best_practices' },
-                          { key: 'consistency', label: 'Consistency', cat: 'consistency' },
-                          { key: 'efficiency', label: 'Efficiency', cat: 'efficiency' },
-                          { key: 'ethics', label: 'Ethics', cat: 'ethics' }
-                        ].map((p) => {
-                          const count = getPillarIssuesCount(p.cat);
-                          const isPassed = count === 0 || count === null;
-                          const pillarCopy = getPillarCopy(p.cat, count);
-                          return (
-                            <div 
-                              key={p.key} 
-                              className={`p-2 rounded-lg border transition-all min-h-[82px] ${
-                                loading
-                                  ? 'bg-slate-50/20 border-slate-200 animate-pulse text-slate-400 font-medium'
-                                  : error
-                                  ? 'bg-red-50/20 border-red-105 text-red-700 font-medium'
-                                  : result.score === null 
-                                  ? 'bg-slate-50/40 border-slate-100' 
-                                  : !isPassed 
-                                  ? 'bg-red-50/40 border-red-100 text-red-800' 
-                                  : 'bg-emerald-50/20 border-emerald-100 text-emerald-800 font-medium'
-                              }`}
-                            >
-                              <div className="text-[8.5px] font-bold uppercase tracking-wider text-slate-400">{p.label}</div>
-                              <div className="flex items-center gap-1.5 mt-0.5 font-bold">
-                                {loading ? (
-                                  <span className="text-[10.5px] text-slate-350 animate-pulse">Checking...</span>
-                                ) : error ? (
-                                  <span className="text-[10.5px] text-red-600 font-semibold">Error</span>
-                                ) : result.score === null ? (
-                                  <span className="text-[10.5px] text-slate-400 font-semibold">—</span>
-                                ) : !isPassed ? (
-                                  <>
-                                    <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></span>
-                                    <span className="text-[11px] font-extrabold tracking-tight">{count} Issues</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                    <span className="text-[11px]">Passed</span>
-                                  </>
-                                )}
-                              </div>
-                              <div className={`mt-1 text-[9px] font-black uppercase leading-snug ${
-                                loading
-                                  ? 'text-slate-300'
-                                  : error
-                                  ? 'text-red-700'
-                                  : result.score === null
-                                  ? 'text-slate-400'
-                                  : isPassed
-                                  ? 'text-emerald-700'
-                                  : 'text-red-700'
-                              }`}>
-                                {loading ? 'ANALYZING...' : error ? 'FAILED' : pillarCopy.headline}
-                              </div>
-                              <p className="mt-0.5 text-[9px] leading-snug text-[#78716C]">
-                                {loading ? 'Running security policies...' : error ? 'Scan failed to complete' : pillarCopy.body}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Compact Secondary Attack Surface */}
-                      <div className="border border-[#E4E3DE] rounded-lg p-3 bg-slate-50/20">
-                        <div className="flex items-center justify-between text-[9px] font-bold text-[#A8A29E] uppercase tracking-wider mb-2">
-                          <span>Attack Flow Mapping</span>
-                          {result.score !== null && (
-                            <span className={result.findings.filter((f: any) => ['critical', 'high', 'medium'].includes(f.severity.toLowerCase())).length > 0 ? 'text-red-600 font-extrabold animate-pulse' : 'text-emerald-600 font-extrabold'}>
-                              {result.findings.filter((f: any) => ['critical', 'high', 'medium'].includes(f.severity.toLowerCase())).length > 0 ? 'Exposure Risk' : 'Secure'}
-                            </span>
-                          )}
-                        </div>
-                        
-                        <div className="flex justify-between items-center text-[9px] font-mono font-bold tracking-tight text-center relative select-none py-1">
-                          {/* Stage 1: Inputs */}
-                          <div className="flex flex-col gap-1 z-10 shrink-0">
-                            <div className={`w-14 py-0.5 rounded border text-[8px] transition-all ${
-                              hasInjectionRisk ? 'bg-red-50 border-red-200 text-red-700 font-bold animate-pulse' : 'bg-slate-50 border-slate-200 text-slate-700'
-                            }`}>
-                              User input
-                            </div>
-                            <div className={`w-14 py-0.5 rounded border text-[8px] transition-all ${
-                              hasIngestionRisk ? 'bg-amber-50 border-amber-200 text-amber-700 font-bold animate-pulse' : 'bg-slate-50 border-slate-200 text-slate-700'
-                            }`}>
-                              Context
-                            </div>
+                  {/* Pillar Diagnostics — horizontal score strip */}
+                  <div className="space-y-2">
+                    {[
+                      { key: 'security', label: 'Security', cat: 'security' },
+                      { key: 'clarity', label: 'Clarity', cat: 'clarity' },
+                      { key: 'structure', label: 'Structure', cat: 'structure' },
+                      { key: 'best_practices', label: 'Best Practices', cat: 'best_practices' },
+                      { key: 'consistency', label: 'Consistency', cat: 'consistency' },
+                      { key: 'efficiency', label: 'Efficiency', cat: 'efficiency' },
+                      { key: 'ethics', label: 'Ethics', cat: 'ethics' },
+                    ].map((p) => {
+                      if (loading) {
+                        return (
+                          <div key={p.key} className="flex items-center gap-3">
+                            <div className="w-[110px] shrink-0 text-[10.5px] font-bold text-slate-700">{p.label}</div>
+                            <div className="ps-skeleton h-3 flex-1" />
+                            <div className="ps-skeleton h-3 w-8" />
                           </div>
-
-                          <span className="text-[#C6C2BE] text-xs">→</span>
-
-                          {/* Stage 2: Processing */}
-                          <div className="flex flex-col gap-1 z-10 shrink-0">
-                            <div className={`w-14 py-0.5 rounded border text-[8px] transition-all ${
-                              hasInjectionRisk ? 'bg-red-50/50 border-red-200 text-red-700' : 'bg-slate-50 border-slate-200 text-slate-700'
-                            }`}>
-                              Instructions
-                            </div>
-                            <div className="w-14 py-0.5 bg-slate-50 border border-slate-200 text-slate-700 rounded text-[8px]">
-                              Tools
-                            </div>
+                        );
+                      }
+                      const count = getPillarIssuesCount(p.cat);
+                      const noScan = result.score === null;
+                      // Score: 100 if no issues, decay 15 per issue, floor 0.
+                      const pct = noScan ? 0 : Math.max(0, 100 - ((count || 0) * 15));
+                      const isPassing = !noScan && (count === 0 || count === null);
+                      const isError = !!error;
+                      const barColor = isError
+                        ? 'bg-rose-500'
+                        : noScan
+                        ? 'bg-slate-300'
+                        : isPassing
+                        ? 'bg-emerald-500'
+                        : pct < 50
+                        ? 'bg-rose-500'
+                        : 'bg-amber-500';
+                      return (
+                        <div key={p.key} className="flex items-center gap-3">
+                          <div className="w-[110px] shrink-0 text-[10.5px] font-bold text-slate-700">
+                            {p.label}
                           </div>
-
-                          <span className="text-[#C6C2BE] text-xs">→</span>
-
-                          {/* Stage 3: Outputs */}
-                          <div className="flex flex-col gap-1 z-10 shrink-0">
-                            <div className={`w-14 py-0.5 rounded border text-[8px] transition-all ${
-                              hasExposureRisk ? 'bg-amber-50 border-amber-200 text-amber-700 font-bold animate-pulse' : result.score === null ? 'bg-slate-50 border-slate-200 text-slate-700' : result.findings.length === 0 ? 'bg-emerald-50 border-emerald-250 text-emerald-700 font-bold' : 'bg-slate-50 border-slate-200 text-slate-700'
-                            }`}>
-                              Answer
-                            </div>
-                            <div className="w-14 py-0.5 bg-slate-50 border border-slate-200 text-slate-700 rounded text-[8px]">
-                              Logs
-                            </div>
+                          <div
+                            className="relative h-2 flex-1 rounded-full bg-slate-100 overflow-hidden"
+                            role="progressbar"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={pct}
+                            aria-label={`${p.label} score`}
+                          >
+                            <div
+                              className={`absolute inset-y-0 left-0 ${barColor} transition-[width] duration-300`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <div className="w-12 text-right font-mono text-[10.5px] font-black text-slate-700">
+                            {noScan ? '—' : `${pct}%`}
                           </div>
                         </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-[#E4E3DE]">
-                        <button 
-                          onClick={() => setActiveModal('attack_map')}
-                          className="w-full text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center justify-between font-bold text-[10px] uppercase tracking-wide"
-                        >
-                          <span>Open Attack Map Diagram →</span>
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Tab 2: ROI Savings */}
-                  {activeRightTab === 'roi' && (
-                    <div className="space-y-4">
-                      <div className="border border-[#E4E3DE] rounded-xl p-4 bg-slate-50/10 space-y-3">
-                        <div className="flex justify-between items-start">
-                          <span className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider">Prompt Integrity Score</span>
-                          {loading ? (
-                            <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 animate-pulse">Scanning...</span>
-                          ) : error ? (
-                            <span className="text-[9.5px] font-bold uppercase tracking-wider text-red-650 font-bold">Error</span>
-                          ) : (
-                            <span className={`text-[9.5px] font-bold uppercase tracking-wider ${result.score === null ? 'text-slate-400' : result.score >= 80 ? 'text-emerald-600' : result.score >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
-                              {result.score === null ? '—' : result.score >= 85 ? 'Passed' : result.score >= 70 ? 'Warning' : 'Failed'}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-baseline gap-1 mt-1">
-                          {loading ? (
-                            <span className="text-[36px] font-extrabold tracking-tight text-slate-350 leading-none animate-pulse">••</span>
-                          ) : error ? (
-                            <span className="text-[36px] font-extrabold tracking-tight text-red-650 leading-none">ERR</span>
-                          ) : (
-                            <span className="text-[36px] font-extrabold tracking-tight text-slate-900 leading-none">{result.score === null ? '—' : result.score}</span>
-                          )}
-                          {!loading && !error && result.score !== null && <span className="text-xs font-bold text-[#A8A29E] font-mono">%</span>}
-                        </div>
-
-                        <div className="w-full h-1.5 bg-[#F5F5F4] rounded-full overflow-hidden mt-1">
-                          <div 
-                            className={`h-full transition-all duration-700 ${
-                              loading ? 'bg-slate-300 animate-pulse' : error ? 'bg-red-400' : result.score === null ? 'bg-slate-200' : result.score >= 85 ? 'bg-emerald-500' : result.score >= 70 ? 'bg-amber-500' : 'bg-red-500'
-                            }`}
-                            style={{ width: `${loading || error ? 100 : result.score === null ? 0 : result.score}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="border border-[#E4E3DE] rounded-xl p-4 bg-slate-50/10 space-y-3">
-                        <span className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">ROI optimized</span>
-                        
-                        <div className="flex justify-between items-baseline">
-                          {loading ? (
-                            <span className="text-[24px] font-black tracking-tight text-slate-350 leading-none animate-pulse">••%</span>
-                          ) : error ? (
-                            <span className="text-[24px] font-black tracking-tight text-slate-400 leading-none">—%</span>
-                          ) : (
-                            <span className="text-[24px] font-black tracking-tight text-slate-800 leading-none">
-                              {result.score === null ? '—' : result.roi?.compressionRatio || '0%'}
-                            </span>
-                          )}
-                          <span className="text-[9px] font-bold text-emerald-600 uppercase">{loading ? 'Calc...' : 'Saved'}</span>
-                        </div>
-
-                        <div className="space-y-2 border-t border-[#F5F5F4] pt-2">
-                          <div className="flex justify-between text-[10px] font-mono text-[#78716C] font-semibold">
-                            <span>Tokens Tracked:</span>
-                            {loading ? (
-                              <span className="text-slate-350 animate-pulse">•• / ••</span>
-                            ) : error ? (
-                              <span className="text-slate-400">— / —</span>
-                            ) : (
-                              <span className="text-slate-800">{result.score === null ? '—' : `${result.roi?.newTokens || 0} / ${result.roi?.originalTokens || 0}`}</span>
-                            )}
-                          </div>
-                          
-                          <div className="flex justify-between items-center text-[10px] font-mono text-[#78716C]">
-                            <span>Est. Savings / 10k:</span>
-                            {loading ? (
-                              <span className="font-bold text-slate-350 animate-pulse">$•.•</span>
-                            ) : error ? (
-                              <span className="font-bold text-slate-400">$0.00</span>
-                            ) : (
-                              <span className="font-bold text-slate-800">{result.score === null ? '$0.00' : `$${(result.roi?.dollarsSavedPer10kCalls || 0).toFixed(2)}`}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Tab 3: Model Drift */}
-                  {activeRightTab === 'cross_model' && (
-                    <div className="space-y-4">
-                      <div className="border border-[#E4E3DE] rounded-xl p-4 bg-slate-50/10 space-y-3">
-                        <span className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">Cross-model drift index</span>
-                        <p className="text-[10px] font-medium leading-relaxed text-[#78716C] mb-2">
-                          Measures variance in response structure across different foundation models.
-                        </p>
-                        
-                        <div className="space-y-3.5 py-1">
-                          {result.score === null ? (
-                            <div className="text-slate-400 italic text-[11px] py-6 leading-relaxed text-center">
-                              Load a prompt to see how different models would handle it.
-                            </div>
-                          ) : (
-                            result.crossModelResult.modelBreakdown.map((item: any) => (
-                              <div key={item.model} className="space-y-1">
-                                <div className="flex justify-between items-center text-[10px] font-mono text-[#78716C]">
-                                  <span className="font-bold uppercase tracking-tight text-slate-850">{item.model}</span>
-                                  <span>{item.driftIndex.toFixed(2)}</span>
-                                </div>
-                                
-                                {/* Track slider */}
-                                <div className="h-1 bg-[#F5F5F4] rounded-full relative">
-                                  <div 
-                                    className={`absolute -top-1 w-3.5 h-3.5 rounded-full border border-white shadow-xs transition-all duration-700 ${
-                                      item.model === 'gpt-4o' ? 'bg-emerald-500' : item.model === 'claude-3.5' ? 'bg-amber-500' : item.model === 'gemini-1.5' ? 'bg-blue-500' : 'bg-slate-500'
-                                    }`}
-                                    style={{ left: `${item.driftIndex * 100}%` }}
-                                  />
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-
-                        {result.score !== null && (
-                          <div className="flex justify-between text-[8px] font-mono text-[#A8A29E] font-bold uppercase tracking-wider pt-2">
-                            <span>Low Drift</span>
-                            <span>High Drift</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="pt-2 border-t border-[#E4E3DE]">
-                        <button 
-                          onClick={() => setActiveModal('drift')}
-                          className="w-full text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center justify-between font-bold text-[10px] uppercase tracking-wide"
-                        >
-                          <span>See How Models Compare →</span>
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Tab 4: History */}
-                  {activeRightTab === 'timeline' && (
-                    <div className="space-y-4">
-                      <div className="border border-[#E4E3DE] rounded-xl p-4 bg-slate-50/10">
-                        <span className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block mb-2">Audit history log</span>
-                        
-                        <div className="relative pl-4 space-y-3.5 text-[10.5px] py-1">
-                          {/* Timeline trace bar */}
-                          <div className="absolute top-2.5 left-5 w-px h-[60px] bg-[#E6E4E0]" />
-                          
-                          {result.score === null ? (
-                            <div className="text-slate-400 italic text-[11px] py-6 text-center leading-relaxed">
-                              No scans yet. Your history starts here.
-                            </div>
-                          ) : (() => {
-                            const baseTime = scanTime || '18:39:07';
-                            const events = [
-                              {
-                                time: baseTime,
-                                label: 'Audit Compile',
-                                badge: `${result.score}%`,
-                                type: result.score >= 85 ? 'success' : result.score >= 70 ? 'warning' : 'danger',
-                                dotColor: result.score >= 85 ? 'border-emerald-500 bg-emerald-100' : result.score >= 70 ? 'border-amber-500 bg-amber-100' : 'border-red-650 bg-red-100'
-                              }
-                            ];
-
-                            if (result.findings && result.findings.length > 0) {
-                              result.findings.forEach((finding: any, idx: number) => {
-                                const [h, m, s] = baseTime.split(':').map(Number);
-                                const sec = (s - idx - 1 + 60) % 60;
-                                const min = sec === 59 ? (m - 1 + 60) % 60 : m;
-                                const hr = min === 59 && sec === 59 ? (h - 1 + 24) % 24 : h;
-                                const offsetTime = `${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-
-                                events.push({
-                                  time: offsetTime,
-                                  label: finding.title,
-                                  badge: finding.severity.toUpperCase(),
-                                  type: finding.severity.toLowerCase() === 'critical' || finding.severity.toLowerCase() === 'high' ? 'danger' : 'warning',
-                                  dotColor: finding.severity.toLowerCase() === 'critical' || finding.severity.toLowerCase() === 'high' ? 'border-red-650 bg-red-100' : 'border-amber-500 bg-amber-100'
-                                });
-                              });
-                            }
-
-                            if (result.contractResult) {
-                              const isPassed = result.contractResult.passed;
-                              const [h, m, s] = baseTime.split(':').map(Number);
-                              const sec = (s - 3 + 60) % 60;
-                              const min = sec === 59 ? (m - 1 + 60) % 60 : m;
-                              const hr = min === 59 && sec === 59 ? (h - 1 + 24) % 24 : h;
-                              const offsetTime = `${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-
-                              events.push({
-                                time: offsetTime,
-                                label: `Spec check`,
-                                badge: isPassed ? 'PASS' : 'FAIL',
-                                type: isPassed ? 'success' : 'danger',
-                                dotColor: isPassed ? 'border-emerald-500 bg-emerald-100' : 'border-red-650 bg-red-100'
-                              });
-                            }
-
-                            return events.slice(0, 3).map((ev: any, idx: number) => (
-                              <div key={idx} className="flex items-center justify-between relative">
-                                <div className="flex items-center gap-2">
-                                  <div className={`w-2 h-2 rounded-full border border-white z-10 -ml-[2px] ${ev.dotColor}`} />
-                                  <span className="font-mono text-[#A8A29E] text-[10px]">{ev.time}</span>
-                                  <span className="font-bold text-slate-700 truncate max-w-[110px]">{ev.label}</span>
-                                </div>
-                                <span className={`px-1 py-0.2 rounded text-[8.5px] font-bold font-mono border scale-95 uppercase tracking-wide shrink-0 ${
-                                  ev.type === 'success' 
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-250' 
-                                    : ev.type === 'warning' 
-                                    ? 'bg-amber-50 text-amber-700 border-amber-250' 
-                                    : 'bg-red-50 text-red-700 border-red-250'
-                                }`}>
-                                  {ev.badge}
-                                </span>
-                              </div>
-                            ));
-                          })()}
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-[#E4E3DE]">
-                        <button 
-                          onClick={() => setActiveModal('timeline')}
-                          className="w-full text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center justify-between font-bold text-[10px] uppercase tracking-wide"
-                        >
-                          <span>View Scan History →</span>
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                      );
+                    })}
+                  </div>
 
                 </div>
               </section>
@@ -3995,7 +3790,7 @@ Define your custom agent skill instructions and guidelines.
       })()}
 
       <div className="print-report-footer hidden">
-        Generated by PromptSonar v1.1.0 | OWASP LLM Top 10 mapped
+        Generated by PromptSonar v{PROMPTSONAR_VERSION} | OWASP LLM Top 10 mapped
       </div>
 
       {/* Embedded keyframe styles */}
