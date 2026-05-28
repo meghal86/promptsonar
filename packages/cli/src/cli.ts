@@ -31,8 +31,33 @@ function formatPolicySchemaError(fileName: string): string {
     ].join('\n');
 }
 
-function fixPromptContent(content: string, ruleIds: string[]): string {
+function isGitTracked(filePath: string): boolean {
+  try {
+    const { execSync } = require('child_process');
+    execSync(
+      `git ls-files --error-unmatch "${filePath}"`,
+      { stdio: 'pipe', cwd: path.dirname(filePath) }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function fixPromptContent(content: string, ruleIds: string[], filePath: string): string {
     let fixed = content;
+
+    const isPromptDir = 
+        filePath.includes('/prompts/') ||
+        filePath.includes('/agents/') ||
+        filePath.includes('/skills/') ||
+        filePath.endsWith('.prompt') ||
+        filePath.endsWith('.system');
+
+    if (!isPromptDir) {
+        // Skip persona injection for non-prompt files
+        return fixed;
+    }
 
     // 1. Prepend strict system persona if missing/unbounded persona
     if (ruleIds.includes('bp_missing_persona') || ruleIds.includes('sec_unbounded_persona')) {
@@ -79,6 +104,7 @@ program
     .option('--waiver <file>', 'Path to a .promptsonar.json waiver file')
     .option('--policy-file <file>', 'Path to a .promptsonar-policy.yaml governance file')
     .option('--fix', 'Automatically repair scanned prompts for quality & safety issues')
+    .option('--dry-run', 'Preview fixes without writing files')
     .action(async (targetPath, options) => {
         try {
             const results = await scanFiles(targetPath, {
@@ -94,11 +120,29 @@ program
                         const originalContent = fs.readFileSync(res.filePath, 'utf-8');
                         const ruleIds = res.findings.map(f => f.rule_id);
                         
-                        const fixedContent = fixPromptContent(originalContent, ruleIds);
+                        const fixedContent = fixPromptContent(originalContent, ruleIds, res.filePath);
                         
                         if (fixedContent !== originalContent) {
-                            fs.writeFileSync(res.filePath, fixedContent, 'utf-8');
-                            console.log(chalk.green(`  ✓ Auto-repaired and overwrote: ${res.filePath}`));
+                            if (options.dryRun) {
+                                console.log(chalk.yellow(`\n[DRY RUN] Would fix: ${res.filePath}`));
+                                console.log(chalk.dim('--- BEFORE ---'));
+                                console.log(originalContent.substring(0, 200) + '...');
+                                console.log(chalk.dim('--- AFTER ---'));
+                                console.log(fixedContent.substring(0, 200) + '...');
+                                continue;
+                            }
+                            
+                            const fixedPath = res.filePath.replace(/(\.[^.]+)$/, '.promptsonar-fixed$1');
+                            fs.writeFileSync(fixedPath, fixedContent, 'utf-8');
+                            
+                            const tracked = isGitTracked(res.filePath);
+                            if (tracked) {
+                                console.log(chalk.yellow(`[PromptSonar] Fix written to: ${fixedPath}`));
+                                console.log(chalk.dim(`Review changes and apply manually with:`));
+                                console.log(chalk.dim(`  cp "${fixedPath}" "${res.filePath}"`));
+                            } else {
+                                console.log(chalk.green(`  ✓ Auto-repaired: ${fixedPath}`));
+                            }
                             fixedCount++;
                         }
                     }

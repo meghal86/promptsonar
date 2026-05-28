@@ -130,7 +130,7 @@ run('prompt contract validation', ['test-contracts', contractFile, '--prompt', s
 run('cross-model eval', ['eval', safePrompt]);
 run('compression fallback', ['compress', safePrompt]);
 
-const forbiddenPathParts = ['/.next/', '/docs/', '/tests/', '/benchmarks/', '/evidence/', '/node_modules/', '/dist/'];
+const forbiddenPathParts = ['/.next/', '/docs/', '/tests/', '/benchmarks/', '/evidence/', '/node_modules/', '/dist/', '/results/', '/tmp/'];
 
 (async () => {
   const { scanFiles } = require(path.join(repoRoot, 'packages/cli/dist/index.js'));

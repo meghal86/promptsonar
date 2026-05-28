@@ -1,5 +1,6 @@
 import { GovernancePolicy } from './schema';
 import { ScanResultInput } from '../sbom/generator';
+import { minimatch } from 'minimatch';
 
 export interface GovernanceResult {
     passed: boolean;
@@ -19,8 +20,12 @@ export function evaluateGovernancePolicy(results: ScanResultInput[], policy: Gov
             if (rule.match?.path) {
                 const paths = Array.isArray(rule.match.path) ? rule.match.path : [rule.match.path];
                 pathMatches = paths.some(p => {
-                    const cleanPath = p.replace('*', '').replace('**', '');
-                    return result.filePath.includes(cleanPath);
+                    return minimatch(result.filePath, p, { matchBase: true }) ||
+                      minimatch(
+                        result.filePath.replace(/\\/g, '/'), 
+                        p.replace(/\\/g, '/'), 
+                        { matchBase: true }
+                      );
                 });
             }
 
