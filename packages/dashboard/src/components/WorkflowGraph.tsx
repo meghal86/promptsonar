@@ -489,9 +489,11 @@ const NodeCard: React.FC<{
       )}, confidence ${(node.confidence || "medium").toUpperCase()}${
         node.tainted ? ", tainted" : ""
       }${node.privilegePropagated ? ", privilege propagated" : ""}`}
-      className={`group relative shrink-0 cursor-default rounded-xl border ${palette.border} ${palette.bg} ${palette.text} px-3 py-2 text-left shadow-3xs ring-1 ${palette.ring} transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
+      className={`group relative shrink-0 cursor-default rounded-xl border ${palette.border} ${palette.bg} ${palette.text} px-3.5 py-2.5 text-left shadow-3xs ring-1 ${palette.ring} transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
         active ? "ring-2" : ""
-      } ${compact ? "min-w-[120px] max-w-[160px]" : "min-w-[150px] max-w-[180px]"}`}
+      } ${isPrivileged ? "ps-critical-node" : ""} ${
+        compact ? "min-w-[120px] max-w-[170px]" : "min-w-[150px] sm:min-w-[170px] max-w-[200px] min-h-[80px]"
+      }`}
     >
       <div className="flex items-center gap-1.5">
         <span
