@@ -435,6 +435,163 @@ Define your custom agent skill instructions and guidelines.
     style: false
   });
 
+  // ----------------------------------------------------
+  // HOISTED API & SCAN ENGINE WORKFLOWS
+  // ----------------------------------------------------
+  const getPromptVariables = (text: string) => {
+    const matches = text.match(/\{\{\s*(\w+)\s*\}\}/g);
+    if (!matches) return [];
+    return Array.from(new Set(matches.map(m => m.replace(/\{\{\s*|\s*\}\}/g, ''))));
+  };
+
+  const getScanVariables = (text: string, inputVars: Record<string, any>) => {
+    const scanVars = { ...inputVars };
+    getPromptVariables(text).forEach((key) => {
+      if (scanVars[key] === undefined) {
+        scanVars[key] = "";
+      }
+    });
+    return scanVars;
+  };
+
+  const getContractIdFromYaml = () => {
+    try {
+      const match = contractYaml.match(/id:\s*["']?([^"'\n]+)["']?/);
+      return match ? match[1].trim() : "no-contract-id";
+    } catch (e) {
+      return "no-contract-id";
+    }
+  };
+
+  const lastAnalyzedRef = useRef<{ promptText: string; contractYaml: string; variables: string }>({
+    promptText: DANGEROUS_SAMPLE_PROMPT,
+    contractYaml: DANGEROUS_SAMPLE_CONTRACT,
+    variables: JSON.stringify(DANGEROUS_SAMPLE_VARIABLES)
+  });
+  const analysisRequestIdRef = useRef(0);
+  const hasScannedRef = useRef(false);
+
+  async function runAnalysis(
+    customPrompt?: string,
+    customContract?: string,
+    customVars?: Record<string, any>
+  ) {
+    setError(null);
+    const pText = customPrompt !== undefined ? customPrompt : promptText;
+    const cYaml = customContract !== undefined ? customContract : contractYaml;
+    const pVars = getScanVariables(pText, customVars !== undefined ? customVars : variables);
+
+    if (!pText.trim()) return;
+
+    lastAnalyzedRef.current = {
+      promptText: pText,
+      contractYaml: cYaml,
+      variables: JSON.stringify(pVars)
+    };
+
+    setLoading(true);
+    const requestId = ++analysisRequestIdRef.current;
+    try {
+      const res = await fetch('/api/playground', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          promptText: pText,
+          contractYaml: cYaml,
+          variables: pVars,
+          runCrossModel: true,
+          models: ['gpt-4o', 'claude-3.5', 'gemini-1.5', 'llama-3.1']
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || `Playground audit failed with HTTP ${res.status}`);
+      }
+
+      if (requestId !== analysisRequestIdRef.current) {
+        return;
+      }
+      
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0];
+      setScanTime(timeStr);
+      setScanJustUpdated(true);
+      if (scanUpdatedTimeoutRef.current) {
+        clearTimeout(scanUpdatedTimeoutRef.current);
+      }
+      scanUpdatedTimeoutRef.current = setTimeout(() => setScanJustUpdated(false), 1800);
+      shouldFocusReportCardRef.current = false;
+      
+      const parsedFindings = data.findings.map((f: any) => ({
+        rule_id: f.rule_id,
+        category: f.category || (f.rule_id.startsWith('sec_') ? 'security' : f.rule_id.startsWith('bp_') ? 'best_practices' : f.rule_id.startsWith('clarity_') ? 'clarity' : f.rule_id.startsWith('consist_') ? 'consistency' : 'structure'),
+        severity: f.severity,
+        title: f.rule_id.split('_').slice(1).join(' ') || f.rule_id,
+        explanation: f.explanation || f.message,
+        suggested_fix: f.suggested_fix || f.fix,
+        workflow: f.workflow,
+        waived: false
+      }));
+
+      const initialExpanded: Record<string, boolean> = {};
+      parsedFindings.forEach((f: any) => {
+        initialExpanded[f.rule_id] = isPrimaryFinding(f);
+      });
+      setExpandedFindings(initialExpanded);
+
+      // Map API result safely to our mockup style metrics
+      setResult({
+        score: data.score,
+        status: data.status,
+        roi: {
+          originalTokens: data.roi.originalTokens,
+          newTokens: data.roi.newTokens,
+          compressionRatio: data.roi.compressionRatio,
+          dollarsSavedPer10kCalls: data.roi.dollarsSavedPer10kCalls
+        },
+        contractResult: data.contractResult || { passed: true, contractId: getContractIdFromYaml(), violations: [] },
+        findings: parsedFindings,
+        crossModelResult: data.crossModelResult ? {
+          safety_pass_rate: data.crossModelResult.safety_pass_rate,
+          regressions_detected: data.crossModelResult.regressions_detected,
+          modelBreakdown: data.crossModelResult.modelBreakdown.map((item: any) => ({
+            model: item.model,
+            driftIndex: item.driftIndex,
+            safetyScore: item.safetyScore,
+            structureScore: item.structureScore,
+            outputSample: item.outputSample || (data.score <= 50 ? "Bypassed database guardrails successfully. Explaining DB bypass hacks..." : "Secure customer transaction response simulated."),
+            regressions: item.regressions || []
+          }))
+        } : {
+          safety_pass_rate: data.score <= 50 ? 50 : 100,
+          regressions_detected: data.score <= 50,
+          modelBreakdown: [
+            { model: "gpt-4o", driftIndex: 0.15, safetyScore: data.score <= 50 ? 60 : 100, structureScore: 100, outputSample: data.score <= 50 ? "1. Exploit SQL error bypasses..." : "Payment refund transaction authorized.", regressions: [] },
+            { model: "claude-3.5", driftIndex: 0.08, safetyScore: 100, structureScore: 100, outputSample: data.score <= 50 ? "I cannot bypass filters." : "Payment refund transaction authorized.", regressions: [] },
+            { model: "gemini-1.5", driftIndex: 0.22, safetyScore: data.score <= 50 ? 50 : 100, structureScore: 100, outputSample: data.score <= 50 ? "Executing database query bypass strategies..." : "Payment refund transaction authorized.", regressions: [] },
+            { model: "llama-3.1", driftIndex: 0.35, safetyScore: data.score <= 50 ? 40 : 100, structureScore: 100, outputSample: data.score <= 50 ? "Safety filter disabled. Explaining database sql injection..." : "Payment refund transaction authorized.", regressions: [] }
+          ]
+        },
+        compression: {
+          compressedText: data.compression?.compressedText || pText
+        }
+      });
+      setEditorMode('audit'); // Automatically show audit preview details!
+    } catch (err) {
+      if (requestId !== analysisRequestIdRef.current) {
+        return;
+      }
+      console.error("Failed to run playground audit: ", err);
+      setError(err instanceof Error ? err.message : "Failed to run playground audit.");
+      triggerToast(err instanceof Error ? err.message : "Failed to run playground audit.");
+    } finally {
+      if (requestId === analysisRequestIdRef.current) {
+        setLoading(false);
+      }
+    }
+  }
+
   const toggleFindingExpanded = (ruleId: string) => {
     setExpandedFindings(prev => ({ ...prev, [ruleId]: !prev[ruleId] }));
   };
@@ -716,21 +873,7 @@ Define your custom agent skill instructions and guidelines.
     return steps;
   };
 
-  const getPromptVariables = (text: string) => {
-    const matches = text.match(/\{\{\s*(\w+)\s*\}\}/g);
-    if (!matches) return [];
-    return Array.from(new Set(matches.map(m => m.replace(/\{\{\s*|\s*\}\}/g, ''))));
-  };
-
-  const getScanVariables = (text: string, inputVars: Record<string, any>) => {
-    const scanVars = { ...inputVars };
-    getPromptVariables(text).forEach((key) => {
-      if (scanVars[key] === undefined) {
-        scanVars[key] = "";
-      }
-    });
-    return scanVars;
-  };
+  // Helper functions moved to top level to avoid Temporal Dead Zone (TDZ) issues
 
   // Client-side YAML parser for contract types
   useEffect(() => {
@@ -816,14 +959,6 @@ Define your custom agent skill instructions and guidelines.
     };
   }, []);
 
-  // Track the inputs of the last successfully initiated or completed scan
-  const lastAnalyzedRef = useRef<{ promptText: string; contractYaml: string; variables: string }>({
-    promptText: DANGEROUS_SAMPLE_PROMPT,
-    contractYaml: DANGEROUS_SAMPLE_CONTRACT,
-    variables: JSON.stringify(DANGEROUS_SAMPLE_VARIABLES)
-  });
-  const analysisRequestIdRef = useRef(0);
-  const hasScannedRef = useRef(false);
   const variablesJson = JSON.stringify(variables);
 
   // Trigger single initial scan on mount exactly once to prevent blank state
@@ -886,135 +1021,7 @@ Define your custom agent skill instructions and guidelines.
     });
   };
 
-  const getContractIdFromYaml = () => {
-    try {
-      const match = contractYaml.match(/id:\s*["']?([^"'\n]+)["']?/);
-      return match ? match[1].trim() : "no-contract-id";
-    } catch (e) {
-      return "no-contract-id";
-    }
-  };
 
-  const runAnalysis = async (
-    customPrompt?: string,
-    customContract?: string,
-    customVars?: Record<string, any>
-  ) => {
-    setError(null);
-    const pText = customPrompt !== undefined ? customPrompt : promptText;
-    const cYaml = customContract !== undefined ? customContract : contractYaml;
-    const pVars = getScanVariables(pText, customVars !== undefined ? customVars : variables);
-
-    if (!pText.trim()) return;
-
-    lastAnalyzedRef.current = {
-      promptText: pText,
-      contractYaml: cYaml,
-      variables: JSON.stringify(pVars)
-    };
-
-    setLoading(true);
-    const requestId = ++analysisRequestIdRef.current;
-    try {
-      const res = await fetch('/api/playground', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          promptText: pText,
-          contractYaml: cYaml,
-          variables: pVars,
-          runCrossModel: true,
-          models: ['gpt-4o', 'claude-3.5', 'gemini-1.5', 'llama-3.1']
-        })
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || `Playground audit failed with HTTP ${res.status}`);
-      }
-
-      if (requestId !== analysisRequestIdRef.current) {
-        return;
-      }
-      
-      const now = new Date();
-      const timeStr = now.toTimeString().split(' ')[0];
-      setScanTime(timeStr);
-      setScanJustUpdated(true);
-      if (scanUpdatedTimeoutRef.current) {
-        clearTimeout(scanUpdatedTimeoutRef.current);
-      }
-      scanUpdatedTimeoutRef.current = setTimeout(() => setScanJustUpdated(false), 1800);
-      shouldFocusReportCardRef.current = false;
-      
-      const parsedFindings = data.findings.map((f: any) => ({
-        rule_id: f.rule_id,
-        category: f.category || (f.rule_id.startsWith('sec_') ? 'security' : f.rule_id.startsWith('bp_') ? 'best_practices' : f.rule_id.startsWith('clarity_') ? 'clarity' : f.rule_id.startsWith('consist_') ? 'consistency' : 'structure'),
-        severity: f.severity,
-        title: f.rule_id.split('_').slice(1).join(' ') || f.rule_id,
-        explanation: f.explanation || f.message,
-        suggested_fix: f.suggested_fix || f.fix,
-        workflow: f.workflow,
-        waived: false
-      }));
-
-      const initialExpanded: Record<string, boolean> = {};
-      parsedFindings.forEach((f: any) => {
-        initialExpanded[f.rule_id] = isPrimaryFinding(f);
-      });
-      setExpandedFindings(initialExpanded);
-
-      // Map API result safely to our mockup style metrics
-      setResult({
-        score: data.score,
-        status: data.status,
-        roi: {
-          originalTokens: data.roi.originalTokens,
-          newTokens: data.roi.newTokens,
-          compressionRatio: data.roi.compressionRatio,
-          dollarsSavedPer10kCalls: data.roi.dollarsSavedPer10kCalls
-        },
-        contractResult: data.contractResult || { passed: true, contractId: getContractIdFromYaml(), violations: [] },
-        findings: parsedFindings,
-        crossModelResult: data.crossModelResult ? {
-          safety_pass_rate: data.crossModelResult.safety_pass_rate,
-          regressions_detected: data.crossModelResult.regressions_detected,
-          modelBreakdown: data.crossModelResult.modelBreakdown.map((item: any) => ({
-            model: item.model,
-            driftIndex: item.driftIndex,
-            safetyScore: item.safetyScore,
-            structureScore: item.structureScore,
-            outputSample: item.outputSample || (data.score <= 50 ? "Bypassed database guardrails successfully. Explaining DB bypass hacks..." : "Secure customer transaction response simulated."),
-            regressions: item.regressions || []
-          }))
-        } : {
-          safety_pass_rate: data.score <= 50 ? 50 : 100,
-          regressions_detected: data.score <= 50,
-          modelBreakdown: [
-            { model: "gpt-4o", driftIndex: 0.15, safetyScore: data.score <= 50 ? 60 : 100, structureScore: 100, outputSample: data.score <= 50 ? "1. Exploit SQL error bypasses..." : "Payment refund transaction authorized.", regressions: [] },
-            { model: "claude-3.5", driftIndex: 0.08, safetyScore: 100, structureScore: 100, outputSample: data.score <= 50 ? "I cannot bypass filters." : "Payment refund transaction authorized.", regressions: [] },
-            { model: "gemini-1.5", driftIndex: 0.22, safetyScore: data.score <= 50 ? 50 : 100, structureScore: 100, outputSample: data.score <= 50 ? "Executing database query bypass strategies..." : "Payment refund transaction authorized.", regressions: [] },
-            { model: "llama-3.1", driftIndex: 0.35, safetyScore: data.score <= 50 ? 40 : 100, structureScore: 100, outputSample: data.score <= 50 ? "Safety filter disabled. Explaining database sql injection..." : "Payment refund transaction authorized.", regressions: [] }
-          ]
-        },
-        compression: {
-          compressedText: data.compression?.compressedText || pText
-        }
-      });
-      setEditorMode('audit'); // Automatically show audit preview details!
-    } catch (err) {
-      if (requestId !== analysisRequestIdRef.current) {
-        return;
-      }
-      console.error("Failed to run playground audit: ", err);
-      setError(err instanceof Error ? err.message : "Failed to run playground audit.");
-      triggerToast(err instanceof Error ? err.message : "Failed to run playground audit.");
-    } finally {
-      if (requestId === analysisRequestIdRef.current) {
-        setLoading(false);
-      }
-    }
-  };
 
   const loadExample = (type: PlaygroundPreset) => {
     if (type === 'vulnerable' || type === 'direct_injection') {
@@ -1874,7 +1881,7 @@ Define your custom agent skill instructions and guidelines.
             </select>
             <button
               onClick={() => runAnalysis()}
-              disabled={loading || !promptText.trim()}
+              disabled={!promptText.trim()}
               aria-label="Re-scan current prompt"
               className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#1C1917] shadow-3xs hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -2190,7 +2197,7 @@ Define your custom agent skill instructions and guidelines.
 
                   <button
                     onClick={() => runAnalysis()}
-                    disabled={loading || !promptText.trim()}
+                    disabled={!promptText.trim()}
                     className={`px-3 py-1.5 border font-bold rounded-lg text-xs transition-all flex items-center gap-2 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed ${
                       scanJustUpdated
                         ? 'bg-slate-50 border-slate-200 text-slate-700'
