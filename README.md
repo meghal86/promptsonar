@@ -120,6 +120,8 @@ This remediation feedback loop is integrated natively across the **Playground UI
 
 ## Workflow-First Security Triage & Prioritization UX
 
+PromptSonar provides a **Workflow-first security analysis** experience. PromptSonar traces execution risk first. Findings are evidence, not the story.
+
 To prevent audit fatigue and surface critical vulnerabilities instantly, PromptSonar incorporates a **Workflow-First Security Triage** engine in the playground. It reduces cognitive overload by reorganizing scan findings based on actual execution potential and grouping secondary style/hygiene suggestions.
 
 ### 1. High-Signal Triage Hierarchy
