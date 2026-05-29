@@ -112,6 +112,12 @@ export default async function ReportCardPage({ searchParams }: ReportCardPagePro
             >
               Scan Another Prompt
             </Link>
+            <Link
+              href="/playground"
+              className="mt-3 inline-flex w-full justify-center rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-black uppercase tracking-widest text-slate-700 transition hover:bg-slate-50"
+            >
+              View Full Analysis
+            </Link>
           </aside>
         </div>
       </section>
