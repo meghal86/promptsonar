@@ -955,6 +955,25 @@ Define your custom agent skill instructions and guidelines.
     setPrintGeneratedAt(new Date().toLocaleString());
   }, []);
 
+  // Hand-off from /try: if a ?prompt= (and optional ?contract=) query is
+  // present, pre-fill the editor and immediately run the full analysis so the
+  // visitor lands directly on results for the prompt they were just tracing.
+  useEffect(() => {
+    if (firstScanDoneRef.current) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const incomingPrompt = params.get('prompt');
+      if (!incomingPrompt || !incomingPrompt.trim()) return;
+      const incomingContract = params.get('contract') || '';
+      setPromptText(incomingPrompt);
+      if (incomingContract) setContractYaml(incomingContract);
+      setEditorMode('audit');
+      runAnalysis(incomingPrompt, incomingContract || undefined);
+    } catch {
+      // ignore malformed query strings; user can still scan manually
+    }
+  }, []);
+
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {

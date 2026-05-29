@@ -387,6 +387,12 @@ export default function TryPage() {
 
     const fix = critical && worst ? hardening(worst) : null;
 
+    // Carry the scanned prompt over to the full playground so it pre-fills and
+    // auto-scans there — the visitor keeps their exact prompt end to end.
+    const playgroundHref = prompt.trim()
+      ? `/playground?prompt=${encodeURIComponent(prompt)}`
+      : "/playground";
+
     return (
       <main
         className={`min-h-screen w-full antialiased flex flex-col items-center px-4 py-10 sm:py-14 ${
@@ -493,7 +499,7 @@ export default function TryPage() {
                   </button>
                 )}
                 <Link
-                  href="/playground"
+                  href={playgroundHref}
                   className={`inline-flex min-h-[52px] w-full items-center justify-center rounded-xl px-5 text-[16px] font-semibold shadow-sm transition-colors ${
                     showFix
                       ? "bg-slate-900 text-white hover:bg-slate-800"
@@ -512,7 +518,7 @@ export default function TryPage() {
                   Try a Vulnerable Example
                 </button>
                 <Link
-                  href="/playground"
+                  href={playgroundHref}
                   className="inline-flex min-h-[52px] w-full items-center justify-center rounded-xl border border-[#E4E3DE] bg-white px-5 text-[16px] font-semibold text-[#1C1917] shadow-sm transition-colors hover:bg-slate-50"
                 >
                   View Full Analysis →
