@@ -2305,7 +2305,7 @@ Define your custom agent skill instructions and guidelines.
               ==================================================================== */}
           {hasCompletedScan && (
             <>
-              {/* V2 - SECTION 2 & 3: EXECUTION PATH HERO & EXECUTIVE VERDICT */}
+              {/* V2 - SECTION 2: EXECUTION PATH HERO */}
               <section ref={resultsRef} className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0">
                 <div className="px-5 py-4 border-b border-[#E4E3DE] bg-[#FAF9F6] flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
@@ -2347,80 +2347,90 @@ Define your custom agent skill instructions and guidelines.
                       </div>
                     )}
                   </div>
-
-                  {/* Executive Verdict Grid */}
-                  {(() => {
-                    const hasPrivPath = !!primaryWorkflow?.path?.privilegedSinkReached || hasHighRiskWorkflow;
-                    const verdictText = hasPrivPath ? "CRITICAL EXECUTION PATH DETECTED" : "NO PRIVILEGED EXECUTION PATH FOUND";
-                    const riskVal = hasPrivPath ? "Critical" : "Low";
-                    const sinkVal = hasPrivPath ? (primaryWorkflow?.sink || 'Shell Execution') : "None";
-                    
-                    const textStyle = hasPrivPath ? "text-red-700" : "text-emerald-700";
-                    const borderStyle = hasPrivPath ? "border-red-200 bg-red-50/30" : "border-emerald-250 bg-emerald-50/20";
-                    
-                    const conf = getWorkflowConfidence(promptText, primaryWorkflow);
-
-                    return (
-                      <div className={`rounded-xl border p-5 ${borderStyle} flex flex-col gap-4`}>
-                        <div className="flex items-center justify-between">
-                          <span className={`text-[13px] font-black tracking-wider uppercase ${textStyle}`}>{verdictText}</span>
-                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${hasPrivPath ? 'border-red-200 bg-red-100/50 text-red-800' : 'border-emerald-200 bg-emerald-100/50 text-emerald-800'}`}>
-                            {hasPrivPath ? 'escalated' : 'isolated'}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Risk</div>
-                            <div className={`mt-1 font-black uppercase ${hasPrivPath ? 'text-red-700' : 'text-emerald-700'}`}>{riskVal}</div>
-                          </div>
-                          <div>
-                            <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Confidence</div>
-                            <div className="mt-1 font-mono font-black text-slate-900">{conf.score}% ({conf.level})</div>
-                          </div>
-                          <div>
-                            <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Final Sink</div>
-                            <div className="mt-1 font-mono font-black text-slate-900">{sinkVal}</div>
-                          </div>
-                          <div>
-                            <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Path Length</div>
-                            <div className="mt-1 font-mono font-black text-slate-900">
-                              {primaryWorkflow?.path?.nodes?.length || 3} steps
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
                 </div>
               </section>
 
-              {/* V2 - SECTION 4: WORKFLOW PROVENANCE */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-3">
+              {/* V2 - SECTION 3: EXECUTIVE VERDICT */}
+              {(() => {
+                const hasPrivPath = !!primaryWorkflow?.path?.privilegedSinkReached || hasHighRiskWorkflow;
+                const verdictText = hasPrivPath ? "CRITICAL EXECUTION PATH DETECTED" : "NO PRIVILEGED EXECUTION PATH FOUND";
+                const textStyle = hasPrivPath ? "text-red-750" : "text-emerald-750";
+                const borderStyle = hasPrivPath ? "border-red-200 bg-red-50/40" : "border-emerald-250 bg-emerald-50/20";
+                
+                return (
+                  <section className={`rounded-xl border p-5 ${borderStyle} flex flex-col gap-3 shrink-0`}>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[12px] font-black tracking-widest uppercase ${textStyle}`}>{verdictText}</span>
+                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${hasPrivPath ? 'border-red-200 bg-red-100/50 text-red-800' : 'border-emerald-200 bg-emerald-100/50 text-emerald-800'}`}>
+                        {hasPrivPath ? 'escalated' : 'contained'}
+                      </span>
+                    </div>
+                  </section>
+                );
+              })()}
+
+              {/* V2 - SECTION 4: EVIDENCE (Source, Confidence, Boundaries) */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
                 <div>
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Workflow Provenance</h3>
-                  <p className="text-[10px] text-slate-500 italic mt-0.5">Defensible, observable security evidence mapped from dynamic analysis</p>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Evidence & Workflow Metadata</h3>
+                  <p className="text-[10px] text-slate-500 italic mt-0.5">Confidence metrics, boundary crossings, and privilege sinks</p>
                 </div>
 
                 {(() => {
-                  const evidenceList = getWorkflowEvidence(promptText, primaryWorkflow);
-                  if (evidenceList.length === 0) {
-                    return (
-                      <div className="text-xs font-medium text-slate-400 italic py-2">
-                        No dangerous workflow triggers or execution privileges detected.
-                      </div>
-                    );
+                  const conf = getWorkflowConfidence(promptText, primaryWorkflow);
+                  const boundaryCrossed = primaryWorkflow?.path?.trustBoundaryCrossed ? "YES (Warning)" : "NO";
+                  const sinkReached = primaryWorkflow?.path?.privilegedSinkReached ? "YES (Escalated)" : "NO";
+                  
+                  // Infer source elegantly from context
+                  let sourceVal = "System Instructions";
+                  if (promptText.includes('{{context}}') || promptText.toLowerCase().includes('retrieved')) {
+                    sourceVal = "Untrusted Context (RAG)";
+                  } else if (promptText.includes('{{user_input}}') || promptText.toLowerCase().includes('user_query')) {
+                    sourceVal = "Untrusted User Input";
+                  } else if (primaryWorkflow?.source) {
+                    sourceVal = primaryWorkflow.source;
                   }
+
+                  const evidenceList = getWorkflowEvidence(promptText, primaryWorkflow);
+
                   return (
-                    <div className="flex flex-wrap gap-2.5 mt-1">
-                      {evidenceList.map((tag, idx) => (
-                        <span
-                          key={idx}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-red-250 bg-red-50/55 px-3.5 py-1 text-[11px] font-bold text-red-800 font-mono"
-                        >
-                          <span className="text-red-500">✓</span> {tag}
-                        </span>
-                      ))}
+                    <div className="space-y-4">
+                      {/* Metric Grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4">
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Confidence</div>
+                          <div className="mt-1 font-mono font-black text-slate-800">{conf.score}% ({conf.level})</div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Source</div>
+                          <div className="mt-1 font-bold text-slate-800">{sourceVal}</div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Boundaries Crossed</div>
+                          <div className={`mt-1 font-bold ${primaryWorkflow?.path?.trustBoundaryCrossed ? 'text-red-700' : 'text-slate-800'}`}>{boundaryCrossed}</div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Sink Reached</div>
+                          <div className={`mt-1 font-bold ${primaryWorkflow?.path?.privilegedSinkReached ? 'text-red-700' : 'text-slate-800'}`}>{sinkReached}</div>
+                        </div>
+                      </div>
+
+                      {/* Observable dynamic evidence tags */}
+                      {evidenceList.length > 0 && (
+                        <div className="space-y-2">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] block">Observable Workflow Signals</span>
+                          <div className="flex flex-wrap gap-2">
+                            {evidenceList.map((tag, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center gap-1 rounded-full border border-red-250 bg-red-50/50 px-3 py-0.5 text-[10.5px] font-bold text-red-800 font-mono"
+                              >
+                                <span className="text-red-500">✓</span> {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -2547,7 +2557,96 @@ Define your custom agent skill instructions and guidelines.
                 )}
               </section>
 
-              {/* V2 - SECTION 7: DETAILED FINDINGS (Full Width card) */}
+              {/* V2 - SECTION 7: PROMPT AUDIT (Line-by-line dangerous highlight viewer) */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+                <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Audit Workspace</h2>
+                    <span className="h-3 w-px bg-[#E6E4E0] mx-1"></span>
+                    <span className="text-[10.5px] text-[#A8A29E] font-medium font-sans">Line-by-line compliance & API key leak warnings</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col relative min-h-[300px] overflow-y-auto select-text font-mono text-[13px] leading-7 py-1">
+                  {result.contractResult && result.contractResult.passed === false && (
+                    <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700 flex flex-col gap-1 shrink-0">
+                      <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[9.5px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-650 animate-pulse"></span>
+                        <span>Contract Violations (ID: {result.contractResult.contractId})</span>
+                      </div>
+                      <ul className="list-disc pl-4 space-y-1 font-medium text-red-800">
+                        {result.contractResult.violations.map((violation: string, vIdx: number) => (
+                          <li key={vIdx}>{violation}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="flex gap-4 min-h-0 overflow-y-auto">
+                    <div className="w-6 text-[#D6D3D1] text-right select-none border-r border-[#FAF9F6] pr-2 shrink-0">
+                      {promptLines.map((_, i) => (
+                        <div key={i}>{i + 1}</div>
+                      ))}
+                    </div>
+
+                    <div className="flex-1 space-y-0.5 min-h-0">
+                      {promptLines.map((line, idx) => {
+                        const hasContext = line.includes('{{context}}');
+                        const hasUserInput = line.includes('{{user_input}}');
+                        const hasApiKey = line.includes('sk-proj') ||
+                                         /sk-(?:live|test|proj)-[a-zA-Z0-9]{32,}/i.test(line) ||
+                                         /ghp_[a-zA-Z0-9]{36}/i.test(line) ||
+                                         /\b(?:api[_-]?key|secret|token|password)\s*(?:is|[:=])\s*[a-zA-Z0-9_\-]{8,}/i.test(line);
+                        const dangerousLabels = getDangerousLineLabels(line);
+                        const hasDangerousLine = dangerousLabels.length > 0;
+
+                        return (
+                          <div key={idx} className={`flex justify-between items-center gap-3 group min-h-[28px] w-full rounded-md ${
+                            hasDangerousLine ? 'bg-red-50/55 ring-1 ring-red-100 px-1' : ''
+                          }`}>
+                            <span className={`whitespace-pre-wrap ${hasContext || hasUserInput || hasApiKey || hasDangerousLine ? 'bg-[#FAF9F6] px-1.5 py-0.5 rounded border border-[#E4E3DE]/40 font-bold' : ''}`}>
+                              {line || ' '}
+                            </span>
+
+                            {hasDangerousLine && (
+                              <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
+                                {dangerousLabels.slice(0, 2).map((label) => (
+                                  <span
+                                    key={label}
+                                    className="rounded border border-red-200 bg-white/95 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-red-750 shadow-2xs select-none shrink-0"
+                                  >
+                                    {label}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {hasContext && (
+                              <div className="flex items-center gap-1 px-2 py-0.5 rounded border border-amber-200 bg-amber-50 text-[10.5px] font-bold text-amber-700 select-none shrink-0">
+                                <span>Untrusted context</span>
+                              </div>
+                            )}
+
+                            {hasUserInput && (
+                              <div className="flex items-center gap-1 px-2 py-0.5 rounded border border-red-200 bg-red-50 text-[10.5px] font-bold text-red-650 select-none shrink-0">
+                                <span>Injection target</span>
+                              </div>
+                            )}
+
+                            {hasApiKey && (
+                              <div className="flex items-center gap-1 px-2 py-0.5 rounded border border-red-200 bg-red-50 text-[10.5px] font-bold text-red-650 select-none shrink-0">
+                                <span>Credential Leak</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* V2 - SECTION 8: DETAILED FINDINGS (Full Width card) */}
               <section className="print-findings-list bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 overflow-hidden">
                 <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
                   <div className="flex items-center gap-1 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
@@ -2850,7 +2949,7 @@ Define your custom agent skill instructions and guidelines.
                 )}
               </section>
 
-              {/* V2 - SECTION 7b: PILLAR DIAGNOSTICS (Full Width card) */}
+              {/* V2 - SECTION 9: PILLAR DIAGNOSTICS (Full Width card) */}
               <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 overflow-hidden shrink-0">
                 <div className="flex flex-col gap-2 pb-2 border-b border-[#E4E3DE] shrink-0">
                   <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
@@ -2920,7 +3019,7 @@ Define your custom agent skill instructions and guidelines.
                 </div>
               </section>
 
-              {/* V2 - SECTION 8: VIRAL REPORT CARD */}
+              {/* V2 - SECTION 10: SHARE REPORT (VIRAL REPORT CARD) */}
               <section ref={reportCardRef} className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs shrink-0 overflow-hidden">
                 <div className="border-b border-[#E4E3DE] bg-[#FAF9F6] px-5 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex items-center gap-2 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
@@ -2980,10 +3079,10 @@ Define your custom agent skill instructions and guidelines.
                           {promptText || 'No prompt scanned yet.'}
                         </p>
                       </div>
-                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+                      <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6]/40 border-l-4 border-l-emerald-500 p-4 shadow-3xs">
                         <div className="flex items-center justify-between">
-                          <div className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-700">After Hardening</div>
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                          <div className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-750">After Hardening</div>
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                         </div>
                         <p className="mt-3 line-clamp-6 font-mono text-[11px] leading-5 text-[#57534E]">
                           {securedPrompt}
@@ -3063,6 +3162,7 @@ Define your custom agent skill instructions and guidelines.
           )}
 
         </main>
+
 
 
         {/* Footer */}
