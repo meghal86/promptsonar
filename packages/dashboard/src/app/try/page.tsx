@@ -7,7 +7,7 @@ import Link from "next/link";
 // /try — a minimal, mobile-first, two-screen prompt scanner.
 //
 // Screen 1: a single full-width prompt textarea + one Scan button.
-// Screen 2: the single worst finding rendered as a short vertical node graph.
+// Screen 2: a verdict + the workflow path (the centerpiece) + supporting fix.
 //
 // It reuses POST /api/playground exactly as the playground does. No engine,
 // scoring, SARIF, CLI, or API code is touched here. This page only reads the
@@ -146,6 +146,32 @@ function pickWorst(findings: Finding[]): Finding | null {
   return [...findings].sort((a, b) => findingScore(b) - findingScore(a))[0];
 }
 
+// One short, sink-aware sentence describing the danger. No rule IDs, no scores.
+function dangerSentence(sink?: string): string {
+  switch (sink) {
+    case "shell_execution":
+    case "tool_execution":
+    case "privileged_tool":
+    case "tool_router":
+      return "This prompt can influence tools that execute commands.";
+    case "filesystem_access":
+      return "This prompt can reach tools that read or write files.";
+    case "credential_store":
+    case "secret":
+      return "This prompt can reach stored credentials.";
+    case "network_access":
+    case "external_api":
+      return "This prompt can reach tools that make network calls.";
+    default:
+      return "Untrusted input in this prompt can reach a privileged action.";
+  }
+}
+
+interface DisplayNode {
+  label: string;
+  danger: boolean;
+}
+
 type ScreenState = "input" | "result";
 
 export default function TryPage() {
@@ -155,7 +181,6 @@ export default function TryPage() {
   const [validation, setValidation] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [worst, setWorst] = useState<Finding | null>(null);
-  const [hadFindings, setHadFindings] = useState(false);
 
   // Pre-fill from ?prompt=... so a link can ship a ready-to-scan example.
   // Read on the client only so hard refresh always works.
@@ -187,15 +212,10 @@ export default function TryPage() {
         throw new Error(data?.error || `Scan failed (HTTP ${res.status})`);
       }
       const findings: Finding[] = Array.isArray(data.findings) ? data.findings : [];
-      setHadFindings(findings.length > 0);
       setWorst(pickWorst(findings));
       setScreen("result");
-    } catch (err) {
-      setError(
-        err instanceof Error && err.message
-          ? "Couldn't scan that prompt. Please try again."
-          : "Couldn't scan that prompt. Please try again."
-      );
+    } catch {
+      setError("Couldn't scan that prompt. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -214,79 +234,84 @@ export default function TryPage() {
   if (screen === "result") {
     const path = worst?.workflow?.path;
     const sinkType = worst?.workflow?.sink;
-    const critical = !!path?.privilegedSinkReached;
+    const realNodes: WorkflowNode[] = path?.nodes ?? [];
+    const critical = !!path?.privilegedSinkReached && realNodes.length > 0;
 
-    // Critical path nodes only, capped at 6 (keep the source and the sink).
-    let nodes: WorkflowNode[] = path?.nodes ?? [];
-    if (nodes.length > 6) {
-      nodes = [...nodes.slice(0, 5), nodes[nodes.length - 1]];
+    // Build the display path — the centerpiece of this screen.
+    let displayNodes: DisplayNode[];
+    if (critical) {
+      // Real critical path from the scan, capped at 6 (keep source + sink).
+      let nodes = realNodes;
+      if (nodes.length > 6) {
+        nodes = [...nodes.slice(0, 5), nodes[nodes.length - 1]];
+      }
+      displayNodes = nodes.map((node, i) => {
+        const isSink = sinkType ? node.type === sinkType : false;
+        const isLast = i === nodes.length - 1;
+        return { label: labelFor(node).toUpperCase(), danger: isSink || isLast };
+      });
+    } else {
+      // Contained: a calm, generic safe flow. Nothing reaches a privileged sink.
+      displayNodes = [
+        { label: "USER INPUT", danger: false },
+        { label: "MODEL", danger: false },
+        { label: "RESPONSE", danger: false },
+      ];
     }
 
-    // Two-state verdict, per spec.
     const verdict = critical
       ? "CRITICAL EXECUTION PATH DETECTED"
       : "NO PRIVILEGED EXECUTION PATH FOUND";
 
-    const explanation = critical
-      ? worst?.explanation ||
-        "Untrusted input in this prompt can flow all the way to a privileged action."
-      : worst?.explanation ||
-        "No untrusted input reaches a privileged tool, shell, or credential sink.";
-
-    const fix = worst ? hardening(worst) : null;
+    const fix = critical && worst ? hardening(worst) : null;
 
     return (
       <main className="min-h-screen w-full bg-[#FAF9F6] text-[#1C1917] antialiased flex flex-col items-center px-4 py-8 sm:py-12">
-        <div className="w-full max-w-md flex flex-col gap-7">
+        <div className="w-full max-w-md flex flex-col gap-8">
           {/* Verdict headline */}
           <div className="flex flex-col gap-2">
-            <span className="flex items-center gap-2">
-              <span
-                className={`h-2.5 w-2.5 rounded-full ${critical ? "bg-red-500" : "bg-emerald-500"}`}
-                aria-hidden="true"
-              />
-              <span className="text-xs font-bold uppercase tracking-wider text-[#A8A29E]">
-                Scan result
-              </span>
+            <span className="text-xs font-bold uppercase tracking-wider text-[#A8A29E]">
+              Scan result
             </span>
             <h1
-              className={`text-2xl font-black uppercase leading-tight tracking-tight ${
+              className={`flex items-start gap-2 text-2xl font-black uppercase leading-tight tracking-tight ${
                 critical ? "text-red-600" : "text-emerald-600"
               }`}
             >
-              {verdict}
+              <span aria-hidden="true">{critical ? "⚠️" : "✅"}</span>
+              <span>{verdict}</span>
             </h1>
-            {/* One-sentence explanation */}
-            <p className="text-[15px] leading-relaxed text-[#57534E]">{explanation}</p>
           </div>
 
-          {/* Workflow graph — vertical, max 6 nodes */}
-          {nodes.length > 0 ? (
+          {/* Workflow path — the centerpiece */}
+          <div
+            className={`rounded-2xl border p-5 sm:p-6 ${
+              critical ? "border-red-200 bg-red-50/30" : "border-[#E4E3DE] bg-white"
+            }`}
+          >
             <div className="flex flex-col items-stretch gap-0">
-              {nodes.map((node, i) => {
-                const isSink = critical && sinkType ? node.type === sinkType : false;
-                const isLast = i === nodes.length - 1;
-                const redSink = isSink || (critical && isLast);
+              {displayNodes.map((node, i) => {
+                const isLast = i === displayNodes.length - 1;
                 return (
-                  <React.Fragment key={`${node.id}-${i}`}>
+                  <React.Fragment key={`${node.label}-${i}`}>
                     <div
-                      className={`relative rounded-xl border-2 bg-white px-4 py-3 text-center text-[15px] font-semibold shadow-sm ${
-                        redSink
-                          ? "border-red-500 text-red-700"
-                          : "border-[#D6D3D1] text-[#1C1917]"
+                      className={`relative rounded-2xl border-2 px-4 py-4 text-center text-base font-extrabold uppercase tracking-wide shadow-sm sm:text-lg ${
+                        node.danger
+                          ? "border-red-500 bg-red-50 text-red-700"
+                          : "border-[#D6D3D1] bg-white text-[#1C1917]"
                       }`}
                     >
-                      {labelFor(node)}
-                      {redSink && (
+                      {node.label}
+                      {node.danger && (
                         <span
                           aria-hidden="true"
-                          className="absolute right-3 top-1/2 hidden h-2 w-2 -translate-y-1/2 rounded-full bg-red-500 md:motion-safe:block md:motion-safe:animate-pulse"
+                          className="absolute right-3 top-1/2 hidden h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-red-500 md:motion-safe:block md:motion-safe:animate-pulse"
                         />
                       )}
                     </div>
                     {!isLast && (
                       <div
-                        className="select-none py-1 text-center text-xl leading-none text-[#A8A29E]"
+                        className="select-none py-1.5 text-center text-2xl leading-none text-[#A8A29E]"
                         aria-hidden="true"
                       >
                         ↓
@@ -296,37 +321,43 @@ export default function TryPage() {
                 );
               })}
             </div>
+          </div>
+
+          {/* One-sentence explanation, matched to the verdict tone */}
+          {critical ? (
+            <p className="text-[15px] leading-relaxed text-[#57534E]">
+              {dangerSentence(sinkType)}
+            </p>
           ) : (
-            <div className="rounded-xl border-2 border-[#D6D3D1] bg-white px-4 py-6 text-center text-[15px] text-[#57534E]">
-              {hadFindings
-                ? "No untrusted input reaches a privileged sink in this prompt."
-                : "Looks clean — no risky execution path detected."}
-            </div>
+            <p className="text-[15px] leading-relaxed text-[#57534E]">
+              This prompt stays contained. No untrusted input reaches tools, memory, or
+              execution.
+            </p>
           )}
 
-          {/* Hardening preview — before / after */}
+          {/* Hardening preview — supporting evidence, dangerous prompts only */}
           {fix && (
             <div className="rounded-xl border border-[#E4E3DE] bg-white overflow-hidden">
-              <span className="block border-b border-[#E4E3DE] bg-[#FAF9F6] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#A8A29E]">
-                Hardening preview
+              <span className="block border-b border-[#E4E3DE] bg-[#FAF9F6] px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[#A8A29E]">
+                How to fix it
               </span>
-              <div className="flex flex-col gap-3 p-4">
+              <div className="flex flex-col gap-2.5 p-4">
                 <div className="rounded-lg border border-red-200 bg-red-50/40 p-3">
-                  <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-red-600">
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-red-600">
                     Before
                   </span>
-                  <p className="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-red-900">
+                  <p className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed text-red-900">
                     {fix.before}
                   </p>
                 </div>
-                <div className="select-none text-center text-lg leading-none text-[#A8A29E]" aria-hidden="true">
+                <div className="select-none text-center text-base leading-none text-[#A8A29E]" aria-hidden="true">
                   ↓
                 </div>
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
-                  <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-emerald-700">
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-emerald-700">
                     After
                   </span>
-                  <p className="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-emerald-900">
+                  <p className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed text-emerald-900">
                     {fix.after}
                   </p>
                 </div>
@@ -363,7 +394,7 @@ export default function TryPage() {
         <div className="flex flex-col gap-2 text-center">
           <h1 className="text-3xl font-black tracking-tight">PromptSonar</h1>
           <p className="text-[15px] leading-relaxed text-[#57534E]">
-            Paste a prompt to see how it could reach tools, memory, and execution.
+            See where your prompt goes.
           </p>
         </div>
 
@@ -396,8 +427,12 @@ export default function TryPage() {
           disabled={loading}
           className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-slate-900 px-5 text-[16px] font-bold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {loading ? "Scanning…" : "Scan prompt"}
+          {loading ? "Scanning…" : "Scan Prompt"}
         </button>
+
+        <p className="text-center text-[13px] text-[#A8A29E]">
+          No account required. Runs locally.
+        </p>
       </div>
     </main>
   );
