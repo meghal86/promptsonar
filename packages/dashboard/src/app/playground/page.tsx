@@ -1419,6 +1419,32 @@ Define your custom agent skill instructions and guidelines.
   const workflowFindings = result.findings.filter((finding: any) => finding.workflow?.path?.nodes?.length);
   const primaryWorkflowFinding = workflowFindings[0];
   const primaryWorkflow = primaryWorkflowFinding?.workflow;
+  const humanType = (type: string): string => {
+    const TYPE_LABEL: Record<string, string> = {
+      user_input: "User input",
+      untrusted_content: "Untrusted content",
+      system_prompt: "System prompt",
+      developer_prompt: "Developer prompt",
+      prompt_template: "Prompt template",
+      agent_memory: "Agent memory",
+      retrieved_context: "Retrieved context",
+      rag_context: "RAG context",
+      mcp_server: "MCP server",
+      mcp_tool: "MCP tool",
+      privileged_tool: "Privileged tool",
+      tool_router: "Tool router",
+      tool_execution: "Tool execution",
+      shell_execution: "Shell execution",
+      network_access: "Network access",
+      filesystem_access: "Filesystem access",
+      credential_store: "Credential store",
+      external_api: "External API",
+      policy_override: "Policy override",
+      secret: "Secret",
+      unknown: "Unknown",
+    };
+    return TYPE_LABEL[type] || type.replace(/_/g, " ");
+  };
   const hasHighRiskWorkflow = workflowFindings.some((finding: any) =>
     finding.workflow?.path?.privilegedSinkReached ||
     finding.workflow?.risk === 'critical' ||
@@ -2512,11 +2538,59 @@ Define your custom agent skill instructions and guidelines.
                         {remedy.mitigation}
                       </div>
 
+                      {/* Execution Path Diff Block */}
+                      <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4 space-y-3">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] block">
+                          Execution Path Hardening Proof
+                        </span>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Before Path */}
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-[9.5px] uppercase font-bold text-red-750 flex items-center gap-1.5 select-none">
+                              <span className="h-1.5 w-1.5 rounded-full bg-red-600 animate-pulse"></span>
+                              Threat Pathway (Before)
+                            </span>
+                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-bold text-red-900 bg-red-50/40 border border-red-200/40 rounded-lg p-2.5">
+                              {primaryWorkflow?.path?.nodes && primaryWorkflow.path.nodes.length > 0 ? (
+                                primaryWorkflow.path.nodes.map((n: any, idx: number) => (
+                                  <React.Fragment key={idx}>
+                                    {idx > 0 && <span className="text-red-400 select-none mx-0.5">➔</span>}
+                                    <span className="bg-white border border-red-200 px-2 py-0.5 rounded shadow-3xs uppercase text-[9.5px] truncate max-w-[120px]">
+                                      {humanType(n.type)}
+                                    </span>
+                                  </React.Fragment>
+                                ))
+                              ) : (
+                                <span className="italic text-red-700">Privileged Execution Pathway Active</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* After Path */}
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-[9.5px] uppercase font-bold text-emerald-750 flex items-center gap-1.5 select-none">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                              Hardened Isolation Pathway (After)
+                            </span>
+                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-bold text-emerald-900 bg-emerald-50/40 border border-emerald-250/30 rounded-lg p-2.5">
+                              {['user_input', 'model', 'response'].map((type, idx) => (
+                                <React.Fragment key={idx}>
+                                  {idx > 0 && <span className="text-emerald-400 select-none mx-0.5">➔</span>}
+                                  <span className="bg-white border border-emerald-200 px-2 py-0.5 rounded shadow-3xs uppercase text-[9.5px]">
+                                    {type === 'user_input' ? 'User input' : type === 'model' ? 'Model boundary' : 'Response context'}
+                                  </span>
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                         {/* Before */}
                         <div className="rounded-lg border border-red-200 bg-red-50/15 flex flex-col overflow-hidden">
                           <div className="bg-red-50/55 border-b border-red-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-red-750 font-sans select-none">
-                            🔴 Vulnerable Pattern (Before)
+                            🔴 Original Prompt segment (Before)
                           </div>
                           <pre className="p-3 font-mono text-[10px] leading-relaxed text-red-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
                             {remedy.before}
@@ -2526,7 +2600,7 @@ Define your custom agent skill instructions and guidelines.
                         {/* After */}
                         <div className="rounded-lg border border-emerald-200 bg-emerald-50/15 flex flex-col overflow-hidden">
                           <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-emerald-750 font-sans select-none">
-                            🟢 Safer Rewrite (After)
+                            🟢 Auto-Hardened Prompt (Safer Rewrite)
                           </div>
                           <pre className="p-3 font-mono text-[10px] leading-relaxed text-emerald-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
                             {remedy.after}
@@ -2555,6 +2629,90 @@ Define your custom agent skill instructions and guidelines.
                     </p>
                   </div>
                 )}
+              </section>
+
+              {/* V2 - SECTION 6b: PROMPT COMPRESSION & OPTIMIZATION (PROMPT ENGINEERING) */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 shrink-0">
+                <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
+                  <div>
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Optimizer & Compressor</h3>
+                    <p className="text-[10px] text-slate-500 italic mt-0.5">Statically remove redundant instructions, optimize templates, and maximize security</p>
+                  </div>
+                  {result.compression?.compressedText && (
+                    <button
+                      onClick={() => copyText(result.compression.compressedText, 'Compressed prompt copied.')}
+                      className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
+                    >
+                      📋 Copy Compressed Prompt
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Left Column: Token ROI metrics */}
+                  <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4 flex flex-col justify-between gap-4">
+                    <div className="space-y-4">
+                      <div>
+                        <span className="text-[9px] text-[#A8A29E] uppercase tracking-widest font-black block">Compression Ratio</span>
+                        <div className="mt-1 flex items-end gap-1">
+                          <span className="text-3xl font-black text-slate-900 leading-none">
+                            {result.roi?.compressionRatio || '0%'}
+                          </span>
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/50 px-1.5 py-0.5 rounded uppercase tracking-wide">
+                            Optimized
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Original</span>
+                          <span className="font-mono font-bold text-slate-700">{result.roi?.originalTokens || 0} tokens</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Compressed</span>
+                          <span className="font-mono font-bold text-slate-700">{result.roi?.newTokens || 0} tokens</span>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-[#E4E3DE]/60 pt-3">
+                        <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Estimated Savings</span>
+                        <span className="text-sm font-bold text-slate-800 font-mono">
+                          ${(result.roi?.dollarsSavedPer10kCalls || 0).toFixed(4)} <span className="text-[10.5px] font-sans font-medium text-slate-500">per 10k calls</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] text-slate-500 leading-relaxed italic bg-white border border-slate-200/60 p-2.5 rounded-lg select-none">
+                      ⚡ PromptSonar statically removes redundant sentences, structural bloat, and optimizes delimiter nesting to maximize prompt engineering efficiency.
+                    </div>
+                  </div>
+
+                  {/* Right 2 Columns: Comparative prompts */}
+                  <div className="lg:col-span-2 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Original Prompt preview */}
+                      <div className="rounded-lg border border-slate-200 bg-[#FAF9F6]/20 flex flex-col overflow-hidden">
+                        <div className="bg-slate-50 border-b border-slate-200 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-slate-650 font-sans select-none">
+                          📝 Original Prompt (Before)
+                        </div>
+                        <div className="p-3 font-mono text-[10.5px] leading-relaxed text-slate-700 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
+                          {promptText || 'No prompt scanned yet.'}
+                        </div>
+                      </div>
+
+                      {/* Compressed/Optimized Prompt preview */}
+                      <div className="rounded-lg border border-emerald-250 bg-emerald-50/10 flex flex-col overflow-hidden">
+                        <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-emerald-800 font-sans select-none">
+                          ⚡ Compressed & Optimized Prompt (After)
+                        </div>
+                        <div className="p-3 font-mono text-[10.5px] leading-relaxed text-emerald-950 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
+                          {result.compression?.compressedText || 'Optimized text will appear after running scan.'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </section>
 
               {/* V2 - SECTION 7: PROMPT AUDIT (Line-by-line dangerous highlight viewer) */}
