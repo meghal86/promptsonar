@@ -257,6 +257,31 @@ interface DisplayNode {
   danger: boolean;
 }
 
+// PromptSonar mark: a sonar pulse (concentric arcs) intersecting a workflow
+// path of nodes — communicates tracing / propagation along execution paths.
+// Reuses the established sonar identity from the app icon, extended with a path.
+function BrandMark({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 32 32"
+      fill="none"
+      role="img"
+      aria-label="PromptSonar"
+      className={className}
+    >
+      {/* sonar pulse */}
+      <circle cx="11" cy="16" r="9" stroke="currentColor" strokeWidth="1.6" strokeDasharray="3 2.6" opacity="0.55" />
+      <circle cx="11" cy="16" r="5" stroke="currentColor" strokeWidth="1.8" />
+      {/* workflow path tracing outward through the pulse */}
+      <path d="M11 16 H22 L28 9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      {/* nodes along the path */}
+      <circle cx="11" cy="16" r="1.7" fill="currentColor" />
+      <circle cx="22" cy="16" r="1.7" fill="currentColor" />
+      <circle cx="28" cy="9" r="1.7" fill="currentColor" />
+    </svg>
+  );
+}
+
 type ScreenState = "input" | "result";
 
 export default function TryPage() {
@@ -516,6 +541,17 @@ export default function TryPage() {
       <div className="w-full max-w-lg flex flex-col gap-7">
         {/* Hero — curiosity, not marketing */}
         <div className="flex flex-col gap-3 text-center">
+          {/* Brand: logo is trust; kept smaller than the headline hero */}
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center gap-2 text-[#1C1917]">
+              <BrandMark className="h-6 w-6" />
+              <span className="text-[19px] font-black tracking-tight">PromptSonar</span>
+            </div>
+            <p className="text-[11.5px] font-medium text-[#A8A29E]">
+              Detects: Prompt Injection • MCP Tool Poisoning • Agent Memory Escalation
+            </p>
+          </div>
+
           <h1 className="text-[34px] sm:text-[40px] font-black leading-[1.05] tracking-tight">
             Can your prompt reach execution?
           </h1>
