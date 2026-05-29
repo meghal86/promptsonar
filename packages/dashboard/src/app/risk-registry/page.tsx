@@ -60,8 +60,8 @@ export default function RiskRegistryPage() {
             <p className="mt-2 text-slate-400 text-lg">Enterprise Incident Forensics & Article 19 Audit Logs</p>
           </div>
           <div className="flex gap-4">
-            <Link href="/playground" className="bg-white/5 border border-white/10 hover:bg-white/10 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300">
-              Playground →
+            <Link href="/try" className="bg-white/5 border border-white/10 hover:bg-white/10 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300">
+              Try Prompt →
             </Link>
             <Link href="/projects" className="bg-white/5 border border-white/10 hover:bg-white/10 text-white px-6 py-2.5 rounded-full font-medium transition-all duration-300">
               ← Back to Projects

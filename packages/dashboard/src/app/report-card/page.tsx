@@ -107,7 +107,7 @@ export default async function ReportCardPage({ searchParams }: ReportCardPagePro
               <p className="mt-2 text-sm font-bold text-slate-500">OWASP LLM Top 10 mapped</p>
             </div>
             <Link
-              href="/playground"
+              href="/try"
               className="mt-6 inline-flex w-full justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-black uppercase tracking-widest text-white transition hover:bg-slate-800"
             >
               Scan Another Prompt

@@ -19,8 +19,8 @@ export default function ProjectsPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Link href="/playground" className="rounded-full border border-[#E4E3DE] bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
-              Back to Playground
+            <Link href="/try" className="rounded-full border border-[#E4E3DE] bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
+              Back to Try page
             </Link>
             <button
               disabled

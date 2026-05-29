@@ -16,11 +16,11 @@ export default function ModelsPage() {
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">PromptSonar</p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">Model Drift Sandbox</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-              Compare model safety posture, drift index, and regression behavior from the playground evaluation pipeline.
+              Compare model safety posture, drift index, and regression behavior from the try evaluation pipeline.
             </p>
           </div>
-          <Link href="/playground" className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50">
-            Back to Playground
+          <Link href="/try" className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50">
+            Back to Try page
           </Link>
         </header>
 

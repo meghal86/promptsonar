@@ -29,12 +29,12 @@ export default function IntelligencePage() {
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">PromptSonar Intelligence</p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">Threat Intelligence Console</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#57534E]">
-              A focused view of prompt security signals, attack paths, governance evidence, and model drift coming from the playground scanner.
+              A focused view of prompt security signals, attack paths, governance evidence, and model drift coming from the try scanner.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Link href="/playground" className="rounded-full border border-[#E4E3DE] bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
-              Back to Playground
+            <Link href="/try" className="rounded-full border border-[#E4E3DE] bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
+              Back to try page
             </Link>
             <Link href="/risk-registry" className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800">
               Open Risk Registry

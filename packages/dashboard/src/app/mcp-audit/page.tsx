@@ -171,8 +171,8 @@ export default function McpAuditPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3 shrink-0">
-            <Link href="/playground" className="rounded-full border border-[#E4E3DE] bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
-              Go to Playground
+            <Link href="/try" className="rounded-full border border-[#E4E3DE] bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
+              Try Scanner
             </Link>
             <Link href="/policies" className="rounded-full border border-[#E4E3DE] bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
               Policy Controls
