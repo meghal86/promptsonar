@@ -25,6 +25,33 @@ npx @promptsonar/cli scan .
 
 -----
 
+## How the Playground Works — Input-First Flow
+
+PromptSonar is **workflow-first security analysis**. The playground opens on a clean prompt
+input — never on demo findings — and walks you through a single, linear path:
+
+```
+Paste Prompt  →  Scan Prompt  →  Workflow Analysis  →  Findings  →  Hardening
+```
+
+1. **Input.** You land directly on a large, full-width prompt editor above the fold. Paste a
+   system prompt, agent instruction, or MCP-style config — or pick one from **Load Example**.
+   Nothing else is on screen: no findings, no workflow graph, no report card.
+2. **Scan.** Click **Scan Prompt** (the primary call to action). Analysis runs locally — no
+   data leaves your machine and no LLM is called.
+3. **Workflow Analysis.** Once results exist, the page reveals the executive verdict and the
+   visual AI workflow graph tracing how untrusted input could reach tools, memory, MCP
+   servers, and execution sinks.
+4. **Findings.** Prioritized security findings and secondary hygiene observations appear,
+   sorted by real execution potential (see *Workflow-First Security Triage*, below).
+5. **Hardening.** Copy the hardened prompt preview and per-finding safer rewrites to fix
+   issues before merge.
+
+Analysis UI renders **only after a scan result exists** — there are no preloaded, demo, or
+stale findings on first load.
+
+-----
+
 ## Why PromptSonar?
 
 AI applications now ship prompts, agent instructions, tool descriptions, and MCP configs as production infrastructure. Those files deserve the same pre-merge security checks as package dependencies.
@@ -258,6 +285,9 @@ These are static-analysis signals, not confirmed exploits, CVEs, or maintainer-v
 -----
 
 ## Screenshots
+
+The playground is input-first: every visitor starts on the prompt editor and only sees
+analysis after running a scan (`Paste Prompt → Scan Prompt → Workflow Analysis → Findings → Hardening`).
 
 ![PromptSonar playground showing a clean prompt passing all pillars](docs/assets/playground-good.png)
 
