@@ -1,5 +1,22 @@
 import { Finding } from '../rules/types';
-import { FindingWorkflow, workflowPathSummary } from '../workflow';
+import { FindingWorkflow, workflowPathSummary, analyzeRootCause } from '../workflow';
+
+// Deterministic rule_id -> human-readable threat name, used for SARIF
+// root_cause / supporting_findings provenance metadata.
+function humanRuleName(ruleId: string): string {
+    const MAP: Record<string, string> = {
+        sec_owasp_llm01_injection: 'Prompt Injection',
+        sec_owasp_llm02_pii: 'Credential Leak',
+        sec_mcp_tool_poisoning: 'MCP Tool Poisoning',
+        sec_workflow_escalation: 'Workflow Escalation',
+        sec_privileged_sink_access: 'Privileged Sink Access',
+        sec_unbounded_persona: 'Unbounded Persona',
+        sec_unbounded_access: 'Unbounded Tool Access',
+        sec_rag_injection: 'RAG Injection',
+    };
+    if (MAP[ruleId]) return MAP[ruleId];
+    return ruleId.replace(/^sec_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 type SarifFinding = Finding & {
     filePath?: string;
@@ -81,6 +98,14 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
 
     const rulesSet = new Set<string>();
 
+    // Scan-wide root-cause grouping (Feature 3/5). Computed once; attached to
+    // every result's property bag so any SARIF consumer can read it.
+    const rootCauseAnalysis = analyzeRootCause(findings);
+    const rootCauseName = rootCauseAnalysis ? humanRuleName(rootCauseAnalysis.rootCause.rule_id) : undefined;
+    const supportingFindingNames = rootCauseAnalysis
+        ? rootCauseAnalysis.supportingFindings.map(sf => humanRuleName(sf.rule_id))
+        : [];
+
     findings.forEach(f => {
         // Map rules to the driver
         if (!rulesSet.has(f.rule_id)) {
@@ -131,6 +156,13 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                 confidence: f.confidence || "HIGH",
                 recommendation,
                 evidence: f.evidence,
+                // Feature 5: deterministic provenance metadata (backward compatible —
+                // existing consumers ignore unknown property-bag keys).
+                confidence_score: f.workflow?.confidence_score,
+                confidence_level: f.workflow?.confidence_level,
+                workflow_evidence: f.workflow?.evidence,
+                root_cause: rootCauseName,
+                supporting_findings: supportingFindingNames,
                 workflow: f.workflow ? {
                     source: f.workflow.source,
                     sink: f.workflow.sink,

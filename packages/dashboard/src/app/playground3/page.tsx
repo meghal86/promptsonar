@@ -1695,13 +1695,22 @@ Define your custom agent skill instructions and guidelines.
       ];
     };
 
+    // Prefer the real, engine-derived workflow evidence (Feature 1) when the
+    // scanner produced it; only fall back to the curated list when absent.
+    const realEvidence: string[] =
+      rootFinding.workflow?.workflow_evidence?.length
+        ? rootFinding.workflow.workflow_evidence
+        : rootFinding.workflow?.path?.workflow_evidence?.length
+        ? rootFinding.workflow.path.workflow_evidence
+        : [];
+
     return {
       root: {
         rule_id: rootFinding.rule_id,
         label: getRuleLabel(rootFinding.rule_id),
         severity: rootFinding.severity || 'CRITICAL',
         explanation: rootFinding.explanation,
-        evidence: getRootCauseEvidence(rootFinding.rule_id),
+        evidence: realEvidence.length ? realEvidence : getRootCauseEvidence(rootFinding.rule_id),
         impact: getRootCauseImpact(rootFinding.rule_id)
       },
       supporting: supportingFindings.map(f => ({
@@ -2763,6 +2772,24 @@ Define your custom agent skill instructions and guidelines.
                                     <span className="font-bold text-slate-500">Detected from: </span>
                                     <span className="font-mono text-slate-700">{nodeProvenance(node, promptText)}</span>
                                   </span>
+                                  {/* Feature 4: real engine provenance — contribution + rule matches */}
+                                  {node.provenance && (
+                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                      {typeof node.provenance.confidenceContribution === 'number' && node.provenance.confidenceContribution > 0 && (
+                                        <span className="text-[10px] font-bold text-slate-500">
+                                          Confidence contribution: <span className="font-mono text-rose-700">+{node.provenance.confidenceContribution}</span>
+                                        </span>
+                                      )}
+                                      {Array.isArray(node.provenance.ruleMatches) && node.provenance.ruleMatches.length > 0 && (
+                                        <span className="flex flex-wrap items-center gap-1 text-[10px] font-bold text-slate-500">
+                                          Rule matches:
+                                          {node.provenance.ruleMatches.map((rm: string, ri: number) => (
+                                            <span key={ri} className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[9px] text-slate-600">✓ {rm}</span>
+                                          ))}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}

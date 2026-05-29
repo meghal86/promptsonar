@@ -26,6 +26,27 @@ export type WorkflowNodeType =
 export type WorkflowTrust = 'trusted' | 'semi_trusted' | 'untrusted' | 'privileged' | 'unknown';
 export type WorkflowConfidence = 'low' | 'medium' | 'high';
 
+// Deterministic confidence level for an inferred execution path (Feature 2).
+export type WorkflowConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+
+// A single piece of supporting evidence for a workflow path. Every item is
+// derived from an actual scanner finding / rule match — never generated text.
+export interface WorkflowEvidence {
+    id: string;
+    ruleId: string;
+    label: string;
+    severity: Severity;
+    source: string;
+}
+
+// Per-node provenance: why a node exists in the path, what it contributes to the
+// confidence score, and which deterministic indicators (rule matches) produced it.
+export interface NodeProvenance {
+    evidence: WorkflowEvidence[];
+    confidenceContribution: number;
+    ruleMatches: string[];
+}
+
 export type WorkflowEdgeType =
     | 'data_flow'
     | 'instruction_flow'
@@ -56,6 +77,7 @@ export interface WorkflowNode {
     tainted?: boolean;
     privilegePropagated?: boolean;
     sourceLocation?: WorkflowSourceLocation;
+    provenance?: NodeProvenance;
 }
 
 export interface WorkflowEdge {
@@ -81,6 +103,11 @@ export interface WorkflowPath {
     explanation?: string[];
     riskStory?: string;
     severityReason?: string;
+    // Deterministic provenance layer (Features 1, 2, 4).
+    confidence_score?: number;
+    confidence_level?: WorkflowConfidenceLevel;
+    workflow_evidence?: string[];
+    evidence?: WorkflowEvidence[];
 }
 
 export interface FindingWorkflow {
@@ -92,6 +119,20 @@ export interface FindingWorkflow {
     recommendation: string;
     confidence?: WorkflowConfidence;
     explanation?: string[];
+    // Deterministic provenance layer, mirrored at the workflow root so consumers
+    // (SARIF, dashboard) can read it without reaching into `path`.
+    confidence_score?: number;
+    confidence_level?: WorkflowConfidenceLevel;
+    workflow_evidence?: string[];
+    evidence?: WorkflowEvidence[];
+}
+
+// Root-cause grouping (Feature 3): the single finding that best explains a
+// cluster, plus the related findings that describe the same underlying issue.
+// No findings are deleted or suppressed — this is organization only.
+export interface RootCauseAnalysis {
+    rootCause: import('../rules/types').Finding;
+    supportingFindings: import('../rules/types').Finding[];
 }
 
 export interface WorkflowInferenceInput {

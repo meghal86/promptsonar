@@ -9,6 +9,7 @@ import {
     WorkflowRisk,
     WorkflowTrust,
 } from './types';
+import { attachProvenance } from './provenance';
 import type { Severity } from '../rules/types';
 
 interface PatternDef {
@@ -460,7 +461,7 @@ function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[])
         severityReason: severityReason(risk, sink, haystack),
     };
 
-    return {
+    const workflow: FindingWorkflow = {
         path,
         source: nodeSpecs[0].type,
         sink,
@@ -470,6 +471,9 @@ function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[])
         confidence,
         explanation,
     };
+
+    // Feature 1/2/4: attach the deterministic, evidence-backed provenance layer.
+    return attachProvenance(workflow, input);
 }
 
 function inferExecutionSinks(text: string, input: WorkflowInferenceInput): NodeSpec[] {
