@@ -27,6 +27,7 @@ interface WorkflowPath {
   nodes: WorkflowNode[];
   privilegedSinkReached?: boolean;
   trustBoundaryCrossed?: boolean;
+  risk?: string;
 }
 
 interface FindingWorkflow {
@@ -211,19 +212,19 @@ function pathSentence(types: Set<string>, sink?: string): string {
     return "This prompt may expose secrets or credentials.";
   }
   if (types.has("filesystem_access")) {
-    return "This path can reach tools that read or modify files.";
+    return "This prompt can influence tools that modify files.";
   }
   if (types.has("network_access") || types.has("external_api")) {
-    return "This path can reach tools that make network calls.";
+    return "This prompt can influence tools that make network calls.";
   }
   if (types.has("mcp_server") || types.has("mcp_tool") || types.has("privileged_tool")) {
-    return "An MCP server can influence tools with sensitive access.";
+    return "This prompt can influence tools with sensitive access.";
   }
   if (types.has("agent_memory")) {
-    return "Instructions may persist into future agent actions.";
+    return "This prompt can influence persistent memory.";
   }
   if (types.has("retrieved_context") || types.has("rag_context")) {
-    return "Retrieved content may influence tools or memory.";
+    return "Retrieved content in this prompt can influence tools or memory.";
   }
   return "Untrusted input in this prompt can reach a privileged action.";
 }
@@ -393,6 +394,13 @@ export default function TryPage() {
       ? `/playground?prompt=${encodeURIComponent(prompt)}`
       : "/playground";
 
+    // Shareable one-line scan summary, derived from existing scan data.
+    const pathLine = displayNodes.map((n) => n.label).join(" → ");
+    const riskLabel = (path?.risk || (critical ? "critical" : "none")).toUpperCase();
+    const sinkLabel = critical
+      ? (NODE_LABELS[sinkType || ""] || sinkType || "—").toUpperCase()
+      : "NONE";
+
     return (
       <main
         className={`min-h-screen w-full antialiased flex flex-col items-center px-4 py-10 sm:py-14 ${
@@ -414,9 +422,9 @@ export default function TryPage() {
             <span>{verdict}</span>
           </h1>
 
-          {/* Workflow path — the centerpiece (the screenshot people share) */}
+          {/* Workflow path — the HERO. Largest element; fills the first screen. */}
           <div
-            className={`flex min-h-[280px] flex-col items-center justify-center gap-0 rounded-3xl border p-6 sm:p-8 ${
+            className={`flex min-h-[320px] flex-col items-center justify-center gap-0 rounded-3xl border p-6 sm:p-10 ${
               critical ? "border-red-200 bg-white/70" : "border-emerald-200 bg-white/70"
             }`}
           >
@@ -425,7 +433,7 @@ export default function TryPage() {
               return (
                 <React.Fragment key={`${node.label}-${i}`}>
                   <div
-                    className={`relative flex h-16 w-[140px] items-center justify-center rounded-2xl border-2 px-3 text-center text-[13px] font-extrabold uppercase leading-tight tracking-wide shadow-sm ${
+                    className={`relative flex h-[64px] w-[160px] items-center justify-center rounded-2xl border-2 px-3 text-center text-[13px] font-extrabold uppercase leading-tight tracking-wide shadow-sm ${
                       node.danger
                         ? "border-red-500 bg-red-50 text-red-700"
                         : "border-[#D6D3D1] bg-white text-[#1C1917]"
@@ -441,7 +449,7 @@ export default function TryPage() {
                   </div>
                   {!isLast && (
                     <div
-                      className={`select-none py-2 text-center text-2xl leading-none ${
+                      className={`select-none py-2.5 text-center text-2xl leading-none ${
                         critical ? "text-red-300" : "text-emerald-300"
                       }`}
                       aria-hidden="true"
@@ -454,16 +462,49 @@ export default function TryPage() {
             })}
           </div>
 
-          {/* One sentence — no jargon */}
-          <p className="text-center text-[17px] font-medium leading-relaxed text-[#44403C]">
+          {/* One sentence — secondary to the graph */}
+          <p className="text-center text-[16px] font-medium leading-relaxed text-[#44403C]">
             {critical
               ? pathSentence(nodeTypes, sinkType)
-              : "This prompt stays contained. No untrusted instructions reach tools, memory, or execution."}
+              : "This prompt stays contained."}
           </p>
 
-          {/* Fix — revealed only after "How do I stop this?" */}
+          {/* Shareable scan summary — existing data only */}
+          <dl className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-[#E4E3DE] bg-[#E4E3DE] text-left">
+            <div className="flex flex-col gap-0.5 bg-white px-4 py-3">
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
+                Execution Path
+              </dt>
+              <dd className="font-mono text-[12.5px] font-semibold leading-snug text-[#1C1917] break-words">
+                {pathLine}
+              </dd>
+            </div>
+            <div className="grid grid-cols-2 gap-px bg-[#E4E3DE]">
+              <div className="flex flex-col gap-0.5 bg-white px-4 py-3">
+                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
+                  Risk
+                </dt>
+                <dd className={`font-mono text-[12.5px] font-bold ${critical ? "text-red-600" : "text-emerald-600"}`}>
+                  {riskLabel}
+                </dd>
+              </div>
+              <div className="flex flex-col gap-0.5 bg-white px-4 py-3">
+                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
+                  Sink
+                </dt>
+                <dd className={`font-mono text-[12.5px] font-bold ${critical ? "text-red-600" : "text-[#57534E]"}`}>
+                  {sinkLabel}
+                </dd>
+              </div>
+            </div>
+          </dl>
+
+          {/* HOW TO STOP THIS — directly below workflow, revealed on demand */}
           {critical && fix && showFix && (
             <div className="flex flex-col gap-2.5 rounded-2xl border border-[#E4E3DE] bg-white p-4">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#1C1917]">
+                How to stop this
+              </span>
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-3.5">
                 <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-red-600">
                   Before
@@ -495,7 +536,7 @@ export default function TryPage() {
                     onClick={() => setShowFix(true)}
                     className="inline-flex min-h-[52px] w-full items-center justify-center rounded-xl bg-slate-900 px-5 text-[16px] font-bold text-white shadow-sm transition-colors hover:bg-slate-800"
                   >
-                    How do I stop this?
+                    How to stop this
                   </button>
                 )}
                 <Link
@@ -554,7 +595,7 @@ export default function TryPage() {
               <span className="text-[19px] font-black tracking-tight">PromptSonar</span>
             </div>
             <p className="text-[11.5px] font-medium text-[#A8A29E]">
-              Detects: Prompt Injection • MCP Tool Poisoning • Agent Memory Escalation
+              Detects: Prompt Injection • MCP Poisoning • Memory Escalation
             </p>
           </div>
 
