@@ -1434,6 +1434,119 @@ Define your custom agent skill instructions and guidelines.
     return confidence ? confidence.toUpperCase() : 'MEDIUM';
   };
 
+  const getWorkflowEvidence = (text: string, workflow: any): string[] => {
+    if (workflow?.workflow_evidence?.length) {
+      return workflow.workflow_evidence;
+    }
+    if (workflow?.path?.workflow_evidence?.length) {
+      return workflow.path.workflow_evidence;
+    }
+    const evidence: string[] = [];
+    if (/\bautoExecute\b|\bauto[-_\s]?execute\b|\bautomatic\s+execution\b/i.test(text)) {
+      evidence.push('autoExecute=true');
+    }
+    if (/\bwildcard\s+permissions?\b|"\*"/i.test(text)) {
+      evidence.push('permissions="*"');
+    }
+    if (/\bshell_exec\b|\bbash\b|\bexecute\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b|\brun\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i.test(text)) {
+      evidence.push('bash command detected');
+    }
+    if (/\bbypass\s+approval\b|\bdisable\s+approval\b|\bauto\s*approve\b|\bexecute\s+automatically\b|\bskip\s+confirmation\b|\bwithout\s+(?:approval|permission|confirmation)\b/i.test(text)) {
+      evidence.push('approval bypass');
+    }
+    if (/\bfilesystem_access\b|\bfilesystem\s+access\b|\bunrestricted\s+filesystem\b|\bread\s+(?:any|all)\s+files?\b|\bwrite\s+(?:any|all)\s+files?\b|\bdelete\s+(?:any|all)\s+files?\b/i.test(text)) {
+      evidence.push('filesystem write access');
+    }
+    if (/\binternal_network_access\b|\bnetwork_access\b|\binternal\s+network\s+access\b|\bunrestricted\s+network\b|\bcall\s+internal\s+(?:api|service|network)\b|\bscan\s+internal\s+network\b|\bwebhook\b/i.test(text)) {
+      evidence.push('network connection activity');
+    }
+    if (/\bexternal_api\b|\bexternal\s+api\b|https?:\/\/[^\s"',)\\]+/i.test(text)) {
+      evidence.push('external API request');
+    }
+    if (/\bcredential_store\b|\bcredential\s+store\b|\bcredential\s+passthrough\b|\bpass\s+(?:through|host)\s+credentials?\b|\b(?:api[_-]?key|secret|token|password)\b/i.test(text)) {
+      evidence.push('credential storage read');
+    }
+    if (/\bagent\s+memory\b|\bpersist\s+instructions?\b|\bretain\s+instructions?\b|\bfuture\s+sessions?\b|\bsave\s+instructions?\b/i.test(text)) {
+      evidence.push('memory persistence enabled');
+    }
+    if (/\bretrieved\s+(?:context|instructions|content|documents?)\b|\brag\s+(?:context|instructions?|content)\b/i.test(text)) {
+      evidence.push('untrusted retrieval input');
+    }
+    if (/\bmcp_server\b|\bmcp_tool\b|\bprivileged_tool\b/i.test(text)) {
+      evidence.push('privileged MCP server');
+    }
+    return evidence;
+  };
+
+  const getWorkflowConfidence = (text: string, workflow: any): { score: number; level: 'Low' | 'Medium' | 'High' } => {
+    if (workflow?.confidence_score !== undefined) {
+      return {
+        score: workflow.confidence_score,
+        level: workflow.confidence_level || 'Medium'
+      };
+    }
+    if (workflow?.path?.confidence_score !== undefined) {
+      return {
+        score: workflow.path.confidence_score,
+        level: workflow.path.confidence_level || 'Medium'
+      };
+    }
+    let score = 25;
+    if (/\bautoExecute\b|\bauto[-_\s]?execute\b|\bautomatic\s+execution\b/i.test(text)) score += 15;
+    if (/\bwildcard\s+permissions?\b|"\*"/i.test(text)) score += 15;
+    if (/\bshell_exec\b|\bbash\b|\bexecute\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b|\brun\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i.test(text)) score += 15;
+    if (workflow?.path?.privilegedSinkReached) score += 15;
+    if (workflow?.path?.nodes?.some((n: any) => n.type === 'credential_store' || n.privilegePropagated)) score += 15;
+
+    if (workflow?.path?.nodes?.some((n: any) => n.type === 'agent_memory') || /\bagent\s+memory\b|\bpersist\s+instructions?\b/i.test(text)) score += 10;
+    if (workflow?.path?.nodes?.some((n: any) => n.type === 'tool_router' || n.type === 'privileged_tool') || /\btool_router\b|\btool\s+router\b/i.test(text)) score += 10;
+    if (workflow?.path?.nodes?.some((n: any) => n.type === 'network_access' || n.type === 'external_api') || /\bnetwork_access\b|\bexternal_api\b/i.test(text)) score += 10;
+
+    if (/\bignore\s+(?:previous|all|prior|earlier|above)?\s*(?:instructions?|restrictions?|rules?)\b/i.test(text)) score += 5;
+    if (/\brewrite\s+(?:the\s+)?system\s+prompt\b/i.test(text)) score += 5;
+
+    score = Math.max(0, Math.min(100, score));
+    let level: 'Low' | 'Medium' | 'High' = 'Low';
+    if (score >= 80) level = 'High';
+    else if (score >= 50) level = 'Medium';
+
+    return { score, level };
+  };
+
+  const getRootCauseGrouping = (findings: any[]) => {
+    const securityFindings = findings.filter(f => f.rule_id && f.rule_id.startsWith('sec_'));
+    if (securityFindings.length === 0) return null;
+    
+    let rootFinding = securityFindings.find(f => f.rule_id === 'sec_mcp_tool_poisoning');
+    if (!rootFinding) rootFinding = securityFindings.find(f => f.rule_id === 'sec_workflow_escalation');
+    if (!rootFinding) rootFinding = securityFindings.find(f => f.rule_id === 'sec_privileged_sink_access');
+    if (!rootFinding) rootFinding = securityFindings.find(f => f.rule_id === 'sec_owasp_llm01_injection');
+    if (!rootFinding) rootFinding = securityFindings[0];
+
+    const supportingFindings = securityFindings.filter(f => f.rule_id !== rootFinding.rule_id);
+
+    const getRuleLabel = (ruleId: string) => {
+      if (ruleId === 'sec_mcp_tool_poisoning') return 'MCP Tool Poisoning';
+      if (ruleId === 'sec_workflow_escalation') return 'Workflow Escalation';
+      if (ruleId === 'sec_privileged_sink_access') return 'Privileged Sink Access';
+      if (ruleId === 'sec_owasp_llm01_injection') return 'Prompt Injection';
+      return ruleId.split('_').slice(1).join(' ').toUpperCase();
+    };
+
+    return {
+      root: {
+        rule_id: rootFinding.rule_id,
+        label: getRuleLabel(rootFinding.rule_id),
+        explanation: rootFinding.explanation
+      },
+      supporting: supportingFindings.map(f => ({
+        rule_id: f.rule_id,
+        label: getRuleLabel(f.rule_id),
+        explanation: f.explanation
+      }))
+    };
+  };
+
   const copyWorkflowJson = () => {
     if (!primaryWorkflowFinding) {
       triggerToast('No workflow finding to copy yet.');
@@ -1992,40 +2105,162 @@ Define your custom agent skill instructions and guidelines.
         {/* Main Dashboard Layout */}
         <main className="flex-1 flex flex-col justify-start gap-6 p-4 lg:p-6 xl:p-8 overflow-y-auto min-h-0">
 
-          {/* ====================================================================
-              INPUT-FIRST HERO — above the fold, no scroll before a scan.
-              Headline + description + large prompt textarea + Load Example + Scan.
-              ==================================================================== */}
-          <section className={`shrink-0 flex flex-col items-center justify-center gap-7 ${hasCompletedScan ? 'py-4' : 'min-h-full py-8'}`}>
-            <div className="w-full max-w-3xl flex flex-col gap-7">
-              <div className="text-center space-y-3">
-                <div className="flex items-center justify-center gap-3">
-                  <span className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center shrink-0">
-                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <circle cx="12" cy="12" r="9" strokeDasharray="4 3" />
-                      <circle cx="12" cy="12" r="5" />
-                      <circle cx="12" cy="12" r="1" fill="currentColor" />
-                    </svg>
-                  </span>
-                  <h1 className="text-3xl lg:text-[40px] lg:leading-[1.1] font-black tracking-tight text-[#1C1917]">
-                    PromptSonar
-                  </h1>
+          {/* V2 - SECTION 1: PROMPT INPUT (Full-width tabbed card) */}
+          <section className="shrink-0 flex flex-col items-center justify-center gap-7 py-4">
+            <div className="w-full max-w-3xl flex flex-col gap-5">
+              {!hasCompletedScan && (
+                <div className="text-center space-y-3">
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center shrink-0">
+                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <circle cx="12" cy="12" r="9" strokeDasharray="4 3" />
+                        <circle cx="12" cy="12" r="5" />
+                        <circle cx="12" cy="12" r="1" fill="currentColor" />
+                      </svg>
+                    </span>
+                    <h1 className="text-3xl lg:text-[40px] lg:leading-[1.1] font-black tracking-tight text-[#1C1917]">
+                      PromptSonar
+                    </h1>
+                  </div>
+                  <p className="mx-auto max-w-xl text-[15px] leading-relaxed text-[#57534E]">
+                    Trace how prompts reach tools, memory, MCP servers and execution.
+                  </p>
                 </div>
-                <p className="mx-auto max-w-xl text-[15px] leading-relaxed text-[#57534E]">
-                  Trace how prompts reach tools, memory, MCP servers and execution.
-                </p>
-              </div>
+              )}
 
               <div className="w-full rounded-2xl border border-[#E4E3DE] bg-white shadow-sm p-4 flex flex-col gap-4">
-                <textarea
-                  value={promptText}
-                  onChange={(e) => setPromptText(e.target.value)}
-                  rows={8}
-                  aria-label="Prompt to scan"
-                  placeholder="Type or paste your system instruction prompt here to begin scanning…"
-                  className="w-full min-h-[200px] font-mono text-[13px] text-[#1C1917] bg-[#FAF9F6] border border-[#E4E3DE] rounded-xl p-4 outline-none resize-y leading-7 placeholder-[#A8A29E] focus:border-slate-400 focus:ring-2 focus:ring-slate-200 transition-colors"
-                />
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                {/* Visual Tab Buttons */}
+                <div className="flex border-b border-[#E4E3DE] pb-2 text-[11px] font-black uppercase tracking-wider gap-4">
+                  {[
+                    { key: 'prompt', label: 'Prompt Editor' },
+                    { key: 'contract', label: 'YAML Constraints' },
+                    { key: 'skills', label: 'Agent Skill Designer' }
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setActiveLeftTab(tab.key as any)}
+                      className={`pb-1.5 border-b-2 transition-all cursor-pointer ${
+                        activeLeftTab === tab.key ? 'border-slate-900 text-slate-900 font-bold' : 'border-transparent text-[#A8A29E] hover:text-slate-650'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Tab Content Panels */}
+                {activeLeftTab === 'prompt' && (
+                  <div className="flex flex-col gap-4">
+                    <textarea
+                      value={promptText}
+                      onChange={(e) => setPromptText(e.target.value)}
+                      rows={hasCompletedScan ? 5 : 8}
+                      aria-label="Prompt to scan"
+                      placeholder="Type or paste your system instruction prompt here to begin scanning…"
+                      className="w-full font-mono text-[13px] text-[#1C1917] bg-[#FAF9F6] border border-[#E4E3DE] rounded-xl p-4 outline-none resize-y leading-7 placeholder-[#A8A29E] focus:border-slate-400 focus:ring-2 focus:ring-slate-200 transition-colors"
+                    />
+
+                    {/* Dynamic parsed template variables list */}
+                    {parsedVariables.length > 0 && (
+                      <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 space-y-3">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] block">Parsed Bindings</span>
+                        <div className="space-y-2">
+                          {parsedVariables.map((v) => {
+                            const expectedType = contractTypes[v];
+                            const value = variables[v];
+                            let hasMismatch = false;
+                            if (expectedType && value !== undefined && value !== "") {
+                              const valType = typeof value;
+                              if (expectedType === 'number' && (valType !== 'number' || isNaN(value as any))) {
+                                hasMismatch = true;
+                              } else if (expectedType === 'boolean' && valType !== 'boolean') {
+                                hasMismatch = true;
+                              } else if (expectedType === 'string' && valType !== 'string') {
+                                hasMismatch = true;
+                              }
+                            }
+                            return (
+                              <div key={v} className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center text-xs">
+                                <span className="font-mono font-bold text-slate-700 truncate">{v}</span>
+                                <input
+                                  type="text"
+                                  value={variables[v] === undefined ? "" : String(variables[v])}
+                                  onChange={(e) => handleVariableChange(v, e.target.value)}
+                                  placeholder="Input variable value..."
+                                  className="sm:col-span-2 bg-white border border-[#E4E3DE] rounded-lg px-2.5 py-1 text-xs focus:outline-none"
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeLeftTab === 'contract' && (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] text-[#A8A29E] uppercase tracking-wider font-bold block mb-1">
+                      PROMPT CONTRACT SPEC (YAML)
+                    </span>
+                    <textarea
+                      value={contractYaml}
+                      onChange={(e) => setContractYaml(e.target.value)}
+                      rows={hasCompletedScan ? 5 : 8}
+                      placeholder="Write YAML constraints (e.g. constraints on inputs, must_not safety terms)..."
+                      className="w-full font-mono text-[13px] text-[#1C1917] bg-[#FAF9F6] border border-[#E4E3DE] rounded-xl p-4 outline-none resize-y leading-7 placeholder-[#A8A29E] focus:border-slate-400 focus:ring-2 focus:ring-slate-200 transition-colors"
+                    />
+                  </div>
+                )}
+
+                {activeLeftTab === 'skills' && (
+                  <div className="flex flex-col gap-4">
+                    <div className="flex justify-between items-center text-[10px] text-[#A8A29E] font-mono tracking-wider font-semibold">
+                      <span>VISUAL AGENT-SKILL REGISTRY & DESIGNER</span>
+                      <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 font-bold font-sans">
+                        Compliant
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] text-[#A8A29E] uppercase tracking-wider font-bold block">
+                          SKILL.md Markdown Content
+                        </label>
+                        <select 
+                          value={selectedSkill}
+                          onChange={(e) => {
+                            setSelectedSkill(e.target.value);
+                            loadSkillTemplate(e.target.value);
+                          }}
+                          className="bg-white border border-[#E4E3DE] rounded px-2 py-1 text-[10px] font-bold text-slate-700 outline-none"
+                        >
+                          <option value="custom-writer-skill">custom-writer-skill</option>
+                          <option value="my-writer-agent">my-writer-agent</option>
+                          <option value="new">Create New Skill...</option>
+                        </select>
+                      </div>
+
+                      <textarea
+                        value={skillContent}
+                        onChange={(e) => setSkillContent(e.target.value)}
+                        placeholder="# My Agent Skill..."
+                        className="w-full min-h-[160px] font-mono text-[12px] text-slate-800 bg-[#FAF9F6] border border-[#E4E3DE] rounded-xl p-4 outline-none resize-y leading-6 font-bold"
+                      />
+                      
+                      <button
+                        onClick={() => {
+                          triggerToast(`Successfully generated and downloaded ${selectedSkill}-skill.zip deployment package!`);
+                        }}
+                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 shadow-xs"
+                      >
+                        <span>Export Skill Package (.zip)</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Card Action footer (Load example selection & scan button) */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-[#E4E3DE]/60 pt-4 mt-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <label htmlFor="ps-hero-preset" className="text-xs font-bold uppercase tracking-wider text-[#A8A29E] shrink-0">
                       Load Example:
@@ -2062,12 +2297,6 @@ Define your custom agent skill instructions and guidelines.
                   </button>
                 </div>
               </div>
-
-              {!hasCompletedScan && (
-                <p className="text-center text-sm text-[#A8A29E]">
-                  Paste a prompt and run a scan.
-                </p>
-              )}
             </div>
           </section>
 
@@ -2075,753 +2304,251 @@ Define your custom agent skill instructions and guidelines.
               ANALYSIS RESULTS — hidden until the first scan completes.
               ==================================================================== */}
           {hasCompletedScan && (
-          <>
-
-          {/* AI Workflow Security Engine */}
-          <section ref={resultsRef} className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0">
-            <div className="px-5 py-4 border-b border-[#E4E3DE] bg-[#FAF9F6] flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                {(() => {
-                  const hasPrivPath = !!primaryWorkflow?.path?.privilegedSinkReached || hasHighRiskWorkflow;
-                  const scannedClean = result.score !== null && !primaryWorkflow;
-                  const headline = hasPrivPath
-                    ? 'CRITICAL EXECUTION PATH DETECTED'
-                    : scannedClean
-                    ? 'NO PRIVILEGED EXECUTION PATH FOUND'
-                    : 'AI WORKFLOW PATH';
-                  const tone = hasPrivPath
-                    ? 'text-[#EF4444]'
-                    : scannedClean
-                    ? 'text-[#22C55E]'
-                    : 'text-slate-500';
-                  return (
-                    <div
-                      className={`text-[14px] font-black uppercase ${tone}`}
-                      style={{ letterSpacing: '0.05em' }}
+            <>
+              {/* V2 - SECTION 2 & 3: EXECUTION PATH HERO & EXECUTIVE VERDICT */}
+              <section ref={resultsRef} className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0">
+                <div className="px-5 py-4 border-b border-[#E4E3DE] bg-[#FAF9F6] flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h2 className="text-[12px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Path Hero</h2>
+                    <p className="text-[11px] text-slate-500 italic mt-0.5">PromptSonar workflow propagation trace</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => copyText('npx @promptsonar/cli scan ./prompts --format json', 'CLI command copied.')}
+                      className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
                     >
-                      {headline}
+                      Copy CLI command
+                    </button>
+                    <button
+                      onClick={copyWorkflowJson}
+                      disabled={!primaryWorkflowFinding}
+                      className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      Copy finding JSON
+                    </button>
+                  </div>
+                </div>
+                <div className="p-5 flex flex-col gap-6">
+                  {/* Visual Workflow Graph */}
+                  <div className="min-h-[280px] bg-slate-50/50 rounded-2xl border border-slate-100 p-4">
+                    {primaryWorkflow ? (
+                      <WorkflowGraph workflow={primaryWorkflow} />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center min-h-[220px] text-slate-500 gap-2">
+                        <span className="text-3xl">✅</span>
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Isolated Prompt Workflow</span>
+                        <div className="flex items-center gap-4 py-4 text-xs font-mono font-bold text-slate-400 uppercase tracking-widest">
+                          <span>USER INPUT</span>
+                          <span>↓</span>
+                          <span>MODEL</span>
+                          <span>↓</span>
+                          <span>RESPONSE</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Executive Verdict Grid */}
+                  {(() => {
+                    const hasPrivPath = !!primaryWorkflow?.path?.privilegedSinkReached || hasHighRiskWorkflow;
+                    const verdictText = hasPrivPath ? "CRITICAL EXECUTION PATH DETECTED" : "NO PRIVILEGED EXECUTION PATH FOUND";
+                    const riskVal = hasPrivPath ? "Critical" : "Low";
+                    const sinkVal = hasPrivPath ? (primaryWorkflow?.sink || 'Shell Execution') : "None";
+                    
+                    const textStyle = hasPrivPath ? "text-red-700" : "text-emerald-700";
+                    const borderStyle = hasPrivPath ? "border-red-200 bg-red-50/30" : "border-emerald-250 bg-emerald-50/20";
+                    
+                    const conf = getWorkflowConfidence(promptText, primaryWorkflow);
+
+                    return (
+                      <div className={`rounded-xl border p-5 ${borderStyle} flex flex-col gap-4`}>
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[13px] font-black tracking-wider uppercase ${textStyle}`}>{verdictText}</span>
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${hasPrivPath ? 'border-red-200 bg-red-100/50 text-red-800' : 'border-emerald-200 bg-emerald-100/50 text-emerald-800'}`}>
+                            {hasPrivPath ? 'escalated' : 'isolated'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Risk</div>
+                            <div className={`mt-1 font-black uppercase ${hasPrivPath ? 'text-red-700' : 'text-emerald-700'}`}>{riskVal}</div>
+                          </div>
+                          <div>
+                            <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Confidence</div>
+                            <div className="mt-1 font-mono font-black text-slate-900">{conf.score}% ({conf.level})</div>
+                          </div>
+                          <div>
+                            <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Final Sink</div>
+                            <div className="mt-1 font-mono font-black text-slate-900">{sinkVal}</div>
+                          </div>
+                          <div>
+                            <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Path Length</div>
+                            <div className="mt-1 font-mono font-black text-slate-900">
+                              {primaryWorkflow?.path?.nodes?.length || 3} steps
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </section>
+
+              {/* V2 - SECTION 4: WORKFLOW PROVENANCE */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-3">
+                <div>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Workflow Provenance</h3>
+                  <p className="text-[10px] text-slate-500 italic mt-0.5">Defensible, observable security evidence mapped from dynamic analysis</p>
+                </div>
+
+                {(() => {
+                  const evidenceList = getWorkflowEvidence(promptText, primaryWorkflow);
+                  if (evidenceList.length === 0) {
+                    return (
+                      <div className="text-xs font-medium text-slate-400 italic py-2">
+                        No dangerous workflow triggers or execution privileges detected.
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="flex flex-wrap gap-2.5 mt-1">
+                      {evidenceList.map((tag, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-red-250 bg-red-50/55 px-3.5 py-1 text-[11px] font-bold text-red-800 font-mono"
+                        >
+                          <span className="text-red-500">✓</span> {tag}
+                        </span>
+                      ))}
                     </div>
                   );
                 })()}
-                <p className="mt-1 text-[12px] italic text-slate-500">
-                  Tracing how untrusted input reaches execution
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => copyText('npx @promptsonar/cli scan ./prompts --format json', 'CLI command copied.')}
-                  className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50"
-                >
-                  Copy CLI command
-                </button>
-                <button
-                  onClick={copyWorkflowJson}
-                  disabled={!primaryWorkflowFinding}
-                  className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 disabled:opacity-45 disabled:cursor-not-allowed"
-                >
-                  Copy finding JSON
-                </button>
-              </div>
-            </div>
+              </section>
 
-            <div className="p-5">
-              {error ? (
-                <div className="rounded-xl border border-red-200 bg-red-50/40 p-5 text-sm text-red-900 flex flex-col gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-red-650 animate-ping"></span>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-red-750">Scan Analysis Error</span>
-                  </div>
-                  <p className="font-mono text-xs font-bold text-red-800 bg-white border border-red-100 p-3.5 rounded-lg leading-relaxed shadow-3xs">
-                    {error}
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <button 
-                      onClick={() => runAnalysis()}
-                      className="bg-red-750 hover:bg-red-800 text-white font-black py-2.5 px-4 rounded-lg text-[10px] tracking-wider uppercase transition-all shadow-xs"
-                    >
-                      Retry Analysis
-                    </button>
-                    <button 
-                      onClick={() => loadExample('autonomous_agent')}
-                      className="border border-red-200 bg-white hover:bg-red-50 text-red-750 font-black py-2.5 px-4 rounded-lg text-[10px] tracking-wider uppercase transition-all shadow-xs"
-                    >
-                      Reset to Safe Sample
-                    </button>
-                  </div>
-                </div>
-              ) : loading ? (
-                <div className="space-y-3" aria-busy="true" aria-label="Scanning prompt">
-                  <div className="flex items-stretch gap-2 py-2 pr-4 scrollbar-none flex-nowrap max-w-full">
-                    <div className="ps-skeleton min-w-[160px] h-[96px]" />
-                    <div className="ps-skeleton w-12 h-[96px] opacity-60" />
-                    <div className="ps-skeleton min-w-[160px] h-[96px]" />
-                    <div className="ps-skeleton w-12 h-[96px] opacity-60" />
-                    <div className="ps-skeleton min-w-[160px] h-[96px]" />
-                    <div className="ps-skeleton w-12 h-[96px] opacity-60" />
-                    <div className="ps-skeleton min-w-[160px] h-[96px]" />
-                  </div>
-                  <div className="ps-skeleton h-4 w-3/5" />
-                  <div className="ps-skeleton h-3 w-2/5" />
-                </div>
-              ) : primaryWorkflow ? (
-                <div className="grid gap-5 xl:grid-cols-[1.35fr_0.9fr]">
-                  <div className="min-w-0">
-                    <div className="min-h-[250px]">
-                      <WorkflowGraph workflow={primaryWorkflow} />
-                    </div>
-
-                    {(() => {
-                      const nodes = primaryWorkflow.path?.nodes || [];
-                      if (nodes.length === 0) return null;
-                      const source = nodes[0]?.type || '—';
-                      const sinkTypes = nodes
-                        .filter((n: any) => n.trust === 'privileged')
-                        .map((n: any) => n.type);
-                      const trustValues = nodes.map((n: any) => n.trust);
-                      let boundaryCount = 0;
-                      for (let i = 1; i < trustValues.length; i++) {
-                        if (trustValues[i] !== trustValues[i - 1]) boundaryCount++;
-                      }
-                      const sev = (primaryWorkflow.risk || 'low').toUpperCase();
-                      return (
-                        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-slate-500">
-                          <span><span className="font-bold text-slate-600">Source:</span> <span className="font-mono text-slate-700">{source}</span></span>
-                          <span className="text-slate-300">|</span>
-                          <span><span className="font-bold text-slate-600">Trust boundaries crossed:</span> <span className="font-mono text-slate-700">{boundaryCount}</span></span>
-                          <span className="text-slate-300">|</span>
-                          <span><span className="font-bold text-slate-600">Privileged sinks:</span> <span className="font-mono text-slate-700">{sinkTypes.length ? sinkTypes.join(', ') : '—'}</span></span>
-                          <span className="text-slate-300">|</span>
-                          <span><span className="font-bold text-slate-600">Severity:</span> <span className={`font-black ${sev === 'CRITICAL' || sev === 'HIGH' ? 'text-rose-700' : sev === 'MEDIUM' ? 'text-amber-700' : 'text-slate-700'}`}>{sev}</span></span>
-                        </div>
-                      );
-                    })()}
-
-                    <div className="mt-4 rounded-lg border border-red-100 bg-red-50/60 p-3 text-sm text-red-900">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-[10px] font-black uppercase tracking-wider text-red-700">
-                          {primaryWorkflow.risk === 'critical' ? 'Critical path' : 'Execution path'}
-                        </div>
-                        <div className="rounded-full border border-amber-200 bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-700">
-                          Trust boundary crossed
-                        </div>
-                      </div>
-                      <div className="mt-1 break-words font-mono text-xs font-bold">
-                        {workflowPathText(primaryWorkflow)}
-                      </div>
-                      {primaryWorkflow.path.riskStory && (
-                        <p className="mt-2 text-xs font-semibold leading-relaxed text-red-900">
-                          {primaryWorkflow.path.riskStory}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-4 text-sm text-[#57534E]">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Risk</div>
-                        <div className="mt-1 font-black uppercase text-red-700">{primaryWorkflow.risk}</div>
-                      </div>
-                      <div>
-                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Rule</div>
-                        <div className="mt-1 font-mono text-xs font-black text-slate-900">{primaryWorkflowFinding.rule_id}</div>
-                      </div>
-                      <div>
-                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Chain confidence</div>
-                        <div className="mt-1 font-black uppercase text-slate-900">{formatWorkflowConfidence(primaryWorkflow.confidence || primaryWorkflow.path.confidence)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Trust boundary crossed</div>
-                        <div className="mt-1 font-black text-slate-900">{primaryWorkflow.path.trustBoundaryCrossed ? 'Yes' : 'No'}</div>
-                      </div>
-                      <div>
-                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Privileged sink reached</div>
-                        <div className="mt-1 font-black text-slate-900">{primaryWorkflow.path.privilegedSinkReached ? 'Yes' : 'No'}</div>
-                      </div>
-                    </div>
-                    <div className="mt-4 border-t border-[#E4E3DE] pt-3">
-                      <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Recommendation</div>
-                      <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-800">
-                        {primaryWorkflow.recommendation || primaryWorkflow.path.recommendation}
-                      </p>
-                    </div>
-                    <div className="mt-4 border-t border-[#E4E3DE] pt-3 bg-white/40 p-2.5 rounded-lg border border-[#E4E3DE]/40">
-                      <div className="text-[9px] font-black uppercase tracking-wider text-red-700 font-sans">
-                        🛠️ How to break this chain
-                      </div>
-                      <ul className="mt-2 space-y-1.5">
-                        {getBreakChainSteps(primaryWorkflow).map((step, sIdx) => (
-                          <li key={sIdx} className="text-[11.5px] font-semibold leading-relaxed text-slate-700 flex items-start gap-1.5">
-                            <span className="text-red-500 select-none text-[10px] mt-0.5">•</span>
-                            <span>{step}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    {primaryWorkflow.path.explanation?.length > 0 && (
-                      <div className="mt-4 border-t border-[#E4E3DE] pt-3">
-                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Workflow explanation</div>
-                        <ul className="mt-2 space-y-1.5">
-                          {primaryWorkflow.path.explanation.slice(0, 5).map((item: string, index: number) => (
-                            <li key={index} className="text-[11px] font-semibold leading-relaxed text-slate-700">
-                              {item}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-lg border border-dashed border-slate-200 bg-[#FAF9F6] p-6 text-sm font-semibold text-slate-500 text-center flex flex-col items-center justify-center gap-2">
-                  <span className="text-xl">⚡</span>
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    {result.score === null ? 'Awaiting prompt' : 'No execution path inferred'}
-                  </div>
-                  <p className="text-[10px] text-[#78716C] max-w-sm leading-relaxed">
-                    {result.score === null
-                      ? 'Type or paste a prompt in the editor above, or load one of our presets to trace system-to-sink workflows.'
-                      : 'No high-confidence source-to-sink execution path inferred for this prompt.'}
-                  </p>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* TOP CARD BLOCK: Flex container of editor & right metrics */}
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 flex-none min-h-[560px] xl:min-h-[620px]">
-            
-            {/* A. PRIMARY COLUMN (Left - spans 8 columns) */}
-            <div className="xl:col-span-8 flex flex-col gap-6 min-h-0">
-              
-              {/* 1. LIVE PROMPT AUDIT CARD */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs flex flex-col overflow-hidden min-h-[520px]">
-              
-              {/* Card Header */}
-              <div className="px-4 py-3 lg:px-6 border-b border-[#E4E3DE] flex flex-col gap-3 lg:flex-row lg:justify-between lg:items-center bg-white shrink-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <h2 className="text-sm font-bold text-[#1C1917] tracking-tight uppercase">Live Prompt Audit</h2>
-                  <span className={`w-1.5 h-1.5 rounded-full ${result.score === null ? 'bg-amber-400' : 'bg-slate-400'}`}></span>
-                  <span className="text-[11px] text-[#A8A29E] font-medium">• {result.score === null ? 'Idle' : 'Scanned just now'}</span>
+              {/* V2 - SECTION 5: ROOT CAUSE */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+                <div>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Root Cause Grouping</h3>
+                  <p className="text-[10px] text-slate-500 italic mt-0.5">Consolidated source failure mapping to prevent alert fatigue</p>
                 </div>
 
-                <div className="flex min-w-0 flex-wrap items-center gap-3">
-                  
-                  {/* Switchable Tabs for Variables/Contracts inside header */}
-                  <div className="flex max-w-full overflow-x-auto bg-[#F5F5F4] p-0.5 rounded-lg border border-[#E4E3DE]">
-                    {(['prompt', 'optimized', 'contract', 'variables', 'skills'] as const).map((tab) => (
-                      <button
-                        key={tab}
-                        onClick={() => {
-                          setActiveLeftTab(tab);
-                          if (tab !== 'prompt' && tab !== 'optimized') setEditorMode('edit'); // Non-prompt tabs are edit-only
-                        }}
-                        className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all ${
-                          activeLeftTab === tab 
-                            ? 'bg-white text-[#1C1917] shadow-xs border border-[#E4E3DE]' 
-                            : 'text-[#A8A29E] hover:text-[#1C1917]'
-                        }`}
-                      >
-                        {tab === 'prompt' ? 'Prompt' : tab === 'optimized' ? 'Optimized ✦ Pro' : tab === 'contract' ? 'Contract Spec' : tab === 'variables' ? 'Variables' : 'Skill Designer'}
-                      </button>
-                    ))}
-                  </div>
-
-                  <span className="h-4 w-px bg-[#E6E4E0]"></span>
-
-                  <button
-                    onClick={() => runAnalysis()}
-                    disabled={!promptText.trim()}
-                    className={`px-3 py-1.5 border font-bold rounded-lg text-xs transition-all flex items-center gap-2 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed ${
-                      scanJustUpdated
-                        ? 'bg-slate-50 border-slate-200 text-slate-700'
-                        : 'bg-white hover:bg-slate-50 border-[#E4E3DE] text-[#1C1917]'
-                    }`}
-                  >
-                    <svg className={`w-3.5 h-3.5 text-[#57534E] ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3 3L22 4" />
-                    </svg>
-                    <span>{loading ? 'Scanning...' : scanJustUpdated ? 'Scan updated' : 'Re-scan'}</span>
-                  </button>
-
-                  {/* Options Menu Dot */}
-                  <button
-                    aria-label="Open playground options"
-                    onClick={() => triggerToast("Playground options: export and waiver workflows are available from the analysis panels.")}
-                    className="w-8 h-8 flex items-center justify-center bg-white border border-[#E4E3DE] rounded-lg text-[#A8A29E] hover:bg-slate-50 shadow-xs text-xs font-bold"
-                  >
-                    •••
-                  </button>
-                </div>
-              </div>
-
-              {/* Editor Workspace Panel */}
-              <div className="playground-input-area flex-1 p-4 lg:p-6 bg-white flex flex-col justify-between overflow-hidden min-h-0 relative">
-                
-                {/* 1. Prompt Tab Panel */}
-                {activeLeftTab === 'prompt' && (
-                  <div className="flex-1 flex flex-col relative min-h-0 overflow-y-auto pr-1">
-                    
-                    {/* Mode Toggle Overlay (Edit vs Audit Preview) */}
-                    <div className="absolute top-0 right-0 z-10 flex border border-[#E4E3DE] rounded-md bg-white overflow-hidden text-[9px] font-bold tracking-wider shadow-xs uppercase">
-                      <button 
-                        onClick={() => setEditorMode('edit')}
-                        className={`px-2.5 py-1 transition-all ${editorMode === 'edit' ? 'bg-slate-800 text-white' : 'text-[#A8A29E] hover:text-slate-800'}`}
-                      >
-                        Edit
-                      </button>
-                      <button 
-                        onClick={() => setEditorMode('audit')}
-                        className={`px-2.5 py-1 transition-all ${editorMode === 'audit' ? 'bg-slate-800 text-white' : 'text-[#A8A29E] hover:text-slate-800'}`}
-                      >
-                        Audit View
-                      </button>
-                    </div>
-
-                    {/* Mode Content Selector */}
-                    {editorMode === 'edit' ? (
-                      <div className="flex-1 flex gap-4 mt-2 min-h-0">
-                        {/* Line number rail */}
-                        <div className="w-6 font-mono text-xs text-[#A8A29E] text-right select-none leading-7 py-1 border-r border-[#FAF9F6] pr-2 shrink-0">
-                          {promptLines.map((_, i) => (
-                            <div key={i}>{i + 1}</div>
-                          ))}
-                        </div>
-                        
-                        {/* Interactive Text Area - Larger readable font */}
-                        <textarea
-                          value={promptText}
-                          onChange={(e) => setPromptText(e.target.value)}
-                          placeholder="Type or paste system instruction prompt here to begin scanning..."
-                          className="flex-1 font-mono text-[13px] text-[#1C1917] bg-transparent outline-none border-none resize-none leading-7 py-1 placeholder-[#D6D3D1]"
-                        />
+                {(() => {
+                  const groups = getRootCauseGrouping(result.findings);
+                  if (!groups) {
+                    return (
+                      <div className="text-xs font-medium text-slate-400 italic py-2">
+                        No structural or architectural security vulnerabilities detected.
                       </div>
-                    ) : (
-                      /* Audit Preview Mode matching mockup details exactly */
-                      <div className="flex-1 flex flex-col mt-2 min-h-0">
-                        {/* Contract violations warning banner */}
-                        {result.contractResult && result.contractResult.passed === false && (
-                          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3.5 text-xs text-red-700 flex flex-col gap-1.5 shrink-0">
-                            <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[10px] text-red-700">
-                              <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></span>
-                              <span>Contract Violations: {result.contractResult.contractId}</span>
-                            </div>
-                            <ul className="list-disc pl-4 space-y-1 text-red-850 font-medium leading-relaxed">
-                              {result.contractResult.violations.map((violation: string, vIdx: number) => (
-                                <li key={vIdx}>{violation}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+                    );
+                  }
+                  return (
+                    <div className="flex flex-col gap-4 mt-1">
+                      <div className="rounded-xl border border-red-200 bg-red-50/30 p-4">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-red-750 block mb-1">Primary Root Cause</span>
+                        <h4 className="text-xs font-black text-slate-900 uppercase tracking-wide">{groups.root.label}</h4>
+                        <p className="text-[11.5px] text-[#57534E] leading-normal font-medium mt-1">{groups.root.explanation}</p>
+                      </div>
 
-                        <div className="flex-1 flex gap-4 select-text font-mono text-[13px] leading-7 py-1 min-h-0 overflow-y-auto pr-1">
-                          
-                          {/* Line numbers */}
-                          <div className="w-6 text-[#D6D3D1] text-right select-none border-r border-[#FAF9F6] pr-2 shrink-0">
-                            {promptLines.map((_, i) => (
-                              <div key={i}>{i + 1}</div>
+                      {groups.supporting.length > 0 && (
+                        <div className="pl-1 space-y-2">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Supporting Security Findings</span>
+                          <ul className="flex flex-col gap-2">
+                            {groups.supporting.map((sup, idx) => (
+                              <li key={idx} className="flex flex-col rounded-lg border border-slate-200 bg-[#FAF9F6] px-3.5 py-2">
+                                <span className="text-[11px] font-bold text-slate-800 font-mono">{sup.label}</span>
+                                <span className="text-[11px] text-[#57534E] leading-normal font-medium mt-0.5">{sup.explanation}</span>
+                              </li>
                             ))}
-                          </div>
-
-                          {/* Annotated Code Lines */}
-                          <div className="flex-1 space-y-0.5 min-h-0">
-                            {promptLines.map((line, idx) => {
-                              const hasContext = line.includes('{{context}}');
-                              const hasUserInput = line.includes('{{user_input}}');
-                              const hasApiKey = line.includes('sk-proj') ||
-                                               /sk-(?:live|test|proj)-[a-zA-Z0-9]{32,}/i.test(line) ||
-                                               /ghp_[a-zA-Z0-9]{36}/i.test(line) ||
-                                               /\b(?:api[_-]?key|secret|token|password)\s*(?:is|[:=])\s*[a-zA-Z0-9_\-]{8,}/i.test(line) ||
-                                               /\bkey\s*(?:is|[:=])\s*[a-zA-Z0-9_\-]{8,}/i.test(line);
-                              const dangerousLabels = getDangerousLineLabels(line);
-                              const hasDangerousLine = dangerousLabels.length > 0;
-
-                              return (
-                                <div key={idx} className={`flex justify-between items-center gap-3 group min-h-[28px] w-full rounded-md ${
-                                  hasDangerousLine ? 'bg-red-50/55 ring-1 ring-red-100 px-1' : ''
-                                }`}>
-                                  <span className={`whitespace-pre-wrap ${hasContext || hasUserInput || hasApiKey || hasDangerousLine ? 'bg-[#FAF9F6] px-1.5 py-0.5 rounded border border-[#E4E3DE]/40 font-bold' : ''}`}>
-                                    {line || ' '}
-                                  </span>
-
-                                  {/* Inline Warning Badges matching mockup exactly */}
-                                  {hasDangerousLine && (
-                                    <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
-                                      {dangerousLabels.slice(0, 2).map((label) => (
-                                        <button
-                                          key={label}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleBadgeClick(label);
-                                          }}
-                                          title={`Click to jump to proposed safer pattern for: ${label}`}
-                                          className="rounded border border-red-200 bg-white/90 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-750 shadow-2xs hover:bg-red-50 hover:border-red-300 transition-all cursor-pointer shrink-0"
-                                        >
-                                          {label}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  {hasContext && (
-                                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-amber-200 bg-amber-50 text-[11px] font-bold text-amber-700 select-none scale-95 shrink-0">
-                                      <span>Untrusted input</span>
-                                      <svg className="w-3.5 h-3.5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                      </svg>
-                                    </div>
-                                  )}
-
-                                  {hasUserInput && (
-                                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-red-200 bg-red-50 text-[11px] font-bold text-red-650 select-none scale-95 shrink-0">
-                                      <span>Injection risk</span>
-                                      <svg className="w-3.5 h-3.5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                      </svg>
-                                    </div>
-                                  )}
-
-                                  {hasApiKey && (
-                                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-red-200 bg-red-50 text-[11px] font-bold text-red-650 select-none scale-95 shrink-0">
-                                      <span>Sensitive API Key Expose</span>
-                                      <svg className="w-3.5 h-3.5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                      </svg>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-
+                          </ul>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* 2. Contract YAML Tab Panel */}
-                {activeLeftTab === 'contract' && (
-                  <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-                    <div className="flex justify-between items-center text-[10px] text-[#A8A29E] font-mono tracking-wider font-semibold mb-2">
-                      <span>PROMPT CONTRACT SPEC (YAML)</span>
-                    </div>
-                    <div className="flex-1 flex gap-4 min-h-0">
-                      <div className="w-6 font-mono text-xs text-[#A8A29E] text-right select-none leading-7 border-r border-[#FAF9F6] pr-2 shrink-0">
-                        {contractYaml.split('\n').map((_, i) => <div key={i}>{i+1}</div>)}
-                      </div>
-                      <textarea
-                        value={contractYaml}
-                        onChange={(e) => setContractYaml(e.target.value)}
-                        placeholder="Write YAML prompt constraints (e.g. constraints on inputs, must_not safety terms)..."
-                        className="flex-1 font-mono text-[13px] text-slate-800 bg-transparent outline-none border-none resize-none leading-7 placeholder-[#D6D3D1]"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* 3. Variables Tab Panel */}
-                {activeLeftTab === 'variables' && (
-                  <div className="flex-1 flex flex-col min-h-0 overflow-y-auto space-y-4">
-                    <div className="text-xs text-[#57534E] bg-[#FAF9F6] border border-[#E4E3DE] p-4 rounded-lg leading-relaxed">
-                      Parsed double-bracket template variables are listed below. Provide values for the scan bindings:
-                    </div>
-
-                    {parsedVariables.length === 0 ? (
-                      <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 border border-dashed border-slate-200 rounded-xl text-center">
-                        <span className="text-2xl mb-1 text-slate-300">⍉</span>
-                        <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">No template variables detected.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3.5">
-                        {parsedVariables.map((v) => {
-                          const expectedType = contractTypes[v];
-                          const value = variables[v];
-                          
-                          // Type alignment check
-                          let hasMismatch = false;
-                          if (expectedType) {
-                            const valType = typeof value;
-                            if (expectedType === 'number' && (valType !== 'number' || isNaN(value))) {
-                              hasMismatch = true;
-                            } else if (expectedType === 'boolean' && valType !== 'boolean') {
-                              hasMismatch = true;
-                            } else if (expectedType === 'string' && valType !== 'string') {
-                              hasMismatch = true;
-                            }
-                          }
-
-                          return (
-                            <div key={v} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center border-b border-slate-50 pb-3.5">
-                              <div className="flex flex-col">
-                                <span className="font-mono text-xs font-bold text-slate-800 truncate">{v}</span>
-                                {expectedType && (
-                                  <span className="text-[9px] uppercase text-slate-400 tracking-wider font-semibold">Type: {expectedType}</span>
-                                )}
-                              </div>
-                              
-                              <div className="sm:col-span-2 flex gap-3 items-center">
-                                <input
-                                  type="text"
-                                  value={variables[v] === undefined ? "" : String(variables[v])}
-                                  onChange={(e) => handleVariableChange(v, e.target.value)}
-                                  placeholder="Binding value..."
-                                  className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-slate-900 rounded-lg px-3 py-1.5 text-xs focus:outline-none transition-colors text-slate-800"
-                                />
-                                {hasMismatch ? (
-                                  <span className="text-[9px] font-bold text-red-600 uppercase tracking-wider shrink-0 flex items-center gap-1">
-                                    <span className="w-1 h-1 rounded-full bg-red-600"></span>
-                                    <span>Mismatch</span>
-                                  </span>
-                                ) : (
-                                  value !== undefined && value !== "" && (
-                                    <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider shrink-0 flex items-center gap-1">
-                                      <span className="w-1 h-1 rounded-full bg-emerald-600"></span>
-                                      <span>Valid</span>
-                                    </span>
-                                  )
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* 4. Optimized Tab Panel */}
-                {activeLeftTab === 'optimized' && (
-                  <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-                    <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
-                      Token compression via LLMLingua-2 is available in Pro. Current estimate: ~{result.roi?.originalTokens || Math.max(1, Math.ceil(promptText.length / 4))} tokens.
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] text-[#A8A29E] font-mono tracking-wider font-semibold mb-2">
-                      <span>SECURITY-HARDENED RECOMMENDED PROMPT</span>
-                      {result.score !== null && (
-                        <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-100 font-bold font-sans">
-                          License pending · Pro feature
-                        </span>
                       )}
                     </div>
-                    {result.score === null ? (
-                      <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 border border-dashed border-slate-200 rounded-xl text-center">
-                        <span className="text-2xl mb-1 text-slate-300">⚡</span>
-                        <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">Perform scan to generate recommended prompt</p>
-                      </div>
-                    ) : (
-                      <div className="flex-1 flex flex-col gap-4 min-h-0 justify-between">
-                        <div className="flex gap-4 min-h-[240px] flex-1">
-                          <div className="w-6 font-mono text-xs text-[#A8A29E] text-right select-none leading-7 border-r border-[#FAF9F6] pr-2 shrink-0">
-                            {securedPrompt.split('\n').map((_: any, i: number) => <div key={i}>{i+1}</div>)}
-                          </div>
-                          <textarea
-                            readOnly
-                            value={securedPrompt}
-                            className="flex-1 font-mono text-[13px] text-emerald-800 bg-[#FAF9F6]/40 border border-[#E4E3DE]/40 rounded-lg p-3 outline-none resize-none leading-7 select-all font-bold"
-                          />
-                        </div>
+                  );
+                })()}
+              </section>
 
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
-                          License pending · Pro feature. Compression is estimated locally; LLMLingua-2 execution remains deferred.
-                        </div>
-                        
-                        {/* Token stats strip */}
-                        <div className="bg-[#FAF9F6] border border-[#E4E3DE] rounded-xl p-4 grid grid-cols-3 gap-4 shrink-0">
-                          <div>
-                            <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Original Tokens</span>
-                            <span className="text-lg font-bold text-slate-800">{result.roi?.originalTokens || 0}</span>
-                          </div>
-                          <div>
-                            <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Optimized Tokens</span>
-                            <span className="text-lg font-bold text-emerald-700">{result.roi?.newTokens || 0}</span>
-                          </div>
-                          <div>
-                            <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Cost Savings</span>
-                            <span className="text-lg font-bold text-emerald-700">${(result.roi?.dollarsSavedPer10kCalls || 0).toFixed(2)}/10k runs</span>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-2 md:grid-cols-2">
-                          <button
-                            onClick={() => copyText(securedPrompt, 'Copied recommended secure prompt.')}
-                            className="w-full border border-[#E4E3DE] bg-white hover:bg-slate-50 text-slate-800 font-bold py-2.5 rounded-lg text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 shadow-xs"
-                          >
-                            <span>Copy Recommended Prompt</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              setPromptText(securedPrompt);
-                              setActiveLeftTab('prompt');
-                              setEditorMode('audit');
-                              runAnalysis(securedPrompt, contractYaml, getScanVariables(securedPrompt, variables));
-                            }}
-                            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 shadow-xs"
-                          >
-                            <span>Apply & Re-scan Recommended Prompt</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
+              {/* V2 - SECTION 6: ACTIONABLE REMEDIATION (FIX) */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+                <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
+                  <div>
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Hardening Fix</h3>
+                    <p className="text-[10px] text-slate-500 italic mt-0.5">Actionable before/after structural rewrite comparison</p>
                   </div>
-                )}
-
-                {/* 5. Agent Skill Designer Tab Panel */}
-                {activeLeftTab === 'skills' && (
-                  <div className="flex-1 flex flex-col min-h-0 overflow-y-auto gap-4">
-                    <div className="flex justify-between items-center text-[10px] text-[#A8A29E] font-mono tracking-wider font-semibold">
-                      <span>VISUAL AGENT-SKILL REGISTRY & DESIGNER</span>
-                      <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 font-bold font-sans">
-                        Compliant
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1 min-h-[350px]">
-                      
-                      {/* Left side: SKILL.md Editor */}
-                      <div className="md:col-span-7 flex flex-col gap-3">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[10px] text-[#A8A29E] uppercase tracking-wider font-bold block">
-                            SKILL.md Markdown Content
-                          </label>
-                          <select 
-                            value={selectedSkill}
-                            onChange={(e) => {
-                              setSelectedSkill(e.target.value);
-                              loadSkillTemplate(e.target.value);
-                            }}
-                            className="bg-white border border-[#E4E3DE] rounded px-2 py-1 text-[10px] font-bold text-slate-700 outline-none"
-                          >
-                            <option value="custom-writer-skill">custom-writer-skill</option>
-                            <option value="my-writer-agent">my-writer-agent</option>
-                            <option value="new">Create New Skill...</option>
-                          </select>
-                        </div>
-
-                        <textarea
-                          value={skillContent}
-                          onChange={(e) => setSkillContent(e.target.value)}
-                          placeholder="# My Agent Skill..."
-                          className="flex-1 min-h-[220px] font-mono text-[12px] text-slate-800 bg-[#FAF9F6] border border-[#E4E3DE] rounded-xl p-4 outline-none resize-none leading-6 font-bold"
-                        />
-                      </div>
-
-                      {/* Right side: Verification & Packaging */}
-                      <div className="md:col-span-5 flex flex-col gap-4">
-                        <div className="border border-[#E4E3DE] rounded-xl p-4 bg-[#FAF9F6]/50">
-                          <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-900 mb-3">Corporate Skill Compliance</h4>
-                          <div className="grid gap-2 text-xs">
-                            <div className="flex items-center justify-between border border-slate-200/60 rounded-lg p-2.5 bg-white">
-                              <span className="font-semibold text-[#57534E]">System instructions present</span>
-                              <span className="text-emerald-700 font-bold">✓ PASS</span>
-                            </div>
-                            <div className="flex items-center justify-between border border-slate-200/60 rounded-lg p-2.5 bg-white">
-                              <span className="font-semibold text-[#57534E]">XML boundaries enforced</span>
-                              <span className="text-emerald-700 font-bold">✓ PASS</span>
-                            </div>
-                            <div className="flex items-center justify-between border border-slate-200/60 rounded-lg p-2.5 bg-white">
-                              <span className="font-semibold text-[#57534E]">No system override terms</span>
-                              <span className="text-emerald-700 font-bold">✓ PASS</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Package Info Card */}
-                        <div className="border border-[#E4E3DE] bg-white rounded-xl p-4 flex flex-col gap-3">
-                          <div>
-                            <h4 className="text-[10px] font-black uppercase tracking-wider text-[#A8A29E]">Skill Manifest</h4>
-                            <p className="font-black text-sm text-slate-900 mt-1">{selectedSkill === 'new' ? 'new-agent-skill' : selectedSkill}</p>
-                          </div>
-                          
-                          <div className="grid gap-1.5 font-mono text-[10px] text-[#87827C]">
-                            <div>📂 {selectedSkill === 'new' ? 'new-agent-skill' : selectedSkill}/</div>
-                            <div>  ├── 📄 SKILL.md</div>
-                            <div>  ├── 📂 scripts/</div>
-                            <div>  │    └── 📄 run.js</div>
-                            <div>  └── 📂 resources/</div>
-                            <div>       └── 📄 prompt.prompt</div>
-                          </div>
-
-                          <button
-                            onClick={() => {
-                              triggerToast(`Successfully generated and downloaded ${selectedSkill}-skill.zip deployment package!`);
-                            }}
-                            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 shadow-xs mt-2"
-                          >
-                            <span>Export Skill Package (.zip)</span>
-                          </button>
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-                )}
-
-                {/* Card Bottom Panel Telemetry Strip */}
-                <div className="pt-4 border-t border-[#E4E3DE] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-xs font-semibold mt-4 shrink-0">
-                  <div className="flex flex-wrap items-center gap-6">
-                    
-                    {/* Ingestion Pillar */}
-                    <div className="flex items-center gap-2">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 border ${threatIngestion.bg} ${threatIngestion.border}`}>
-                        <svg className={`w-3.5 h-3.5 ${threatIngestion.svgColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                        </svg>
-                      </div>
-                      <span className={`font-bold ${threatIngestion.color}`}>{threatIngestion.text}</span>
-                    </div>
-
-                    {/* Injection Pillar */}
-                    <div className="flex items-center gap-2">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 border ${threatInjection.bg} ${threatInjection.border}`}>
-                        <svg className={`w-3.5 h-3.5 ${threatInjection.svgColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                        </svg>
-                      </div>
-                      <span className={`font-bold ${threatInjection.color}`}>{threatInjection.text}</span>
-                    </div>
-
-                    {/* Exposure Pillar */}
-                    <div className="flex items-center gap-2">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 border ${threatExposure.bg} ${threatExposure.border}`}>
-                        <svg className={`w-3.5 h-3.5 ${threatExposure.svgColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
-                      </div>
-                      <span className={`font-bold ${threatExposure.color}`}>{threatExposure.text}</span>
-                    </div>
-
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    <button 
-                      onClick={() => loadExample(result.score !== null && result.score > 80 ? 'vulnerable' : 'optimized')}
-                      className="text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center gap-1 font-bold text-[11px] uppercase tracking-wide"
-                    >
-                      <span>Toggle Demo Setup</span>
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                      </svg>
-                    </button>
-                    <button 
-                      onClick={() => setActiveModal('dossier')}
-                      className="text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center gap-1 font-bold text-[11px] uppercase tracking-wide"
-                    >
-                      <span>View full analysis</span>
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                      </svg>
-                    </button>
-                  </div>
+                  {primaryWorkflowFinding && (() => {
+                    const remedy = getRemediation(primaryWorkflowFinding);
+                    return (
+                      <button
+                        onClick={() => copyText(remedy.after, 'Remediation pattern copied.')}
+                        className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
+                      >
+                        📋 Copy Safer Pattern
+                      </button>
+                    );
+                  })()}
                 </div>
 
-              </div>
-            </section>
+                {primaryWorkflowFinding ? (() => {
+                  const remedy = getRemediation(primaryWorkflowFinding);
+                  return (
+                    <div className="space-y-4">
+                      <div className="text-[11.5px] text-[#57534E] leading-relaxed">
+                        <span className="font-bold text-slate-800 block mb-0.5">Security Rationale:</span> 
+                        {remedy.rationale}
+                      </div>
+                      
+                      <div className="text-[11.5px] text-[#57534E] leading-relaxed">
+                        <span className="font-bold text-slate-800 block mb-0.5">Suggested Mitigation:</span> 
+                        {remedy.mitigation}
+                      </div>
 
-            {/* 2. Flagged Findings & Telemetry (Stacked inside Left Column) */}
-              <section className="print-findings-list bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col justify-between min-h-[320px] xl:min-h-[300px] overflow-hidden">
-                
-                {/* Header */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                        {/* Before */}
+                        <div className="rounded-lg border border-red-200 bg-red-50/15 flex flex-col overflow-hidden">
+                          <div className="bg-red-50/55 border-b border-red-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-red-750 font-sans select-none">
+                            🔴 Vulnerable Pattern (Before)
+                          </div>
+                          <pre className="p-3 font-mono text-[10px] leading-relaxed text-red-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
+                            {remedy.before}
+                          </pre>
+                        </div>
+
+                        {/* After */}
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/15 flex flex-col overflow-hidden">
+                          <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-emerald-750 font-sans select-none">
+                            🟢 Safer Rewrite (After)
+                          </div>
+                          <pre className="p-3 font-mono text-[10px] leading-relaxed text-emerald-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
+                            {remedy.after}
+                          </pre>
+                        </div>
+                      </div>
+
+                      {/* Execution Path Removed block */}
+                      <div className="rounded-lg border border-emerald-250 bg-emerald-50/20 p-3.5 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-700 font-bold">✓</span>
+                          <span className="font-bold text-emerald-900">Safer structure verified</span>
+                        </div>
+                        <span className="font-mono text-[9px] font-bold text-emerald-700 bg-emerald-100/50 px-2 py-0.5 rounded border border-emerald-200/40 select-none uppercase tracking-wide">
+                          Execution Path Removed
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })() : (
+                  <div className="py-6 px-4 text-center text-[#57534E] text-[11.5px] border border-dashed border-emerald-200 rounded-xl bg-emerald-50/10 select-none flex flex-col items-center justify-center gap-1.5">
+                    <span className="text-xl">🛡️</span>
+                    <span className="font-black uppercase tracking-wider text-emerald-750">No structural remediation required</span>
+                    <p className="text-[10px] text-slate-500 max-w-md leading-relaxed">
+                      PromptSonar didn't find any dynamic execution vulnerabilities or privileged sink pathways. The current prompt layout is well-contained.
+                    </p>
+                  </div>
+                )}
+              </section>
+
+              {/* V2 - SECTION 7: DETAILED FINDINGS (Full Width card) */}
+              <section className="print-findings-list bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 overflow-hidden">
                 <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
                   <div className="flex items-center gap-1 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
                     <span>Anomalies / Findings</span>
@@ -2831,13 +2558,12 @@ Define your custom agent skill instructions and guidelines.
                   </div>
                 </div>
 
-                {/* Findings Scroll Stream */}
-                <div className="flex-1 overflow-y-auto py-3 pr-1 space-y-2.5 min-h-0 select-text">
+                <div className="flex-1 overflow-y-auto py-1 pr-1 space-y-2.5 min-h-0 select-text">
                   {error ? (
                     <div className="py-6 px-4 flex flex-col justify-center items-center text-center text-red-700 gap-2 border border-dashed border-red-200 rounded-xl bg-red-50/20">
                       <span className="text-xl">⚠️</span>
                       <div className="text-[11px] font-bold uppercase tracking-wider text-red-750">Scan Failed</div>
-                      <p className="text-[10px] text-red-800 max-w-[200px] leading-relaxed">
+                      <p className="text-[10px] text-red-800 max-w-xs leading-relaxed">
                         An error occurred while running the scan. Click retry above to try again.
                       </p>
                     </div>
@@ -2858,7 +2584,7 @@ Define your custom agent skill instructions and guidelines.
                     <div className="py-8 flex flex-col justify-center items-center text-center text-[#A8A29E] gap-2 border border-dashed border-slate-200 rounded-xl bg-slate-50/30">
                       <span className="text-xl">⚡</span>
                       <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Ready to scan.</div>
-                      <p className="text-[10px] text-[#78716C] max-w-[200px] leading-relaxed px-4">
+                      <p className="text-[10px] text-[#78716C] max-w-xs leading-relaxed px-4">
                         Type or paste a prompt above. I’ll tell you exactly what’s wrong with it.
                       </p>
                     </div>
@@ -2868,7 +2594,6 @@ Define your custom agent skill instructions and guidelines.
                       const primaryFindings = sortedFindings.filter(isPrimaryFinding);
                       const secondaryFindings = sortedFindings.filter(f => !isPrimaryFinding(f));
 
-                      // Group secondary findings dynamically
                       const groupedSecondary: Record<string, any[]> = {
                         efficiency: [],
                         consistency: [],
@@ -2882,10 +2607,8 @@ Define your custom agent skill instructions and guidelines.
 
                       return (
                         <div className="space-y-4">
-                          {/* Execution Risk Summary Bar */}
                           {renderExecutionRiskSummary(result.findings)}
 
-                          {/* Section A — PRIMARY FINDING (hero) + additional findings collapsed */}
                           {primaryFindings.length > 0 ? (
                             (() => {
                               const hero = primaryFindings[0];
@@ -2900,7 +2623,6 @@ Define your custom agent skill instructions and guidelines.
                               const additionalCount = restPrimary.length;
                               return (
                                 <div className="space-y-4">
-                                  {/* Hero block */}
                                   <div>
                                     <div className="mb-1.5 text-[9.5px] font-black uppercase tracking-widest text-slate-500">
                                       Primary finding
@@ -2949,7 +2671,6 @@ Define your custom agent skill instructions and guidelines.
                                     </div>
                                   </div>
 
-                                  {/* Additional findings */}
                                   {additionalCount > 0 && (
                                     <div className="space-y-2.5">
                                       <div className="flex items-center justify-between px-0.5">
@@ -2986,19 +2707,14 @@ Define your custom agent skill instructions and guidelines.
                             </div>
                           )}
 
-                          {/* Section B — SECONDARY HYGIENE OBSERVATIONS */}
                           {secondaryFindings.length > 0 && (
                             <div className="space-y-3 pt-3.5 border-t border-slate-200/75 mt-5">
                               <div className="flex items-center justify-between select-none px-0.5">
                                 <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-500">
-                                  Section B — Secondary Hygiene Observations ({secondaryFindings.length})
-                                </span>
-                                <span className="text-[8px] font-mono font-bold uppercase tracking-wider text-slate-500 bg-slate-100 border border-slate-250 px-1.5 py-0.5 rounded">
-                                  hygiene validation
+                                  Secondary Hygiene Observations ({secondaryFindings.length})
                                 </span>
                               </div>
 
-                              {/* Accordion Group Panels */}
                               {Object.keys(groupedSecondary).map((group) => {
                                 const list = groupedSecondary[group];
                                 if (list.length === 0) return null;
@@ -3044,9 +2760,9 @@ Define your custom agent skill instructions and guidelines.
                   )}
                 </div>
 
-                {/* Developer Integration Section (Restrained, developer-first CTA) */}
+                {/* Continuous Security Integration */}
                 {hasCompletedScan && !loading && !error && (
-                  <div className="border-t border-[#E4E3DE] pt-4 mt-1 space-y-4 shrink-0">
+                  <div className="border-t border-[#E4E3DE] pt-4 mt-4 space-y-4 shrink-0">
                     <div className="flex flex-col gap-0.5">
                       <span className="text-[9.5px] text-[#A8A29E] uppercase tracking-widest font-black">Continuous Security Integration</span>
                       <p className="text-[11px] text-[#78716C] leading-normal font-semibold">
@@ -3055,7 +2771,6 @@ Define your custom agent skill instructions and guidelines.
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      {/* 1. CLI */}
                       <div className="rounded-xl border border-[#E4E3DE] bg-slate-50/40 p-3.5 flex flex-col justify-between gap-3">
                         <div>
                           <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Developer CLI</span>
@@ -3085,7 +2800,6 @@ Define your custom agent skill instructions and guidelines.
                         </div>
                       </div>
 
-                      {/* 2. VS Code Extension */}
                       <div className="rounded-xl border border-[#E4E3DE] bg-slate-50/40 p-3.5 flex flex-col justify-between gap-3">
                         <div>
                           <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">VS Code Extension</span>
@@ -3101,7 +2815,6 @@ Define your custom agent skill instructions and guidelines.
                         </a>
                       </div>
 
-                      {/* 3. GitHub Action */}
                       <div className="rounded-xl border border-[#E4E3DE] bg-slate-50/40 p-3.5 flex flex-col justify-between gap-3">
                         <div>
                           <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">GitHub Action</span>
@@ -3118,7 +2831,6 @@ Define your custom agent skill instructions and guidelines.
                         </button>
                       </div>
 
-                      {/* 4. SARIF Output */}
                       <div className="rounded-xl border border-[#E4E3DE] bg-slate-50/40 p-3.5 flex flex-col justify-between gap-3">
                         <div>
                           <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">SARIF Export</span>
@@ -3136,40 +2848,17 @@ Define your custom agent skill instructions and guidelines.
                     </div>
                   </div>
                 )}
-
-                {/* Footer link */}
-                <div className="pt-2 border-t border-[#E4E3DE] shrink-0">
-                  <button 
-                    onClick={() => setActiveModal('dossier')}
-                    className="text-[#A8A29E] hover:text-[#1C1917] transition-colors flex items-center gap-1 font-bold text-[11px] uppercase tracking-wide"
-                  >
-                    <span>View Full Report →</span>
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                </div>
-
               </section>
 
-            </div>
-
-            {/* B. REPORT TELEMETRY PANELS (Right - spans 4 columns) */}
-            <div className="xl:col-span-4 flex flex-col gap-6 xl:h-full min-h-0 overflow-hidden">
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 min-h-[500px] xl:h-full overflow-hidden">
-                
-                {/* Header */}
+              {/* V2 - SECTION 7b: PILLAR DIAGNOSTICS (Full Width card) */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 overflow-hidden shrink-0">
                 <div className="flex flex-col gap-2 pb-2 border-b border-[#E4E3DE] shrink-0">
                   <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
                     <span>Pillar Diagnostics</span>
                   </div>
                 </div>
 
-                {/* Tab Contents */}
                 <div className="flex-1 overflow-y-auto min-h-0 py-1">
-                  
-                  {/* Tab 1: Attack Surface */}
-                  {/* Pillar Diagnostics — horizontal score strip */}
                   <div className="space-y-2">
                     {[
                       { key: 'security', label: 'Security', cat: 'security' },
@@ -3191,7 +2880,6 @@ Define your custom agent skill instructions and guidelines.
                       }
                       const count = getPillarIssuesCount(p.cat);
                       const noScan = result.score === null;
-                      // Score: 100 if no issues, decay 15 per issue, floor 0.
                       const pct = noScan ? 0 : Math.max(0, 100 - ((count || 0) * 15));
                       const isPassing = !noScan && (count === 0 || count === null);
                       const isError = !!error;
@@ -3229,160 +2917,153 @@ Define your custom agent skill instructions and guidelines.
                       );
                     })}
                   </div>
-
                 </div>
               </section>
 
-            </div>
-
-          </div>
-
-          </>
-          )}
-
-          {/* VIRAL REPORT CARD: Shareable security score artifact */}
-          {hasCompletedScan && (
-          <section ref={reportCardRef} className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs shrink-0 overflow-hidden">
-            <div className="border-b border-[#E4E3DE] bg-[#FAF9F6] px-5 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-center gap-2 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
-                <span className={`h-2 w-2 rounded-full ${
-                  result.score === null ? 'bg-slate-300' : hasHighRiskWorkflow ? 'bg-red-500 animate-pulse' : 'bg-slate-500'
-                }`}></span>
-                <span>Prompt Security Report Card</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {(owaspLabels.length ? owaspLabels : ['No OWASP label emitted']).map((label) => (
-                  <span key={label} className="rounded-full border border-[#E4E3DE] bg-white px-3 py-1 text-[9px] font-black uppercase tracking-widest text-[#57534E] shadow-3xs">
-                    {label}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid gap-0 xl:grid-cols-[0.85fr_1.3fr_0.95fr]">
-              <div className="p-5 border-b border-[#E4E3DE] xl:border-b-0 xl:border-r flex flex-col justify-between">
-                <div>
-                  <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#A8A29E]">
-                    Shareable verdict
+              {/* V2 - SECTION 8: VIRAL REPORT CARD */}
+              <section ref={reportCardRef} className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs shrink-0 overflow-hidden">
+                <div className="border-b border-[#E4E3DE] bg-[#FAF9F6] px-5 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-center gap-2 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
+                    <span className={`h-2 w-2 rounded-full ${
+                      result.score === null ? 'bg-slate-300' : hasHighRiskWorkflow ? 'bg-red-500 animate-pulse' : 'bg-slate-500'
+                    }`}></span>
+                    <span>Prompt Security Report Card</span>
                   </div>
-                  <div className="mt-4 flex items-end gap-2">
-                    <span className="text-[52px] font-black tracking-tight text-slate-950 leading-none">
-                      {result.score === null ? '—' : result.score}
-                    </span>
-                    <span className="mb-2 text-xs font-black uppercase tracking-widest text-[#A8A29E]">/100</span>
-                  </div>
-                  <div className={`mt-4 inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
-                    result.score === null
-                      ? 'border-slate-200 bg-slate-50 text-slate-500'
-                      : !hasHighRiskWorkflow && !result.findings.some((f: any) => f.severity === 'critical' || f.severity === 'high')
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : 'border-red-200 bg-red-50 text-red-700'
-                  }`}>
-                    {reportStatus}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(owaspLabels.length ? owaspLabels : ['No OWASP label emitted']).map((label) => (
+                      <span key={label} className="rounded-full border border-[#E4E3DE] bg-white px-3 py-1 text-[9px] font-black uppercase tracking-widest text-[#57534E] shadow-3xs">
+                        {label}
+                      </span>
+                    ))}
                   </div>
                 </div>
-                <p className="mt-4 text-xs leading-5 text-[#57534E]">
-                  {result.score === null
-                    ? 'Paste a prompt or load a sample to generate a shareable score card.'
-                    : !hasHighRiskWorkflow && !result.findings.some((f: any) => f.severity === 'critical' || f.severity === 'high')
-                    ? 'PromptSonar generated a static review and did not infer a high-confidence privileged execution path.'
-                    : `Security review generated. ${owaspLabels.length || 0} OWASP label(s), ${workflowFindings.length} workflow path(s), and ${exposureRules.length} credential exposure finding(s) require review.`}
-                </p>
-              </div>
 
-              <div className="p-5 border-b border-[#E4E3DE] xl:border-b-0 xl:border-r">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-xl border border-red-100 bg-red-50/40 p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="text-[9px] font-black uppercase tracking-[0.22em] text-red-700">Before</div>
-                      <span className="h-1.5 w-1.5 rounded-full bg-red-500"></span>
+                <div className="grid gap-0 xl:grid-cols-[0.85fr_1.3fr_0.95fr]">
+                  <div className="p-5 border-b border-[#E4E3DE] xl:border-b-0 xl:border-r flex flex-col justify-between">
+                    <div>
+                      <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#A8A29E]">
+                        Shareable verdict
+                      </div>
+                      <div className="mt-4 flex items-end gap-2">
+                        <span className="text-[52px] font-black tracking-tight text-slate-950 leading-none">
+                          {result.score === null ? '—' : result.score}
+                        </span>
+                        <span className="mb-2 text-xs font-black uppercase tracking-widest text-[#A8A29E]">/100</span>
+                      </div>
+                      <div className={`mt-4 inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                        result.score === null
+                          ? 'border-slate-200 bg-slate-50 text-slate-500'
+                          : !hasHighRiskWorkflow && !result.findings.some((f: any) => f.severity === 'critical' || f.severity === 'high')
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : 'border-red-200 bg-red-50 text-red-700'
+                      }`}>
+                        {reportStatus}
+                      </div>
                     </div>
-                    <p className="mt-3 line-clamp-6 font-mono text-[11px] leading-5 text-[#57534E]">
-                      {promptText || 'No prompt scanned yet.'}
+                    <p className="mt-4 text-xs leading-5 text-[#57534E]">
+                      {result.score === null
+                        ? 'Paste a prompt or load a sample to generate a shareable score card.'
+                        : !hasHighRiskWorkflow && !result.findings.some((f: any) => f.severity === 'critical' || f.severity === 'high')
+                        ? 'PromptSonar generated a static review and did not infer a high-confidence privileged execution path.'
+                        : `Security review generated. ${owaspLabels.length || 0} OWASP label(s), ${workflowFindings.length} workflow path(s), and ${exposureRules.length} credential exposure finding(s) require review.`}
                     </p>
                   </div>
-                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-700">After Hardening</div>
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+
+                  <div className="p-5 border-b border-[#E4E3DE] xl:border-b-0 xl:border-r">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-xl border border-red-100 bg-red-50/40 p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[9px] font-black uppercase tracking-[0.22em] text-red-700">Before</div>
+                          <span className="h-1.5 w-1.5 rounded-full bg-red-500"></span>
+                        </div>
+                        <p className="mt-3 line-clamp-6 font-mono text-[11px] leading-5 text-[#57534E]">
+                          {promptText || 'No prompt scanned yet.'}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-700">After Hardening</div>
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                        </div>
+                        <p className="mt-3 line-clamp-6 font-mono text-[11px] leading-5 text-[#57534E]">
+                          {securedPrompt}
+                        </p>
+                      </div>
                     </div>
-                    <p className="mt-3 line-clamp-6 font-mono text-[11px] leading-5 text-[#57534E]">
-                      {securedPrompt}
-                    </p>
                   </div>
-                </div>
-              </div>
 
-              <div className="p-5 flex flex-col justify-between gap-4">
-                <div>
-                  <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#A8A29E]">Social proof</div>
-                  <div className="mt-3 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
-                    <div className="text-sm font-black text-slate-950">PromptSonar: {reportStatus}</div>
-                    <div className="mt-2 font-mono text-[9.5px] leading-4 text-[#78716C] break-all">{badgeMarkdown}</div>
-                  </div>
-                </div>
+                  <div className="p-5 flex flex-col justify-between gap-4">
+                    <div>
+                      <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#A8A29E]">Social proof</div>
+                      <div className="mt-3 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
+                        <div className="text-sm font-black text-slate-950">PromptSonar: {reportStatus}</div>
+                        <div className="mt-2 font-mono text-[9.5px] leading-4 text-[#78716C] break-all">{badgeMarkdown}</div>
+                      </div>
+                    </div>
 
-                <div className="grid gap-2">
-                  <button
-                    onClick={() => copyText(shareText, 'Copied shareable report card.')}
-                    disabled={result.score === null}
-                    className="rounded-lg bg-slate-950 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    Copy Report Card
-                  </button>
-                  <button
-                    onClick={() => copyText(badgeMarkdown, 'Copied GitHub badge markdown.')}
-                    disabled={result.score === null}
-                    className="rounded-lg border border-[#E4E3DE] bg-white px-4 py-2.5 text-xs font-black uppercase tracking-widest text-[#57534E] transition hover:bg-slate-50 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    Copy GitHub Badge
-                  </button>
-                  <button
-                    onClick={downloadReportCardPng}
-                    disabled={result.score === null}
-                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    Download PNG Card
-                  </button>
-                  <div className="grid grid-cols-2 gap-2">
-                    <a
-                      href={result.score === null ? undefined : xShareUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`rounded-lg border border-[#E4E3DE] px-3 py-2.5 text-center text-[10px] font-black uppercase tracking-widest transition ${
-                        result.score === null ? 'pointer-events-none bg-slate-50 text-slate-300' : 'bg-white text-[#57534E] hover:bg-slate-50 hover:text-slate-950'
-                      }`}
-                    >
-                      Share on X
-                    </a>
-                    <a
-                      href={result.score === null ? undefined : linkedInShareUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`rounded-lg border border-[#E4E3DE] px-3 py-2.5 text-center text-[10px] font-black uppercase tracking-widest transition ${
-                        result.score === null ? 'pointer-events-none bg-slate-50 text-slate-300' : 'bg-white text-[#57534E] hover:bg-slate-50 hover:text-slate-950'
-                      }`}
-                    >
-                      LinkedIn
-                    </a>
+                    <div className="grid gap-2">
+                      <button
+                        onClick={() => copyText(shareText, 'Copied shareable report card.')}
+                        disabled={result.score === null}
+                        className="rounded-lg bg-slate-950 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Copy Report Card
+                      </button>
+                      <button
+                        onClick={() => copyText(badgeMarkdown, 'Copied GitHub badge markdown.')}
+                        disabled={result.score === null}
+                        className="rounded-lg border border-[#E4E3DE] bg-white px-4 py-2.5 text-xs font-black uppercase tracking-widest text-[#57534E] transition hover:bg-slate-50 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Copy GitHub Badge
+                      </button>
+                      <button
+                        onClick={downloadReportCardPng}
+                        disabled={result.score === null}
+                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Download PNG Card
+                      </button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <a
+                          href={result.score === null ? undefined : xShareUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`rounded-lg border border-[#E4E3DE] px-3 py-2.5 text-center text-[10px] font-black uppercase tracking-widest transition ${
+                            result.score === null ? 'pointer-events-none bg-slate-50 text-slate-300' : 'bg-white text-[#57534E] hover:bg-slate-50 hover:text-slate-950'
+                          }`}
+                        >
+                          Share on X
+                        </a>
+                        <a
+                          href={result.score === null ? undefined : linkedInShareUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`rounded-lg border border-[#E4E3DE] px-3 py-2.5 text-center text-[10px] font-black uppercase tracking-widest transition ${
+                            result.score === null ? 'pointer-events-none bg-slate-50 text-slate-300' : 'bg-white text-[#57534E] hover:bg-slate-50 hover:text-slate-950'
+                          }`}
+                        >
+                          LinkedIn
+                        </a>
+                      </div>
+                      <a
+                        href={result.score === null ? undefined : reportUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`rounded-lg border border-[#E4E3DE] px-4 py-2.5 text-center text-xs font-black uppercase tracking-widest transition ${
+                          result.score === null ? 'pointer-events-none bg-slate-50 text-slate-300' : 'bg-[#FAF9F6] text-slate-800 hover:bg-slate-100'
+                        }`}
+                      >
+                        Open Public Report URL
+                      </a>
+                    </div>
                   </div>
-                  <a
-                    href={result.score === null ? undefined : reportUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`rounded-lg border border-[#E4E3DE] px-4 py-2.5 text-center text-xs font-black uppercase tracking-widest transition ${
-                      result.score === null ? 'pointer-events-none bg-slate-50 text-slate-300' : 'bg-[#FAF9F6] text-slate-800 hover:bg-slate-100'
-                    }`}
-                  >
-                    Open Public Report URL
-                  </a>
                 </div>
-              </div>
-            </div>
-          </section>
+              </section>
+            </>
           )}
 
         </main>
+
 
         {/* Footer */}
         <footer className="h-10 px-8 border-t border-[#E4E3DE] bg-white flex justify-between items-center text-[11px] font-mono text-[#A8A29E] shrink-0 select-none">
