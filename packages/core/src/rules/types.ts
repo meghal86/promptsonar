@@ -11,6 +11,9 @@ export interface Finding {
     workflow?: FindingWorkflow;
     penalty_score?: number; // Internal score deduction
     matchedText?: string;
+    root_cause?: string;
+    supporting_findings?: string[];
+    is_supporting?: boolean;
 }
 
 export interface RuleContext {

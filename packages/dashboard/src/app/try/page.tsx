@@ -2309,6 +2309,59 @@ Define your custom agent skill instructions and guidelines.
                         {primaryWorkflow.recommendation || primaryWorkflow.path.recommendation}
                       </p>
                     </div>
+
+                    {primaryWorkflow.confidence_score !== undefined && (
+                      <div className="mt-4 border-t border-[#E4E3DE] pt-3">
+                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Execution Path Confidence</div>
+                        <div className="mt-1 flex items-baseline gap-2">
+                          <span className="font-mono text-base font-black text-slate-900">
+                            {primaryWorkflow.confidence_score}%
+                          </span>
+                          <span className={`rounded-full px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider border ${
+                            primaryWorkflow.confidence_level === 'High'
+                              ? 'bg-emerald-50 border-emerald-250 text-emerald-700'
+                              : primaryWorkflow.confidence_level === 'Medium'
+                              ? 'bg-amber-50 border-amber-200 text-amber-800'
+                              : 'bg-rose-50 border-rose-200 text-rose-700'
+                          }`}>
+                            {primaryWorkflow.confidence_level} Confidence
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {primaryWorkflow.workflow_evidence && primaryWorkflow.workflow_evidence.length > 0 && (
+                      <div className="mt-4 border-t border-[#E4E3DE] pt-3">
+                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Evidence Inferred</div>
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {primaryWorkflow.workflow_evidence.map((ev: string) => (
+                            <span key={ev} className="rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[9.5px] font-bold text-slate-700">
+                              ✓ {ev}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {primaryWorkflowFinding.root_cause && (
+                      <div className="mt-4 border-t border-[#E4E3DE] pt-3">
+                        <div className="text-[9px] font-black uppercase tracking-wider text-red-700">Root Cause</div>
+                        <div className="mt-1 text-xs font-black text-slate-800">
+                          {primaryWorkflowFinding.root_cause}
+                        </div>
+                        {primaryWorkflowFinding.supporting_findings && primaryWorkflowFinding.supporting_findings.length > 0 && (
+                          <div className="mt-2 pl-3 border-l border-red-200 space-y-1.5">
+                            <div className="text-[8px] font-black uppercase tracking-wider text-slate-400">Supporting Findings</div>
+                            {primaryWorkflowFinding.supporting_findings.map((sf: string, sfIdx: number) => (
+                              <div key={sfIdx} className="text-[11px] font-semibold text-slate-600 leading-normal">
+                                • {sf}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="mt-4 border-t border-[#E4E3DE] pt-3 bg-white/40 p-2.5 rounded-lg border border-[#E4E3DE]/40">
                       <div className="text-[9px] font-black uppercase tracking-wider text-red-700 font-sans">
                         🛠️ How to break this chain

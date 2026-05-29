@@ -97,6 +97,39 @@ function scoreFindings(findings: Finding[]): { score: number; status: 'pass' | '
     return { score, status };
 }
 
+function groupFindingsByRootCause(findings: Finding[]): Finding[] {
+    const hasWorkflowEscalation = findings.some(f => f.rule_id === 'sec_workflow_escalation');
+    const hasPrivilegedSink = findings.some(f => f.rule_id === 'sec_privileged_sink_access');
+    const hasMcpPoisoning = findings.some(f => f.rule_id === 'sec_mcp_tool_poisoning');
+
+    if (hasWorkflowEscalation || hasPrivilegedSink || hasMcpPoisoning) {
+        const primaryRuleId = hasMcpPoisoning
+            ? 'sec_mcp_tool_poisoning'
+            : hasWorkflowEscalation
+                ? 'sec_workflow_escalation'
+                : 'sec_privileged_sink_access';
+
+        const supportingRuleIds = ['sec_workflow_escalation', 'sec_privileged_sink_access', 'sec_mcp_tool_poisoning']
+            .filter(id => id !== primaryRuleId && findings.some(f => f.rule_id === id));
+
+        const primaryFinding = findings.find(f => f.rule_id === primaryRuleId);
+        if (primaryFinding) {
+            primaryFinding.root_cause = primaryFinding.explanation;
+            primaryFinding.supporting_findings = supportingRuleIds.map(id => {
+                const f = findings.find(curr => curr.rule_id === id);
+                return f ? f.explanation : id;
+            });
+        }
+
+        findings.forEach(f => {
+            if (supportingRuleIds.includes(f.rule_id)) {
+                f.is_supporting = true;
+            }
+        });
+    }
+    return findings;
+}
+
 export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
     const findings = [
         ...checkWorkflowEscalation(input),
@@ -142,9 +175,11 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
         return rest;
     });
 
+    const groupedFindings = groupFindingsByRootCause(cleanFindings);
+
     return {
         score,
         status,
-        findings: cleanFindings as any
+        findings: groupedFindings as any
     };
 }

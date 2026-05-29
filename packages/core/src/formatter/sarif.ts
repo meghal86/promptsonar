@@ -131,6 +131,11 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                 confidence: f.confidence || "HIGH",
                 recommendation,
                 evidence: f.evidence,
+                confidence_score: f.workflow?.confidence_score,
+                confidence_level: f.workflow?.confidence_level,
+                workflow_evidence: f.workflow?.workflow_evidence,
+                root_cause: f.root_cause,
+                supporting_findings: f.supporting_findings,
                 workflow: f.workflow ? {
                     source: f.workflow.source,
                     sink: f.workflow.sink,
@@ -139,6 +144,9 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                     pathSummary: workflowPathSummary(f.workflow),
                     risk: f.workflow.risk,
                     confidence: f.workflow.confidence,
+                    confidence_score: f.workflow.confidence_score,
+                    confidence_level: f.workflow.confidence_level,
+                    workflow_evidence: f.workflow.workflow_evidence,
                     nodes: f.workflow.path.nodes.map(node => ({
                         id: node.id,
                         label: node.label,

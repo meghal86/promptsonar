@@ -81,6 +81,9 @@ export interface WorkflowPath {
     explanation?: string[];
     riskStory?: string;
     severityReason?: string;
+    confidence_score?: number;
+    confidence_level?: 'Low' | 'Medium' | 'High';
+    workflow_evidence?: string[];
 }
 
 export interface FindingWorkflow {
@@ -92,6 +95,9 @@ export interface FindingWorkflow {
     recommendation: string;
     confidence?: WorkflowConfidence;
     explanation?: string[];
+    confidence_score?: number;
+    confidence_level?: 'Low' | 'Medium' | 'High';
+    workflow_evidence?: string[];
 }
 
 export interface WorkflowInferenceInput {
