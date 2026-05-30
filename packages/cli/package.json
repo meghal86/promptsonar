@@ -1,6 +1,6 @@
 {
     "name": "@promptsonar/cli",
-    "version": "1.2.0",
+    "version": "1.4.0",
     "description": "Static security scanner for LLM prompts — CLI tool",
     "bin": {
         "promptsonar": "dist/cli.js"

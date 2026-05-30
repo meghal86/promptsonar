@@ -892,6 +892,77 @@ Define your custom agent skill instructions and guidelines.
     return steps;
   };
 
+  // Per-node provenance: "why does this node exist in the path?" — answered with
+  // the concrete snippet from the user's prompt that triggered it. Prefers the
+  // engine's own evidence, then falls back to a deterministic regex probe. No LLM.
+  const nodeProvenance = (node: any, text: string): string => {
+    if (node?.evidence && String(node.evidence).trim()) {
+      return String(node.evidence).split('\n')[0].trim().slice(0, 120);
+    }
+    const find = (re: RegExp) => {
+      const m = text.match(re);
+      return m ? m[0].trim().slice(0, 90) : null;
+    };
+    switch (node?.type) {
+      case 'mcp_server':
+      case 'mcp_tool':
+        return find(/autoExecute\s*[:=]\s*true/i) || find(/"?permissions"?\s*[:=]\s*"?\*"?/i) || find(/mcp[\w-]*\s*server/i) || 'MCP server/tool configuration in prompt';
+      case 'privileged_tool':
+      case 'tool_router':
+        return find(/"?permissions"?\s*[:=]\s*"?\*"?/i) || find(/tool[_ ]?router/i) || 'Tool routing without an allowlist';
+      case 'shell_execution':
+      case 'tool_execution':
+        return find(/command\s*[:=]\s*"?(bash|sh|zsh|cmd|powershell)"?/i) || find(/\b(rm\s+-rf|bash|shell|exec|subprocess|os\.system)\b/i) || 'Command / shell execution is reachable';
+      case 'filesystem_access':
+        return find(/\b(read|write|delete|filesystem|fs\.|\.\/|\/etc|\/var)\b/i) || 'Filesystem access is in scope';
+      case 'network_access':
+      case 'external_api':
+        return find(/https?:\/\/\S+/i) || find(/\b(fetch|http|api\s*call|webhook|request)\b/i) || 'Outbound network/API access';
+      case 'credential_store':
+      case 'secret':
+        return find(/sk-[A-Za-z0-9_-]{6,}/) || find(/(api[_ -]?key|token|password|secret|bearer)\b/i) || 'Credential reference in prompt';
+      case 'agent_memory':
+        return find(/\b(memory|persist|remember|store\s+instructions?)\b/i) || 'Persistent agent memory is referenced';
+      case 'retrieved_context':
+      case 'rag_context':
+        return find(/\{\{?\s*context\s*\}?\}/i) || find(/\b(retriev|rag|knowledge\s*base)\w*/i) || 'Retrieved / RAG context is injected';
+      case 'user_input':
+      case 'untrusted_content':
+        return find(/\{\{?\s*user_input\s*\}?\}/i) || find(/\b(user_query|\{input\}|untrusted)\b/i) || 'Untrusted user input enters the prompt';
+      case 'system_prompt':
+        return find(/\b(system\s*prompt|ignore\s+(all\s+)?previous|override\s+instructions?)\b/i) || 'System-prompt instruction';
+      case 'policy_override':
+        return find(/\b(ignore\s+(all\s+)?previous|override|bypass|disregard)\b/i) || 'Policy-override phrasing';
+      default:
+        return node?.reason ? String(node.reason).trim().slice(0, 110) : 'Inferred from prompt structure';
+    }
+  };
+
+  // Human-readable finding name. Developers care about the threat, not the
+  // internal rule id — so this leads, and the raw rule_id is shown as a subtitle.
+  const humanRuleName = (ruleId: string): string => {
+    const id = String(ruleId || '');
+    const MAP: Record<string, string> = {
+      sec_owasp_llm01_injection: 'Prompt Injection',
+      sec_owasp_llm02_pii: 'Credential Leak',
+      sec_mcp_tool_poisoning: 'MCP Tool Poisoning',
+      sec_workflow_escalation: 'Workflow Escalation',
+      sec_privileged_sink_access: 'Privileged Sink Access',
+      sec_unbounded_persona: 'Unbounded Persona',
+      sec_unbounded_access: 'Unbounded Tool Access',
+      sec_rag_injection: 'RAG Injection',
+    };
+    if (MAP[id]) return MAP[id];
+    if (/agent[_ ]?memory|memory/.test(id)) return 'Memory Escalation';
+    if (/inject/.test(id)) return 'Prompt Injection';
+    if (/pii|secret|credential|key/.test(id)) return 'Credential Leak';
+    if (/mcp/.test(id)) return 'MCP Tool Poisoning';
+    if (/homoglyph|unicode|zero_width|obfuscat|encoded/.test(id)) return 'Unicode / Obfuscation Evasion';
+    if (/shell|exec|privileged|sink/.test(id)) return 'Privileged Execution';
+    // Fallback: humanize the id (drop the sec_ prefix, title-case the rest).
+    return id.replace(/^sec_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Security Finding';
+  };
+
   // Helper functions moved to top level to avoid Temporal Dead Zone (TDZ) issues
 
   // Client-side YAML parser for contract types
@@ -1626,13 +1697,22 @@ Define your custom agent skill instructions and guidelines.
       ];
     };
 
+    // Prefer the real, engine-derived workflow evidence (Feature 1) when the
+    // scanner produced it; only fall back to the curated list when absent.
+    const realEvidence: string[] =
+      rootFinding.workflow?.workflow_evidence?.length
+        ? rootFinding.workflow.workflow_evidence
+        : rootFinding.workflow?.path?.workflow_evidence?.length
+        ? rootFinding.workflow.path.workflow_evidence
+        : [];
+
     return {
       root: {
         rule_id: rootFinding.rule_id,
         label: getRuleLabel(rootFinding.rule_id),
         severity: rootFinding.severity || 'CRITICAL',
         explanation: rootFinding.explanation,
-        evidence: getRootCauseEvidence(rootFinding.rule_id),
+        evidence: realEvidence.length ? realEvidence : getRootCauseEvidence(rootFinding.rule_id),
         impact: getRootCauseImpact(rootFinding.rule_id)
       },
       supporting: supportingFindings.map(f => ({
@@ -2001,7 +2081,7 @@ Define your custom agent skill instructions and guidelines.
           <nav className="space-y-1">
             {[
               { label: 'Overview', icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z', href: '/projects' },
-              { label: 'Audits', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', href: '/playground', active: true },
+              { label: 'Audits', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', href: '/playground3', active: true },
               { label: 'Intelligence', icon: 'M13 10V3L4 14h7v7l9-11h-7z', href: '/intelligence' },
               { label: 'Models', icon: 'M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 9.172V5L8 4z', href: '/models' },
               { label: 'Policies', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', href: '/policies' },
@@ -2202,7 +2282,7 @@ Define your custom agent skill instructions and guidelines.
         {/* Main Dashboard Layout */}
         <main className="flex-1 flex flex-col justify-start gap-6 p-4 lg:p-6 xl:p-8 overflow-y-auto min-h-0">
 
-          {/* V2 - SECTION 1: PROMPT INPUT (Full-width tabbed card) */}
+          {/* V3 - SECTION 1: PROMPT INPUT (Full-width tabbed card) */}
           <section className="shrink-0 flex flex-col items-center justify-center gap-7 py-4">
             <div className="w-full max-w-3xl flex flex-col gap-5">
               {!hasCompletedScan && (
@@ -2402,7 +2482,7 @@ Define your custom agent skill instructions and guidelines.
               ==================================================================== */}
           {hasCompletedScan && (
             <>
-              {/* V2 - SECTION 2: EXECUTION PATH HERO */}
+              {/* V3 - SECTION 2: EXECUTION PATH HERO */}
               <section ref={resultsRef} className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0">
                 <div className="px-5 py-4 border-b border-[#E4E3DE] bg-[#FAF9F6] flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
@@ -2521,7 +2601,7 @@ Define your custom agent skill instructions and guidelines.
                 </div>
               </section>
 
-              {/* V2 - SECTION 3: EXECUTIVE VERDICT */}
+              {/* V3 - SECTION 2b: EXECUTIVE VERDICT (paired with hero) */}
               {(() => {
                 const hasPrivPath = !!primaryWorkflow?.path?.privilegedSinkReached || hasHighRiskWorkflow;
                 const verdictText = hasPrivPath ? "CRITICAL EXECUTION PATH DETECTED" : "NO PRIVILEGED EXECUTION PATH FOUND";
@@ -2540,449 +2620,11 @@ Define your custom agent skill instructions and guidelines.
                 );
               })()}
 
-              {/* V2 - SECTION 4: EVIDENCE (Source, Confidence, Boundaries) */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
-                <div>
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Evidence & Workflow Metadata</h3>
-                  <p className="text-[10px] text-slate-500 italic mt-0.5">Confidence metrics, boundary crossings, and privilege sinks</p>
-                </div>
-
-                {(() => {
-                  const conf = getWorkflowConfidence(promptText, primaryWorkflow);
-                  const boundaryCrossed = primaryWorkflow?.path?.trustBoundaryCrossed ? "YES (Warning)" : "NO";
-                  const sinkReached = primaryWorkflow?.path?.privilegedSinkReached ? "YES (Escalated)" : "NO";
-                  
-                  // Infer source elegantly from context
-                  let sourceVal = "System Instructions";
-                  if (promptText.includes('{{context}}') || promptText.toLowerCase().includes('retrieved')) {
-                    sourceVal = "Untrusted Context (RAG)";
-                  } else if (promptText.includes('{{user_input}}') || promptText.toLowerCase().includes('user_query')) {
-                    sourceVal = "Untrusted User Input";
-                  } else if (primaryWorkflow?.source) {
-                    sourceVal = primaryWorkflow.source;
-                  }
-
-                  const evidenceList = getWorkflowEvidence(promptText, primaryWorkflow);
-
-                  return (
-                    <div className="space-y-4">
-                      {/* Metric Grid */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4">
-                        <div>
-                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Confidence</div>
-                          <div className="mt-1 font-mono font-black text-slate-800">{conf.score}% ({conf.level})</div>
-                        </div>
-                        <div>
-                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Source</div>
-                          <div className="mt-1 font-bold text-slate-800">{sourceVal}</div>
-                        </div>
-                        <div>
-                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Boundaries Crossed</div>
-                          <div className={`mt-1 font-bold ${primaryWorkflow?.path?.trustBoundaryCrossed ? 'text-red-700' : 'text-slate-800'}`}>{boundaryCrossed}</div>
-                        </div>
-                        <div>
-                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Sink Reached</div>
-                          <div className={`mt-1 font-bold ${primaryWorkflow?.path?.privilegedSinkReached ? 'text-red-700' : 'text-slate-800'}`}>{sinkReached}</div>
-                        </div>
-                      </div>
-
-                      {/* Observable dynamic evidence tags */}
-                      {evidenceList.length > 0 && (
-                        <div className="space-y-2">
-                          <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] block">Observable Workflow Signals</span>
-                          <div className="flex flex-wrap gap-2">
-                            {evidenceList.map((tag, idx) => (
-                              <span
-                                key={idx}
-                                className="inline-flex items-center gap-1 rounded-full border border-red-250 bg-red-50/50 px-3 py-0.5 text-[10.5px] font-bold text-red-800 font-mono"
-                              >
-                                <span className="text-red-500">✓</span> {tag}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </section>
-
-              {/* V2 - SECTION 5: ROOT CAUSE */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
-                <div className="border-b border-[#E4E3DE] pb-2 shrink-0">
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Enterprise Root Cause Ledger</h3>
-                  <p className="text-[10px] text-slate-500 italic mt-0.5">Structured failure-mode mappings mapped strictly to security response rules</p>
-                </div>
-
-                {(() => {
-                  const groups = getRootCauseGrouping(result.findings);
-                  if (!groups) {
-                    return (
-                      <div className="text-xs font-medium text-slate-400 italic py-2">
-                        No structural or architectural security vulnerabilities detected.
-                      </div>
-                    );
-                  }
-                  return (
-                    <div className="flex flex-col gap-5 mt-1">
-                      {/* Root Cause Core details */}
-                      <div className="rounded-xl border border-red-250 bg-red-50/15 overflow-hidden flex flex-col">
-                        <div className="bg-red-50/60 border-b border-red-250/20 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 select-none">
-                          <div className="flex items-center gap-2">
-                            <span className="h-1.5 w-1.5 rounded-full bg-red-600 animate-pulse"></span>
-                            <span className="text-[9px] font-black uppercase tracking-widest text-red-800">
-                              Root Cause Vulnerability
-                            </span>
-                          </div>
-                          <span className="font-mono text-[9.5px] font-bold text-red-750 bg-white border border-red-200/50 px-2.5 py-0.5 rounded shadow-3xs uppercase">
-                            {groups.root.severity} Severity
-                          </span>
-                        </div>
-                        
-                        <div className="p-4 space-y-4">
-                          {/* Title & description */}
-                          <div>
-                            <h4 className="text-[13.5px] font-black text-slate-900 uppercase tracking-wide">
-                              {groups.root.label}
-                            </h4>
-                            <p className="text-[11.5px] text-[#57534E] leading-relaxed font-medium mt-1">
-                              {groups.root.explanation}
-                            </p>
-                          </div>
-
-                          {/* Dynamic Evidence & Impact lists */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-[#E4E3DE]/60 pt-4">
-                            {/* Evidence List */}
-                            <div className="space-y-2">
-                              <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] select-none block">
-                                Observable Triggers (Evidence)
-                              </span>
-                              <ul className="space-y-1.5 pl-1">
-                                {groups.root.evidence.map((ev, i) => (
-                                  <li key={i} className="flex items-start gap-1.5 text-xs text-slate-800 font-medium">
-                                    <span className="text-red-500 font-bold select-none">•</span>
-                                    <span>{ev}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-
-                            {/* Impact List */}
-                            <div className="space-y-2">
-                              <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] select-none block">
-                                Reachable Threat Sinks (Impact)
-                              </span>
-                              <ul className="space-y-1.5 pl-1">
-                                {groups.root.impact.map((im, i) => (
-                                  <li key={i} className="flex items-start gap-1.5 text-xs text-slate-800 font-medium">
-                                    <span className="text-red-500 font-bold select-none">•</span>
-                                    <span>{im}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Supporting findings list */}
-                      {groups.supporting.length > 0 && (
-                        <div className="space-y-2.5">
-                          <span className="text-[9.5px] font-black uppercase tracking-widest text-slate-400 block pl-0.5">
-                            Supporting Forensic Mappings
-                          </span>
-                          <div className="flex flex-col gap-2">
-                            {groups.supporting.map((sup, idx) => (
-                              <div key={idx} className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 bg-[#FAF9F6] p-4 transition-all hover:bg-slate-50/50">
-                                <div className="space-y-1">
-                                  <span className="text-[11.5px] font-bold text-slate-800 font-mono block">
-                                    {sup.label}
-                                  </span>
-                                  <p className="text-[11px] text-[#57534E] leading-relaxed font-medium">
-                                    {sup.explanation}
-                                  </p>
-                                </div>
-                                <span className="shrink-0 font-mono text-[8px] font-bold text-slate-500 border border-slate-200 bg-white px-2 py-0.5 rounded uppercase tracking-wider">
-                                  {sup.severity}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </section>
-
-              {/* V2 - SECTION 6: ACTIONABLE REMEDIATION (FIX) */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
-                <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
-                  <div>
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Hardening Fix</h3>
-                    <p className="text-[10px] text-slate-500 italic mt-0.5">Actionable before/after structural rewrite comparison</p>
-                  </div>
-                  {primaryWorkflowFinding && (() => {
-                    const remedy = getRemediation(primaryWorkflowFinding);
-                    return (
-                      <button
-                        onClick={() => copyText(remedy.after, 'Remediation pattern copied.')}
-                        className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
-                      >
-                        📋 Copy Safer Pattern
-                      </button>
-                    );
-                  })()}
-                </div>
-
-                {primaryWorkflowFinding ? (() => {
-                  const remedy = getRemediation(primaryWorkflowFinding);
-                  return (
-                    <div className="space-y-4">
-                      <div className="text-[11.5px] text-[#57534E] leading-relaxed">
-                        <span className="font-bold text-slate-800 block mb-0.5">Security Rationale:</span> 
-                        {remedy.rationale}
-                      </div>
-                      
-                      <div className="text-[11.5px] text-[#57534E] leading-relaxed">
-                        <span className="font-bold text-slate-800 block mb-0.5">Suggested Mitigation:</span> 
-                        {remedy.mitigation}
-                      </div>
-
-                      {/* Execution Path Diff Block */}
-                      <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4.5 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E4E3DE]/40 pb-2.5">
-                          <span className="text-[9.5px] font-black uppercase tracking-widest text-[#A8A29E] block">
-                            Execution Path Hardening Proof
-                          </span>
-                          <span className="text-[10px] font-black uppercase text-emerald-750 bg-white border border-emerald-200 px-2.5 py-0.5 rounded shadow-3xs">
-                            Risk Reduction: {typeof primaryWorkflow?.workflow_diff?.riskReduction === 'number'
-                              ? `${primaryWorkflow.workflow_diff.riskReduction}%`
-                              : (primaryWorkflowFinding?.severity === 'critical' ? '96%' : primaryWorkflowFinding?.severity === 'high' ? '92%' : '88%')}
-                          </span>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                          {/* Before Path */}
-                          <div className="flex flex-col gap-2 rounded-xl border border-red-200/50 bg-red-50/10 p-3.5">
-                            <span className="text-[9.5px] uppercase font-black text-red-750 flex items-center gap-1.5 select-none">
-                              <span className="h-1.5 w-1.5 rounded-full bg-red-655 animate-pulse"></span>
-                              Threat Pathway (Before)
-                            </span>
-                            
-                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-red-900 leading-normal">
-                              {primaryWorkflow?.path?.nodes && primaryWorkflow.path.nodes.length > 0 ? (
-                                primaryWorkflow.path.nodes.map((n: any, idx: number) => (
-                                  <React.Fragment key={idx}>
-                                    {idx > 0 && (
-                                      <svg className="w-3.5 h-3.5 text-red-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                      </svg>
-                                    )}
-                                    <span className="bg-white border border-red-200 px-2.5 py-1 rounded-lg shadow-3xs uppercase text-[9.5px] truncate max-w-[140px] tracking-tight">
-                                      {humanType(n.type)}
-                                    </span>
-                                  </React.Fragment>
-                                ))
-                              ) : (
-                                <span className="italic text-red-700">Privileged Execution Pathway Active</span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* After Path */}
-                          <div className="flex flex-col gap-2 rounded-xl border border-emerald-200/50 bg-emerald-50/10 p-3.5">
-                            <span className="text-[9.5px] uppercase font-black text-emerald-750 flex items-center gap-1.5 select-none">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
-                              Hardened Isolation Pathway (After)
-                            </span>
-                            
-                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-emerald-900 leading-normal">
-                              {(primaryWorkflow?.workflow_diff?.after?.nodes?.map((n: any) => n.type) || ['user_input', 'model', 'response']).map((type: string, idx: number) => (
-                                <React.Fragment key={idx}>
-                                  {idx > 0 && (
-                                    <svg className="w-3.5 h-3.5 text-emerald-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                    </svg>
-                                  )}
-                                  <span className="bg-white border border-emerald-200 px-2.5 py-1 rounded-lg shadow-3xs uppercase text-[9.5px] tracking-tight">
-                                    {humanType(type)}
-                                  </span>
-                                </React.Fragment>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                        {/* Before */}
-                        <div className="rounded-lg border border-red-200 bg-red-50/15 flex flex-col overflow-hidden">
-                          <div className="bg-red-50/55 border-b border-red-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-red-750 font-sans select-none">
-                            🔴 Original Prompt segment (Before)
-                          </div>
-                          <pre className="p-3 font-mono text-[10px] leading-relaxed text-red-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
-                            {remedy.before}
-                          </pre>
-                        </div>
-
-                        {/* After */}
-                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/15 flex flex-col overflow-hidden">
-                          <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-emerald-750 font-sans select-none">
-                            🟢 Auto-Hardened Prompt (Safer Rewrite)
-                          </div>
-                          <pre className="p-3 font-mono text-[10px] leading-relaxed text-emerald-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
-                            {remedy.after}
-                          </pre>
-                        </div>
-                      </div>
-
-                      {/* Removed Nodes / Edges (real diff data) */}
-                      {(() => {
-                        const diff = primaryWorkflow?.workflow_diff;
-                        if (!diff || (diff.removedNodes.length === 0 && diff.removedEdges.length === 0)) return null;
-                        return (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[10px]">
-                            <div className="rounded-lg border border-[#E4E3DE]/60 bg-[#FAF9F6] p-3">
-                              <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Nodes</span>
-                              <div className="flex flex-wrap gap-1">
-                                {diff.removedNodes.length > 0 ? diff.removedNodes.map((t: string, i: number) => (
-                                  <span key={i} className="font-mono bg-white border border-red-200 text-red-800 px-1.5 py-0.5 rounded uppercase text-[8.5px] tracking-tight line-through">{humanType(t)}</span>
-                                )) : <span className="italic text-slate-400">None</span>}
-                              </div>
-                            </div>
-                            <div className="rounded-lg border border-[#E4E3DE]/60 bg-[#FAF9F6] p-3">
-                              <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Edges</span>
-                              <div className="flex flex-wrap gap-1">
-                                {diff.removedEdges.length > 0 ? diff.removedEdges.map((e: string, i: number) => (
-                                  <span key={i} className="font-mono bg-white border border-red-200 text-red-800 px-1.5 py-0.5 rounded text-[8.5px] tracking-tight">{e}</span>
-                                )) : <span className="italic text-slate-400">None</span>}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Execution Path Removed block (verification, real diff data) */}
-                      {(() => {
-                        const diff = primaryWorkflow?.workflow_diff;
-                        const pathRemoved = diff ? diff.executionPathRemoved : true;
-                        return (
-                      <div className={`rounded-lg border p-3.5 flex items-center justify-between text-xs ${pathRemoved ? 'border-emerald-250 bg-emerald-50/20' : 'border-amber-250 bg-amber-50/20'}`}>
-                        <div className="flex items-center gap-2">
-                          <span className={`font-bold ${pathRemoved ? 'text-emerald-700' : 'text-amber-700'}`}>{pathRemoved ? '✓' : '⚠'}</span>
-                          <span className={`font-bold ${pathRemoved ? 'text-emerald-900' : 'text-amber-900'}`}>
-                            {pathRemoved ? 'Safer structure verified' : 'Partial remediation — privileged sink still reachable'}
-                          </span>
-                        </div>
-                        <span className={`font-mono text-[9px] font-bold px-2 py-0.5 rounded border select-none uppercase tracking-wide ${pathRemoved ? 'text-emerald-700 bg-emerald-100/50 border-emerald-200/40' : 'text-amber-700 bg-amber-100/50 border-amber-200/40'}`}>
-                          {pathRemoved ? 'Execution Path Removed' : 'Path Not Fully Removed'}
-                        </span>
-                      </div>
-                        );
-                      })()}
-                    </div>
-                  );
-                })() : (
-                  <div className="py-6 px-4 text-center text-[#57534E] text-[11.5px] border border-dashed border-emerald-200 rounded-xl bg-emerald-50/10 select-none flex flex-col items-center justify-center gap-1.5">
-                    <span className="text-xl">🛡️</span>
-                    <span className="font-black uppercase tracking-wider text-emerald-750">No structural remediation required</span>
-                    <p className="text-[10px] text-slate-500 max-w-md leading-relaxed">
-                      PromptSonar didn't find any dynamic execution vulnerabilities or privileged sink pathways. The current prompt layout is well-contained.
-                    </p>
-                  </div>
-                )}
-              </section>
-
-              {/* V2 - SECTION 6b: PROMPT COMPRESSION & OPTIMIZATION (PROMPT ENGINEERING) */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 shrink-0">
-                <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
-                  <div>
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Optimizer & Compressor</h3>
-                    <p className="text-[10px] text-slate-500 italic mt-0.5">Statically remove redundant instructions, optimize templates, and maximize security</p>
-                  </div>
-                  {result.compression?.compressedText && (
-                    <button
-                      onClick={() => copyText(result.compression.compressedText, 'Compressed prompt copied.')}
-                      className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
-                    >
-                      📋 Copy Compressed Prompt
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Left Column: Token ROI metrics */}
-                  <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4 flex flex-col justify-between gap-4">
-                    <div className="space-y-4">
-                      <div>
-                        <span className="text-[9px] text-[#A8A29E] uppercase tracking-widest font-black block">Compression Ratio</span>
-                        <div className="mt-1 flex items-end gap-1">
-                          <span className="text-3xl font-black text-slate-900 leading-none">
-                            {result.roi?.compressionRatio || '0%'}
-                          </span>
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/50 px-1.5 py-0.5 rounded uppercase tracking-wide">
-                            Optimized
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        <div>
-                          <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Original</span>
-                          <span className="font-mono font-bold text-slate-700">{result.roi?.originalTokens || 0} tokens</span>
-                        </div>
-                        <div>
-                          <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Compressed</span>
-                          <span className="font-mono font-bold text-slate-700">{result.roi?.newTokens || 0} tokens</span>
-                        </div>
-                      </div>
-
-                      <div className="border-t border-[#E4E3DE]/60 pt-3">
-                        <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Estimated Savings</span>
-                        <span className="text-sm font-bold text-slate-800 font-mono">
-                          ${(result.roi?.dollarsSavedPer10kCalls || 0).toFixed(4)} <span className="text-[10.5px] font-sans font-medium text-slate-500">per 10k calls</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="text-[10px] text-slate-500 leading-relaxed italic bg-white border border-slate-200/60 p-2.5 rounded-lg select-none">
-                      ⚡ PromptSonar statically removes redundant sentences, structural bloat, and optimizes delimiter nesting to maximize prompt engineering efficiency.
-                    </div>
-                  </div>
-
-                  {/* Right 2 Columns: Comparative prompts */}
-                  <div className="lg:col-span-2 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Original Prompt preview */}
-                      <div className="rounded-lg border border-slate-200 bg-[#FAF9F6]/20 flex flex-col overflow-hidden">
-                        <div className="bg-slate-50 border-b border-slate-200 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-slate-650 font-sans select-none">
-                          📝 Original Prompt (Before)
-                        </div>
-                        <div className="p-3 font-mono text-[10.5px] leading-relaxed text-slate-700 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
-                          {promptText || 'No prompt scanned yet.'}
-                        </div>
-                      </div>
-
-                      {/* Compressed/Optimized Prompt preview */}
-                      <div className="rounded-lg border border-emerald-250 bg-emerald-50/10 flex flex-col overflow-hidden">
-                        <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-emerald-800 font-sans select-none">
-                          ⚡ Compressed & Optimized Prompt (After)
-                        </div>
-                        <div className="p-3 font-mono text-[10.5px] leading-relaxed text-emerald-950 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
-                          {result.compression?.compressedText || 'Optimized text will appear after running scan.'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* V2 - SECTION 7: PROMPT AUDIT (Line-by-line dangerous highlight viewer) */}
+              {/* V3 - SECTION 3: LIVE PROMPT AUDIT (Line-by-line dangerous highlight viewer) */}
               <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
                 <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
                   <div className="flex min-w-0 items-center gap-2">
-                    <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Audit Workspace</h2>
+                    <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Live Prompt Audit</h2>
                     <span className="h-3 w-px bg-[#E6E4E0] mx-1"></span>
                     <span className="text-[10.5px] text-[#A8A29E] font-medium font-sans">Line-by-line compliance & API key leak warnings</span>
                   </div>
@@ -3067,7 +2709,118 @@ Define your custom agent skill instructions and guidelines.
                 </div>
               </section>
 
-              {/* V2 - SECTION 8: DETAILED FINDINGS (Full Width card) */}
+              {/* V3 - SECTION 4: WHY THIS PATH EXISTS (provenance + metadata) */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+                <div>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Why This Path Exists</h3>
+                  <p className="text-[10px] text-slate-500 italic mt-0.5">The exact prompt content that triggered each node, plus boundary and sink metadata</p>
+                </div>
+
+                {(() => {
+                  const conf = getWorkflowConfidence(promptText, primaryWorkflow);
+                  const boundaryCrossed = primaryWorkflow?.path?.trustBoundaryCrossed ? "YES (Warning)" : "NO";
+                  const sinkReached = primaryWorkflow?.path?.privilegedSinkReached ? "YES (Escalated)" : "NO";
+                  
+                  // Infer source elegantly from context
+                  let sourceVal = "System Instructions";
+                  if (promptText.includes('{{context}}') || promptText.toLowerCase().includes('retrieved')) {
+                    sourceVal = "Untrusted Context (RAG)";
+                  } else if (promptText.includes('{{user_input}}') || promptText.toLowerCase().includes('user_query')) {
+                    sourceVal = "Untrusted User Input";
+                  } else if (primaryWorkflow?.source) {
+                    sourceVal = primaryWorkflow.source;
+                  }
+
+                  const evidenceList = getWorkflowEvidence(promptText, primaryWorkflow);
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Metric Grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4">
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Confidence</div>
+                          <div className="mt-1 font-mono font-black text-slate-800">{conf.score}% ({conf.level})</div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Source</div>
+                          <div className="mt-1 font-bold text-slate-800">{sourceVal}</div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Boundaries Crossed</div>
+                          <div className={`mt-1 font-bold ${primaryWorkflow?.path?.trustBoundaryCrossed ? 'text-red-700' : 'text-slate-800'}`}>{boundaryCrossed}</div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-wider text-[#A8A29E]">Sink Reached</div>
+                          <div className={`mt-1 font-bold ${primaryWorkflow?.path?.privilegedSinkReached ? 'text-red-700' : 'text-slate-800'}`}>{sinkReached}</div>
+                        </div>
+                      </div>
+
+                      {/* Per-node provenance — what in the prompt produced each step */}
+                      {primaryWorkflow?.path?.nodes && primaryWorkflow.path.nodes.length > 0 && (
+                        <div className="space-y-2">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] block">Per-Node Provenance</span>
+                          <div className="grid gap-2">
+                            {primaryWorkflow.path.nodes.map((node: any, idx: number) => {
+                              const isPrivileged = node.trust === 'privileged' || idx === primaryWorkflow.path.nodes.length - 1;
+                              return (
+                                <div
+                                  key={idx}
+                                  className={`rounded-lg border px-3 py-2 flex flex-col gap-0.5 ${isPrivileged ? 'border-rose-200 bg-rose-50/30' : 'border-[#E4E3DE]/70 bg-[#FAF9F6]'}`}
+                                >
+                                  <span className={`font-mono text-[11px] font-black uppercase tracking-tight ${isPrivileged ? 'text-rose-800' : 'text-slate-800'}`}>
+                                    {humanType(node.type)}
+                                  </span>
+                                  <span className="text-[10.5px] leading-relaxed text-slate-600">
+                                    <span className="font-bold text-slate-500">Detected from: </span>
+                                    <span className="font-mono text-slate-700">{nodeProvenance(node, promptText)}</span>
+                                  </span>
+                                  {/* Feature 4: real engine provenance — contribution + rule matches */}
+                                  {node.provenance && (
+                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                      {typeof node.provenance.confidenceContribution === 'number' && node.provenance.confidenceContribution > 0 && (
+                                        <span className="text-[10px] font-bold text-slate-500">
+                                          Confidence contribution: <span className="font-mono text-rose-700">+{node.provenance.confidenceContribution}</span>
+                                        </span>
+                                      )}
+                                      {Array.isArray(node.provenance.ruleMatches) && node.provenance.ruleMatches.length > 0 && (
+                                        <span className="flex flex-wrap items-center gap-1 text-[10px] font-bold text-slate-500">
+                                          Rule matches:
+                                          {node.provenance.ruleMatches.map((rm: string, ri: number) => (
+                                            <span key={ri} className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[9px] text-slate-600">✓ {rm}</span>
+                                          ))}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Observable dynamic evidence tags */}
+                      {evidenceList.length > 0 && (
+                        <div className="space-y-2">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] block">Observable Workflow Signals</span>
+                          <div className="flex flex-wrap gap-2">
+                            {evidenceList.map((tag, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center gap-1 rounded-full border border-red-250 bg-red-50/50 px-3 py-0.5 text-[10.5px] font-bold text-red-800 font-mono"
+                              >
+                                <span className="text-red-500">✓</span> {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </section>
+
+              {/* V3 - SECTION 5: PRIMARY FINDINGS (Problem + Fix) */}
               <section className="print-findings-list bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 overflow-hidden">
                 <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
                   <div className="flex items-center gap-1 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
@@ -3148,12 +2901,22 @@ Define your custom agent skill instructions and guidelines.
                                       Primary finding
                                     </div>
                                     <div className={`rounded-xl border border-[#E4E3DE] bg-white shadow-xs border-l-4 ${sevTint} p-4 space-y-3`}>
-                                      <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          <span className={`rounded border px-1.5 py-0.5 text-[8.5px] font-black font-sans uppercase tracking-wider ${getSeverityBadgeColor(hero.severity)}`}>
-                                            {hero.severity}
-                                          </span>
-                                          <span className="font-mono text-[12.5px] font-black text-slate-900 tracking-tight truncate">{hero.rule_id}</span>
+                                      <div className="flex flex-wrap items-start justify-between gap-2">
+                                        <div className="flex flex-col gap-1 min-w-0">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <span className={`rounded border px-1.5 py-0.5 text-[8.5px] font-black font-sans uppercase tracking-wider ${getSeverityBadgeColor(hero.severity)}`}>
+                                              {hero.severity}
+                                            </span>
+                                            <span className="text-[15px] font-black text-slate-900 tracking-tight truncate">{humanRuleName(hero.rule_id)}</span>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-mono text-[10px] font-bold text-slate-400 tracking-tight truncate">{hero.rule_id}</span>
+                                            {getFindingOwasp(hero) !== 'Unmapped' && (
+                                              <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[9px] font-black uppercase tracking-wider text-slate-500">
+                                                {getFindingOwasp(hero)}
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
                                         <button
                                           onClick={() => handleCopySnippet(heroRemedy.after, heroRemedy.type || 'pattern')}
@@ -3370,7 +3133,402 @@ Define your custom agent skill instructions and guidelines.
                 )}
               </section>
 
-              {/* V2 - SECTION 9: PILLAR DIAGNOSTICS (Full Width card) */}
+              {/* V3 - SECTION 6: ROOT CAUSE LEDGER */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+                <div className="border-b border-[#E4E3DE] pb-2 shrink-0">
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Enterprise Root Cause Ledger</h3>
+                  <p className="text-[10px] text-slate-500 italic mt-0.5">Structured failure-mode mappings mapped strictly to security response rules</p>
+                </div>
+
+                {(() => {
+                  const groups = getRootCauseGrouping(result.findings);
+                  if (!groups) {
+                    return (
+                      <div className="text-xs font-medium text-slate-400 italic py-2">
+                        No structural or architectural security vulnerabilities detected.
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="flex flex-col gap-5 mt-1">
+                      {/* Root Cause Core details */}
+                      <div className="rounded-xl border border-red-250 bg-red-50/15 overflow-hidden flex flex-col">
+                        <div className="bg-red-50/60 border-b border-red-250/20 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 select-none">
+                          <div className="flex items-center gap-2">
+                            <span className="h-1.5 w-1.5 rounded-full bg-red-600 animate-pulse"></span>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-red-800">
+                              Root Cause Vulnerability
+                            </span>
+                          </div>
+                          <span className="font-mono text-[9.5px] font-bold text-red-750 bg-white border border-red-200/50 px-2.5 py-0.5 rounded shadow-3xs uppercase">
+                            {groups.root.severity} Severity
+                          </span>
+                        </div>
+                        
+                        <div className="p-4 space-y-4">
+                          {/* Title & description */}
+                          <div>
+                            <h4 className="text-[13.5px] font-black text-slate-900 uppercase tracking-wide">
+                              {groups.root.label}
+                            </h4>
+                            <p className="text-[11.5px] text-[#57534E] leading-relaxed font-medium mt-1">
+                              {groups.root.explanation}
+                            </p>
+                          </div>
+
+                          {/* Dynamic Evidence & Impact lists */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-[#E4E3DE]/60 pt-4">
+                            {/* Evidence List */}
+                            <div className="space-y-2">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] select-none block">
+                                Observable Triggers (Evidence)
+                              </span>
+                              <ul className="space-y-1.5 pl-1">
+                                {groups.root.evidence.map((ev, i) => (
+                                  <li key={i} className="flex items-start gap-1.5 text-xs text-slate-800 font-medium">
+                                    <span className="text-red-500 font-bold select-none">•</span>
+                                    <span>{ev}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+
+                            {/* Impact List */}
+                            <div className="space-y-2">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] select-none block">
+                                Reachable Threat Sinks (Impact)
+                              </span>
+                              <ul className="space-y-1.5 pl-1">
+                                {groups.root.impact.map((im, i) => (
+                                  <li key={i} className="flex items-start gap-1.5 text-xs text-slate-800 font-medium">
+                                    <span className="text-red-500 font-bold select-none">•</span>
+                                    <span>{im}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Supporting findings list */}
+                      {groups.supporting.length > 0 && (
+                        <div className="space-y-2.5">
+                          <span className="text-[9.5px] font-black uppercase tracking-widest text-slate-400 block pl-0.5">
+                            Supporting Forensic Mappings
+                          </span>
+                          <div className="flex flex-col gap-2">
+                            {groups.supporting.map((sup, idx) => (
+                              <div key={idx} className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 bg-[#FAF9F6] p-4 transition-all hover:bg-slate-50/50">
+                                <div className="space-y-1">
+                                  <span className="text-[11.5px] font-bold text-slate-800 font-mono block">
+                                    {sup.label}
+                                  </span>
+                                  <p className="text-[11px] text-[#57534E] leading-relaxed font-medium">
+                                    {sup.explanation}
+                                  </p>
+                                </div>
+                                <span className="shrink-0 font-mono text-[8px] font-bold text-slate-500 border border-slate-200 bg-white px-2 py-0.5 rounded uppercase tracking-wider">
+                                  {sup.severity}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </section>
+
+              {/* V3 - SECTION 7: HOW TO BREAK THIS CHAIN */}
+              {(() => {
+                const steps = getBreakChainSteps(primaryWorkflow);
+                if (steps.length === 0) return null;
+                return (
+                  <section className="bg-white border border-rose-200 rounded-xl p-5 shadow-xs flex flex-col gap-4 shrink-0">
+                    <div className="border-b border-rose-100 pb-3">
+                      <h3 className="text-[11px] font-black uppercase tracking-widest text-rose-700">🛠️ How To Break This Chain</h3>
+                      <p className="text-[10px] text-slate-500 italic mt-0.5">Targeted controls that sever the inferred execution path</p>
+                    </div>
+                    <ul className="flex flex-col gap-2.5">
+                      {steps.map((step, sIdx) => (
+                        <li key={sIdx} className="flex items-start gap-2.5 text-[12.5px] font-semibold leading-relaxed text-slate-700">
+                          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-500 font-mono text-[10px] font-black text-white shadow-3xs">
+                            {sIdx + 1}
+                          </span>
+                          <span>{step}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                );
+              })()}
+
+              {/* V3 - SECTION 8: EXECUTION PATH REMOVED (Before vs After) */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+                <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
+                  <div>
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Hardening Fix</h3>
+                    <p className="text-[10px] text-slate-500 italic mt-0.5">Actionable before/after structural rewrite comparison</p>
+                  </div>
+                  {primaryWorkflowFinding && (() => {
+                    const remedy = getRemediation(primaryWorkflowFinding);
+                    return (
+                      <button
+                        onClick={() => copyText(remedy.after, 'Remediation pattern copied.')}
+                        className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
+                      >
+                        📋 Copy Safer Pattern
+                      </button>
+                    );
+                  })()}
+                </div>
+
+                {primaryWorkflowFinding ? (() => {
+                  const remedy = getRemediation(primaryWorkflowFinding);
+                  return (
+                    <div className="space-y-4">
+                      <div className="text-[11.5px] text-[#57534E] leading-relaxed">
+                        <span className="font-bold text-slate-800 block mb-0.5">Security Rationale:</span> 
+                        {remedy.rationale}
+                      </div>
+                      
+                      <div className="text-[11.5px] text-[#57534E] leading-relaxed">
+                        <span className="font-bold text-slate-800 block mb-0.5">Suggested Mitigation:</span> 
+                        {remedy.mitigation}
+                      </div>
+
+                      {/* Execution Path Diff Block */}
+                      <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4.5 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E4E3DE]/40 pb-2.5">
+                          <span className="text-[9.5px] font-black uppercase tracking-widest text-[#A8A29E] block">
+                            Execution Path Hardening Proof
+                          </span>
+                          <span className="text-[10px] font-black uppercase text-emerald-750 bg-white border border-emerald-200 px-2.5 py-0.5 rounded shadow-3xs">
+                            Risk Reduction: {typeof primaryWorkflow?.workflow_diff?.riskReduction === 'number'
+                              ? `${primaryWorkflow.workflow_diff.riskReduction}%`
+                              : (primaryWorkflowFinding?.severity === 'critical' ? '96%' : primaryWorkflowFinding?.severity === 'high' ? '92%' : '88%')}
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                          {/* Before Path */}
+                          <div className="flex flex-col gap-2 rounded-xl border border-red-200/50 bg-red-50/10 p-3.5">
+                            <span className="text-[9.5px] uppercase font-black text-red-750 flex items-center gap-1.5 select-none">
+                              <span className="h-1.5 w-1.5 rounded-full bg-red-655 animate-pulse"></span>
+                              Threat Pathway (Before)
+                            </span>
+                            
+                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-red-900 leading-normal">
+                              {primaryWorkflow?.path?.nodes && primaryWorkflow.path.nodes.length > 0 ? (
+                                primaryWorkflow.path.nodes.map((n: any, idx: number) => (
+                                  <React.Fragment key={idx}>
+                                    {idx > 0 && (
+                                      <svg className="w-3.5 h-3.5 text-red-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                      </svg>
+                                    )}
+                                    <span className="bg-white border border-red-200 px-2.5 py-1 rounded-lg shadow-3xs uppercase text-[9.5px] truncate max-w-[140px] tracking-tight">
+                                      {humanType(n.type)}
+                                    </span>
+                                  </React.Fragment>
+                                ))
+                              ) : (
+                                <span className="italic text-red-700">Privileged Execution Pathway Active</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* After Path */}
+                          <div className="flex flex-col gap-2 rounded-xl border border-emerald-200/50 bg-emerald-50/10 p-3.5">
+                            <span className="text-[9.5px] uppercase font-black text-emerald-750 flex items-center gap-1.5 select-none">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                              Hardened Isolation Pathway (After)
+                            </span>
+                            
+                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-emerald-900 leading-normal">
+                              {(primaryWorkflow?.workflow_diff?.after?.nodes?.map((n: any) => n.type) || ['user_input', 'model', 'response']).map((type: string, idx: number) => (
+                                <React.Fragment key={idx}>
+                                  {idx > 0 && (
+                                    <svg className="w-3.5 h-3.5 text-emerald-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                  )}
+                                  <span className="bg-white border border-emerald-200 px-2.5 py-1 rounded-lg shadow-3xs uppercase text-[9.5px] tracking-tight">
+                                    {humanType(type)}
+                                  </span>
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                        {/* Before */}
+                        <div className="rounded-lg border border-red-200 bg-red-50/15 flex flex-col overflow-hidden">
+                          <div className="bg-red-50/55 border-b border-red-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-red-750 font-sans select-none">
+                            🔴 Original Prompt segment (Before)
+                          </div>
+                          <pre className="p-3 font-mono text-[10px] leading-relaxed text-red-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
+                            {remedy.before}
+                          </pre>
+                        </div>
+
+                        {/* After */}
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/15 flex flex-col overflow-hidden">
+                          <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-emerald-750 font-sans select-none">
+                            🟢 Auto-Hardened Prompt (Safer Rewrite)
+                          </div>
+                          <pre className="p-3 font-mono text-[10px] leading-relaxed text-emerald-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
+                            {remedy.after}
+                          </pre>
+                        </div>
+                      </div>
+
+                      {/* Removed Nodes / Edges (real diff data) */}
+                      {(() => {
+                        const diff = primaryWorkflow?.workflow_diff;
+                        if (!diff || (diff.removedNodes.length === 0 && diff.removedEdges.length === 0)) return null;
+                        return (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[10px]">
+                            <div className="rounded-lg border border-[#E4E3DE]/60 bg-[#FAF9F6] p-3">
+                              <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Nodes</span>
+                              <div className="flex flex-wrap gap-1">
+                                {diff.removedNodes.length > 0 ? diff.removedNodes.map((t: string, i: number) => (
+                                  <span key={i} className="font-mono bg-white border border-red-200 text-red-800 px-1.5 py-0.5 rounded uppercase text-[8.5px] tracking-tight line-through">{humanType(t)}</span>
+                                )) : <span className="italic text-slate-400">None</span>}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-[#E4E3DE]/60 bg-[#FAF9F6] p-3">
+                              <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Edges</span>
+                              <div className="flex flex-wrap gap-1">
+                                {diff.removedEdges.length > 0 ? diff.removedEdges.map((e: string, i: number) => (
+                                  <span key={i} className="font-mono bg-white border border-red-200 text-red-800 px-1.5 py-0.5 rounded text-[8.5px] tracking-tight">{e}</span>
+                                )) : <span className="italic text-slate-400">None</span>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Execution Path Removed block (verification, real diff data) */}
+                      {(() => {
+                        const diff = primaryWorkflow?.workflow_diff;
+                        const pathRemoved = diff ? diff.executionPathRemoved : true;
+                        return (
+                          <div className={`rounded-lg border p-3.5 flex items-center justify-between text-xs ${pathRemoved ? 'border-emerald-250 bg-emerald-50/20' : 'border-amber-250 bg-amber-50/20'}`}>
+                            <div className="flex items-center gap-2">
+                              <span className={`font-bold ${pathRemoved ? 'text-emerald-700' : 'text-amber-700'}`}>{pathRemoved ? '✓' : '⚠'}</span>
+                              <span className={`font-bold ${pathRemoved ? 'text-emerald-900' : 'text-amber-900'}`}>
+                                {pathRemoved ? 'Safer structure verified' : 'Partial remediation — privileged sink still reachable'}
+                              </span>
+                            </div>
+                            <span className={`font-mono text-[9px] font-bold px-2 py-0.5 rounded border select-none uppercase tracking-wide ${pathRemoved ? 'text-emerald-700 bg-emerald-100/50 border-emerald-200/40' : 'text-amber-700 bg-amber-100/50 border-amber-200/40'}`}>
+                              {pathRemoved ? 'Execution Path Removed' : 'Path Not Fully Removed'}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })() : (
+                  <div className="py-6 px-4 text-center text-[#57534E] text-[11.5px] border border-dashed border-emerald-200 rounded-xl bg-emerald-50/10 select-none flex flex-col items-center justify-center gap-1.5">
+                    <span className="text-xl">🛡️</span>
+                    <span className="font-black uppercase tracking-wider text-emerald-750">No structural remediation required</span>
+                    <p className="text-[10px] text-slate-500 max-w-md leading-relaxed">
+                      PromptSonar didn't find any dynamic execution vulnerabilities or privileged sink pathways. The current prompt layout is well-contained.
+                    </p>
+                  </div>
+                )}
+              </section>
+
+              {/* V3 - SECTION 9: PROMPT OPTIMIZATION */}
+              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 shrink-0">
+                <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
+                  <div>
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Optimizer & Compressor</h3>
+                    <p className="text-[10px] text-slate-500 italic mt-0.5">Statically remove redundant instructions, optimize templates, and maximize security</p>
+                  </div>
+                  {result.compression?.compressedText && (
+                    <button
+                      onClick={() => copyText(result.compression.compressedText, 'Compressed prompt copied.')}
+                      className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
+                    >
+                      📋 Copy Compressed Prompt
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Left Column: Token ROI metrics */}
+                  <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4 flex flex-col justify-between gap-4">
+                    <div className="space-y-4">
+                      <div>
+                        <span className="text-[9px] text-[#A8A29E] uppercase tracking-widest font-black block">Compression Ratio</span>
+                        <div className="mt-1 flex items-end gap-1">
+                          <span className="text-3xl font-black text-slate-900 leading-none">
+                            {result.roi?.compressionRatio || '0%'}
+                          </span>
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/50 px-1.5 py-0.5 rounded uppercase tracking-wide">
+                            Optimized
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Original</span>
+                          <span className="font-mono font-bold text-slate-700">{result.roi?.originalTokens || 0} tokens</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Compressed</span>
+                          <span className="font-mono font-bold text-slate-700">{result.roi?.newTokens || 0} tokens</span>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-[#E4E3DE]/60 pt-3">
+                        <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Estimated Savings</span>
+                        <span className="text-sm font-bold text-slate-800 font-mono">
+                          ${(result.roi?.dollarsSavedPer10kCalls || 0).toFixed(4)} <span className="text-[10.5px] font-sans font-medium text-slate-500">per 10k calls</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] text-slate-500 leading-relaxed italic bg-white border border-slate-200/60 p-2.5 rounded-lg select-none">
+                      ⚡ PromptSonar statically removes redundant sentences, structural bloat, and optimizes delimiter nesting to maximize prompt engineering efficiency.
+                    </div>
+                  </div>
+
+                  {/* Right 2 Columns: Comparative prompts */}
+                  <div className="lg:col-span-2 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Original Prompt preview */}
+                      <div className="rounded-lg border border-slate-200 bg-[#FAF9F6]/20 flex flex-col overflow-hidden">
+                        <div className="bg-slate-50 border-b border-slate-200 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-slate-650 font-sans select-none">
+                          📝 Original Prompt (Before)
+                        </div>
+                        <div className="p-3 font-mono text-[10.5px] leading-relaxed text-slate-700 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
+                          {promptText || 'No prompt scanned yet.'}
+                        </div>
+                      </div>
+
+                      {/* Compressed/Optimized Prompt preview */}
+                      <div className="rounded-lg border border-emerald-250 bg-emerald-50/10 flex flex-col overflow-hidden">
+                        <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-emerald-800 font-sans select-none">
+                          ⚡ Compressed & Optimized Prompt (After)
+                        </div>
+                        <div className="p-3 font-mono text-[10.5px] leading-relaxed text-emerald-950 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
+                          {result.compression?.compressedText || 'Optimized text will appear after running scan.'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* V3 - SECTION 10: DIAGNOSTICS */}
               <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 overflow-hidden shrink-0">
                 <div className="flex flex-col gap-2 pb-2 border-b border-[#E4E3DE] shrink-0">
                   <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
@@ -3440,7 +3598,7 @@ Define your custom agent skill instructions and guidelines.
                 </div>
               </section>
 
-              {/* V2 - SECTION 10: SHARE REPORT (VIRAL REPORT CARD) */}
+              {/* V3 - SECTION 11: SHAREABLE REPORT */}
               <section ref={reportCardRef} className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs shrink-0 overflow-hidden">
                 <div className="border-b border-[#E4E3DE] bg-[#FAF9F6] px-5 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex items-center gap-2 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">

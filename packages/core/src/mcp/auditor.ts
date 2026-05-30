@@ -13,12 +13,39 @@ export interface McpFinding {
     path: string;
     server?: string;
     workflow?: FindingWorkflow;
+    evidence?: string;
+    confidence_contribution?: number;
+}
+
+export type McpRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export interface McpRiskFactor {
+    rule_id: string;
+    weight: number;
+    evidence?: string;
+    server?: string;
+}
+
+export interface McpRiskScore {
+    score: number;
+    level: McpRiskLevel;
+    factors: McpRiskFactor[];
+}
+
+export interface McpServerSummary {
+    server: string;
+    capabilities: string[];
+    permissions: string[];
+    execution_mode: 'auto' | 'manual' | 'unknown';
+    risk_score: McpRiskScore;
 }
 
 export interface McpAuditResult {
     filePath: string;
     status: 'pass' | 'warn' | 'fail';
     findings: McpFinding[];
+    risk_score?: McpRiskScore;
+    servers?: McpServerSummary[];
 }
 
 const SUSPICIOUS_DESCRIPTION_PATTERNS = [
@@ -140,6 +167,241 @@ function stableStringify(value: unknown): string {
     }
 }
 
+const FS_CAPABILITY_TOKENS = ['filesystem', 'file_write', 'file_read', 'disk_access', 'workspace_access', 'fs', 'files'];
+const SHELL_CAPABILITY_TOKENS = ['shell', 'bash', 'terminal', 'exec', 'spawn', 'process', 'subprocess', 'shell_exec'];
+const NETWORK_CAPABILITY_TOKENS = ['network', 'http', 'https', 'fetch', 'curl', 'axios', 'request', 'webhook'];
+const CREDENTIAL_KEY_TOKENS = ['api_key', 'apikey', 'secret', 'token', 'bearer', 'authorization', 'credentials', 'auth_token', 'access_token'];
+
+interface ServerStructuralAnalysis {
+    autoExecute?: { value: unknown; key: string };
+    autoApprove?: { value: unknown; key: string };
+    approvalRequired?: { value: unknown; key: string };
+    wildcardPermissions: string[];
+    allowAll?: { value: unknown; key: string };
+    fsCapabilities: string[];
+    shellCapabilities: string[];
+    networkCapabilities: string[];
+    credentialFields: string[];
+    routedTo: string[];
+}
+
+function collectStrings(value: unknown, out: string[]): void {
+    if (value == null) return;
+    if (typeof value === 'string') {
+        out.push(value);
+        return;
+    }
+    if (Array.isArray(value)) {
+        for (const item of value) collectStrings(item, out);
+        return;
+    }
+    if (typeof value === 'object') {
+        for (const item of Object.values(value as Record<string, unknown>)) collectStrings(item, out);
+    }
+}
+
+function containsToken(haystack: string, tokens: string[]): string | undefined {
+    const lower = haystack.toLowerCase();
+    return tokens.find(token => lower.includes(token));
+}
+
+function findKeyValues(node: unknown, key: string, out: Array<{ value: unknown; path: string }>, currentPath = ''): void {
+    if (node == null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+        node.forEach((item, idx) => findKeyValues(item, key, out, `${currentPath}[${idx}]`));
+        return;
+    }
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        const nextPath = currentPath ? `${currentPath}.${k}` : k;
+        if (k.toLowerCase() === key.toLowerCase()) {
+            out.push({ value: v, path: nextPath });
+        }
+        findKeyValues(v, key, out, nextPath);
+    }
+}
+
+function analyzeServerStructure(server: any): ServerStructuralAnalysis {
+    const analysis: ServerStructuralAnalysis = {
+        wildcardPermissions: [],
+        fsCapabilities: [],
+        shellCapabilities: [],
+        networkCapabilities: [],
+        credentialFields: [],
+        routedTo: [],
+    };
+
+    if (!server || typeof server !== 'object') return analysis;
+
+    const autoExec: Array<{ value: unknown; path: string }> = [];
+    findKeyValues(server, 'autoExecute', autoExec);
+    findKeyValues(server, 'auto_execute', autoExec);
+    if (autoExec.length > 0) analysis.autoExecute = { value: autoExec[0].value, key: autoExec[0].path };
+
+    const autoApprove: Array<{ value: unknown; path: string }> = [];
+    findKeyValues(server, 'autoApprove', autoApprove);
+    findKeyValues(server, 'auto_approve', autoApprove);
+    if (autoApprove.length > 0) analysis.autoApprove = { value: autoApprove[0].value, key: autoApprove[0].path };
+
+    const approval: Array<{ value: unknown; path: string }> = [];
+    findKeyValues(server, 'approvalRequired', approval);
+    findKeyValues(server, 'approval_required', approval);
+    findKeyValues(server, 'requiresApproval', approval);
+    if (approval.length > 0) analysis.approvalRequired = { value: approval[0].value, key: approval[0].path };
+
+    const allowAll: Array<{ value: unknown; path: string }> = [];
+    findKeyValues(server, 'allowAll', allowAll);
+    findKeyValues(server, 'allow_all', allowAll);
+    if (allowAll.length > 0) analysis.allowAll = { value: allowAll[0].value, key: allowAll[0].path };
+
+    const permissions: Array<{ value: unknown; path: string }> = [];
+    findKeyValues(server, 'permissions', permissions);
+    findKeyValues(server, 'scopes', permissions);
+    for (const p of permissions) {
+        const values: string[] = [];
+        collectStrings(p.value, values);
+        if (p.value === '' || values.some(v => v === '*' || v === '' || v.toLowerCase() === 'all')) {
+            analysis.wildcardPermissions.push(`${p.path}=${stableStringify(p.value)}`);
+        }
+    }
+
+    const capabilities: Array<{ value: unknown; path: string }> = [];
+    findKeyValues(server, 'capabilities', capabilities);
+    findKeyValues(server, 'tools', capabilities);
+    const capabilityStrings: string[] = [];
+    for (const c of capabilities) collectStrings(c.value, capabilityStrings);
+    for (const cap of capabilityStrings) {
+        const fs = containsToken(cap, FS_CAPABILITY_TOKENS);
+        if (fs) analysis.fsCapabilities.push(cap);
+        const sh = containsToken(cap, SHELL_CAPABILITY_TOKENS);
+        if (sh) analysis.shellCapabilities.push(cap);
+        const nt = containsToken(cap, NETWORK_CAPABILITY_TOKENS);
+        if (nt) analysis.networkCapabilities.push(cap);
+    }
+
+    if (typeof server.command === 'string') {
+        if (containsToken(server.command, SHELL_CAPABILITY_TOKENS)) {
+            analysis.shellCapabilities.push(`command=${server.command}`);
+        }
+    }
+    const argsStrings: string[] = [];
+    collectStrings(server.args, argsStrings);
+    for (const a of argsStrings) {
+        if (/-c\b/.test(a)) {
+            // bash/sh -c form
+        }
+        if (containsToken(a, SHELL_CAPABILITY_TOKENS) && /\bbash\b|\bsh\b|\bzsh\b/i.test(a)) {
+            analysis.shellCapabilities.push(`args=${a}`);
+        }
+    }
+
+    // MCP-013 (credential propagation) targets passthrough of host credentials, not
+    // hardcoded secrets (MCP-005) or normal outbound auth. Only flag credential-named
+    // keys whose values reference host env interpolation (`${VAR}`) or empty placeholders.
+    const credentialCarriers: Array<{ value: unknown; path: string }> = [];
+    findKeyValues(server, 'headers', credentialCarriers);
+    findKeyValues(server, 'env', credentialCarriers);
+    for (const hc of credentialCarriers) {
+        if (hc.value && typeof hc.value === 'object' && !Array.isArray(hc.value)) {
+            for (const [k, v] of Object.entries(hc.value as Record<string, unknown>)) {
+                const matchesKey = CREDENTIAL_KEY_TOKENS.some(token => k.toLowerCase().includes(token));
+                if (!matchesKey) continue;
+                const valueText = typeof v === 'string' ? v : stableStringify(v);
+                const isInEnv = hc.path === 'env' || hc.path.endsWith('.env');
+                const referencesHostEnv = /\$\{[A-Z_][A-Z0-9_]*\}/.test(valueText) || /\$[A-Z_][A-Z0-9_]*/.test(valueText);
+                if (isInEnv && referencesHostEnv) {
+                    analysis.credentialFields.push(`${hc.path}.${k}=${valueText}`);
+                }
+            }
+        }
+    }
+
+    const routing: Array<{ value: unknown; path: string }> = [];
+    findKeyValues(server, 'routeTo', routing);
+    findKeyValues(server, 'route_to', routing);
+    findKeyValues(server, 'forwardsTo', routing);
+    findKeyValues(server, 'forwards_to', routing);
+    findKeyValues(server, 'upstream', routing);
+    findKeyValues(server, 'upstreams', routing);
+    findKeyValues(server, 'chain', routing);
+    findKeyValues(server, 'delegate', routing);
+    findKeyValues(server, 'delegateTo', routing);
+    for (const r of routing) {
+        const values: string[] = [];
+        collectStrings(r.value, values);
+        analysis.routedTo.push(...values);
+    }
+
+    return analysis;
+}
+
+function redactSecret(value: string): string {
+    if (value.length <= 8) return '***';
+    return `${value.slice(0, 4)}…${value.slice(-2)}`;
+}
+
+function redactEvidence(text: string): string {
+    let redacted = text;
+    for (const pattern of SECRET_PATTERNS) {
+        redacted = redacted.replace(new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g'), match => redactSecret(match));
+    }
+    return redacted;
+}
+
+function isFalsyApproval(value: unknown): boolean {
+    return value === false || value === 'false' || value === 0 || value === '0' || value === 'no' || value === 'off';
+}
+
+function isTruthyFlag(value: unknown): boolean {
+    return value === true || value === 'true' || value === 1 || value === '1' || value === 'yes' || value === 'on';
+}
+
+const RISK_WEIGHTS: Record<string, number> = {
+    'MCP-001': 25,
+    'MCP-002': 15,
+    'MCP-003': 10,
+    'MCP-004': 10,
+    'MCP-005': 20,
+    'MCP-006': 5,
+    'MCP-008': 15,
+    'MCP-009': 15,
+    'MCP-010': 8,
+    'MCP-011': 20,
+    'MCP-012': 25,
+    'MCP-013': 20,
+    'MCP-014': 15,
+    'MCP-103': 15,
+    'MCP-104': 25,
+    'MCP-105': 15,
+    'MCP-107': 12,
+    'MCP-108': 30,
+    'MCP-109': 30,
+};
+
+function levelFromScore(score: number): McpRiskLevel {
+    if (score >= 75) return 'CRITICAL';
+    if (score >= 50) return 'HIGH';
+    if (score >= 25) return 'MEDIUM';
+    return 'LOW';
+}
+
+function computeRiskScore(findings: McpFinding[], scopeServer?: string): McpRiskScore {
+    const factors: McpRiskFactor[] = [];
+    let total = 0;
+    for (const f of findings) {
+        if (scopeServer && f.server !== scopeServer) continue;
+        const weight = f.confidence_contribution ?? RISK_WEIGHTS[f.rule_id] ?? 5;
+        total += weight;
+        factors.push({
+            rule_id: f.rule_id,
+            weight,
+            evidence: f.evidence,
+            server: f.server,
+        });
+    }
+    const score = Math.min(100, total);
+    return { score, level: levelFromScore(score), factors };
+}
+
 function addFinding(findings: McpFinding[], finding: McpFinding, content?: string, filePath?: string): void {
     if (!finding.workflow) {
         const workflow = inferWorkflowForFinding({
@@ -209,9 +471,10 @@ function mcpExecutionSeverity(text: string): McpSeverity {
     return hasPrivilegedSink && (hasAutonomousOrBypass || hasPersistenceOrOverride) ? 'critical' : 'high';
 }
 
-function auditServer(name: string, server: any, serverPath: string, findings: McpFinding[], content: string, filePath: string): void {
+function auditServer(name: string, server: any, serverPath: string, findings: McpFinding[], content: string, filePath: string): ServerStructuralAnalysis {
     const text = stableStringify(server);
     const urls = extractUrls(server);
+    const structure = analyzeServerStructure(server);
 
     for (const urlText of urls) {
         let parsed: URL | undefined;
@@ -326,7 +589,18 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
         }, content, filePath);
     }
 
-    if (AUTO_EXECUTE_PATTERNS.some(pattern => pattern.test(text))) {
+    const autoExecuteEvidence: string[] = [];
+    if (structure.autoExecute && isTruthyFlag(structure.autoExecute.value)) {
+        autoExecuteEvidence.push(`${structure.autoExecute.key}=${stableStringify(structure.autoExecute.value)}`);
+    }
+    if (structure.autoApprove && isTruthyFlag(structure.autoApprove.value)) {
+        autoExecuteEvidence.push(`${structure.autoApprove.key}=${stableStringify(structure.autoApprove.value)}`);
+    }
+    if (structure.approvalRequired && isFalsyApproval(structure.approvalRequired.value)) {
+        autoExecuteEvidence.push(`${structure.approvalRequired.key}=${stableStringify(structure.approvalRequired.value)}`);
+    }
+    const hasAutoExecuteRegex = AUTO_EXECUTE_PATTERNS.some(pattern => pattern.test(text));
+    if (autoExecuteEvidence.length > 0 || hasAutoExecuteRegex) {
         addFinding(findings, {
             rule_id: 'MCP-011',
             severity: mcpExecutionSeverity(text),
@@ -334,10 +608,17 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             fix: 'Disable auto-execution and require explicit human approval for privileged MCP tool calls.',
             path: serverPath,
             server: name,
+            evidence: autoExecuteEvidence.join('; ') || 'matched auto-execute language in config text',
+            confidence_contribution: RISK_WEIGHTS['MCP-011'],
         }, content, filePath);
     }
 
-    if (WILDCARD_PERMISSION_PATTERNS.some(pattern => pattern.test(text))) {
+    const wildcardEvidence: string[] = [...structure.wildcardPermissions];
+    if (structure.allowAll && isTruthyFlag(structure.allowAll.value)) {
+        wildcardEvidence.push(`${structure.allowAll.key}=${stableStringify(structure.allowAll.value)}`);
+    }
+    const hasWildcardRegex = WILDCARD_PERMISSION_PATTERNS.some(pattern => pattern.test(text));
+    if (wildcardEvidence.length > 0 || hasWildcardRegex) {
         addFinding(findings, {
             rule_id: 'MCP-012',
             severity: hasPrivilegedMcpSink(text) ? mcpExecutionSeverity(text) : 'high',
@@ -345,17 +626,62 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             fix: 'Replace wildcard MCP permissions with explicit tool, path, command, and network allowlists.',
             path: serverPath,
             server: name,
+            evidence: wildcardEvidence.join('; ') || 'wildcard permission pattern in config text',
+            confidence_contribution: RISK_WEIGHTS['MCP-012'],
         }, content, filePath);
     }
 
-    if (CREDENTIAL_PASSTHROUGH_PATTERNS.some(pattern => pattern.test(text))) {
+    if (structure.fsCapabilities.length > 0) {
+        addFinding(findings, {
+            rule_id: 'MCP-103',
+            severity: 'high',
+            message: `MCP server "${name}" declares filesystem capability.`,
+            fix: 'Scope filesystem tools to specific directories and prefer read-only access where possible.',
+            path: serverPath,
+            server: name,
+            evidence: Array.from(new Set(structure.fsCapabilities)).join(', '),
+            confidence_contribution: RISK_WEIGHTS['MCP-103'],
+        }, content, filePath);
+    }
+
+    if (structure.shellCapabilities.length > 0) {
+        addFinding(findings, {
+            rule_id: 'MCP-104',
+            severity: 'critical',
+            message: `MCP server "${name}" declares shell or process execution capability.`,
+            fix: 'Remove shell/exec capability or restrict it to a fixed allowlist of commands with human approval.',
+            path: serverPath,
+            server: name,
+            evidence: Array.from(new Set(structure.shellCapabilities)).join(', '),
+            confidence_contribution: RISK_WEIGHTS['MCP-104'],
+        }, content, filePath);
+    }
+
+    if (structure.networkCapabilities.length > 0) {
+        addFinding(findings, {
+            rule_id: 'MCP-105',
+            severity: 'high',
+            message: `MCP server "${name}" declares external network capability.`,
+            fix: 'Restrict network egress to an explicit domain allowlist and disable arbitrary fetch.',
+            path: serverPath,
+            server: name,
+            evidence: Array.from(new Set(structure.networkCapabilities)).join(', '),
+            confidence_contribution: RISK_WEIGHTS['MCP-105'],
+        }, content, filePath);
+    }
+
+    const credentialEvidence: string[] = [...structure.credentialFields];
+    const hasCredentialPassthrough = CREDENTIAL_PASSTHROUGH_PATTERNS.some(pattern => pattern.test(text));
+    if (credentialEvidence.length > 0 || hasCredentialPassthrough) {
         addFinding(findings, {
             rule_id: 'MCP-013',
             severity: 'high',
-            message: `MCP server "${name}" appears to pass host credentials or secrets through to tools.`,
+            message: `MCP server "${name}" appears to propagate host credentials, tokens, or authorization headers to tools.`,
             fix: 'Use scoped service credentials and do not pass host secrets into MCP process or remote tool contexts.',
             path: serverPath,
             server: name,
+            evidence: redactEvidence(credentialEvidence.join('; ') || 'credential passthrough language in config'),
+            confidence_contribution: RISK_WEIGHTS['MCP-013'],
         }, content, filePath);
     }
 
@@ -367,8 +693,11 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
             fix: 'Remove instruction-rewrite behavior from MCP metadata and pin reviewed tool instructions.',
             path: serverPath,
             server: name,
+            confidence_contribution: RISK_WEIGHTS['MCP-014'],
         }, content, filePath);
     }
+
+    return structure;
 }
 
 function statusFromFindings(findings: McpFinding[]): McpAuditResult['status'] {
@@ -418,14 +747,101 @@ export function auditMcpConfig(filePath: string, content: string): McpAuditResul
         }, content, filePath);
     }
 
+    const serverNames = new Set(servers.map(([name]) => String(name)));
+    const serverSummaries: McpServerSummary[] = [];
+
     for (const [name, server, serverPath] of servers) {
-        auditServer(name, server, serverPath, findings, content, filePath);
+        const structure = auditServer(name, server, serverPath, findings, content, filePath);
+
+        const internalTargets = structure.routedTo.filter(target => serverNames.has(target) && target !== name);
+        const externalTargets = structure.routedTo.filter(target => !serverNames.has(target) && /^[a-z][\w.-]*$/i.test(target));
+        const chainTargets = [...internalTargets, ...externalTargets];
+        if (chainTargets.length > 0) {
+            addFinding(findings, {
+                rule_id: 'MCP-107',
+                severity: 'high',
+                message: `MCP server "${name}" chains execution to additional MCP server(s): ${chainTargets.join(', ')}.`,
+                fix: 'Document and minimize MCP-to-MCP hops. Each hop must enforce its own auth, allowlist, and approval gates.',
+                path: serverPath,
+                server: name,
+                evidence: `chain: ${name} -> ${chainTargets.join(', ')}`,
+                confidence_contribution: RISK_WEIGHTS['MCP-107'],
+            }, content, filePath);
+        }
+
+        const serverFindings = findings.filter(f => f.server === name);
+        const hasFs = structure.fsCapabilities.length > 0 || serverFindings.some(f => f.rule_id === 'MCP-008');
+        const hasShell = structure.shellCapabilities.length > 0;
+        const hasNetwork = structure.networkCapabilities.length > 0;
+        const broadOrWildcard = serverFindings.some(f => f.rule_id === 'MCP-002' || f.rule_id === 'MCP-012');
+        const autoExec = serverFindings.some(f => f.rule_id === 'MCP-011');
+
+        if ((hasFs || hasShell || hasNetwork) && (broadOrWildcard || autoExec)) {
+            const sinks = [hasShell && 'shell', hasFs && 'filesystem', hasNetwork && 'network'].filter(Boolean).join('+');
+            addFinding(findings, {
+                rule_id: 'MCP-108',
+                severity: 'critical',
+                message: `MCP server "${name}" exposes a privilege escalation path: untrusted prompt -> MCP tool -> ${sinks}.`,
+                fix: 'Break the escalation path: scope capabilities, require approval, and isolate the privileged sink behind a trusted broker.',
+                path: serverPath,
+                server: name,
+                evidence: `sinks=${sinks}; trigger=${broadOrWildcard ? 'broad/wildcard scope' : 'auto-exec'}`,
+                confidence_contribution: RISK_WEIGHTS['MCP-108'],
+            }, content, filePath);
+        }
+
+        const wildcardFinding = serverFindings.find(f => f.rule_id === 'MCP-012');
+        const autoExecFinding = serverFindings.find(f => f.rule_id === 'MCP-011');
+        const shellFinding = serverFindings.find(f => f.rule_id === 'MCP-104');
+        const approvalRequiredFalsy = !!structure.approvalRequired && isFalsyApproval(structure.approvalRequired.value);
+        if ((autoExecFinding && approvalRequiredFalsy) || (wildcardFinding && shellFinding)) {
+            const parts: string[] = [];
+            if (autoExecFinding) parts.push(autoExecFinding.evidence || 'auto-exec');
+            if (approvalRequiredFalsy && structure.approvalRequired) parts.push(`${structure.approvalRequired.key}=${stableStringify(structure.approvalRequired.value)}`);
+            if (wildcardFinding) parts.push(wildcardFinding.evidence || 'wildcard permissions');
+            if (shellFinding) parts.push(shellFinding.evidence || 'shell capability');
+            addFinding(findings, {
+                rule_id: 'MCP-109',
+                severity: 'critical',
+                message: `MCP server "${name}" combines settings that bypass human approval for dangerous actions.`,
+                fix: 'Re-enable approval gating and remove either the auto-execute flag or the privileged capability before shipping.',
+                path: serverPath,
+                server: name,
+                evidence: parts.join(' AND '),
+                confidence_contribution: RISK_WEIGHTS['MCP-109'],
+            }, content, filePath);
+        }
+
+        const capabilities = Array.from(new Set([
+            ...structure.fsCapabilities,
+            ...structure.shellCapabilities,
+            ...structure.networkCapabilities,
+        ]));
+        const permissions = structure.wildcardPermissions.length > 0
+            ? Array.from(new Set(structure.wildcardPermissions))
+            : [];
+        const executionMode: McpServerSummary['execution_mode'] = autoExec
+            ? 'auto'
+            : (structure.approvalRequired && !isFalsyApproval(structure.approvalRequired.value)) ? 'manual' : 'unknown';
+
+        const serverScopedFindings = findings.filter(f => f.server === name);
+        serverSummaries.push({
+            server: String(name),
+            capabilities,
+            permissions,
+            execution_mode: executionMode,
+            risk_score: computeRiskScore(serverScopedFindings, String(name)),
+        });
     }
+
+    const overallScore = computeRiskScore(findings);
 
     return {
         filePath,
         status: statusFromFindings(findings),
         findings,
+        risk_score: overallScore,
+        servers: serverSummaries,
     };
 }
 

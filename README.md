@@ -25,6 +25,49 @@ npx @promptsonar/cli scan .
 
 -----
 
+## What's New in 1.4
+
+PromptSonar 1.4 bundles the engine work into one release. The scanner no longer
+just reports *what is wrong* — it explains **where execution can go, why the path
+exists, how confident it is, and how remediation changes the path**.
+
+- ✅ **MCP Safety Engine v2** — auto-approval, wildcard permissions, filesystem/shell/network capabilities, credential propagation, chained execution, privilege escalation, and approval bypass, each scored into an MCP Risk Score.
+- ✅ **Workflow Provenance** — every workflow node/edge traces back to a concrete rule match (no invented paths).
+- ✅ **Confidence Scoring** — a deterministic 0–100 execution-path confidence with LOW/MEDIUM/HIGH levels.
+- ✅ **Root Cause Analysis** — clusters related findings under the one that best explains them, with supporting findings.
+- ✅ **Workflow Diff Engine** — a before/after execution graph proving whether the dangerous path was removed, with a deterministic risk-reduction %.
+
+These surface consistently across the **Playground**, **CLI** (human, JSON, SARIF), and **CI/SARIF** outputs from the same core engine. See the [1.4.0 release note](docs/releases/1.4.0.md).
+
+-----
+
+## How the Playground Works — Input-First Flow
+
+PromptSonar is **workflow-first security analysis**. The playground opens on a clean prompt
+input — never on demo findings — and walks you through a single, linear path:
+
+```
+Paste Prompt  →  Scan Prompt  →  Workflow Analysis  →  Findings  →  Hardening
+```
+
+1. **Input.** You land directly on a large, full-width prompt editor above the fold. Paste a
+   system prompt, agent instruction, or MCP-style config — or pick one from **Load Example**.
+   Nothing else is on screen: no findings, no workflow graph, no report card.
+2. **Scan.** Click **Scan Prompt** (the primary call to action). Analysis runs locally — no
+   data leaves your machine and no LLM is called.
+3. **Workflow Analysis.** Once results exist, the page reveals the executive verdict and the
+   visual AI workflow graph tracing how untrusted input could reach tools, memory, MCP
+   servers, and execution sinks.
+4. **Findings.** Prioritized security findings and secondary hygiene observations appear,
+   sorted by real execution potential (see *Workflow-First Security Triage*, below).
+5. **Hardening.** Copy the hardened prompt preview and per-finding safer rewrites to fix
+   issues before merge.
+
+Analysis UI renders **only after a scan result exists** — there are no preloaded, demo, or
+stale findings on first load.
+
+-----
+
 ## Why PromptSonar?
 
 AI applications now ship prompts, agent instructions, tool descriptions, and MCP configs as production infrastructure. Those files deserve the same pre-merge security checks as package dependencies.
@@ -36,6 +79,7 @@ PromptSonar helps catch:
 - Hardcoded API keys, passwords, tokens, SSNs, and credit-card-like values in prompts.
 - Unsafe tool or RAG instructions that grant broad access or pass raw user input.
 - MCP configs with HTTP endpoints, missing auth indicators, hardcoded tokens, overbroad filesystem/shell scope, host credential passthrough, or mutable/unpinned tool packages.
+- MCP execution and privilege risks: automatic tool execution, wildcard permissions, filesystem/shell/network capabilities, credential propagation, chained MCP routing, privilege-escalation paths, and approval bypass — each scored into a per-server **MCP Risk Score**.
 - CI regressions before merge through JSON, SARIF, and GitHub Actions workflows.
 
 -----
@@ -85,9 +129,35 @@ promptsonar demo
 | Structure / output constraints | Prompt asks for output but does not enforce a machine-readable format. | `Return a list of recommendations.` | Specify JSON/YAML/Markdown structure, length bounds, and examples. |
 | RAG / tool access | User input or tools receive unbounded access to files, databases, commands, or retrieval. | `Search all documents using {user_input}` without validation. | Validate retrieval queries and scope tools to specific paths, tables, or domains. |
 | MCP config security | Agent tools are configured with insecure endpoints, missing auth, hardcoded secrets, broad host access, or mutable packages. | MCP server URL uses `http://`, includes a token in args, passes `SSH_AUTH_SOCK`, or runs unpinned `npx`/`uvx`. | Use HTTPS, env vars, scoped permissions, pinned versions, and trusted domains. |
+| MCP execution & privilege | MCP servers can act without approval, hold wildcard permissions, reach privileged sinks, or chain into other servers. | `"autoExecute": true`, `"permissions": ["*"]`, `"capabilities": ["shell"]`, or `routeTo` another MCP server. | Require human approval, replace wildcards with explicit allowlists, scope capabilities, and isolate privileged sinks. |
 | Consistency / clarity | Ambiguous or contradictory instructions cause unstable outputs. | `Be concise` and `provide an exhaustive explanation`. | Remove conflicts and use explicit quantifiers and output contracts. |
 
 See the full rule catalog in [docs/rules.md](docs/rules.md).
+
+-----
+
+## MCP Safety Engine
+
+PromptSonar audits MCP server configs as execution surfaces, not just text. For every server it answers **"what can this MCP server actually do?"** and rolls the answer into an **MCP Risk Score** (0–100 → LOW / MEDIUM / HIGH / CRITICAL).
+
+| Rule | Detects | Severity |
+| --- | --- | --- |
+| `MCP-011` | Automatic tool execution (`autoExecute`, `autoApprove`, `approvalRequired: false`) | high / critical |
+| `MCP-012` | Wildcard permissions (`permissions: "*"`, `permissions: [""]`, `allowAll`) | high / critical |
+| `MCP-013` | Host credential propagation into tools (env `${VAR}` passthrough) | high |
+| `MCP-103` | Filesystem access capability | high |
+| `MCP-104` | Shell / process execution capability | critical |
+| `MCP-105` | External network access capability | high |
+| `MCP-107` | Chained MCP execution (`routeTo` / `upstream` / `delegate` hops) | high |
+| `MCP-108` | Privilege escalation path (untrusted input → MCP tool → shell/fs/network) | critical |
+| `MCP-109` | Approval bypass (auto-execute + approval disabled, or wildcard + shell) | critical |
+
+Every MCP finding carries **provenance** — the matched evidence value (secrets redacted) and its confidence contribution to the risk score. The audit output and SARIF include `mcp_risk_score`, `mcp_capabilities`, `mcp_permissions`, `mcp_execution_mode`, and `mcp_evidence` per server (backward compatible with existing SARIF consumers).
+
+```bash
+promptsonar audit-mcp ./.cursor/mcp.json
+promptsonar audit-mcp ./.cursor/mcp.json --format sarif --output mcp.sarif
+```
 
 -----
 
@@ -258,6 +328,9 @@ These are static-analysis signals, not confirmed exploits, CVEs, or maintainer-v
 -----
 
 ## Screenshots
+
+The playground is input-first: every visitor starts on the prompt editor and only sees
+analysis after running a scan (`Paste Prompt → Scan Prompt → Workflow Analysis → Findings → Hardening`).
 
 ![PromptSonar playground showing a clean prompt passing all pillars](docs/assets/playground-good.png)
 

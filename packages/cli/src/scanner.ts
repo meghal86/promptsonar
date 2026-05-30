@@ -400,7 +400,9 @@ function mapMcpFinding(finding: McpFinding, filePath: string): ScanFinding {
         recommendation,
         owasp_ref: '',
         owasp: '',
-        evidence: finding.server ? `server: ${finding.server}; path: ${finding.path}` : finding.path,
+        evidence: finding.evidence
+            ? `${finding.server ? `server: ${finding.server}; ` : ''}${finding.evidence}`
+            : (finding.server ? `server: ${finding.server}; path: ${finding.path}` : finding.path),
         confidence: getConfidenceForFinding(finding.rule_id, finding.severity),
         why: finding.message,
         risk: 'MCP configuration may expose tools, credentials, or execution capability beyond the agent workflow trust boundary.',
