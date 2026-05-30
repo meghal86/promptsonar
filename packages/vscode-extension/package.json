@@ -156,9 +156,10 @@
         "compile": "node esbuild.js --production",
         "watch": "node esbuild.js --watch",
         "package": "vsce package --no-dependencies",
-        "publish:marketplace": "vsce publish --no-dependencies --packagePath promptsonar-1.1.0.vsix",
+        "publish:marketplace": "vsce publish --no-dependencies --packagePath promptsonar-1.4.0.vsix",
         "lint": "eslint src --ext ts",
-        "test": "vitest run"
+        "test": "vitest run",
+        "pretest": "npm run compile"
     },
     "dependencies": {
         "@promptsonar/core": "^1.1.0",
