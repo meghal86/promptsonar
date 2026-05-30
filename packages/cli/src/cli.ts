@@ -9,7 +9,7 @@ import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './form
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt } from '@promptsonar/core';
 import { runPromptTests } from './tester';
 
-const VERSION = '1.2.0';
+const VERSION = '1.4.0';
 
 const program = new Command();
 
@@ -294,7 +294,19 @@ function formatMcpTerminal(results: McpAuditResult[]): string {
                         const trust = node.trust === 'unknown' ? '' : ` (${node.trust})`;
                         lines.push(`${prefix}${node.type}${trust}`);
                     });
+                    if (typeof finding.workflow.confidence_score === 'number') {
+                        const level = finding.workflow.confidence_level ? ` (${finding.workflow.confidence_level})` : '';
+                        lines.push(`Execution Path Confidence: ${finding.workflow.confidence_score}%${level}`);
+                    }
                     lines.push(`Risk: ${finding.workflow.path.summary.replace(/_/g, ' ')} is a ${finding.workflow.risk} workflow path.`);
+                    const diff = finding.workflow.workflow_diff;
+                    if (diff) {
+                        lines.push('Workflow Diff:');
+                        lines.push(diff.executionPathRemoved
+                            ? chalk.green('  ✓ Execution Path Removed')
+                            : chalk.yellow(`  ⚠ Path not fully removed (${diff.diffReason})`));
+                        lines.push(`  Risk Reduction: ${diff.riskReduction}% (${diff.beforeRisk} -> ${diff.afterRisk})`);
+                    }
                     lines.push(`Recommendation: ${finding.workflow.recommendation}`);
                 }
                 lines.push('');

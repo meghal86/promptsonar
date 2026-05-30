@@ -2,8 +2,9 @@ import { Finding } from '../rules/types';
 import { FindingWorkflow, workflowPathSummary, analyzeRootCause } from '../workflow';
 
 // Deterministic rule_id -> human-readable threat name, used for SARIF
-// root_cause / supporting_findings provenance metadata.
-function humanRuleName(ruleId: string): string {
+// root_cause / supporting_findings provenance metadata. Exported so the CLI
+// renders the same threat names in human-readable output (single source of truth).
+export function humanRuleName(ruleId: string): string {
     const MAP: Record<string, string> = {
         sec_owasp_llm01_injection: 'Prompt Injection',
         sec_owasp_llm02_pii: 'Credential Leak',
@@ -86,7 +87,7 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                 tool: {
                     driver: {
                         name: "PromptSonar",
-                        version: "1.2.0",
+                        version: "1.4.0",
                         informationUri: "https://github.com/meghal86/promptsonar",
                         rules: [] as any[]
                     }

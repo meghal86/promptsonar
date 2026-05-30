@@ -25,6 +25,22 @@ npx @promptsonar/cli scan .
 
 -----
 
+## What's New in 1.4
+
+PromptSonar 1.4 bundles the engine work into one release. The scanner no longer
+just reports *what is wrong* — it explains **where execution can go, why the path
+exists, how confident it is, and how remediation changes the path**.
+
+- ✅ **MCP Safety Engine v2** — auto-approval, wildcard permissions, filesystem/shell/network capabilities, credential propagation, chained execution, privilege escalation, and approval bypass, each scored into an MCP Risk Score.
+- ✅ **Workflow Provenance** — every workflow node/edge traces back to a concrete rule match (no invented paths).
+- ✅ **Confidence Scoring** — a deterministic 0–100 execution-path confidence with LOW/MEDIUM/HIGH levels.
+- ✅ **Root Cause Analysis** — clusters related findings under the one that best explains them, with supporting findings.
+- ✅ **Workflow Diff Engine** — a before/after execution graph proving whether the dangerous path was removed, with a deterministic risk-reduction %.
+
+These surface consistently across the **Playground**, **CLI** (human, JSON, SARIF), and **CI/SARIF** outputs from the same core engine. See the [1.4.0 release note](docs/releases/1.4.0.md).
+
+-----
+
 ## How the Playground Works — Input-First Flow
 
 PromptSonar is **workflow-first security analysis**. The playground opens on a clean prompt
