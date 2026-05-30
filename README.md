@@ -63,6 +63,7 @@ PromptSonar helps catch:
 - Hardcoded API keys, passwords, tokens, SSNs, and credit-card-like values in prompts.
 - Unsafe tool or RAG instructions that grant broad access or pass raw user input.
 - MCP configs with HTTP endpoints, missing auth indicators, hardcoded tokens, overbroad filesystem/shell scope, host credential passthrough, or mutable/unpinned tool packages.
+- MCP execution and privilege risks: automatic tool execution, wildcard permissions, filesystem/shell/network capabilities, credential propagation, chained MCP routing, privilege-escalation paths, and approval bypass — each scored into a per-server **MCP Risk Score**.
 - CI regressions before merge through JSON, SARIF, and GitHub Actions workflows.
 
 -----
@@ -112,9 +113,35 @@ promptsonar demo
 | Structure / output constraints | Prompt asks for output but does not enforce a machine-readable format. | `Return a list of recommendations.` | Specify JSON/YAML/Markdown structure, length bounds, and examples. |
 | RAG / tool access | User input or tools receive unbounded access to files, databases, commands, or retrieval. | `Search all documents using {user_input}` without validation. | Validate retrieval queries and scope tools to specific paths, tables, or domains. |
 | MCP config security | Agent tools are configured with insecure endpoints, missing auth, hardcoded secrets, broad host access, or mutable packages. | MCP server URL uses `http://`, includes a token in args, passes `SSH_AUTH_SOCK`, or runs unpinned `npx`/`uvx`. | Use HTTPS, env vars, scoped permissions, pinned versions, and trusted domains. |
+| MCP execution & privilege | MCP servers can act without approval, hold wildcard permissions, reach privileged sinks, or chain into other servers. | `"autoExecute": true`, `"permissions": ["*"]`, `"capabilities": ["shell"]`, or `routeTo` another MCP server. | Require human approval, replace wildcards with explicit allowlists, scope capabilities, and isolate privileged sinks. |
 | Consistency / clarity | Ambiguous or contradictory instructions cause unstable outputs. | `Be concise` and `provide an exhaustive explanation`. | Remove conflicts and use explicit quantifiers and output contracts. |
 
 See the full rule catalog in [docs/rules.md](docs/rules.md).
+
+-----
+
+## MCP Safety Engine
+
+PromptSonar audits MCP server configs as execution surfaces, not just text. For every server it answers **"what can this MCP server actually do?"** and rolls the answer into an **MCP Risk Score** (0–100 → LOW / MEDIUM / HIGH / CRITICAL).
+
+| Rule | Detects | Severity |
+| --- | --- | --- |
+| `MCP-011` | Automatic tool execution (`autoExecute`, `autoApprove`, `approvalRequired: false`) | high / critical |
+| `MCP-012` | Wildcard permissions (`permissions: "*"`, `permissions: [""]`, `allowAll`) | high / critical |
+| `MCP-013` | Host credential propagation into tools (env `${VAR}` passthrough) | high |
+| `MCP-103` | Filesystem access capability | high |
+| `MCP-104` | Shell / process execution capability | critical |
+| `MCP-105` | External network access capability | high |
+| `MCP-107` | Chained MCP execution (`routeTo` / `upstream` / `delegate` hops) | high |
+| `MCP-108` | Privilege escalation path (untrusted input → MCP tool → shell/fs/network) | critical |
+| `MCP-109` | Approval bypass (auto-execute + approval disabled, or wildcard + shell) | critical |
+
+Every MCP finding carries **provenance** — the matched evidence value (secrets redacted) and its confidence contribution to the risk score. The audit output and SARIF include `mcp_risk_score`, `mcp_capabilities`, `mcp_permissions`, `mcp_execution_mode`, and `mcp_evidence` per server (backward compatible with existing SARIF consumers).
+
+```bash
+promptsonar audit-mcp ./.cursor/mcp.json
+promptsonar audit-mcp ./.cursor/mcp.json --format sarif --output mcp.sarif
+```
 
 -----
 
