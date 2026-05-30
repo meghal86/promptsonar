@@ -311,7 +311,9 @@ function formatMcpSarif(results: McpAuditResult[]): string {
     const sarifResults: any[] = [];
 
     for (const result of results) {
+        const serverIndex = new Map((result.servers || []).map(s => [s.server, s]));
         for (const finding of result.findings) {
+            const serverSummary = finding.server ? serverIndex.get(finding.server) : undefined;
             ruleMap.set(finding.rule_id, {
                 id: finding.rule_id,
                 name: finding.rule_id,
@@ -323,6 +325,12 @@ function formatMcpSarif(results: McpAuditResult[]): string {
                 level: finding.severity === 'critical' || finding.severity === 'high' ? 'error' : finding.severity === 'medium' ? 'warning' : 'note',
                 message: { text: `${finding.message} Fix: ${finding.fix}` },
                 properties: {
+                    mcp_evidence: finding.evidence,
+                    mcp_confidence_contribution: finding.confidence_contribution,
+                    mcp_risk_score: serverSummary?.risk_score,
+                    mcp_capabilities: serverSummary?.capabilities,
+                    mcp_permissions: serverSummary?.permissions,
+                    mcp_execution_mode: serverSummary?.execution_mode,
                     workflow: finding.workflow ? {
                         source: finding.workflow.source,
                         sink: finding.workflow.sink,
@@ -361,6 +369,19 @@ function formatMcpSarif(results: McpAuditResult[]): string {
                 },
             },
             results: sarifResults,
+            properties: {
+                mcp_run_risk_score: results.map(r => ({
+                    filePath: r.filePath,
+                    risk_score: r.risk_score,
+                    servers: (r.servers || []).map(s => ({
+                        server: s.server,
+                        capabilities: s.capabilities,
+                        permissions: s.permissions,
+                        execution_mode: s.execution_mode,
+                        risk_score: s.risk_score,
+                    })),
+                })),
+            },
         }],
     }, null, 2);
 }
