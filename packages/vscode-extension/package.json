@@ -42,6 +42,30 @@
                 "command": "promptsonar.scanWorkspace",
                 "title": "PromptSonar: Scan Entire Workspace",
                 "icon": "$(shield)"
+            },
+            {
+                "command": "promptsonar.scanCurrentFile",
+                "title": "PromptSonar: Scan Current File"
+            },
+            {
+                "command": "promptsonar.openExecutionPath",
+                "title": "PromptSonar: Open Execution Path"
+            },
+            {
+                "command": "promptsonar.exportSarif",
+                "title": "PromptSonar: Export SARIF"
+            },
+            {
+                "command": "promptsonar.copyReport",
+                "title": "PromptSonar: Copy Report"
+            },
+            {
+                "command": "promptsonar.copyExecutionPath",
+                "title": "PromptSonar: Copy Execution Path"
+            },
+            {
+                "command": "promptsonar.showWorkflowDiff",
+                "title": "PromptSonar: Show Workflow Diff"
             }
         ],
         "menus": {
@@ -56,6 +80,23 @@
                     "command": "promptsonar.scanWorkspace",
                     "when": "view == promptsonar-explorer",
                     "group": "navigation"
+                },
+                {
+                    "command": "promptsonar.scanCurrentFile",
+                    "when": "view == promptsonar-execution-path",
+                    "group": "navigation"
+                }
+            ],
+            "editor/context": [
+                {
+                    "command": "promptsonar.scanCurrentFile",
+                    "group": "promptsonar@1",
+                    "when": "editorTextFocus"
+                },
+                {
+                    "command": "promptsonar.showWorkflowDiff",
+                    "group": "promptsonar@2",
+                    "when": "editorTextFocus"
                 }
             ]
         },
@@ -74,6 +115,11 @@
                     "id": "promptsonar-explorer",
                     "name": "Prompt Analysis",
                     "icon": "icon.png"
+                },
+                {
+                    "id": "promptsonar-execution-path",
+                    "name": "Execution Path",
+                    "icon": "icon.png"
                 }
             ]
         },
@@ -90,17 +136,29 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Enable/disable 'Run Health Check' CodeLenses above detected prompts"
+                },
+                "promptsonar.debounceMs": {
+                    "type": "number",
+                    "default": 300,
+                    "description": "Delay before re-scanning while typing (live diagnostics and panel)."
+                },
+                "promptsonar.maxFileSizeBytes": {
+                    "type": "number",
+                    "default": 1048576,
+                    "description": "Maximum file size (bytes) PromptSonar will scan live. Larger files are skipped to keep the editor responsive."
                 }
             }
         }
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
+        "build": "node esbuild.js --production",
         "compile": "node esbuild.js --production",
         "watch": "node esbuild.js --watch",
         "package": "vsce package --no-dependencies",
         "publish:marketplace": "vsce publish --no-dependencies --packagePath promptsonar-1.1.0.vsix",
-        "pretest": "npm run compile"
+        "lint": "eslint src --ext ts",
+        "test": "vitest run"
     },
     "dependencies": {
         "@promptsonar/core": "^1.1.0",
