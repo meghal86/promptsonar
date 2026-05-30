@@ -197,6 +197,24 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                     riskStory: f.workflow.path.riskStory,
                     severityReason: f.workflow.path.severityReason,
                 } : undefined,
+                // Workflow Diff Engine: remediation before/after metadata
+                // (backward compatible — undefined unless a privileged sink path exists).
+                workflow_diff: f.workflow?.workflow_diff ? {
+                    workflow_diff_version: f.workflow.workflow_diff.workflowDiffVersion,
+                    diff_reason: f.workflow.workflow_diff.diffReason,
+                    risk_reduction: f.workflow.workflow_diff.riskReduction,
+                    before_risk: f.workflow.workflow_diff.beforeRisk,
+                    after_risk: f.workflow.workflow_diff.afterRisk,
+                    execution_path_removed: f.workflow.workflow_diff.executionPathRemoved,
+                    removed_nodes: f.workflow.workflow_diff.removedNodes,
+                    removed_edges: f.workflow.workflow_diff.removedEdges,
+                    added_nodes: f.workflow.workflow_diff.addedNodes,
+                    added_edges: f.workflow.workflow_diff.addedEdges,
+                    before_path: f.workflow.workflow_diff.before.nodes.map(node => node.type),
+                    after_path: f.workflow.workflow_diff.after.nodes.map(node => node.type),
+                    removed_privileged_sinks: f.workflow.workflow_diff.comparison.privilegedSinks.removed,
+                    trust_boundary_removed: f.workflow.workflow_diff.comparison.trustBoundaries.removed,
+                } : undefined,
             },
             partialFingerprints: {
                 promptsonarFinding: fingerprint(f, filePath),

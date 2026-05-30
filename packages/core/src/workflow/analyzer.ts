@@ -10,6 +10,7 @@ import {
     WorkflowTrust,
 } from './types';
 import { attachProvenance } from './provenance';
+import { buildWorkflowDiff } from './diff';
 import type { Severity } from '../rules/types';
 
 interface PatternDef {
@@ -282,6 +283,8 @@ function trustFor(type: WorkflowNodeType): WorkflowTrust {
         external_api: 'privileged',
         policy_override: 'untrusted',
         secret: 'privileged',
+        model: 'trusted',
+        response: 'trusted',
         unknown: 'unknown',
     };
     return trustByType[type];
@@ -473,7 +476,18 @@ function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[])
     };
 
     // Feature 1/2/4: attach the deterministic, evidence-backed provenance layer.
-    return attachProvenance(workflow, input);
+    const enriched = attachProvenance(workflow, input);
+
+    // Workflow Diff Engine: when the path reaches a privileged sink, attach the
+    // deterministic before/after remediation diff. Additive and backward
+    // compatible — consumers that don't read `workflow_diff` are unaffected.
+    if (enriched.path.privilegedSinkReached) {
+        const diff = buildWorkflowDiff(enriched);
+        enriched.workflow_diff = diff;
+        enriched.path.workflow_diff = diff;
+    }
+
+    return enriched;
 }
 
 function inferExecutionSinks(text: string, input: WorkflowInferenceInput): NodeSpec[] {

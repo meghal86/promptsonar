@@ -1441,6 +1441,8 @@ Define your custom agent skill instructions and guidelines.
       external_api: "External API",
       policy_override: "Policy override",
       secret: "Secret",
+      model: "Model boundary",
+      response: "Response context",
       unknown: "Unknown",
     };
     return TYPE_LABEL[type] || type.replace(/_/g, " ");
@@ -2754,7 +2756,9 @@ Define your custom agent skill instructions and guidelines.
                             Execution Path Hardening Proof
                           </span>
                           <span className="text-[10px] font-black uppercase text-emerald-750 bg-white border border-emerald-200 px-2.5 py-0.5 rounded shadow-3xs">
-                            Risk Reduction: {primaryWorkflowFinding?.severity === 'critical' ? '96%' : primaryWorkflowFinding?.severity === 'high' ? '92%' : '88%'}
+                            Risk Reduction: {typeof primaryWorkflow?.workflow_diff?.riskReduction === 'number'
+                              ? `${primaryWorkflow.workflow_diff.riskReduction}%`
+                              : (primaryWorkflowFinding?.severity === 'critical' ? '96%' : primaryWorkflowFinding?.severity === 'high' ? '92%' : '88%')}
                           </span>
                         </div>
                         
@@ -2794,7 +2798,7 @@ Define your custom agent skill instructions and guidelines.
                             </span>
                             
                             <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-emerald-900 leading-normal">
-                              {['user_input', 'model', 'response'].map((type, idx) => (
+                              {(primaryWorkflow?.workflow_diff?.after?.nodes?.map((n: any) => n.type) || ['user_input', 'model', 'response']).map((type: string, idx: number) => (
                                 <React.Fragment key={idx}>
                                   {idx > 0 && (
                                     <svg className="w-3.5 h-3.5 text-emerald-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -2802,7 +2806,7 @@ Define your custom agent skill instructions and guidelines.
                                     </svg>
                                   )}
                                   <span className="bg-white border border-emerald-200 px-2.5 py-1 rounded-lg shadow-3xs uppercase text-[9.5px] tracking-tight">
-                                    {type === 'user_input' ? 'User input' : type === 'model' ? 'Model boundary' : 'Response context'}
+                                    {humanType(type)}
                                   </span>
                                 </React.Fragment>
                               ))}
@@ -2833,16 +2837,50 @@ Define your custom agent skill instructions and guidelines.
                         </div>
                       </div>
 
-                      {/* Execution Path Removed block */}
-                      <div className="rounded-lg border border-emerald-250 bg-emerald-50/20 p-3.5 flex items-center justify-between text-xs">
+                      {/* Removed Nodes / Edges (real diff data) */}
+                      {(() => {
+                        const diff = primaryWorkflow?.workflow_diff;
+                        if (!diff || (diff.removedNodes.length === 0 && diff.removedEdges.length === 0)) return null;
+                        return (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[10px]">
+                            <div className="rounded-lg border border-[#E4E3DE]/60 bg-[#FAF9F6] p-3">
+                              <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Nodes</span>
+                              <div className="flex flex-wrap gap-1">
+                                {diff.removedNodes.length > 0 ? diff.removedNodes.map((t: string, i: number) => (
+                                  <span key={i} className="font-mono bg-white border border-red-200 text-red-800 px-1.5 py-0.5 rounded uppercase text-[8.5px] tracking-tight line-through">{humanType(t)}</span>
+                                )) : <span className="italic text-slate-400">None</span>}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-[#E4E3DE]/60 bg-[#FAF9F6] p-3">
+                              <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Edges</span>
+                              <div className="flex flex-wrap gap-1">
+                                {diff.removedEdges.length > 0 ? diff.removedEdges.map((e: string, i: number) => (
+                                  <span key={i} className="font-mono bg-white border border-red-200 text-red-800 px-1.5 py-0.5 rounded text-[8.5px] tracking-tight">{e}</span>
+                                )) : <span className="italic text-slate-400">None</span>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Execution Path Removed block (verification, real diff data) */}
+                      {(() => {
+                        const diff = primaryWorkflow?.workflow_diff;
+                        const pathRemoved = diff ? diff.executionPathRemoved : true;
+                        return (
+                      <div className={`rounded-lg border p-3.5 flex items-center justify-between text-xs ${pathRemoved ? 'border-emerald-250 bg-emerald-50/20' : 'border-amber-250 bg-amber-50/20'}`}>
                         <div className="flex items-center gap-2">
-                          <span className="text-emerald-700 font-bold">✓</span>
-                          <span className="font-bold text-emerald-900">Safer structure verified</span>
+                          <span className={`font-bold ${pathRemoved ? 'text-emerald-700' : 'text-amber-700'}`}>{pathRemoved ? '✓' : '⚠'}</span>
+                          <span className={`font-bold ${pathRemoved ? 'text-emerald-900' : 'text-amber-900'}`}>
+                            {pathRemoved ? 'Safer structure verified' : 'Partial remediation — privileged sink still reachable'}
+                          </span>
                         </div>
-                        <span className="font-mono text-[9px] font-bold text-emerald-700 bg-emerald-100/50 px-2 py-0.5 rounded border border-emerald-200/40 select-none uppercase tracking-wide">
-                          Execution Path Removed
+                        <span className={`font-mono text-[9px] font-bold px-2 py-0.5 rounded border select-none uppercase tracking-wide ${pathRemoved ? 'text-emerald-700 bg-emerald-100/50 border-emerald-200/40' : 'text-amber-700 bg-amber-100/50 border-amber-200/40'}`}>
+                          {pathRemoved ? 'Execution Path Removed' : 'Path Not Fully Removed'}
                         </span>
                       </div>
+                        );
+                      })()}
                     </div>
                   );
                 })() : (

@@ -345,6 +345,22 @@ function formatMcpSarif(results: McpAuditResult[]): string {
                         riskStory: finding.workflow.path.riskStory,
                         severityReason: finding.workflow.path.severityReason,
                     } : undefined,
+                    workflow_diff: finding.workflow?.workflow_diff ? {
+                        workflow_diff_version: finding.workflow.workflow_diff.workflowDiffVersion,
+                        diff_reason: finding.workflow.workflow_diff.diffReason,
+                        risk_reduction: finding.workflow.workflow_diff.riskReduction,
+                        before_risk: finding.workflow.workflow_diff.beforeRisk,
+                        after_risk: finding.workflow.workflow_diff.afterRisk,
+                        execution_path_removed: finding.workflow.workflow_diff.executionPathRemoved,
+                        removed_nodes: finding.workflow.workflow_diff.removedNodes,
+                        removed_edges: finding.workflow.workflow_diff.removedEdges,
+                        added_nodes: finding.workflow.workflow_diff.addedNodes,
+                        added_edges: finding.workflow.workflow_diff.addedEdges,
+                        before_path: finding.workflow.workflow_diff.before.nodes.map(node => node.type),
+                        after_path: finding.workflow.workflow_diff.after.nodes.map(node => node.type),
+                        removed_privileged_sinks: finding.workflow.workflow_diff.comparison.privilegedSinks.removed,
+                        trust_boundary_removed: finding.workflow.workflow_diff.comparison.trustBoundaries.removed,
+                    } : undefined,
                 },
                 locations: [{
                     physicalLocation: {

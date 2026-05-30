@@ -21,6 +21,10 @@ export type WorkflowNodeType =
     | 'external_api'
     | 'policy_override'
     | 'secret'
+    // Hardened-path node types used by the workflow diff engine to model the
+    // benign "after" execution path (USER INPUT -> MODEL -> RESPONSE).
+    | 'model'
+    | 'response'
     | 'unknown';
 
 export type WorkflowTrust = 'trusted' | 'semi_trusted' | 'untrusted' | 'privileged' | 'unknown';
@@ -108,6 +112,70 @@ export interface WorkflowPath {
     confidence_level?: WorkflowConfidenceLevel;
     workflow_evidence?: string[];
     evidence?: WorkflowEvidence[];
+    // Workflow Diff Engine (remediation before/after). Present only when the
+    // path reaches a privileged sink. Additive — existing consumers ignore it.
+    workflow_diff?: WorkflowDiff;
+}
+
+// ---------------------------------------------------------------------------
+// Workflow Diff Engine
+//
+// Structurally represents how an execution path changes after remediation:
+// the dangerous "before" graph, the hardened "after" graph, exactly which
+// nodes/edges were removed, and a deterministic risk-reduction percentage.
+// No AI, no randomness — every value is derived from the graphs themselves.
+// ---------------------------------------------------------------------------
+
+export interface WorkflowGraph {
+    nodes: WorkflowNode[];
+    edges: WorkflowEdge[];
+    risk: WorkflowRisk;
+    // Deterministic 0–100 risk magnitude for this graph.
+    riskScore: number;
+    privilegedSinkReached: boolean;
+    trustBoundaryCrossed: boolean;
+}
+
+export interface WorkflowDiffComparison {
+    nodes: { removed: string[]; added: string[] };
+    edges: { removed: string[]; added: string[] };
+    privilegedSinks: { removed: string[]; added: string[] };
+    trustBoundaries: { before: boolean; after: boolean; removed: boolean };
+    permissions: { removed: string[]; added: string[] };
+}
+
+// Machine-readable classification of *why* the workflow changed. Enables future
+// analytics/reporting (benchmark suite, PR review) without re-deriving intent.
+export type WorkflowDiffReason =
+    | 'privileged_sink_removed'   // a privileged sink existed before and none remains after
+    | 'trust_boundary_removed'    // an untrusted/unknown boundary node (e.g. mcp_server) was removed
+    | 'routing_surface_removed'   // the tool-routing surface was removed but a sink may remain
+    | 'partial_remediation'       // a sink was removed but at least one privileged sink remains
+    | 'no_change';                // nothing structural changed
+
+export interface WorkflowDiff {
+    // Schema version of the diff contract. Bump when the shape changes so that
+    // consumers (SARIF, dashboard, future replay/benchmark tooling) can adapt
+    // without breaking on older payloads. Current: "1.0".
+    workflowDiffVersion: string;
+    before: WorkflowGraph;
+    after: WorkflowGraph;
+    removedNodes: string[];
+    addedNodes: string[];
+    removedEdges: string[];
+    addedEdges: string[];
+    // (beforeRisk - afterRisk) / beforeRisk, expressed as 0–100.
+    riskReduction: number;
+    // Stable risk magnitudes that produced `riskReduction`. Part of the public
+    // contract — future Workflow Replay / Benchmark / PR Review features consume
+    // these directly, so they must remain present even when riskReduction is 0.
+    beforeRisk: number;
+    afterRisk: number;
+    // True when a privileged sink existed in `before` and no longer exists in `after`.
+    executionPathRemoved: boolean;
+    // Why the diff looks the way it does (see WorkflowDiffReason).
+    diffReason: WorkflowDiffReason;
+    comparison: WorkflowDiffComparison;
 }
 
 export interface FindingWorkflow {
@@ -125,6 +193,8 @@ export interface FindingWorkflow {
     confidence_level?: WorkflowConfidenceLevel;
     workflow_evidence?: string[];
     evidence?: WorkflowEvidence[];
+    // Workflow Diff Engine, mirrored at the root for SARIF/dashboard consumers.
+    workflow_diff?: WorkflowDiff;
 }
 
 // Root-cause grouping (Feature 3): the single finding that best explains a
