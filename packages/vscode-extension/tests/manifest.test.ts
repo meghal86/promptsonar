@@ -8,6 +8,7 @@ describe('VS Code manifest commands', () => {
         expect(commands).toContain('promptsonar.scanCurrentFile');
         expect(commands).toContain('promptsonar.openExecutionPath');
         expect(commands).toContain('promptsonar.showWorkflowDiff');
+        expect(commands).toContain('promptsonar.applyFixAndShowWorkflowDiff');
         expect(commands).toContain('promptsonar.exportSarif');
         expect(commands).toContain('promptsonar.copyReport');
         expect(commands).toContain('promptsonar.copyExecutionPath');
@@ -18,4 +19,3 @@ describe('VS Code manifest commands', () => {
         expect(manifest.dependencies['@promptsonar/core']).toBe('^1.4.0');
     });
 });
-

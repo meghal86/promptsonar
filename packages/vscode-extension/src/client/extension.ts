@@ -15,7 +15,7 @@ import { ExecutionPathProvider } from './ExecutionPathProvider';
 import { PromptSonarQuickFixProvider } from './QuickFixProvider';
 import { isScannable, isMcpConfigFile } from '../shared/detection';
 import { executionPathText, pickWorstWorkflowFinding, reportText } from '../shared/model';
-import { workflowDiffReport } from '../shared/quickfix';
+import { applyAllFixes, workflowDiffReport, workflowDiffReportBetween } from '../shared/quickfix';
 // @ts-ignore
 import { parseFile, evaluatePrompt, compressPromptLLMLingua, auditMcpConfig, formatToSarif } from '@promptsonar/core';
 
@@ -404,6 +404,34 @@ export function activate(context: ExtensionContext) {
             const workflow = pickWorstWorkflowFinding(scan.findings)?.workflow;
             const doc = await workspace.openTextDocument({
                 content: workflowDiffReport(workflow),
+                language: 'markdown',
+            });
+            await window.showTextDocument(doc, vscode.ViewColumn.Beside);
+        }),
+        commands.registerCommand('promptsonar.applyFixAndShowWorkflowDiff', async () => {
+            const before = await scanActiveDocument();
+            if (!before) return;
+            const beforeWorkflow = pickWorstWorkflowFinding(before.findings)?.workflow;
+
+            const hardened = applyAllFixes(before.text);
+            if (hardened === before.text) {
+                window.showInformationMessage('PromptSonar: no deterministic fixes matched this file.');
+                return;
+            }
+
+            const edit = new vscode.WorkspaceEdit();
+            const fullRange = new vscode.Range(before.document.positionAt(0), before.document.positionAt(before.text.length));
+            edit.replace(before.document.uri, fullRange, hardened);
+            const applied = await vscode.workspace.applyEdit(edit);
+            if (!applied) {
+                window.showErrorMessage('PromptSonar: failed to apply fix edits.');
+                return;
+            }
+
+            const after = await scanActiveDocument();
+            const afterWorkflow = after ? pickWorstWorkflowFinding(after.findings)?.workflow : undefined;
+            const doc = await workspace.openTextDocument({
+                content: workflowDiffReportBetween(beforeWorkflow, afterWorkflow),
                 language: 'markdown',
             });
             await window.showTextDocument(doc, vscode.ViewColumn.Beside);

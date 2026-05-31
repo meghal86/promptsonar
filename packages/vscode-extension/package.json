@@ -68,6 +68,10 @@
                 "title": "PromptSonar: Show Workflow Diff"
             },
             {
+                "command": "promptsonar.applyFixAndShowWorkflowDiff",
+                "title": "PromptSonar: Apply Fix + Show Workflow Diff"
+            },
+            {
                 "command": "promptsonar.openPlayground",
                 "title": "PromptSonar: Open Playground"
             }

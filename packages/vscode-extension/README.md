@@ -53,6 +53,7 @@ Expected results:
 - Problems panel shows PromptSonar MCP diagnostics while typing.
 - PromptSonar Activity Bar shows the live execution path, evidence, confidence, root cause, and MCP risk.
 - `PromptSonar: Show Workflow Diff` opens a Markdown diff report.
+- `PromptSonar: Apply Fix + Show Workflow Diff` applies deterministic fixes (when available) and opens a before/after diff report.
 - `PromptSonar: Export SARIF` writes `promptsonar-vscode.sarif` next to the active file.
 - Quick Fix offers deterministic safer rewrites where matching text exists.
 

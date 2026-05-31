@@ -4,7 +4,7 @@
 // LLM, no network. The diff report reuses core's buildWorkflowDiff so
 // "Execution Path Removed" / "Risk Reduction" come from the real engine.
 
-import { buildWorkflowDiff, type Finding, type FindingWorkflow } from '@promptsonar/core';
+import { buildWorkflowDiff, computeGraphRisk, type Finding, type FindingWorkflow } from '@promptsonar/core';
 
 export interface QuickFix {
     title: string;
@@ -112,5 +112,35 @@ export function workflowDiffReport(workflow?: FindingWorkflow): string {
     lines.push(`Before risk: ${diff.beforeRisk}  After risk: ${diff.afterRisk}`);
     if (diff.removedNodes.length) lines.push('Removed: ' + diff.removedNodes.join(', '));
     lines.push(`Reason: ${diff.diffReason}`);
+    return lines.join('\n');
+}
+
+function clamp(value: number): number {
+    return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+// Feature 8 (Workbench): show a measured before/after diff by rescanning the
+// document after applying a deterministic fix. This does not use the "derived"
+// remediation approximation inside buildWorkflowDiff — it compares two real
+// inferred workflows.
+export function workflowDiffReportBetween(before?: FindingWorkflow, after?: FindingWorkflow): string {
+    if (!before && !after) return 'PromptSonar — Workflow Diff\n\nNo execution path inferred for this file.';
+    const beforeNodes = before?.path?.nodes ?? [];
+    const afterNodes = after?.path?.nodes ?? [];
+
+    const beforeRisk = computeGraphRisk(beforeNodes as any).riskScore;
+    const afterRisk = computeGraphRisk(afterNodes as any).riskScore;
+    const riskReduction = beforeRisk > 0 ? clamp(((beforeRisk - afterRisk) / beforeRisk) * 100) : 0;
+
+    const beforePath = beforeNodes.map((n: any) => n.label || n.type).join(' -> ') || '(no path)';
+    const afterPath = afterNodes.map((n: any) => n.label || n.type).join(' -> ') || '(no path)';
+
+    const lines: string[] = ['PromptSonar — Workflow Diff', ''];
+    lines.push('Before: ' + beforePath);
+    lines.push('After:  ' + afterPath);
+    lines.push('');
+    if (beforeNodes.length && afterNodes.length === 0) lines.push('✓ EXECUTION PATH REMOVED');
+    lines.push(`Risk Reduction: ${riskReduction}%`);
+    lines.push(`Before risk: ${beforeRisk}  After risk: ${afterRisk}`);
     return lines.join('\n');
 }
