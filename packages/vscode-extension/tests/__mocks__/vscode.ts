@@ -55,9 +55,14 @@ export function makeDoc(fileName: string, text: string): MockDoc {
 
 export const ViewColumn = { Beside: 2, One: 1 };
 export class Uri { static file(p: string) { return { fsPath: p, toString: () => `file://${p}` }; } }
+export const workspace = {
+    getConfiguration: () => ({
+        get: (_key: string, fallback: unknown) => fallback,
+    }),
+};
 
 export default {
     DiagnosticSeverity, TreeItemCollapsibleState, Position, Range, Selection,
     Diagnostic, TreeItem, CodeAction, CodeActionKind, WorkspaceEdit, EventEmitter,
-    ViewColumn, Uri,
+    ViewColumn, Uri, workspace,
 };

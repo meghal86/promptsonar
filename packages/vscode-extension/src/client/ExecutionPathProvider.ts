@@ -3,6 +3,8 @@ import { evaluatePrompt, auditMcpConfig, type Finding, type McpAuditResult } fro
 import { isPromptFile, isMcpConfigFile, isScannable } from '../shared/detection';
 import { buildPanelRows, type PanelRow } from '../shared/model';
 
+const DEFAULT_MAX_FILE_SIZE_BYTES = 1048576;
+
 // Live Execution Path side panel (Features 3, 4, 5, 6, 11).
 //
 // A TreeDataProvider that re-renders whenever the active prompt/MCP document
@@ -43,6 +45,13 @@ export class ExecutionPathProvider implements vscode.TreeDataProvider<ExecutionP
         }
 
         const text = document.getText();
+        const maxFileSizeBytes = vscode.workspace.getConfiguration('promptsonar').get<number>('maxFileSizeBytes', DEFAULT_MAX_FILE_SIZE_BYTES);
+        if (Buffer.byteLength(text, 'utf8') > maxFileSizeBytes) {
+            this.items = [new ExecutionPathItem(`PromptSonar skipped files larger than ${maxFileSizeBytes} bytes.`, vscode.TreeItemCollapsibleState.None)];
+            this._onDidChangeTreeData.fire();
+            return;
+        }
+
         let findings: Finding[] = [];
         let mcpAudit: McpAuditResult | undefined;
 

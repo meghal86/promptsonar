@@ -241,7 +241,27 @@ When the scanner cannot infer a high-confidence source-to-sink path, the panel s
 Install from the marketplace:
 https://marketplace.visualstudio.com/items?itemName=promptsonar-tools.promptsonar
 
-Inline diagnostics use the same local static rules as the CLI.
+Inline diagnostics use the same local static rules as the CLI. The VS Code
+workbench also brings execution-path analysis into the editor:
+
+- Live diagnostics for `.prompt`, `.md`, `.txt`, `.json`, `.yaml`, `.yml`, system prompt, agent config, and MCP config files.
+- PromptSonar Activity Bar panel for Execution Path, Workflow Evidence, Confidence, Root Cause, Workflow Diff, and MCP Risk.
+- Command Palette actions: scan current file, open execution path, show workflow diff, export SARIF, copy report, copy execution path, and open playground.
+- Deterministic quick fixes for wildcard permissions, automatic execution, exposed credentials, and untrusted user input patterns.
+- Performance guardrails: 300 ms debounce, 1 MB max file size, local-only analysis, and scanner-cache reuse where applicable.
+
+Manual VS Code workbench test:
+
+```bash
+npm install
+npm run build --workspace packages/vscode-extension
+code packages/vscode-extension
+```
+
+Press `F5` in VS Code, create an `mcp.json` with `autoExecute: true`,
+`approvalRequired: false`, `permissions: ["*"]`, and shell/filesystem/network
+capabilities, then verify Problems diagnostics, the PromptSonar Activity Bar,
+workflow diff, SARIF export, and quick fixes.
 
 ### Claude Code
 
