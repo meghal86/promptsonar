@@ -14,4 +14,5 @@ export * from './evaluation/crossModel';
 export * from './mcp';
 export * from './workflow';
 export * from './formatter/sarif';
+export * from './pr-review';
 // export * from './security'; // Phase 2

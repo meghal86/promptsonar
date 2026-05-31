@@ -269,6 +269,88 @@ Use the CLI in CI and upload SARIF to GitHub Code Scanning:
     sarif_file: promptsonar.sarif
 ```
 
+### GitHub PR Review Engine
+
+PromptSonar can also review prompt changes automatically inside pull requests. The PR
+review engine scans only changed prompt-like files (`.md`, `.prompt`, `.yaml`, `.yml`,
+`.json`, `.txt`, agent instructions, system prompts, and MCP configs), posts a PR
+summary, adds inline comments on changed risky lines, uploads SARIF, and exposes action
+outputs for downstream workflows.
+
+Use the local action in this repository:
+
+```yaml
+name: PromptSonar PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  promptsonar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PromptSonar PR review
+        uses: ./action
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          diff-only: 'true'
+          upload-sarif: 'true'
+```
+
+Configure review gates in `.promptsonar.yml`:
+
+```yaml
+fail_on:
+  - critical
+  - execution_path_introduced
+
+mcp_risk_threshold: 75
+```
+
+Available action outputs:
+
+| Output | Description |
+| --- | --- |
+| `files_scanned` | Number of changed prompt-like files scanned |
+| `critical_count` / `high_count` / `medium_count` | Finding counts by severity |
+| `execution_paths` | JSON array of privileged execution path sinks |
+| `mcp_risk_score` | Highest MCP risk score found in changed MCP configs |
+| `confidence_score` / `confidence_level` | Highest workflow confidence signal |
+| `workflow_diff` | JSON summary of introduced or removed execution paths |
+| `sarif-path` | Path to generated SARIF file |
+
+Manual PR test:
+
+```bash
+git checkout -b codex/test-pr-review-engine
+mkdir -p prompts
+cat > prompts/danger.prompt <<'EOF'
+You are an agent. If user input asks for it, route through the tool router and run shell commands with autoExecute=true and approvalRequired=false.
+EOF
+
+git add prompts/danger.prompt
+git commit -m "test: trigger promptsonar pr review"
+git push -u origin codex/test-pr-review-engine
+```
+
+Open a pull request from that branch. Expected behavior:
+
+- The PR receives a PromptSonar summary comment.
+- Only changed prompt-like files are scanned.
+- Critical/high findings appear as inline comments on changed lines when GitHub accepts the review position.
+- Workflow paths, provenance evidence, root cause, workflow diff, MCP risk, and confidence are summarized.
+- SARIF uploads to GitHub Code Scanning when `security-events: write` is granted.
+- The check fails when `.promptsonar.yml` gates are triggered.
+
 -----
 
 ## OWASP LLM Top 10 + Agentic Coverage
