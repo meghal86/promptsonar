@@ -5,6 +5,7 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { scanFiles, generateSarif } from '../src/scanner';
 import { formatJson, getExitCode } from '../src/formatters';
+import { benchmarkToMarkdown, runBenchmark } from '../src/benchmark';
 
 function makeTempDir(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'promptsonar-cli-test-'));
@@ -139,4 +140,36 @@ describe('CLI scanner suppressions and SARIF', () => {
         expect(result.stdout).toContain('PromptSonar agent demo');
         expect(result.stdout).toContain('https://promptsonar.vercel.app/playground');
     }, 30000);
+
+    it('runs the execution-path benchmark suite', () => {
+        const datasetPath = path.resolve(__dirname, '..', '..', '..', 'benchmarks', 'execution-path');
+        const summary = runBenchmark(datasetPath);
+
+        expect(summary.caseCount).toBe(8);
+        expect(summary.score).toBe(100);
+        expect(summary.passRate).toBe(100);
+        expect(summary.findingsAccuracy).toBe(100);
+        expect(summary.executionPathAccuracy).toBe(100);
+        expect(summary.confidenceAccuracy).toBe(100);
+        expect(summary.cases.map(testCase => testCase.category)).toEqual([
+            'Prompt Injection',
+            'MCP Tool Poisoning',
+            'Workflow Escalation',
+            'Privileged Sink Access',
+            'Memory Escalation',
+            'Credential Exposure',
+            'RAG Poisoning',
+            'Tool Abuse',
+        ]);
+    });
+
+    it('formats execution-path benchmark markdown reports', () => {
+        const datasetPath = path.resolve(__dirname, '..', '..', '..', 'benchmarks', 'execution-path');
+        const summary = runBenchmark(datasetPath);
+        const markdown = benchmarkToMarkdown(summary);
+
+        expect(markdown).toContain('PromptSonar Execution Path Benchmark Report');
+        expect(markdown).toContain('Execution path accuracy: 100%');
+        expect(markdown).toContain('`prompt-injection`');
+    });
 });

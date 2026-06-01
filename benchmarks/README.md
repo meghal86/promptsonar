@@ -30,4 +30,14 @@
 - `prompts/safe/`: prompt strings expected to pass or produce no high-severity findings.
 - `mcp/vulnerable/`: MCP configs expected to produce findings.
 - `mcp/safe/`: MCP configs expected to pass or produce no high-severity findings.
+- `execution-path/`: canonical execution-path security benchmark with expected findings, workflow paths, root causes, and confidence ranges.
 
+## Execution Path Benchmark
+
+Run the canonical execution-path benchmark with:
+
+```bash
+promptsonar benchmark
+```
+
+The benchmark produces score, pass rate, findings accuracy, execution path accuracy, and confidence accuracy. JSON and Markdown reports can be generated with `--format json` or `--format markdown`.

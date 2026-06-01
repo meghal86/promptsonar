@@ -8,6 +8,7 @@ import { scanFiles, generateSarif } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt } from '@promptsonar/core';
 import { runPromptTests } from './tester';
+import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
 
 const VERSION = '1.4.0';
 
@@ -447,6 +448,43 @@ program
             process.exit(getMcpExitCode(results));
         } catch (err: any) {
             console.error(chalk.red(`[PromptSonar] MCP audit error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+program
+    .command('benchmark')
+    .description('Run the canonical PromptSonar execution-path security benchmark')
+    .option('--dataset <path>', 'Path to benchmark dataset directory or cases.json', path.resolve(process.cwd(), 'benchmarks', 'execution-path'))
+    .option('--format <type>', 'Output format (terminal|json|markdown)', 'terminal')
+    .option('--output <file>', 'Write benchmark output to a file')
+    .option('--no-fail', 'Do not exit non-zero when benchmark cases fail')
+    .action((options) => {
+        try {
+            const summary = runBenchmark(options.dataset);
+            if (!['terminal', 'json', 'markdown'].includes(options.format)) {
+                console.error(chalk.red(`[PromptSonar] Benchmark error: unknown format "${options.format}". Use terminal, json, or markdown.`));
+                process.exit(1);
+            }
+
+            const output = options.format === 'json'
+                ? JSON.stringify(summary, null, 2)
+                : options.format === 'markdown'
+                    ? benchmarkToMarkdown(summary)
+                    : benchmarkToTerminal(summary);
+
+            if (options.output) {
+                fs.writeFileSync(path.resolve(options.output), `${output}\n`, 'utf-8');
+                console.log(chalk.green(`Benchmark report written to ${options.output}`));
+            } else {
+                console.log(output);
+            }
+
+            if (summary.failedCount > 0 && options.fail !== false) {
+                process.exit(1);
+            }
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Benchmark error: ${err.message}`));
             process.exit(1);
         }
     });
