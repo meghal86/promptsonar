@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "id": "prompt-injection",
+  "category": "Prompt Injection",
+  "overview": "Untrusted prompt text attempts to override prior instructions and expose the system prompt.",
+  "source": {
+    "derivedFrom": "benchmarks/execution-path/cases.json",
+    "enginesReused": [
+      "evaluatePrompt",
+      "analyzeExecutionPath",
+      "workflow provenance",
+      "workflow confidence",
+      "workflow replay",
+      "workflow diff"
+    ],
+    "scannerChanges": false
+  },
+  "vulnerableArtifact": "vulnerable.prompt",
+  "vulnerablePrompt": "vulnerable.prompt",
+  "expectedFindings": [
+    {
+      "ruleId": "sec_owasp_llm01_injection",
+      "severity": "high",
+      "description": "Role or policy override language attempts to change the instruction hierarchy."
+    }
+  ],
+  "executionPath": {
+    "nodes": [
+      "untrusted_content",
+      "policy_override",
+      "system_prompt"
+    ],
+    "display": "Untrusted Content -> Policy Override -> System Prompt",
+    "privilegedSinkReached": true,
+    "trustBoundariesCrossed": 1
+  },
+  "provenanceEvidence": [
+    {
+      "node": "untrusted_content",
+      "evidence": "Untrusted Content is inferred from the Prompt Injection execution path fixture.",
+      "source": "vulnerable.prompt",
+      "ruleIds": [
+        "sec_owasp_llm01_injection"
+      ]
+    },
+    {
+      "node": "policy_override",
+      "evidence": "Policy Override is inferred from the Prompt Injection execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_owasp_llm01_injection"
+      ]
+    },
+    {
+      "node": "system_prompt",
+      "evidence": "System Prompt is inferred from the Prompt Injection execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_owasp_llm01_injection"
+      ]
+    }
+  ],
+  "confidence": {
+    "score": 25,
+    "level": "LOW",
+    "expectedRange": {
+      "min": 20,
+      "max": 30
+    },
+    "source": "workflow confidence engine"
+  },
+  "rootCause": {
+    "ruleId": "sec_owasp_llm01_injection",
+    "label": "Prompt Injection",
+    "supportingFindings": [
+      "Role Override",
+      "Policy Rewrite"
+    ],
+    "source": "root cause grouping engine"
+  },
+  "workflowReplay": {
+    "replayVersion": "1.0",
+    "generatedFrom": "workflow graph",
+    "eventCount": 3,
+    "timeline": [
+      "USER_INPUT",
+      "SYSTEM_PROMPT",
+      "SYSTEM_PROMPT"
+    ],
+    "summary": "Prompt Injection replay follows Untrusted Content -> Policy Override -> System Prompt."
+  },
+  "workflowDiff": {
+    "workflowDiffVersion": "1.0",
+    "executionPathRemoved": true,
+    "riskReduction": 93,
+    "beforePath": [
+      "untrusted_content",
+      "policy_override",
+      "system_prompt"
+    ],
+    "afterPath": [
+      "user_input",
+      "model",
+      "response"
+    ],
+    "removedNodes": [
+      "untrusted_content",
+      "policy_override",
+      "system_prompt"
+    ],
+    "diffReason": "privileged_sink_removed"
+  },
+  "remediatedArtifact": "remediated.prompt",
+  "expectedRiskReduction": {
+    "percent": 93,
+    "rationale": "The remediated version removes the privileged sink or routing surface that made the execution path dangerous."
+  }
+}

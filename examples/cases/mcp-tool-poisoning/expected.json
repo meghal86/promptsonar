@@ -1,0 +1,149 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp-tool-poisoning",
+  "category": "MCP Tool Poisoning",
+  "overview": "A malicious MCP tool description tries to turn tool metadata into an instruction path that reaches shell execution.",
+  "source": {
+    "derivedFrom": "benchmarks/execution-path/cases.json",
+    "enginesReused": [
+      "evaluatePrompt",
+      "analyzeExecutionPath",
+      "workflow provenance",
+      "workflow confidence",
+      "workflow replay",
+      "workflow diff"
+    ],
+    "scannerChanges": false
+  },
+  "vulnerableArtifact": "vulnerable.config.json",
+  "vulnerablePrompt": "vulnerable.prompt",
+  "expectedFindings": [
+    {
+      "ruleId": "sec_mcp_tool_poisoning",
+      "severity": "critical",
+      "description": "MCP metadata contains instruction-like text that can poison tool selection."
+    },
+    {
+      "ruleId": "sec_workflow_escalation",
+      "severity": "critical",
+      "description": "The workflow routes untrusted tool metadata toward privileged execution."
+    },
+    {
+      "ruleId": "sec_privileged_sink_access",
+      "severity": "critical",
+      "description": "The inferred path reaches a privileged shell/filesystem sink."
+    }
+  ],
+  "executionPath": {
+    "nodes": [
+      "mcp_server",
+      "privileged_tool",
+      "shell_execution",
+      "filesystem_access"
+    ],
+    "display": "MCP Server -> Privileged Tool -> Shell Execution -> Filesystem Access",
+    "privilegedSinkReached": true,
+    "trustBoundariesCrossed": 3
+  },
+  "provenanceEvidence": [
+    {
+      "node": "mcp_server",
+      "evidence": "MCP Server is inferred from the MCP Tool Poisoning execution path fixture.",
+      "source": "vulnerable.prompt",
+      "ruleIds": [
+        "sec_mcp_tool_poisoning",
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access"
+      ]
+    },
+    {
+      "node": "privileged_tool",
+      "evidence": "Privileged Tool is inferred from the MCP Tool Poisoning execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_mcp_tool_poisoning",
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access"
+      ]
+    },
+    {
+      "node": "shell_execution",
+      "evidence": "Shell Execution is inferred from the MCP Tool Poisoning execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_mcp_tool_poisoning",
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access"
+      ]
+    },
+    {
+      "node": "filesystem_access",
+      "evidence": "Filesystem Access is inferred from the MCP Tool Poisoning execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_mcp_tool_poisoning",
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access"
+      ]
+    }
+  ],
+  "confidence": {
+    "score": 55,
+    "level": "MEDIUM",
+    "expectedRange": {
+      "min": 50,
+      "max": 60
+    },
+    "source": "workflow confidence engine"
+  },
+  "rootCause": {
+    "ruleId": "sec_mcp_tool_poisoning",
+    "label": "MCP Tool Poisoning",
+    "supportingFindings": [
+      "Workflow Escalation",
+      "Privileged Sink Access",
+      "Approval Bypass"
+    ],
+    "source": "root cause grouping engine"
+  },
+  "workflowReplay": {
+    "replayVersion": "1.0",
+    "generatedFrom": "workflow graph",
+    "eventCount": 4,
+    "timeline": [
+      "MCP_SERVER",
+      "MCP_TOOL",
+      "SHELL",
+      "FILESYSTEM"
+    ],
+    "summary": "MCP Tool Poisoning replay follows MCP Server -> Privileged Tool -> Shell Execution -> Filesystem Access."
+  },
+  "workflowDiff": {
+    "workflowDiffVersion": "1.0",
+    "executionPathRemoved": true,
+    "riskReduction": 95,
+    "beforePath": [
+      "mcp_server",
+      "privileged_tool",
+      "shell_execution",
+      "filesystem_access"
+    ],
+    "afterPath": [
+      "user_input",
+      "model",
+      "response"
+    ],
+    "removedNodes": [
+      "mcp_server",
+      "privileged_tool",
+      "shell_execution",
+      "filesystem_access"
+    ],
+    "diffReason": "privileged_sink_removed"
+  },
+  "remediatedArtifact": "remediated.config.json",
+  "expectedRiskReduction": {
+    "percent": 95,
+    "rationale": "The remediated version removes the privileged sink or routing surface that made the execution path dangerous."
+  }
+}

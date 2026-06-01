@@ -1,0 +1,176 @@
+{
+  "schemaVersion": "1.0",
+  "id": "credential-exposure",
+  "category": "Credential Exposure",
+  "overview": "Retrieved context and memory expose a credential path that can be forwarded over the network.",
+  "source": {
+    "derivedFrom": "benchmarks/execution-path/cases.json",
+    "enginesReused": [
+      "evaluatePrompt",
+      "analyzeExecutionPath",
+      "workflow provenance",
+      "workflow confidence",
+      "workflow replay",
+      "workflow diff"
+    ],
+    "scannerChanges": false
+  },
+  "vulnerableArtifact": "vulnerable.prompt",
+  "vulnerablePrompt": "vulnerable.prompt",
+  "expectedFindings": [
+    {
+      "ruleId": "sec_workflow_escalation",
+      "severity": "critical",
+      "description": "The workflow can move context through memory, credential storage, network access, and an external API."
+    },
+    {
+      "ruleId": "sec_privileged_sink_access",
+      "severity": "critical",
+      "description": "Credential and network sinks are reachable."
+    },
+    {
+      "ruleId": "sec_owasp_llm02_pii",
+      "severity": "high",
+      "description": "Sensitive token material appears in prompt context."
+    }
+  ],
+  "executionPath": {
+    "nodes": [
+      "retrieved_context",
+      "agent_memory",
+      "tool_router",
+      "credential_store",
+      "network_access",
+      "external_api"
+    ],
+    "display": "Retrieved Context -> Agent Memory -> Tool Router -> Credential Store -> Network Access -> External API",
+    "privilegedSinkReached": true,
+    "trustBoundariesCrossed": 4
+  },
+  "provenanceEvidence": [
+    {
+      "node": "retrieved_context",
+      "evidence": "Retrieved Context is inferred from the Credential Exposure execution path fixture.",
+      "source": "vulnerable.prompt",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access",
+        "sec_owasp_llm02_pii"
+      ]
+    },
+    {
+      "node": "agent_memory",
+      "evidence": "Agent Memory is inferred from the Credential Exposure execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access",
+        "sec_owasp_llm02_pii"
+      ]
+    },
+    {
+      "node": "tool_router",
+      "evidence": "Tool Router is inferred from the Credential Exposure execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access",
+        "sec_owasp_llm02_pii"
+      ]
+    },
+    {
+      "node": "credential_store",
+      "evidence": "Credential Store is inferred from the Credential Exposure execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access",
+        "sec_owasp_llm02_pii"
+      ]
+    },
+    {
+      "node": "network_access",
+      "evidence": "Network Access is inferred from the Credential Exposure execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access",
+        "sec_owasp_llm02_pii"
+      ]
+    },
+    {
+      "node": "external_api",
+      "evidence": "External API is inferred from the Credential Exposure execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access",
+        "sec_owasp_llm02_pii"
+      ]
+    }
+  ],
+  "confidence": {
+    "score": 60,
+    "level": "MEDIUM",
+    "expectedRange": {
+      "min": 55,
+      "max": 65
+    },
+    "source": "workflow confidence engine"
+  },
+  "rootCause": {
+    "ruleId": "sec_workflow_escalation",
+    "label": "Workflow Escalation",
+    "supportingFindings": [
+      "Sensitive Context Exposure",
+      "Network Exfiltration Path"
+    ],
+    "source": "root cause grouping engine"
+  },
+  "workflowReplay": {
+    "replayVersion": "1.0",
+    "generatedFrom": "workflow graph",
+    "eventCount": 6,
+    "timeline": [
+      "MEMORY_READ",
+      "MEMORY_WRITE",
+      "TOOL_ROUTER",
+      "FILESYSTEM",
+      "NETWORK",
+      "NETWORK"
+    ],
+    "summary": "Credential Exposure replay follows Retrieved Context -> Agent Memory -> Tool Router -> Credential Store -> Network Access -> External API."
+  },
+  "workflowDiff": {
+    "workflowDiffVersion": "1.0",
+    "executionPathRemoved": true,
+    "riskReduction": 95,
+    "beforePath": [
+      "retrieved_context",
+      "agent_memory",
+      "tool_router",
+      "credential_store",
+      "network_access",
+      "external_api"
+    ],
+    "afterPath": [
+      "user_input",
+      "model",
+      "response"
+    ],
+    "removedNodes": [
+      "retrieved_context",
+      "agent_memory",
+      "tool_router",
+      "credential_store",
+      "network_access",
+      "external_api"
+    ],
+    "diffReason": "privileged_sink_removed"
+  },
+  "remediatedArtifact": "remediated.prompt",
+  "expectedRiskReduction": {
+    "percent": 95,
+    "rationale": "The remediated version removes the privileged sink or routing surface that made the execution path dangerous."
+  }
+}

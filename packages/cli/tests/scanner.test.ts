@@ -6,6 +6,7 @@ import { spawnSync } from 'child_process';
 import { scanFiles, generateSarif } from '../src/scanner';
 import { formatJson, getExitCode } from '../src/formatters';
 import { benchmarkToMarkdown, runBenchmark } from '../src/benchmark';
+import { exampleToMarkdown, listExamples, loadExample } from '../src/examples';
 
 function makeTempDir(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'promptsonar-cli-test-'));
@@ -171,5 +172,40 @@ describe('CLI scanner suppressions and SARIF', () => {
         expect(markdown).toContain('PromptSonar Execution Path Benchmark Report');
         expect(markdown).toContain('Execution path accuracy: 100%');
         expect(markdown).toContain('`prompt-injection`');
+    });
+
+    it('lists the real-world execution-path example library', () => {
+        const examplesRoot = path.resolve(__dirname, '..', '..', '..', 'examples', 'cases');
+        const examples = listExamples(examplesRoot);
+
+        expect(examples).toHaveLength(8);
+        expect(examples.map(example => example.id)).toEqual([
+            'credential-exposure',
+            'mcp-tool-poisoning',
+            'memory-escalation',
+            'privileged-sink-access',
+            'prompt-injection',
+            'rag-poisoning',
+            'tool-abuse',
+            'workflow-escalation',
+        ]);
+        expect(examples.every(example => example.source.scannerChanges === false)).toBe(true);
+    });
+
+    it('shows a real-world example with replay, diff, confidence, and remediation', () => {
+        const examplesRoot = path.resolve(__dirname, '..', '..', '..', 'examples', 'cases');
+        const example = loadExample('mcp-tool-poisoning', examplesRoot);
+        const markdown = exampleToMarkdown(example);
+
+        expect(example.manifest.executionPath.nodes).toEqual([
+            'mcp_server',
+            'privileged_tool',
+            'shell_execution',
+            'filesystem_access',
+        ]);
+        expect(example.manifest.workflowReplay.eventCount).toBe(4);
+        expect(example.manifest.workflowDiff.executionPathRemoved).toBe(true);
+        expect(example.manifest.expectedRiskReduction.percent).toBe(95);
+        expect(markdown).toContain('## Remediated Artifact');
     });
 });

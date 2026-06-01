@@ -9,6 +9,7 @@ import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './form
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt } from '@promptsonar/core';
 import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
+import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
 
 const VERSION = '1.4.0';
 
@@ -30,6 +31,10 @@ function formatPolicySchemaError(fileName: string): string {
         '',
         'See documentation: github.com/meghal86/promptsonar'
     ].join('\n');
+}
+
+function commandOption<T = any>(command: any, key: string): T {
+    return typeof command?.opts === 'function' ? command.opts()[key] : command?.[key];
 }
 
 function isGitTracked(filePath: string): boolean {
@@ -488,6 +493,77 @@ program
             process.exit(1);
         }
     });
+
+const examplesCommand = new Command('examples')
+    .description('Browse the canonical PromptSonar real-world execution-path example library')
+    .action(() => {
+        try {
+            console.log(examplesListToTerminal(listExamples()));
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Examples error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+examplesCommand
+    .command('list')
+    .description('List available execution-path examples')
+    .option('--library <path>', 'Path to examples/cases directory')
+    .option('--format <type>', 'Output format (terminal|json)', 'terminal')
+    .action((options) => {
+        try {
+            const selectedFormat = commandOption<string>(options, 'format');
+            const examplesRoot = commandOption<string | undefined>(options, 'library');
+            if (!['terminal', 'json'].includes(selectedFormat)) {
+                console.error(chalk.red(`[PromptSonar] Examples error: unknown format "${selectedFormat}". Use terminal or json.`));
+                process.exit(1);
+            }
+
+            const examples = listExamples(examplesRoot);
+            const output = selectedFormat === 'json'
+                ? JSON.stringify(examples, null, 2)
+                : examplesListToTerminal(examples);
+            console.log(output);
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Examples error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+examplesCommand
+    .command('show')
+    .description('Show one execution-path example')
+    .argument('[case]', 'Example case id')
+    .option('--library <path>', 'Path to examples/cases directory')
+    .option('--format <type>', 'Output format (terminal|json|markdown)', 'terminal')
+    .action((caseId, options) => {
+        try {
+            const selectedFormat = commandOption<string>(options, 'format');
+            const examplesRoot = commandOption<string | undefined>(options, 'library');
+            if (!['terminal', 'json', 'markdown'].includes(selectedFormat)) {
+                console.error(chalk.red(`[PromptSonar] Examples error: unknown format "${selectedFormat}". Use terminal, json, or markdown.`));
+                process.exit(1);
+            }
+
+            if (!caseId) {
+                console.log(examplesListToTerminal(listExamples(examplesRoot)));
+                return;
+            }
+
+            const example = loadExample(caseId, examplesRoot);
+            const output = selectedFormat === 'json'
+                ? JSON.stringify(example, null, 2)
+                : selectedFormat === 'markdown'
+                    ? exampleToMarkdown(example)
+                    : exampleToTerminal(example);
+            console.log(output);
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Examples error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+program.addCommand(examplesCommand);
 
 program
     .command('sbom')
