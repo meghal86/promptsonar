@@ -178,6 +178,56 @@ export interface WorkflowDiff {
     comparison: WorkflowDiffComparison;
 }
 
+export type WorkflowReplayEventType =
+    | 'USER_INPUT'
+    | 'SYSTEM_PROMPT'
+    | 'MEMORY_READ'
+    | 'MEMORY_WRITE'
+    | 'TOOL_ROUTER'
+    | 'MCP_SERVER'
+    | 'MCP_TOOL'
+    | 'NETWORK'
+    | 'FILESYSTEM'
+    | 'SHELL'
+    | 'MODEL'
+    | 'RESPONSE';
+
+export type WorkflowReplayRiskVerdict = 'SAFE' | 'REVIEW' | 'DANGEROUS';
+
+export interface WorkflowReplayEventEvidence {
+    ruleId?: string;
+    label: string;
+    source?: string;
+    severity?: Severity;
+}
+
+export interface WorkflowReplayEvent {
+    index: number;
+    timestamp: string;
+    type: WorkflowReplayEventType;
+    nodeId: string;
+    nodeType: WorkflowNodeType;
+    label: string;
+    trust: WorkflowTrust;
+    confidence: WorkflowConfidence;
+    confidenceContribution: number;
+    trustBoundaryCrossed: boolean;
+    riskBefore: WorkflowReplayRiskVerdict;
+    riskAfter: WorkflowReplayRiskVerdict;
+    riskTransition: `${WorkflowReplayRiskVerdict}->${WorkflowReplayRiskVerdict}`;
+    reason: string;
+    matchedRules: string[];
+    provenance: WorkflowReplayEventEvidence[];
+}
+
+export interface WorkflowReplay {
+    replay_version: string;
+    generated_from: 'workflow_graph';
+    timeline: string[];
+    risk_evolution: WorkflowReplayRiskVerdict[];
+    events: WorkflowReplayEvent[];
+}
+
 export interface FindingWorkflow {
     path: WorkflowPath;
     source: WorkflowNodeType;
@@ -195,6 +245,9 @@ export interface FindingWorkflow {
     evidence?: WorkflowEvidence[];
     // Workflow Diff Engine, mirrored at the root for SARIF/dashboard consumers.
     workflow_diff?: WorkflowDiff;
+    // Workflow Replay Engine: deterministic event timeline derived from the
+    // workflow graph and provenance. No generated text or LLM calls.
+    workflow_replay?: WorkflowReplay;
 }
 
 // Root-cause grouping (Feature 3): the single finding that best explains a

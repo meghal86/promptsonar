@@ -25,6 +25,7 @@ export default async function Image({ searchParams }: { searchParams?: Promise<{
   const risk = report?.workflow?.risk || 'none';
   const confidence = report ? `${report.confidence.score}% ${report.confidence.level}` : 'No report';
   const root = report?.root_cause?.rule_id || 'none';
+  const replay = report?.workflow_replay?.events?.length ? `${report.workflow_replay.events.length} replay events` : 'No replay';
 
   return new ImageResponse(
     (
@@ -67,6 +68,10 @@ export default async function Image({ searchParams }: { searchParams?: Promise<{
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '18px' }}>
             <div style={{ fontSize: '18px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Root Cause</div>
             <div style={{ marginTop: '8px', fontSize: '34px', fontWeight: 900 }}>{root}</div>
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '18px' }}>
+            <div style={{ fontSize: '18px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Replay</div>
+            <div style={{ marginTop: '8px', fontSize: '34px', fontWeight: 900 }}>{replay}</div>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import type { FindingWorkflow, WorkflowDiff } from '@promptsonar/core';
+import type { FindingWorkflow, WorkflowDiff, WorkflowReplay } from '@promptsonar/core';
 
 export const EXECUTION_PATH_REPORT_VERSION = '1.0';
 
@@ -74,6 +74,32 @@ export interface ExecutionPathReport {
     execution_path_removed: boolean;
     removed_nodes: string[];
     added_nodes: string[];
+  } | null;
+  workflow_replay: {
+    replay_version: string;
+    timeline: string[];
+    risk_evolution: string[];
+    events: Array<{
+      index: number;
+      timestamp: string;
+      type: string;
+      label: string;
+      trust: string;
+      confidence: string;
+      confidence_contribution: number;
+      trust_boundary_crossed: boolean;
+      risk_before: string;
+      risk_after: string;
+      risk_transition: string;
+      reason: string;
+      matched_rules: string[];
+      provenance: Array<{
+        rule_id?: string;
+        label: string;
+        source?: string;
+        severity?: Severity;
+      }>;
+    }>;
   } | null;
   findings_summary: {
     total: number;
@@ -193,6 +219,36 @@ function sanitizeWorkflowDiff(diff?: WorkflowDiff): ExecutionPathReport['workflo
   };
 }
 
+function sanitizeWorkflowReplay(replay?: WorkflowReplay): ExecutionPathReport['workflow_replay'] {
+  if (!replay) return null;
+  return {
+    replay_version: replay.replay_version,
+    timeline: replay.timeline,
+    risk_evolution: replay.risk_evolution,
+    events: replay.events.map((event) => ({
+      index: event.index,
+      timestamp: event.timestamp,
+      type: event.type,
+      label: redactSensitiveText(event.label),
+      trust: event.trust,
+      confidence: event.confidence,
+      confidence_contribution: event.confidenceContribution,
+      trust_boundary_crossed: event.trustBoundaryCrossed,
+      risk_before: event.riskBefore,
+      risk_after: event.riskAfter,
+      risk_transition: event.riskTransition,
+      reason: redactSensitiveText(event.reason),
+      matched_rules: event.matchedRules,
+      provenance: event.provenance.map((item) => ({
+        rule_id: item.ruleId,
+        label: redactSensitiveText(item.label),
+        source: item.source ? redactSensitiveText(item.source) : undefined,
+        severity: item.severity,
+      })),
+    })),
+  };
+}
+
 function summarizeFindings(input: ExecutionPathReportInput): ExecutionPathReport['findings_summary'] {
   const bySeverity: Record<Severity, number> = { low: 0, medium: 0, high: 0, critical: 0 };
   const byCategory: Record<string, number> = {};
@@ -280,6 +336,7 @@ export function createExecutionPathReport(input: ExecutionPathReportInput): Exec
     evidence,
     root_cause: sanitizeRootCause(rootCause),
     workflow_diff: sanitizeWorkflowDiff(workflow?.workflow_diff),
+    workflow_replay: sanitizeWorkflowReplay(workflow?.workflow_replay),
     findings_summary: summarizeFindings(input),
     mcp_risk_score: input.mcpRiskScore ? {
       score: input.mcpRiskScore.score,
@@ -328,6 +385,7 @@ export function reportToMarkdown(report: ExecutionPathReport, reportUrl?: string
     `- Confidence: ${report.confidence.score}% ${report.confidence.level}`,
     `- Findings: ${report.findings_summary.total}`,
     `- Root cause: ${report.root_cause?.rule_id || 'none'}`,
+    `- Replay events: ${report.workflow_replay?.events.length || 0}`,
     `- Report hash: \`${report.report_hash}\``,
     reportUrl ? `- Report URL: ${reportUrl}` : '',
     ``,
@@ -336,6 +394,11 @@ export function reportToMarkdown(report: ExecutionPathReport, reportUrl?: string
     ``,
     `### Evidence`,
     ...(report.evidence.length ? report.evidence.map((item) => `- ${item}`) : ['- No workflow evidence emitted.']),
+    ``,
+    `### Workflow Replay`,
+    ...(report.workflow_replay?.events.length
+      ? report.workflow_replay.events.map((event) => `- ${event.index}. ${event.timestamp} ${event.type}: ${event.risk_transition}`)
+      : ['- No replay events emitted.']),
   ];
   return lines.filter((line) => line !== '').join('\n');
 }
@@ -395,6 +458,12 @@ export function reportToSarif(report: ExecutionPathReport): string {
           report_hash: report.report_hash,
           workflow: report.workflow,
           workflow_diff: report.workflow_diff,
+          workflow_replay: report.workflow_replay ? {
+            replay_version: report.workflow_replay.replay_version,
+            timeline: report.workflow_replay.timeline,
+            risk_evolution: report.workflow_replay.risk_evolution,
+            replay_events: report.workflow_replay.events,
+          } : undefined,
         },
       })),
     }],

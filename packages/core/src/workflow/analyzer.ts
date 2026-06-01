@@ -11,6 +11,7 @@ import {
 } from './types';
 import { attachProvenance } from './provenance';
 import { buildWorkflowDiff } from './diff';
+import { buildWorkflowReplay } from './replay';
 import type { Severity } from '../rules/types';
 
 interface PatternDef {
@@ -486,6 +487,7 @@ function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[])
         enriched.workflow_diff = diff;
         enriched.path.workflow_diff = diff;
     }
+    enriched.workflow_replay = buildWorkflowReplay(enriched);
 
     return enriched;
 }
