@@ -1,19 +1,53 @@
 # PromptSonar
 
-**npm audit for AI prompts.**
+**Execution path analysis for AI systems.**
 
-PromptSonar is a local-first static security scanner for AI prompts, agent instructions, MCP configs, and AI developer workflows. It finds prompt-injection patterns, hidden Unicode obfuscation, leaked secrets, unsafe tool instructions, and MCP/tool-poisoning risks before they reach production.
+PromptSonar traces prompts, agent instructions, MCP configs, memory, tools, and AI workflows before they reach filesystem access, network actions, shell execution, or other privileged operations.
 
-It runs locally, makes **zero LLM calls**, and fits into the places developers already work: CLI, VS Code, Cursor, Claude Code, SARIF, and CI.
+```bash
+npx @promptsonar/cli scan .
+```
+
+```text
+USER INPUT
+  ↓
+MCP SERVER
+  ↓
+PRIVILEGED TOOL
+  ↓
+SHELL EXECUTION
+
+Evidence: autoExecute=true, permissions="*"
+Confidence: HIGH
+Root Cause: MCP Tool Poisoning
+```
+
+It explains:
+
+- Where execution can go
+- Why the path exists
+- How confident it is
+- What root cause created it
+- How remediation changes the path
+
+PromptSonar runs locally, makes zero LLM calls, and integrates with the places developers already work:
+
+- CLI
+- VS Code
+- Cursor
+- Claude Code
+- GitHub Actions
+- GitHub PR Reviews
+- SARIF
+- CI/CD
+
+Think of PromptSonar as:
+
+**npm audit for prompts, MCP servers, and AI execution paths.**
 
 ```bash
 npm install -g @promptsonar/cli
 promptsonar scan .
-```
-
-```bash
-# No install required
-npx @promptsonar/cli scan .
 ```
 
 [![npm](https://img.shields.io/npm/v/@promptsonar/cli)](https://www.npmjs.com/package/@promptsonar/cli)
@@ -22,6 +56,26 @@ npx @promptsonar/cli scan .
 [![OWASP LLM Top 10](https://img.shields.io/badge/OWASP%20LLM%20Top%2010-aligned-brightgreen)](docs/rules.md)
 
 ![PromptSonar playground showing a vulnerable prompt failing security checks](docs/assets/playground-faulty.png)
+
+-----
+
+## Visual AI Workflow Graph
+
+The playground renders a visual node/edge graph for any finding that emits a `workflow` path — the same deterministic source-to-sink chain the scanner uses for triage, just drawn instead of described.
+
+It tells one risk story:
+
+> untrusted AI input → trust boundary → privileged execution
+
+- **Real scanner output.** Nodes and edges come straight from `finding.workflow.path` (the inference engine in `packages/core/src/workflow`). There is no synthetic graph data, no fake demo path, and no LLM call involved in producing the diagram.
+- **Trust-coloured nodes.** Untrusted sources, semi-trusted context, MCP / tool routers, and privileged sinks each get a distinct, muted palette. Trust state, confidence, taint, and privilege propagation are shown as small chips and a confidence dot trio — never colour alone.
+- **Edge intent is visible.** A dashed amber line marks a trust-boundary crossing; a solid rose line marks privileged propagation; tainted flow is highlighted; ordinary data flow stays quiet.
+- **Bounded complexity.** Long chains are simplified to ≤ 6 visible nodes, preserving the source, the sink, and any node where the trust level changes. Collapsed middle steps appear as a `+N steps` placeholder that expands on demand.
+- **Calm and developer-first.** Deterministic left-to-right layout, no physics, no neon, no SOC dashboard. Designed to be screenshot-worthy at a glance and readable on mobile via a controlled horizontal scroll.
+- **Local-first.** Renders fully client-side in the dashboard. No telemetry, no cloud calls, no auth, no database.
+- **No exploit guarantee.** The graph visualises a *statically inferred* execution path. It does not prove dynamic exploitability; downstream sandboxing, allowlists, and approval gates can still neutralise the chain at runtime.
+
+When the scanner cannot infer a high-confidence source-to-sink path, the panel shows a neutral empty state — "No high-confidence source-to-sink execution path inferred." — rather than declaring the prompt safe.
 
 -----
 
@@ -267,49 +321,22 @@ This remediation feedback loop is integrated natively across the **Playground UI
 
 ## Workflow-First Security Triage & Prioritization UX
 
-To prevent audit fatigue and surface critical vulnerabilities instantly, PromptSonar incorporates a **Workflow-First Security Triage** engine in the playground. It reduces cognitive overload by reorganizing scan findings based on actual execution potential and grouping secondary style/hygiene suggestions.
+PromptSonar sorts findings by the question developers care about first:
 
-### 1. High-Signal Triage Hierarchy
-Findings are dynamically split into two distinct sections:
-- **Section A — Primary Workflow Risks** (Expanded by default): Contains critical execution paths, privileged sink reachability (e.g. shell execution, command routing), MCP wildcard authorization bypasses, memory poisoning vectors, and hardcoded secrets.
-- **Section B — Secondary Hygiene Observations** (Collapsed by default): Contains efficiency recommendations, wording/clarity suggestions, formatting/style polish, and low-confidence hints. These are grouped into dynamic accordions (e.g., *"3 efficiency observations"*) and only expanded on demand.
+**Can this reach a privileged sink?**
 
-### 2. Prioritization Sorting Heuristics
-PromptSonar sorts all findings deterministically according to potential impact:
-1. **Privileged Sink Reached**: Remote code execution (RCE) or arbitrary shell execution.
-2. **Workflow Severity**: Active multi-hop taint propagation chains (e.g. `user_input` -> `retrieved_context` -> `memory` -> `tool`).
-3. **Trust Boundary Crossed**: Scenarios where unvalidated variables route into system-privileged instructions.
-4. **Execution Potential**: Escalation risks (wildcards or autoExecute toggles).
-5. **Credential Exposure**: Leaked API keys, passwords, or PII.
-6. **Rule Confidence**: High-confidence patterns sorted before low-confidence heuristics.
-7. **Secondary Hygiene**: Low-risk clarity/formatting checks.
+The playground prioritizes:
 
-### 3. Collapsible Card UX & Local Guarantees
-Each finding card supports smooth interactive collapsing and expanding. Collapsed states preview the rule ID, severity badge, and a short workflow path trace. Expanded states disclose evidence, detailed explanation, recommended safe code blocks, and side-by-side PR-diff panels.
-- **100% Deterministic & Local-First**: The triage, sorting, and remediation engine runs fully client-side and offline. There are no external API calls, cloud telemetry, or AI models involved in the categorization or rewrite proposals.
-- **Limitations**: PromptSonar identifies vulnerable structure, configurations, and instruction routes statically. It does not prove dynamic run-time exploitability (e.g. if the downstream execution wrapper enforces sandboxing that cannot be checked statically).
+- Shell, filesystem, network, and MCP tool reachability
+- Multi-hop paths through user input, retrieved context, memory, and tools
+- Trust-boundary crossings
+- Wildcard permissions and automatic execution
+- Credential exposure
+- High-confidence evidence before low-confidence hygiene findings
 
------
+Primary workflow risks are expanded first. Secondary clarity, formatting, and efficiency observations stay collapsed until needed.
 
-## Visual AI Workflow Graph
-
-The playground renders a visual node/edge graph for any finding that emits a `workflow` path — the same deterministic source-to-sink chain the scanner uses for triage, just drawn instead of described.
-
-It tells one risk story:
-
-> untrusted AI input → trust boundary → privileged execution
-
-- **Real scanner output.** Nodes and edges come straight from `finding.workflow.path` (the inference engine in `packages/core/src/workflow`). There is no synthetic graph data, no fake demo path, and no LLM call involved in producing the diagram.
-- **Trust-coloured nodes.** Untrusted sources, semi-trusted context, MCP / tool routers, and privileged sinks each get a distinct, muted palette. Trust state, confidence, taint, and privilege propagation are shown as small chips and a confidence dot trio — never colour alone.
-- **Edge intent is visible.** A dashed amber line marks a trust-boundary crossing; a solid rose line marks privileged propagation; tainted flow is highlighted; ordinary data flow stays quiet.
-- **Bounded complexity.** Long chains are simplified to ≤ 6 visible nodes, preserving the source, the sink, and any node where the trust level changes. Collapsed middle steps appear as a `+N steps` placeholder that expands on demand.
-- **Calm and developer-first.** Deterministic left-to-right layout, no physics, no neon, no SOC dashboard. Designed to be screenshot-worthy at a glance and readable on mobile via a controlled horizontal scroll.
-- **Local-first.** Renders fully client-side in the dashboard. No telemetry, no cloud calls, no auth, no database.
-- **No exploit guarantee.** The graph visualises a *statically inferred* execution path. It does not prove dynamic exploitability; downstream sandboxing, allowlists, and approval gates can still neutralise the chain at runtime.
-
-When the scanner cannot infer a high-confidence source-to-sink path, the panel shows a neutral empty state — "No high-confidence source-to-sink execution path inferred." — rather than declaring the prompt safe.
-
------
+Triage is deterministic and local. It uses scanner output, workflow paths, confidence, and provenance; it does not call LLMs, send telemetry, or invent exploit paths.
 
 ## IDE And Workflow Integration
 

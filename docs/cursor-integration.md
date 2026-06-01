@@ -1,8 +1,51 @@
-# PromptSonar Cursor Integration
+# PromptSonar for Cursor
 
-PromptSonar for Cursor runs local execution-path analysis inside Cursor before prompts, MCP configs, or agent instructions reach tools, memory, shell execution, filesystem access, or network actions.
+See where your prompt goes before it reaches tools, memory, MCP servers, shell execution, filesystem access, or network actions.
 
-It reuses `@promptsonar/core` and the existing VS Code shared detection, model, and quick-fix helpers. It does not duplicate scanner logic, call LLMs, send telemetry, or use cloud services.
+PromptSonar brings Execution Path Analysis directly into Cursor. Instead of only reporting findings, PromptSonar shows:
+
+- The execution path
+- Why the path exists
+- Evidence supporting the path
+- Confidence in the path
+- Root cause analysis
+- Workflow replay
+- Workflow diff after remediation
+
+Everything runs locally.
+No LLM calls.
+No telemetry.
+No cloud services.
+No prompt uploads.
+
+## What Makes PromptSonar Different
+
+Most AI security tools tell you something is risky.
+
+PromptSonar shows how untrusted input can travel through an AI system.
+
+Example:
+
+```text
+USER INPUT
+↓
+MCP SERVER
+↓
+PRIVILEGED TOOL
+↓
+SHELL EXECUTION
+```
+
+Then explains:
+
+- Evidence
+- Confidence
+- Root Cause
+- Replay Timeline
+- Workflow Diff
+- Risk Reduction
+
+The goal is not just detection. The goal is understanding why a path exists and proving that it has been removed.
 
 ## Installation
 
@@ -63,4 +106,3 @@ After applying fixes, Cursor can open a workflow diff showing whether the execut
 ## Limitations
 
 PromptSonar for Cursor is a static local analyzer. It does not execute prompts, call model APIs, observe runtime traffic, or upload files.
-

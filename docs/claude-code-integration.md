@@ -1,8 +1,51 @@
-# PromptSonar Claude Code Integration
+# PromptSonar for Claude Code
 
-`@promptsonar/claude-code` provides deterministic pre-execution review for Claude Code workflows. It runs locally and reuses the existing PromptSonar runtime engine, MCP review, workflow provenance, confidence scoring, root-cause grouping, workflow replay, and workflow diff engines.
+See where a Claude Code-style workflow can go before it reaches tools, memory, MCP servers, shell execution, filesystem access, or network actions.
 
-No LLM calls are made. No telemetry is emitted. No cloud services are required.
+`@promptsonar/claude-code` brings Execution Path Analysis to pre-execution review. Instead of only returning a verdict, PromptSonar shows:
+
+- The execution path
+- Why the path exists
+- Evidence supporting the path
+- Confidence in the path
+- Root cause analysis
+- Workflow replay
+- Workflow diff after remediation
+
+Everything runs locally.
+No LLM calls.
+No telemetry.
+No cloud services.
+No prompt uploads.
+
+## What Makes PromptSonar Different
+
+Most AI security tools tell you something is risky.
+
+PromptSonar shows how untrusted input can travel through an AI system.
+
+Example:
+
+```text
+USER INPUT
+↓
+MCP SERVER
+↓
+PRIVILEGED TOOL
+↓
+SHELL EXECUTION
+```
+
+Then explains:
+
+- Evidence
+- Confidence
+- Root Cause
+- Replay Timeline
+- Workflow Diff
+- Risk Reduction
+
+The goal is not just detection. The goal is understanding why a path exists and proving that it has been removed.
 
 ## Installation
 
@@ -99,4 +142,3 @@ See:
 ## Limitations
 
 The Claude Code adapter reviews planned execution paths and tool metadata before execution. It does not sandbox commands, run tools, call LLMs, or replace Claude Code's own approval UI.
-
