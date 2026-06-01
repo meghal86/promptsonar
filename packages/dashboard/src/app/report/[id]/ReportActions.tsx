@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  encodeReportPayload,
   type ExecutionPathReport,
   reportToIssueTemplate,
   reportToJson,
@@ -29,33 +30,34 @@ async function copyText(text: string): Promise<void> {
 }
 
 export function ReportActions({ report, reportUrl }: ReportActionsProps) {
-  const pngUrl = `/report/${report.report_id}/opengraph-image?payload=${encodeURIComponent(JSON.stringify(report))}`;
+  const pngUrl = `/report/${report.report_id}/opengraph-image?payload=${encodeURIComponent(encodeReportPayload(report))}`;
+  const absoluteReportUrl = () => new URL(reportUrl, window.location.origin).toString();
 
   return (
     <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
       <button
-        onClick={() => copyText(reportUrl)}
+        onClick={() => copyText(absoluteReportUrl())}
         className="rounded-lg bg-slate-950 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-white transition hover:bg-slate-800"
       >
         Copy Report URL
       </button>
       <button
-        onClick={() => copyText(reportToMarkdown(report, reportUrl))}
+        onClick={() => copyText(reportToMarkdown(report, absoluteReportUrl()))}
         className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-widest text-slate-700 transition hover:bg-slate-50"
       >
         Copy Markdown
       </button>
       <button
-        onClick={() => copyText(reportToIssueTemplate(report, reportUrl))}
+        onClick={() => copyText(reportToIssueTemplate(report, absoluteReportUrl()))}
         className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-widest text-slate-700 transition hover:bg-slate-50"
       >
-        Copy Issue Template
+        Copy GitHub Issue
       </button>
       <button
-        onClick={() => copyText(reportToPrComment(report, reportUrl))}
+        onClick={() => copyText(reportToPrComment(report, absoluteReportUrl()))}
         className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-widest text-slate-700 transition hover:bg-slate-50"
       >
-        Copy PR Comment
+        Copy GitHub Comment
       </button>
       <button
         onClick={() => downloadText(`promptsonar-report-${report.report_id}.json`, reportToJson(report), 'application/json')}

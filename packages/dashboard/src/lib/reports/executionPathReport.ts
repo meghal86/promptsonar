@@ -29,6 +29,9 @@ export interface ExecutionPathReport {
   report_hash: string;
   report_id: string;
   generated_at: string;
+  verdict: string;
+  execution_risk: number;
+  privileged_sink: string | null;
   workflow_diff_version: string | null;
   workflow: {
     path: string[];
@@ -56,14 +59,28 @@ export interface ExecutionPathReport {
   confidence: {
     score: number;
     level: string;
+    reasons: string[];
   };
   evidence: string[];
+  evidence_items: Array<{
+    id: string;
+    finding_rule_id: string;
+    severity?: Severity;
+    label: string;
+    source?: string;
+  }>;
   root_cause: {
     rule_id: string;
     severity: Severity;
     category?: string;
     explanation: string;
     supporting_count: number;
+    supporting_findings: Array<{
+      rule_id: string;
+      severity: Severity;
+      category?: string;
+      explanation: string;
+    }>;
   } | null;
   workflow_diff: {
     workflow_diff_version: string;
@@ -74,6 +91,8 @@ export interface ExecutionPathReport {
     execution_path_removed: boolean;
     removed_nodes: string[];
     added_nodes: string[];
+    before_path: string[];
+    after_path: string[];
   } | null;
   workflow_replay: {
     replay_version: string;
@@ -113,6 +132,11 @@ export interface ExecutionPathReport {
     score: number | null;
     status: string | null;
   };
+  recommended_fixes: Array<{
+    finding_rule_id: string;
+    severity: Severity;
+    fix: string;
+  }>;
   mcp_risk_score: {
     score: number;
     level: string;
@@ -216,6 +240,8 @@ function sanitizeWorkflowDiff(diff?: WorkflowDiff): ExecutionPathReport['workflo
     execution_path_removed: diff.executionPathRemoved,
     removed_nodes: diff.removedNodes,
     added_nodes: diff.addedNodes,
+    before_path: diff.before.nodes.map((node) => node.type),
+    after_path: diff.after.nodes.map((node) => node.type),
   };
 }
 
@@ -282,6 +308,12 @@ function sanitizeRootCause(rootCause?: RootCauseAnalysis): ExecutionPathReport['
     category: rootCause.rootCause.category,
     explanation: redactSensitiveText(rootCause.rootCause.explanation || ''),
     supporting_count: rootCause.supportingFindings.length,
+    supporting_findings: rootCause.supportingFindings.map((finding) => ({
+      rule_id: finding.rule_id,
+      severity: finding.severity,
+      category: finding.category,
+      explanation: redactSensitiveText(finding.explanation || ''),
+    })),
   };
 }
 
@@ -316,6 +348,112 @@ function analyzeReportRootCause(findings: ReportFindingInput[]): RootCauseAnalys
   return { rootCause, supportingFindings };
 }
 
+const PRIVILEGED_SINK_TYPES = new Set([
+  'privileged_tool',
+  'tool_execution',
+  'shell_execution',
+  'network_access',
+  'filesystem_access',
+  'credential_store',
+  'external_api',
+  'system_prompt',
+]);
+
+function humanize(value: string): string {
+  return value
+    .replace(/_/g, ' ')
+    .replace(/\bmcp\b/gi, 'MCP')
+    .replace(/\bapi\b/gi, 'API')
+    .replace(/\brag\b/gi, 'RAG')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function computeVerdict(input: ExecutionPathReportInput, workflow?: FindingWorkflow): string {
+  if (workflow?.risk) return workflow.risk.toUpperCase();
+  if (input.findings.some((finding) => finding.severity === 'critical')) return 'CRITICAL';
+  if (input.findings.some((finding) => finding.severity === 'high')) return 'HIGH';
+  if (input.findings.some((finding) => finding.severity === 'medium')) return 'MEDIUM';
+  return input.findings.length ? 'LOW' : 'READY';
+}
+
+function computeExecutionRisk(input: ExecutionPathReportInput, workflow?: FindingWorkflow): number {
+  if (workflow?.workflow_diff?.beforeRisk !== undefined) return workflow.workflow_diff.beforeRisk;
+  if (input.mcpRiskScore?.score !== undefined) return input.mcpRiskScore.score;
+  if (workflow?.path.privilegedSinkReached) return 90;
+  if (workflow?.path.trustBoundaryCrossed) return 70;
+  if (typeof input.score === 'number') return Math.max(0, Math.min(100, 100 - input.score));
+  return input.findings.some((finding) => finding.severity === 'critical') ? 85 : 0;
+}
+
+function findPrivilegedSink(workflow?: FindingWorkflow): string | null {
+  const sink = workflow?.path.nodes.find((node) => PRIVILEGED_SINK_TYPES.has(node.type));
+  return sink ? humanize(sink.type) : null;
+}
+
+function confidenceReasons(workflow: FindingWorkflow | undefined, evidence: string[]): string[] {
+  const reasons = new Set<string>();
+  if (workflow?.path.privilegedSinkReached) reasons.add('Privileged sink reached');
+  if (workflow?.path.trustBoundaryCrossed) reasons.add('Trust boundary crossed');
+  if (workflow?.path.nodes.some((node) => node.type === 'shell_execution')) reasons.add('Shell execution present');
+  if (workflow?.path.nodes.some((node) => node.type === 'mcp_server' || node.type === 'mcp_tool')) reasons.add('MCP surface present');
+  for (const item of evidence.slice(0, 4)) {
+    reasons.add(item);
+  }
+  return Array.from(reasons);
+}
+
+function collectEvidenceItems(workflow?: FindingWorkflow): ExecutionPathReport['evidence_items'] {
+  const items: ExecutionPathReport['evidence_items'] = [];
+  const seen = new Set<string>();
+  const addItem = (item: ExecutionPathReport['evidence_items'][number]) => {
+    const key = `${item.finding_rule_id}:${item.label}:${item.source || ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push(item);
+  };
+
+  for (const item of workflow?.path.evidence || []) {
+    addItem({
+      id: item.id,
+      finding_rule_id: item.ruleId,
+      severity: item.severity,
+      label: redactSensitiveText(item.label),
+      source: redactSensitiveText(item.source),
+    });
+  }
+
+  for (const event of workflow?.workflow_replay?.events || []) {
+    for (const item of event.provenance || []) {
+      addItem({
+        id: `${event.index}-${item.ruleId || event.type}`,
+        finding_rule_id: item.ruleId || event.matchedRules[0] || 'workflow_graph',
+        severity: item.severity,
+        label: redactSensitiveText(item.label),
+        source: item.source ? redactSensitiveText(item.source) : undefined,
+      });
+    }
+  }
+
+  return items;
+}
+
+function recommendedFixes(findings: ReportFindingInput[]): ExecutionPathReport['recommended_fixes'] {
+  const seen = new Set<string>();
+  return findings
+    .filter((finding) => Boolean(finding.suggested_fix))
+    .map((finding) => ({
+      finding_rule_id: finding.rule_id,
+      severity: finding.severity,
+      fix: redactSensitiveText(finding.suggested_fix || ''),
+    }))
+    .filter((fix) => {
+      const key = `${fix.finding_rule_id}:${fix.fix}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 export function createExecutionPathReport(input: ExecutionPathReportInput): ExecutionPathReport {
   const workflow = pickWorkflow(input.findings);
   const rootCause = analyzeReportRootCause(input.findings);
@@ -327,17 +465,23 @@ export function createExecutionPathReport(input: ExecutionPathReportInput): Exec
   const reportWithoutHash: Omit<ExecutionPathReport, 'report_hash' | 'report_id'> = {
     report_version: EXECUTION_PATH_REPORT_VERSION,
     generated_at: input.generatedAt || new Date().toISOString(),
+    verdict: computeVerdict(input, workflow),
+    execution_risk: computeExecutionRisk(input, workflow),
+    privileged_sink: findPrivilegedSink(workflow),
     workflow_diff_version: workflow?.workflow_diff?.workflowDiffVersion || null,
     workflow: sanitizeWorkflow(workflow),
     confidence: {
       score: workflow?.confidence_score || workflow?.path.confidence_score || 0,
       level: workflow?.confidence_level || workflow?.path.confidence_level || 'LOW',
+      reasons: confidenceReasons(workflow, evidence),
     },
     evidence,
+    evidence_items: collectEvidenceItems(workflow),
     root_cause: sanitizeRootCause(rootCause),
     workflow_diff: sanitizeWorkflowDiff(workflow?.workflow_diff),
     workflow_replay: sanitizeWorkflowReplay(workflow?.workflow_replay),
     findings_summary: summarizeFindings(input),
+    recommended_fixes: recommendedFixes(input.findings),
     mcp_risk_score: input.mcpRiskScore ? {
       score: input.mcpRiskScore.score,
       level: input.mcpRiskScore.level,
@@ -358,16 +502,25 @@ export function verifyExecutionPathReport(report: ExecutionPathReport): boolean 
 
 export function encodeReportPayload(report: ExecutionPathReport): string {
   const json = JSON.stringify(report);
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(json, 'utf8').toString('base64url');
+  // In some browser bundles `Buffer` may exist (polyfilled) but not support
+  // `toString("base64url")`. Always use a stable base64url implementation.
+  if (typeof (globalThis as { window?: unknown }).window === 'undefined' && typeof Buffer !== 'undefined') {
+    return Buffer.from(json, 'utf8')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
   }
-  return btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
 }
 
 export function decodeReportPayload(payload: string): ExecutionPathReport {
   const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), '=');
-  const json = typeof Buffer !== 'undefined'
+  const json = (typeof (globalThis as { window?: unknown }).window === 'undefined' && typeof Buffer !== 'undefined')
     ? Buffer.from(padded, 'base64').toString('utf8')
     : decodeURIComponent(escape(atob(padded)));
   return JSON.parse(json) as ExecutionPathReport;
@@ -378,14 +531,21 @@ export function createReportUrl(origin: string, report: ExecutionPathReport): st
 }
 
 export function reportToMarkdown(report: ExecutionPathReport, reportUrl?: string): string {
+  const evidenceItems = report.evidence_items || [];
+  const confidenceWhy = report.confidence.reasons || [];
+  const supportingFindings = report.root_cause?.supporting_findings || [];
+  const recommended = report.recommended_fixes || [];
   const lines = [
-    `## PromptSonar Execution Path Report`,
+    `## PromptSonar Execution Path Review`,
     ``,
-    `- Verdict/Risk: ${report.workflow?.risk || 'none'}`,
+    `- Verdict: ${report.verdict || report.workflow?.risk || 'none'}`,
+    `- Execution risk: ${report.execution_risk ?? report.workflow_diff?.before_risk ?? 0}/100`,
     `- Confidence: ${report.confidence.score}% ${report.confidence.level}`,
     `- Findings: ${report.findings_summary.total}`,
     `- Root cause: ${report.root_cause?.rule_id || 'none'}`,
+    `- Privileged sink: ${report.privileged_sink || 'none'}`,
     `- Replay events: ${report.workflow_replay?.events.length || 0}`,
+    `- Risk reduction: ${report.workflow_diff?.risk_reduction ?? 0}%`,
     `- Report hash: \`${report.report_hash}\``,
     reportUrl ? `- Report URL: ${reportUrl}` : '',
     ``,
@@ -393,19 +553,42 @@ export function reportToMarkdown(report: ExecutionPathReport, reportUrl?: string
     report.workflow?.summary || 'No execution path inferred.',
     ``,
     `### Evidence`,
-    ...(report.evidence.length ? report.evidence.map((item) => `- ${item}`) : ['- No workflow evidence emitted.']),
+    ...(evidenceItems.length
+      ? evidenceItems.map((item) => `- ${item.label} (${item.finding_rule_id})`)
+      : report.evidence.length
+        ? report.evidence.map((item) => `- ${item}`)
+        : ['- No workflow evidence emitted.']),
+    ``,
+    `### Confidence`,
+    ...(confidenceWhy.length ? confidenceWhy.map((item) => `- ${item}`) : ['- No confidence evidence emitted.']),
+    ``,
+    `### Root Cause`,
+    report.root_cause ? `Primary: \`${report.root_cause.rule_id}\`` : 'No root cause emitted.',
+    ...(supportingFindings.length
+      ? supportingFindings.map((finding) => `- Supporting: \`${finding.rule_id}\``)
+      : []),
     ``,
     `### Workflow Replay`,
     ...(report.workflow_replay?.events.length
       ? report.workflow_replay.events.map((event) => `- ${event.index}. ${event.timestamp} ${event.type}: ${event.risk_transition}`)
       : ['- No replay events emitted.']),
+    ``,
+    `### Workflow Diff`,
+    report.workflow_diff
+      ? `Before: ${report.workflow_diff.before_path.join(' -> ')}\nAfter: ${report.workflow_diff.after_path.join(' -> ')}\nRisk reduction: ${report.workflow_diff.risk_reduction}%\nExecution path removed: ${report.workflow_diff.execution_path_removed ? 'YES' : 'NO'}`
+      : 'No workflow diff emitted.',
+    ``,
+    `### Recommended Fixes`,
+    ...(recommended.length
+      ? recommended.map((fix, index) => `${index + 1}. ${fix.fix} (${fix.finding_rule_id})`)
+      : ['No deterministic recommended fixes emitted.']),
   ];
   return lines.filter((line) => line !== '').join('\n');
 }
 
 export function reportToIssueTemplate(report: ExecutionPathReport, reportUrl?: string): string {
   return [
-    `### PromptSonar Security Review`,
+    `### PromptSonar Execution Path Review`,
     ``,
     reportToMarkdown(report, reportUrl),
     ``,
@@ -415,12 +598,15 @@ export function reportToIssueTemplate(report: ExecutionPathReport, reportUrl?: s
 }
 
 export function reportToPrComment(report: ExecutionPathReport, reportUrl?: string): string {
+  const verdict = report.verdict || report.workflow?.risk || 'none';
+  const executionRisk = report.execution_risk ?? report.workflow_diff?.before_risk ?? 0;
   return [
     `**PromptSonar Execution Path Review**`,
     ``,
-    `Risk: **${report.workflow?.risk || 'none'}** | Confidence: **${report.confidence.score}% ${report.confidence.level}** | Findings: **${report.findings_summary.total}**`,
+    `Verdict: **${verdict}** | Execution risk: **${executionRisk}/100** | Confidence: **${report.confidence.score}% ${report.confidence.level}**`,
     report.workflow ? `Path: \`${report.workflow.summary}\`` : `Path: no execution path inferred.`,
     report.root_cause ? `Root cause: \`${report.root_cause.rule_id}\`` : `Root cause: none`,
+    report.workflow_diff ? `Risk reduction: **${report.workflow_diff.risk_reduction}%** | Path removed: **${report.workflow_diff.execution_path_removed ? 'YES' : 'NO'}**` : '',
     reportUrl ? `[Open public report](${reportUrl})` : '',
   ].filter(Boolean).join('\n');
 }
@@ -456,6 +642,13 @@ export function reportToSarif(report: ExecutionPathReport): string {
         }],
         properties: {
           report_hash: report.report_hash,
+          verdict: report.verdict,
+          execution_risk: report.execution_risk,
+          confidence: report.confidence,
+          root_cause: report.root_cause,
+          privileged_sink: report.privileged_sink,
+          evidence: report.evidence_items,
+          recommended_fixes: report.recommended_fixes,
           workflow: report.workflow,
           workflow_diff: report.workflow_diff,
           workflow_replay: report.workflow_replay ? {

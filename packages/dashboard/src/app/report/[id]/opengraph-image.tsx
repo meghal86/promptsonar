@@ -18,14 +18,27 @@ function readReport(payload?: string): ExecutionPathReport | null {
   }
 }
 
+function humanize(value?: string | null): string {
+  if (!value) return 'None';
+  return value
+    .replace(/_/g, ' ')
+    .replace(/\bmcp\b/gi, 'MCP')
+    .replace(/\bapi\b/gi, 'API')
+    .replace(/\brag\b/gi, 'RAG')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export default async function Image({ searchParams }: { searchParams?: Promise<{ payload?: string }> }) {
   const params = await searchParams;
   const report = readReport(params?.payload);
-  const path = report?.workflow?.summary || 'No execution path inferred';
-  const risk = report?.workflow?.risk || 'none';
+  const path = report?.workflow?.path?.length
+    ? report.workflow.path.map(humanize).join(' -> ')
+    : 'No execution path inferred';
+  const verdict = report?.verdict || report?.workflow?.risk || 'none';
   const confidence = report ? `${report.confidence.score}% ${report.confidence.level}` : 'No report';
-  const root = report?.root_cause?.rule_id || 'none';
-  const replay = report?.workflow_replay?.events?.length ? `${report.workflow_replay.events.length} replay events` : 'No replay';
+  const root = humanize(report?.root_cause?.rule_id);
+  const riskReduction = report?.workflow_diff ? `${report.workflow_diff.risk_reduction}%` : '0%';
+  const sink = report?.privileged_sink || humanize(report?.workflow?.path?.find((node) => node.includes('execution') || node.includes('access')));
 
   return new ImageResponse(
     (
@@ -38,7 +51,7 @@ export default async function Image({ searchParams }: { searchParams?: Promise<{
           justifyContent: 'space-between',
           background: '#0f172a',
           color: 'white',
-          padding: '62px',
+          padding: '58px',
           fontFamily: 'Arial',
         }}
       >
@@ -47,31 +60,40 @@ export default async function Image({ searchParams }: { searchParams?: Promise<{
             <div style={{ fontSize: '24px', letterSpacing: '5px', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 800 }}>
               PromptSonar
             </div>
-            <div style={{ marginTop: '24px', fontSize: '68px', lineHeight: 1, fontWeight: 900 }}>
+            <div style={{ marginTop: '22px', fontSize: '64px', lineHeight: 1, fontWeight: 900 }}>
               Execution Path Review
             </div>
           </div>
           <div style={{ border: '2px solid #fb7185', borderRadius: '18px', padding: '18px 24px', color: '#fecdd3', fontSize: '28px', fontWeight: 900, textTransform: 'uppercase' }}>
-            {risk}
+            {verdict}
           </div>
         </div>
 
-        <div style={{ border: '1px solid #334155', borderRadius: '20px', background: '#111827', padding: '26px', fontSize: '34px', lineHeight: 1.25, fontWeight: 800 }}>
-          {path}
+        <div style={{ border: '1px solid #334155', borderRadius: '20px', background: '#111827', padding: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ fontSize: '18px', letterSpacing: '3px', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 900 }}>
+            Execution Path
+          </div>
+          <div style={{ fontSize: '32px', lineHeight: 1.22, fontWeight: 900 }}>
+            {path}
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '18px' }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '18px' }}>
-            <div style={{ fontSize: '18px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Confidence</div>
-            <div style={{ marginTop: '8px', fontSize: '34px', fontWeight: 900 }}>{confidence}</div>
+        <div style={{ display: 'flex', gap: '16px' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '16px' }}>
+            <div style={{ fontSize: '16px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Root Cause</div>
+            <div style={{ marginTop: '8px', fontSize: '28px', fontWeight: 900 }}>{root}</div>
           </div>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '18px' }}>
-            <div style={{ fontSize: '18px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Root Cause</div>
-            <div style={{ marginTop: '8px', fontSize: '34px', fontWeight: 900 }}>{root}</div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '16px' }}>
+            <div style={{ fontSize: '16px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Confidence</div>
+            <div style={{ marginTop: '8px', fontSize: '28px', fontWeight: 900 }}>{confidence}</div>
           </div>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '18px' }}>
-            <div style={{ fontSize: '18px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Replay</div>
-            <div style={{ marginTop: '8px', fontSize: '34px', fontWeight: 900 }}>{replay}</div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '16px' }}>
+            <div style={{ fontSize: '16px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Privileged Sink</div>
+            <div style={{ marginTop: '8px', fontSize: '28px', fontWeight: 900 }}>{sink}</div>
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '16px' }}>
+            <div style={{ fontSize: '16px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Risk Reduction</div>
+            <div style={{ marginTop: '8px', fontSize: '28px', fontWeight: 900 }}>{riskReduction}</div>
           </div>
         </div>
       </div>
