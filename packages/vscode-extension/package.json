@@ -2,7 +2,7 @@
     "name": "promptsonar",
     "displayName": "PromptSonar",
     "description": "Static scanner for prompt injection (OWASP LLM01), API key leaks & jailbreaks in code. Local, fast, no LLM calls.",
-    "version": "1.4.0",
+    "version": "1.4.2",
     "icon": "icon.png",
     "keywords": [
         "prompt",
@@ -164,7 +164,7 @@
         "compile": "node esbuild.js --production",
         "watch": "node esbuild.js --watch",
         "package": "vsce package --no-dependencies",
-        "publish:marketplace": "vsce publish --no-dependencies --packagePath promptsonar-1.4.0.vsix",
+        "publish:marketplace": "vsce publish --no-dependencies --packagePath promptsonar-1.4.2.vsix",
         "lint": "eslint src --ext ts",
         "test": "vitest run",
         "pretest": "npm run compile"
