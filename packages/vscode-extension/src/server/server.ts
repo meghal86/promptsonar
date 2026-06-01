@@ -14,11 +14,15 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import * as path from 'path';
+import { isMcpConfigFile, isScannable } from '../shared/detection';
 // @ts-ignore
-import { parseFile, evaluatePrompt } from '@promptsonar/core';
+import { parseFile, evaluatePrompt, auditMcpConfig } from '@promptsonar/core';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
+const validationTimers = new Map<string, NodeJS.Timeout>();
+const DEFAULT_DEBOUNCE_MS = 300;
+const DEFAULT_MAX_FILE_SIZE_BYTES = 1048576;
 
 connection.onInitialize((params: InitializeParams) => {
     const result: InitializeResult = {
@@ -41,21 +45,35 @@ connection.onNotification('promptsonar/requestValidation', async (params: { uri:
 
 
 documents.onDidChangeContent(change => {
-    validateTextDocument(change.document);
+    scheduleValidation(change.document);
 });
+
+function filePathFromUri(uri: string): string {
+    return decodeURIComponent(uri.replace(/^file:\/\//, ''));
+}
+
+function scheduleValidation(textDocument: TextDocument): void {
+    const existing = validationTimers.get(textDocument.uri);
+    if (existing) clearTimeout(existing);
+    validationTimers.set(textDocument.uri, setTimeout(() => {
+        validationTimers.delete(textDocument.uri);
+        validateTextDocument(textDocument);
+    }, DEFAULT_DEBOUNCE_MS));
+}
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const text = textDocument.getText();
     const uri = textDocument.uri;
-    // Convert URI to simple file path roughly
-    const filePath = uri.replace('file://', '');
-    const fileName = path.basename(filePath).toLowerCase();
-    const isMcpConfig = fileName === 'claude_desktop_config.json' || fileName === 'mcp.json';
+    const filePath = filePathFromUri(uri);
 
-    if (isMcpConfig) {
+    if (Buffer.byteLength(text, 'utf8') > DEFAULT_MAX_FILE_SIZE_BYTES || !isScannable(filePath, text)) {
+        connection.sendDiagnostics({ uri: textDocument.uri, diagnostics: [] });
+        connection.sendNotification('promptsonar/scanResult', { score: null, file: uri, tokenEstimate: 0 });
+        return;
+    }
+
+    if (isMcpConfigFile(filePath)) {
         try {
-            // @ts-ignore
-            const { auditMcpConfig } = require('@promptsonar/core');
             const auditResult = auditMcpConfig(filePath, text);
             const diagnostics: Diagnostic[] = [];
 
@@ -97,7 +115,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
             connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
             
-            const score = auditResult.status === 'pass' ? 100 : (auditResult.status === 'warn' ? 75 : 45);
+            const score = auditResult.risk_score ? Math.max(0, 100 - auditResult.risk_score.score) : (auditResult.status === 'pass' ? 100 : (auditResult.status === 'warn' ? 75 : 45));
             connection.sendNotification('promptsonar/scanResult', { score, file: uri, tokenEstimate: 0 });
             return;
         } catch (mcpErr) {

@@ -14,7 +14,7 @@ inputs:
     default: 'true'
   diff-only:
     description: 'Scan changed files only'
-    default: 'false'
+    default: 'true'
   api-key:
     required: false
     description: 'PromptSonar API key (optional)'
@@ -28,6 +28,24 @@ outputs:
     description: 'High count'
   sarif-path:
     description: 'Path to SARIF output'
+  files_scanned:
+    description: 'Number of files scanned'
+  critical_count:
+    description: 'Critical count (alias)'
+  high_count:
+    description: 'High count (alias)'
+  medium_count:
+    description: 'Medium count'
+  execution_paths:
+    description: 'JSON array of execution-path sinks'
+  mcp_risk_score:
+    description: 'Max MCP risk score across scanned configs'
+  confidence_score:
+    description: 'Best confidence score (0–100) across inferred workflows'
+  confidence_level:
+    description: 'Best confidence level (LOW|MEDIUM|HIGH)'
+  workflow_diff:
+    description: 'JSON workflow diff summary per file'
 
 runs:
   using: 'node20'

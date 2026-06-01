@@ -1,0 +1,22 @@
+# PromptSonar — Codex Reference Configuration
+#
+# Repo-local defaults for Codex CLI/macOS app when working in this repository.
+# Keep provider/model selection unset so Codex can use its current default unless
+# you override it in ~/.codex/config.toml.
+
+# Multi-agent collaboration is stable in modern Codex builds.
+multi_agent = true
+
+[profiles.strict]
+approval_policy = "on-request"
+sandbox_mode = "read-only"
+web_search = "cached"
+
+[profiles.yolo]
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+web_search = "live"
+
+[agents]
+max_threads = 6
+max_depth = 1

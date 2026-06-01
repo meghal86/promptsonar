@@ -26,6 +26,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var core = __toESM(require("@actions/core"));
 var fs2 = __toESM(require("fs"));
 var path2 = __toESM(require("path"));
+var import_core2 = require("@promptsonar/core");
 
 // src/scanner-bridge.ts
 var fs = __toESM(require("fs"));
@@ -41,7 +42,7 @@ function getOwaspRef(ruleId) {
 }
 function getConfidenceForFinding(ruleId, severity) {
   if (severity === "critical") return "VERY_HIGH";
-  if (ruleId.startsWith("sec_owasp_llm02") || ruleId.includes("evasion") || ruleId.includes("zero_width") || ruleId.includes("base64")) return "HIGH";
+  if (ruleId === "sec_base64_encoded_payload" || ruleId === "sec_zero_width_injection" || ruleId === "sec_homoglyph_evasion" || ruleId.startsWith("sec_owasp_llm02") || ruleId.startsWith("MCP-")) return "HIGH";
   if (severity === "high" || severity === "medium") return "MEDIUM";
   return "LOW";
 }
@@ -58,12 +59,26 @@ function getDeterministicRecommendation(ruleId, fallback) {
   if (ruleId === "sec_rag_injection") return "Validate and sanitize retrieval queries before use. Pass only a validated_query object into retrieval code.";
   return fallback || "Review the prompt and apply the documented safer pattern.";
 }
+function getRiskExplanation(ruleId) {
+  if (ruleId === "sec_owasp_llm01_injection") return "User-controlled text may override system instructions, extract hidden prompts, or bypass intended safety boundaries.";
+  if (ruleId === "sec_zero_width_injection") return "Invisible Unicode can hide jailbreak text from reviewers while changing what the model or scanner sees.";
+  if (ruleId === "sec_homoglyph_evasion") return "Lookalike Unicode characters can bypass ASCII-only filters and conceal malicious instructions.";
+  if (ruleId === "sec_base64_encoded_payload") return "Encoded instructions can smuggle jailbreak payloads through review and validation layers.";
+  if (ruleId.startsWith("sec_owasp_llm02")) return "Secrets or sensitive data in prompt text can leak through logs, responses, screenshots, or repository history.";
+  if (ruleId === "sec_unbounded_access") return "Over-broad tool or data access gives an agent more authority than the task requires.";
+  if (ruleId === "sec_rag_injection") return "Raw retrieval queries can let untrusted content steer context selection or poison model inputs.";
+  if (ruleId === "sec_unbounded_persona") return "Unbounded role-play prompts can weaken instruction hierarchy and make policy bypass easier.";
+  if (ruleId.startsWith("MCP-")) return "MCP configuration may expose tools, credentials, or execution capability beyond the agent workflow trust boundary.";
+  return "This pattern weakens prompt reliability, auditability, or downstream safety controls.";
+}
 function lineLooksRelevant(line, ruleId) {
   const lower = line.toLowerCase();
   if (ruleId.includes("llm01") || ruleId.includes("injection")) return /ignore|disregard|forget|dan|developer mode|system prompt|previous instructions|jailbreak|bypass/.test(lower);
   if (ruleId.includes("pii")) return /sk-|api[_ -]?key|secret|token|password|bearer|ssn|credit card|\d{3}-\d{2}-\d{4}/.test(lower);
   if (ruleId.includes("zero_width")) return /[\u200B-\u200D\uFEFF]/.test(line);
   if (ruleId.includes("homoglyph") || ruleId.includes("unicode")) return /[^\x00-\x7F]/.test(line);
+  if (ruleId.includes("unbounded_access")) return /all files|any file|entire|admin|root|shell|network|database|db/.test(lower);
+  if (ruleId.includes("rag")) return /user_input|raw user|retrieval|search|query|context/.test(lower);
   return false;
 }
 function extractEvidence(content, startLine, ruleId, maxLength = 180) {
@@ -80,6 +95,70 @@ function findSuppressionFiles(targetPath, explicitWaiverFile) {
   const candidate = path.join(root, ".promptsonar-waivers.yaml");
   if (fs.existsSync(candidate)) files.push(candidate);
   return files;
+}
+function extractInlineSuppressions(content) {
+  const suppressions = /* @__PURE__ */ new Map();
+  const lines = content.split(/\r?\n/);
+  const add = (lineNumber, ruleId) => {
+    const normalizedRule = (0, import_core.normalizeRuleId)(ruleId) || ruleId;
+    const existing = suppressions.get(lineNumber) || /* @__PURE__ */ new Set();
+    existing.add(normalizedRule);
+    suppressions.set(lineNumber, existing);
+  };
+  lines.forEach((line, index) => {
+    const currentLine = index + 1;
+    const nextLineMatch = line.match(/promptsonar-ignore-next-line\s+([A-Za-z0-9_-]+)/);
+    if (nextLineMatch) add(currentLine + 1, nextLineMatch[1]);
+    const sameLineMatch = line.match(/promptsonar-ignore\s+([A-Za-z0-9_-]+)/);
+    if (sameLineMatch && !line.includes("promptsonar-ignore-next-line")) add(currentLine, sameLineMatch[1]);
+  });
+  return suppressions;
+}
+function isInlineSuppressed(ruleId, promptStartLine, inlineSuppressions) {
+  const normalizedRule = (0, import_core.normalizeRuleId)(ruleId) || ruleId;
+  return Boolean(inlineSuppressions.get(promptStartLine)?.has(normalizedRule));
+}
+function isRecognizedMcpConfig(filePath) {
+  const normalized = filePath.replace(/\\/g, "/").toLowerCase();
+  return normalized.endsWith("/mcp.json") || normalized.endsWith("/.vscode/mcp.json") || normalized.endsWith("/claude_desktop_config.json") || normalized === "mcp.json" || normalized === "claude_desktop_config.json";
+}
+function scoreFromFindings(findings) {
+  return Math.max(0, 100 - findings.reduce((total, finding) => total + getPenaltyForSeverity(finding.severity), 0));
+}
+function statusFromFindings(findings) {
+  if (findings.some((finding) => finding.severity === "critical" || finding.severity === "high")) return "fail";
+  if (findings.length > 0) return "warn";
+  return "pass";
+}
+function mapMcpFinding(finding, filePath) {
+  const recommendation = finding.fix;
+  const workflow = finding.workflow || (0, import_core.inferWorkflowForFinding)({
+    ruleId: finding.rule_id,
+    severity: finding.severity,
+    text: `${finding.message}
+${finding.fix}`,
+    filePath,
+    message: finding.message
+  });
+  return {
+    rule_id: finding.rule_id,
+    category: "security",
+    severity: finding.severity,
+    line: 1,
+    column: 1,
+    message: finding.message,
+    fix: recommendation,
+    owasp_ref: "",
+    owasp: "",
+    recommendation,
+    evidence: finding.evidence ? `${finding.server ? `server: ${finding.server}; ` : ""}${finding.evidence}` : finding.server ? `server: ${finding.server}; path: ${finding.path}` : finding.path,
+    confidence: getConfidenceForFinding(finding.rule_id, finding.severity),
+    docs_url: getRuleDocsUrl(finding.rule_id),
+    why: finding.message,
+    risk: getRiskExplanation(finding.rule_id),
+    waived: false,
+    workflow
+  };
 }
 function getCategoryForRule(ruleId) {
   if (ruleId.startsWith("sec_")) return "security";
@@ -136,7 +215,9 @@ var SUPPORTED_EXTENSIONS = [
   ".chat",
   ".json",
   ".yml",
-  ".yaml"
+  ".yaml",
+  ".md",
+  ".txt"
 ];
 var SUPPORTED_MARKDOWN_PROMPT_FILES = /* @__PURE__ */ new Set([
   "skill.md",
@@ -239,7 +320,23 @@ async function scanFiles(targetPath, options) {
     const content = fs.readFileSync(filePath, "utf-8");
     const ext = path.extname(filePath).toLowerCase();
     const language = getLanguageForExt(ext);
+    const inlineSuppressions = extractInlineSuppressions(content);
     try {
+      if (isRecognizedMcpConfig(filePath)) {
+        const mcpResult = (0, import_core.auditMcpConfig)(filePath, content);
+        if (mcpResult.findings.length > 0) {
+          const scanFindings = mcpResult.findings.map((finding) => mapMcpFinding(finding, filePath));
+          results.push({
+            filePath,
+            overall_score: scoreFromFindings(scanFindings),
+            status: statusFromFindings(scanFindings),
+            pillar_scores: computePillarScores(scanFindings),
+            findings_count: scanFindings.length,
+            findings: scanFindings
+          });
+          continue;
+        }
+      }
       const prompts = await (0, import_core.parseFile)({ filePath, content, language });
       for (const prompt of prompts) {
         const evalResult = (0, import_core.evaluatePrompt)(
@@ -249,6 +346,18 @@ async function scanFiles(targetPath, options) {
           const suppression = (0, import_core.isFindingSuppressed)(f.rule_id, filePath, activeSuppressions);
           const owasp = getOwaspRef(f.rule_id);
           const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || "");
+          const risk = getRiskExplanation(f.rule_id);
+          const workflow = (0, import_core.inferWorkflowForFinding)({
+            ruleId: f.rule_id,
+            severity: f.severity,
+            text: prompt.text,
+            content,
+            filePath,
+            line: prompt.startLine,
+            column: 1,
+            message: f.explanation
+          });
+          const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions);
           return {
             rule_id: f.rule_id,
             category: getCategoryForRule(f.rule_id),
@@ -263,9 +372,12 @@ async function scanFiles(targetPath, options) {
             evidence: extractEvidence(content, prompt.startLine, f.rule_id),
             confidence: getConfidenceForFinding(f.rule_id, f.severity),
             docs_url: getRuleDocsUrl(f.rule_id),
-            waived: Boolean(suppression),
-            suppression_reason: suppression?.reason,
-            suppression_source: suppression?.source
+            why: f.explanation,
+            risk,
+            waived: Boolean(suppression || inlineSuppressed),
+            workflow,
+            suppression_reason: suppression?.reason || (inlineSuppressed ? "Inline promptsonar-ignore comment" : void 0),
+            suppression_source: suppression?.source || (inlineSuppressed ? "inline" : void 0)
           };
         });
         results.push({
@@ -281,6 +393,90 @@ async function scanFiles(targetPath, options) {
       if (options.verbose) {
         console.warn(`[PromptSonar] Skipping ${filePath}: ${err}`);
       }
+    }
+  }
+  return results;
+}
+async function scanFileContent(filePath, content, options) {
+  const results = [];
+  let activeSuppressions = [];
+  for (const suppressionFile of findSuppressionFiles(filePath, options.waiverFile)) {
+    const waiverResult = (0, import_core.loadWaivers)(suppressionFile);
+    activeSuppressions.push(...(0, import_core.getWaiverSuppressions)((0, import_core.getActiveWaivers)(waiverResult.waivers)));
+    activeSuppressions.push(...(0, import_core.getActiveSuppressions)(waiverResult.suppressions));
+  }
+  const ext = path.extname(filePath).toLowerCase();
+  const language = getLanguageForExt(ext);
+  const inlineSuppressions = extractInlineSuppressions(content);
+  try {
+    if (isRecognizedMcpConfig(filePath)) {
+      const mcpResult = (0, import_core.auditMcpConfig)(filePath, content);
+      if (mcpResult.findings.length > 0) {
+        const scanFindings = mcpResult.findings.map((finding) => mapMcpFinding(finding, filePath));
+        results.push({
+          filePath,
+          overall_score: scoreFromFindings(scanFindings),
+          status: statusFromFindings(scanFindings),
+          pillar_scores: computePillarScores(scanFindings),
+          findings_count: scanFindings.length,
+          findings: scanFindings
+        });
+        return results;
+      }
+    }
+    const prompts = await (0, import_core.parseFile)({ filePath, content, language });
+    for (const prompt of prompts) {
+      const evalResult = (0, import_core.evaluatePrompt)({ text: prompt.text, language, context: { filePath } });
+      const scanFindings = evalResult.findings.map((f) => {
+        const suppression = (0, import_core.isFindingSuppressed)(f.rule_id, filePath, activeSuppressions);
+        const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions);
+        const owasp = getOwaspRef(f.rule_id);
+        const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || "");
+        const risk = getRiskExplanation(f.rule_id);
+        const workflow = (0, import_core.inferWorkflowForFinding)({
+          ruleId: f.rule_id,
+          severity: f.severity,
+          text: prompt.text,
+          content,
+          filePath,
+          line: prompt.startLine,
+          column: 1,
+          message: f.explanation
+        });
+        return {
+          rule_id: f.rule_id,
+          category: getCategoryForRule(f.rule_id),
+          severity: f.severity,
+          line: prompt.startLine,
+          column: 1,
+          message: f.explanation,
+          fix: recommendation,
+          owasp_ref: owasp,
+          owasp,
+          recommendation,
+          evidence: extractEvidence(content, prompt.startLine, f.rule_id),
+          confidence: getConfidenceForFinding(f.rule_id, f.severity),
+          docs_url: getRuleDocsUrl(f.rule_id),
+          why: f.explanation,
+          risk,
+          waived: Boolean(suppression || inlineSuppressed),
+          workflow,
+          suppression_reason: suppression?.reason || (inlineSuppressed ? "Inline promptsonar-ignore comment" : void 0),
+          suppression_source: suppression?.source || (inlineSuppressed ? "inline" : void 0)
+        };
+      });
+      results.push({
+        filePath,
+        overall_score: evalResult.score,
+        status: evalResult.status,
+        pillar_scores: computePillarScores(scanFindings),
+        findings_count: scanFindings.length,
+        findings: scanFindings
+      });
+    }
+  } catch (err) {
+    if (options.verbose) {
+      console.warn(`[PromptSonar] Skipping ${filePath}: ${err}`);
     }
   }
   return results;
@@ -303,7 +499,8 @@ function generateSarif(results) {
         recommendation: f.recommendation,
         owasp: f.owasp,
         confidence: f.confidence,
-        docs_url: f.docs_url
+        docs_url: f.docs_url,
+        workflow: f.workflow
       });
     }
   }
@@ -311,56 +508,7 @@ function generateSarif(results) {
 }
 
 // src/action.ts
-function buildPrComment(results, sha, branch, repo) {
-  let totalCriticals = 0;
-  let totalHighs = 0;
-  let totalMediums = 0;
-  let bestScore = 100;
-  for (const r of results) {
-    if (r.overall_score < bestScore) bestScore = r.overall_score;
-    for (const f of r.findings) {
-      if (f.waived) continue;
-      if (f.severity === "critical") totalCriticals++;
-      else if (f.severity === "high") totalHighs++;
-      else if (f.severity === "medium") totalMediums++;
-    }
-  }
-  const critStatus = totalCriticals > 0 ? "\u274C Blocked" : "\u2705 Pass";
-  const highStatus = totalHighs > 0 ? "\u26A0\uFE0F Review" : "\u2705 Pass";
-  let comment = `## \u{1F50D} PromptSonar \u2014 Prompt Security Scan
-
-`;
-  comment += `**Score: ${bestScore}/100** | Commit: ${sha.substring(0, 7)} | Branch: ${branch}
-
-`;
-  comment += `| Severity | Found | Status |
-`;
-  comment += `|----------|-------|--------|
-`;
-  comment += `| \u{1F534} Critical | ${totalCriticals} | ${critStatus} |
-`;
-  comment += `| \u{1F7E0} High     | ${totalHighs} | ${highStatus} |
-`;
-  comment += `| \u{1F7E1} Medium   | ${totalMediums} | \u2139\uFE0F Info |
-
-`;
-  for (const r of results) {
-    for (const f of r.findings) {
-      if (f.waived) continue;
-      const sevLabel = f.severity.toUpperCase();
-      comment += `**${sevLabel}** \u2014 \`${f.rule_id}\`
-`;
-      comment += `File: \`${r.filePath}:${f.line}\`
-`;
-      comment += `Fix: ${f.fix}
-
-`;
-    }
-  }
-  comment += `\u{1F517} [View in GitHub Security](https://github.com/${repo}/security/code-scanning)
-`;
-  return comment;
-}
+var PR_REVIEW_MARKER = "<!-- PROMPTSONAR_PR_REVIEW -->";
 function readGitHubEvent() {
   const eventPath = process.env.GITHUB_EVENT_PATH;
   if (!eventPath || !fs2.existsSync(eventPath)) return void 0;
@@ -371,80 +519,373 @@ function readGitHubEvent() {
     return void 0;
   }
 }
-async function postPullRequestComment(body, issueNumber, repo, token) {
-  const [owner, repoName] = repo.split("/");
-  if (!owner || !repoName) {
-    throw new Error(`Invalid GITHUB_REPOSITORY value: ${repo}`);
-  }
-  const response = await fetch(`https://api.github.com/repos/${owner}/${repoName}/issues/${issueNumber}/comments`, {
-    method: "POST",
+function encodeGitHubContentPath(filePath) {
+  return filePath.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+}
+function isPromptLikeFile(filePath) {
+  const lower = filePath.toLowerCase();
+  const ext = path2.extname(lower);
+  if ([".md", ".prompt", ".yml", ".yaml", ".json", ".txt", ".ai", ".chat"].includes(ext)) return true;
+  if (lower.endsWith("/mcp.json") || lower === "mcp.json") return true;
+  if (lower.endsWith("claude_desktop_config.json")) return true;
+  return false;
+}
+function isRecognizedMcpConfig2(filePath) {
+  const normalized = filePath.replace(/\\/g, "/").toLowerCase();
+  return normalized.endsWith("/mcp.json") || normalized.endsWith("/.vscode/mcp.json") || normalized.endsWith("/claude_desktop_config.json") || normalized === "mcp.json" || normalized === "claude_desktop_config.json";
+}
+async function githubRequestJson(args) {
+  const response = await fetch(args.url, {
+    method: args.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${args.token}`,
       Accept: "application/vnd.github+json",
       "Content-Type": "application/json",
       "X-GitHub-Api-Version": "2022-11-28"
     },
-    body: JSON.stringify({ body })
+    body: args.body ? JSON.stringify(args.body) : void 0
   });
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`GitHub comment API returned ${response.status}: ${detail}`);
+    throw new Error(`GitHub API ${args.method ?? "GET"} ${args.url} returned ${response.status}: ${detail}`);
   }
+  return response.json();
+}
+async function listPullRequestFiles(args) {
+  const files = [];
+  let page = 1;
+  while (true) {
+    const url = `https://api.github.com/repos/${args.owner}/${args.repo}/pulls/${args.pullNumber}/files?per_page=100&page=${page}`;
+    const batch = await githubRequestJson({ url, token: args.token });
+    files.push(...batch);
+    if (batch.length < 100) break;
+    page += 1;
+  }
+  return files;
+}
+async function getFileContentAtRef(args) {
+  const url = `https://api.github.com/repos/${args.owner}/${args.repo}/contents/${encodeGitHubContentPath(args.filePath)}?ref=${encodeURIComponent(args.ref)}`;
+  try {
+    const json = await githubRequestJson({ url, token: args.token });
+    if (!json || typeof json !== "object") return void 0;
+    if (json.type !== "file") return void 0;
+    if (typeof json.content !== "string" || typeof json.encoding !== "string") return void 0;
+    if (json.encoding !== "base64") return void 0;
+    return Buffer.from(json.content.replace(/\n/g, ""), "base64").toString("utf-8");
+  } catch {
+    return void 0;
+  }
+}
+async function upsertIssueComment(args) {
+  const listUrl = `https://api.github.com/repos/${args.owner}/${args.repo}/issues/${args.issueNumber}/comments?per_page=100`;
+  const existing = await githubRequestJson({ url: listUrl, token: args.token });
+  const match = existing.find((comment) => typeof comment.body === "string" && comment.body.includes(PR_REVIEW_MARKER));
+  if (match) {
+    const url2 = `https://api.github.com/repos/${args.owner}/${args.repo}/issues/comments/${match.id}`;
+    await githubRequestJson({ url: url2, token: args.token, method: "PATCH", body: { body: args.body } });
+    return;
+  }
+  const url = `https://api.github.com/repos/${args.owner}/${args.repo}/issues/${args.issueNumber}/comments`;
+  await githubRequestJson({ url, token: args.token, method: "POST", body: { body: args.body } });
+}
+async function createInlineReviewComments(args) {
+  if (args.comments.length === 0) return;
+  const url = `https://api.github.com/repos/${args.owner}/${args.repo}/pulls/${args.pullNumber}/reviews`;
+  const payload = {
+    commit_id: args.commitId,
+    event: "COMMENT",
+    comments: args.comments.map((comment) => ({
+      path: comment.path,
+      line: comment.line,
+      side: "RIGHT",
+      body: comment.body
+    }))
+  };
+  await githubRequestJson({ url, token: args.token, method: "POST", body: payload });
+}
+async function uploadSarifToGitHub(args) {
+  const sarif = fs2.readFileSync(args.sarifPath, "utf-8");
+  const sarifBase64 = Buffer.from(sarif, "utf-8").toString("base64");
+  const url = `https://api.github.com/repos/${args.owner}/${args.repo}/code-scanning/sarifs`;
+  await githubRequestJson({
+    url,
+    token: args.token,
+    method: "POST",
+    body: {
+      sarif: sarifBase64,
+      commit_sha: args.commitSha,
+      ref: args.ref,
+      tool_name: "PromptSonar"
+    }
+  });
+}
+function severityCounts(results) {
+  let critical = 0;
+  let high = 0;
+  let medium = 0;
+  for (const r of results) {
+    for (const f of r.findings) {
+      if (f.waived) continue;
+      if (f.severity === "critical") critical += 1;
+      else if (f.severity === "high") high += 1;
+      else if (f.severity === "medium") medium += 1;
+    }
+  }
+  return { critical, high, medium };
+}
+function collectExecutionPaths(results) {
+  const sinks = /* @__PURE__ */ new Set();
+  for (const r of results) {
+    for (const f of r.findings) {
+      if (f.waived) continue;
+      const workflow = f.workflow;
+      if (!workflow) continue;
+      for (const node of workflow.path.nodes) {
+        if (node.type === "shell_execution") sinks.add("Shell Execution");
+        if (node.type === "network_access") sinks.add("Network Access");
+        if (node.type === "filesystem_access") sinks.add("Filesystem Access");
+        if (node.type === "credential_store") sinks.add("Credential Store");
+        if (node.type === "external_api") sinks.add("External API");
+      }
+    }
+  }
+  return Array.from(sinks);
+}
+function computeConfidenceSummary(results) {
+  let bestScore = -1;
+  let bestLevel = "";
+  for (const r of results) {
+    for (const f of r.findings) {
+      if (f.waived) continue;
+      const wf = f.workflow;
+      if (!wf || typeof wf.confidence_score !== "number" || !wf.confidence_level) continue;
+      if (wf.confidence_score > bestScore) {
+        bestScore = wf.confidence_score;
+        bestLevel = wf.confidence_level;
+      }
+    }
+  }
+  if (bestScore < 0) return void 0;
+  return { score: Math.round(bestScore), level: bestLevel };
+}
+function toCoreFindings(results) {
+  const findings = [];
+  for (const r of results) {
+    for (const f of r.findings) {
+      if (f.waived) continue;
+      if (f.rule_id.startsWith("MCP-")) continue;
+      findings.push({
+        rule_id: f.rule_id,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        category: f.category,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        severity: f.severity,
+        explanation: f.message,
+        suggested_fix: f.fix,
+        workflow: f.workflow
+      });
+    }
+  }
+  return findings;
+}
+function pickHighestRiskWorkflowGraph(results) {
+  let best = { riskScore: -1 };
+  for (const r of results) {
+    for (const f of r.findings) {
+      if (f.waived) continue;
+      const wf = f.workflow;
+      if (!wf) continue;
+      const graph = (0, import_core2.pathToGraph)(wf.path);
+      if (graph.riskScore > best.riskScore) {
+        best = { riskScore: graph.riskScore, summary: (0, import_core2.workflowPathSummary)(wf), graph };
+      }
+    }
+  }
+  return { summary: best.summary, graph: best.graph };
+}
+function computeWorkflowDiffForFile(args) {
+  const beforePick = pickHighestRiskWorkflowGraph(args.before);
+  const afterPick = pickHighestRiskWorkflowGraph(args.after);
+  const beforeGraph = beforePick.graph;
+  const afterGraph = afterPick.graph;
+  if (!beforeGraph && !afterGraph) return { introduced: false, removed: false };
+  if (!beforeGraph && afterGraph) return { introduced: afterGraph.privilegedSinkReached, removed: false, afterSummary: afterPick.summary };
+  if (beforeGraph && !afterGraph) return { introduced: false, removed: beforeGraph.privilegedSinkReached, beforeSummary: beforePick.summary };
+  const diff = (0, import_core2.computeWorkflowDiff)(beforeGraph, afterGraph);
+  const introduced = !beforeGraph.privilegedSinkReached && afterGraph.privilegedSinkReached;
+  return { diff, introduced, removed: diff.executionPathRemoved, beforeSummary: beforePick.summary, afterSummary: afterPick.summary, riskReduction: diff.riskReduction };
 }
 async function run() {
   try {
     const failOn = core.getInput("fail-on") || "critical";
     const waiverFile = core.getInput("waiver-file") || ".promptsonar-waivers.yaml";
     const uploadSarif = core.getInput("upload-sarif") === "true";
-    const diffOnly = core.getInput("diff-only") === "true";
+    const diffOnlyInput = core.getInput("diff-only") === "true";
     const workspace = process.env.GITHUB_WORKSPACE || ".";
-    const results = await scanFiles(workspace, {
-      verbose: false,
-      diffOnly,
-      waiverFile: fs2.existsSync(waiverFile) ? waiverFile : void 0
-    });
-    let worstScore = 100;
-    let totalCriticals = 0;
-    let totalHighs = 0;
-    for (const r of results) {
-      if (r.overall_score < worstScore) worstScore = r.overall_score;
-      for (const f of r.findings) {
-        if (f.waived) continue;
-        if (f.severity === "critical") totalCriticals++;
-        else if (f.severity === "high") totalHighs++;
-      }
-    }
-    core.setOutput("score", worstScore.toString());
-    core.setOutput("criticals", totalCriticals.toString());
-    core.setOutput("highs", totalHighs.toString());
-    const sarifPath = path2.join(workspace, "promptsonar-results.sarif");
-    const sarifContent = generateSarif(results);
-    fs2.writeFileSync(sarifPath, sarifContent, "utf-8");
-    core.setOutput("sarif-path", sarifPath);
-    if (uploadSarif) {
-      core.info(`SARIF written to ${sarifPath}. Upload to GitHub Security tab via github/codeql-action/upload-sarif.`);
-    }
+    const waiverPath = fs2.existsSync(path2.join(workspace, waiverFile)) ? path2.join(workspace, waiverFile) : fs2.existsSync(waiverFile) ? path2.resolve(waiverFile) : void 0;
+    const configPathCandidates = [
+      path2.join(workspace, ".promptsonar.yml"),
+      path2.join(workspace, ".promptsonar.yaml")
+    ];
+    const configPath = configPathCandidates.find((candidate) => fs2.existsSync(candidate));
+    const config = configPath ? (0, import_core2.parsePromptSonarPrReviewConfig)(fs2.readFileSync(configPath, "utf-8")) : failOn === "none" ? { fail_on: [] } : (0, import_core2.parsePromptSonarPrReviewConfig)(`fail_on:
+  - ${failOn}
+`);
     const event = readGitHubEvent();
     const pullRequest = event?.pull_request;
-    if (pullRequest) {
-      const token = process.env.GITHUB_TOKEN;
-      if (token) {
-        const repo = event?.repository?.full_name || process.env.GITHUB_REPOSITORY || "";
-        const sha = pullRequest.head?.sha || process.env.GITHUB_SHA || "";
-        const branch = pullRequest.head?.ref || process.env.GITHUB_REF_NAME || "";
-        const body = buildPrComment(results, sha, branch, repo);
-        await postPullRequestComment(body, pullRequest.number, repo, token);
-        core.info("PR comment posted successfully.");
-      } else {
-        core.warning("GITHUB_TOKEN not available. Skipping PR comment.");
+    const repoFull = event?.repository?.full_name || process.env.GITHUB_REPOSITORY || "";
+    const [owner, repo] = repoFull.split("/");
+    const token = process.env.GITHUB_TOKEN;
+    const isPrContext = Boolean(pullRequest && owner && repo && token);
+    const diffOnly = isPrContext ? true : diffOnlyInput;
+    let changedFiles = [];
+    if (isPrContext && pullRequest) {
+      changedFiles = await listPullRequestFiles({ owner, repo, pullNumber: pullRequest.number, token });
+    }
+    const scannableFiles = diffOnly && isPrContext ? changedFiles.filter((file) => file.status !== "removed" && isPromptLikeFile(file.filename)) : [];
+    const results = [];
+    let maxMcpRiskScore = void 0;
+    let mcpSummary = void 0;
+    if (diffOnly && isPrContext) {
+      for (const file of scannableFiles) {
+        const abs = path2.join(workspace, file.filename);
+        if (!fs2.existsSync(abs) || fs2.statSync(abs).isDirectory()) continue;
+        const content = fs2.readFileSync(abs, "utf-8");
+        if (isRecognizedMcpConfig2(file.filename)) {
+          const mcp = (0, import_core2.auditMcpConfig)(file.filename, content);
+          if (typeof mcp.risk_score === "number") {
+            maxMcpRiskScore = maxMcpRiskScore === void 0 ? mcp.risk_score : Math.max(maxMcpRiskScore, mcp.risk_score);
+            const caps = Array.from(new Set((mcp.servers || []).flatMap((server) => server.capabilities || [])));
+            const approvalMode = (mcp.servers || []).some((server) => server.execution_mode === "auto") ? "Automatic" : (mcp.servers || []).some((server) => server.execution_mode === "manual") ? "Manual" : "Unknown";
+            const severity = mcp.risk_score >= 85 ? "CRITICAL" : mcp.risk_score >= 60 ? "HIGH" : mcp.risk_score >= 30 ? "MEDIUM" : "LOW";
+            if (!mcpSummary || mcp.risk_score > mcpSummary.score) {
+              mcpSummary = { score: mcp.risk_score, severity, capabilities: caps, approvalMode };
+            }
+          }
+        }
+        const res = await scanFileContent(file.filename, content, { verbose: false, waiverFile: waiverPath });
+        results.push(...res);
+      }
+    } else {
+      results.push(...await scanFiles(workspace, { verbose: false, diffOnly: false, waiverFile: waiverPath }));
+    }
+    let worstScore = 100;
+    for (const r of results) worstScore = Math.min(worstScore, r.overall_score);
+    const counts = severityCounts(results);
+    core.setOutput("score", worstScore.toString());
+    core.setOutput("criticals", counts.critical.toString());
+    core.setOutput("highs", counts.high.toString());
+    core.setOutput("critical_count", counts.critical.toString());
+    core.setOutput("high_count", counts.high.toString());
+    core.setOutput("medium_count", counts.medium.toString());
+    core.setOutput("files_scanned", (diffOnly && isPrContext ? scannableFiles.length : results.length).toString());
+    core.setOutput("execution_paths", JSON.stringify(collectExecutionPaths(results)));
+    core.setOutput("mcp_risk_score", maxMcpRiskScore === void 0 ? "" : String(maxMcpRiskScore));
+    const confidenceOut = computeConfidenceSummary(results);
+    core.setOutput("confidence_score", confidenceOut ? String(confidenceOut.score) : "");
+    core.setOutput("confidence_level", confidenceOut ? confidenceOut.level : "");
+    const sarifPath = path2.join(workspace, "promptsonar-results.sarif");
+    fs2.writeFileSync(sarifPath, generateSarif(results), "utf-8");
+    core.setOutput("sarif-path", sarifPath);
+    if (uploadSarif && isPrContext && token) {
+      const commitSha = pullRequest?.head?.sha || process.env.GITHUB_SHA || "";
+      const branch = pullRequest?.head?.ref || process.env.GITHUB_REF_NAME || "";
+      const ref = branch ? `refs/heads/${branch}` : "";
+      if (commitSha && ref) {
+        await uploadSarifToGitHub({ owner, repo, token, sarifPath, commitSha, ref });
+        core.info("SARIF uploaded to GitHub code scanning.");
       }
     }
-    const severityOrder = ["critical", "high", "medium", "low", "none"];
-    const failOnIndex = severityOrder.indexOf(failOn);
-    if (totalCriticals > 0 && failOnIndex <= 0) {
-      core.setFailed(`PromptSonar: ${totalCriticals} critical finding(s) detected. Score: ${worstScore}/100`);
-    } else if (totalHighs > 0 && failOnIndex <= 1) {
-      core.setFailed(`PromptSonar: ${totalHighs} high finding(s) detected. Score: ${worstScore}/100`);
+    const workflowDiffSummaries = [];
+    const workflowDiffEntries = [];
+    const inlineComments = [];
+    if (isPrContext && pullRequest && token && diffOnly) {
+      const baseSha = pullRequest.base?.sha;
+      const headSha = pullRequest.head?.sha || process.env.GITHUB_SHA || "";
+      for (const file of scannableFiles) {
+        if (!baseSha) continue;
+        const afterAbs = path2.join(workspace, file.filename);
+        if (!fs2.existsSync(afterAbs)) continue;
+        const afterContent = fs2.readFileSync(afterAbs, "utf-8");
+        const beforePath = file.previous_filename || file.filename;
+        const beforeContent = await getFileContentAtRef({ owner, repo, filePath: beforePath, ref: baseSha, token });
+        if (!beforeContent) continue;
+        const beforeResults = await scanFileContent(beforePath, beforeContent, { verbose: false, waiverFile: waiverPath });
+        const afterResults = await scanFileContent(file.filename, afterContent, { verbose: false, waiverFile: waiverPath });
+        const diff = computeWorkflowDiffForFile({ before: beforeResults, after: afterResults });
+        workflowDiffSummaries.push({ filePath: file.filename, diff: diff.diff, executionPathIntroduced: diff.introduced });
+        workflowDiffEntries.push({
+          filePath: file.filename,
+          before: diff.beforeSummary,
+          after: diff.afterSummary,
+          introduced: diff.introduced,
+          removed: diff.removed,
+          riskReduction: diff.riskReduction
+        });
+        const patchLines = file.patch ? (0, import_core2.extractChangedLinesFromGitHubPatch)(file.patch) : /* @__PURE__ */ new Set();
+        for (const r of afterResults) {
+          for (const finding of r.findings) {
+            if (finding.waived) continue;
+            if (!(finding.severity === "critical" || finding.severity === "high")) continue;
+            if (!patchLines.has(finding.line)) continue;
+            inlineComments.push({
+              path: file.filename,
+              line: finding.line,
+              body: `**${finding.rule_id}** (${finding.severity})
+
+${finding.message}
+
+Evidence: \`${finding.evidence}\`
+
+Recommendation: ${finding.fix}`
+            });
+          }
+        }
+      }
+      const coreFindings = toCoreFindings(results);
+      const analysis = (0, import_core2.analyzeRootCause)(coreFindings);
+      const rootCause = analysis ? {
+        name: (0, import_core2.humanRuleName)(analysis.rootCause.rule_id),
+        supporting: analysis.supportingFindings.map((f) => (0, import_core2.humanRuleName)(f.rule_id))
+      } : void 0;
+      const provenanceEvidence = analysis?.rootCause.workflow?.workflow_evidence || analysis?.rootCause.workflow?.evidence?.map((e) => e.label) || [];
+      const confidence = computeConfidenceSummary(results);
+      const execPaths = collectExecutionPaths(results);
+      const body = (0, import_core2.buildPrReviewSummaryMarkdown)({
+        filesScanned: scannableFiles.length,
+        counts,
+        executionPaths: execPaths,
+        confidence,
+        rootCause,
+        provenanceEvidence: provenanceEvidence.slice(0, 6),
+        mcpRisk: mcpSummary,
+        workflowDiffs: workflowDiffEntries
+      });
+      await upsertIssueComment({
+        owner,
+        repo,
+        issueNumber: pullRequest.number,
+        token,
+        body: `${PR_REVIEW_MARKER}
+${body}`
+      });
+      await createInlineReviewComments({
+        owner,
+        repo,
+        pullNumber: pullRequest.number,
+        token,
+        commitId: headSha,
+        comments: inlineComments.slice(0, 20)
+      });
+      core.setOutput("workflow_diff", JSON.stringify(workflowDiffEntries));
+    }
+    const decision = (0, import_core2.evaluatePrReviewGates)(config, {
+      counts,
+      workflowDiffs: workflowDiffSummaries,
+      mcpRiskScore: maxMcpRiskScore
+    });
+    if (decision.shouldFail) {
+      core.setFailed(decision.reason || `PromptSonar: policy gate failed. Score: ${worstScore}/100`);
     }
   } catch (error) {
     core.setFailed(`PromptSonar Action failed: ${error.message}`);
