@@ -232,6 +232,8 @@ Runtime docs:
 - [Agent Integration Guide](docs/agent-integration.md)
 - [Middleware Guide](docs/middleware.md)
 - [MCP Runtime Review Guide](docs/mcp-runtime-review.md)
+- [Cursor Integration Guide](docs/cursor-integration.md)
+- [Claude Code Integration Guide](docs/claude-code-integration.md)
 - [Runtime examples](examples/runtime/)
 
 -----
@@ -338,17 +340,39 @@ Press `F5` in VS Code, create an `mcp.json` with `autoExecute: true`,
 capabilities, then verify Problems diagnostics, the PromptSonar Activity Bar,
 workflow diff, SARIF export, and quick fixes.
 
-### Claude Code
-
-PromptSonar ships a Claude Code skill in `.claude/skills/prompt-security/`.
-
-It provides a local `scanPrompt` workflow that runs the CLI against prompt files before execution.
-
 ### Cursor
 
-PromptSonar ships a Cursor rule in `.cursor/rules/prompt-security.mdc`.
+PromptSonar ships a Cursor extension package in `packages/cursor-extension`.
 
-Copy it into another project to lint prompts during generation and block critical findings.
+It provides:
+
+- Live execution-path analysis with 300 ms debounce and a 1 MB file-size guard.
+- Inline diagnostics for prompt injection, MCP tool poisoning, workflow escalation, privileged sinks, memory escalation, credential exposure, and Unicode/evasion findings.
+- A `PromptSonar Execution Path` sidebar showing evidence, confidence, root cause, workflow replay, and workflow diff.
+- Deterministic quick fixes for wildcard permissions, `autoExecute`, credential movement, untrusted input boundaries, and approval gates.
+- Commands for scan current file, open execution path, show replay, show diff, apply fix + diff, export SARIF, copy report, and open the playground.
+
+Build it locally:
+
+```bash
+npm run build --workspace packages/cursor-extension
+```
+
+See [docs/cursor-integration.md](docs/cursor-integration.md).
+
+### Claude Code
+
+PromptSonar ships a Claude Code adapter package in `packages/claude-code`.
+
+It provides `reviewClaudeCodeExecution()` and `createClaudeCodePromptSonarGuard()` so Claude Code workflows can review planned shell/filesystem/network/MCP actions before execution and return `ALLOW`, `WARN`, or `BLOCK`.
+
+Build it locally:
+
+```bash
+npm run build --workspace packages/claude-code
+```
+
+See [docs/claude-code-integration.md](docs/claude-code-integration.md) and [examples/claude-code](examples/claude-code/).
 
 ### GitHub Actions / CI
 

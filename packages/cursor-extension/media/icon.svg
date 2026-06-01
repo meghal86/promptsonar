@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="PromptSonar">
+  <rect width="128" height="128" rx="24" fill="#0f172a"/>
+  <path d="M28 66c0-20 16-36 36-36s36 16 36 36-16 36-36 36-36-16-36-36Z" fill="#f8fafc"/>
+  <path d="M48 64h32M64 48v32" stroke="#0f172a" stroke-width="10" stroke-linecap="round"/>
+  <path d="M92 92l18 18" stroke="#f43f5e" stroke-width="12" stroke-linecap="round"/>
+</svg>
