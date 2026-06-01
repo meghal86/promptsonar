@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { WorkflowGraph } from '@/components/WorkflowGraph';
 import { PROMPTSONAR_VERSION } from '@/lib/version';
+import { createExecutionPathReport, createReportUrl, reportToIssueTemplate, reportToMarkdown, reportToPrComment } from '@/lib/reports/executionPathReport';
 
 // Pre-loaded neutral/empty initial audit result to avoid showing mock values on load
 const INITIAL_AUDIT_RESULT = {
@@ -1740,9 +1741,20 @@ Define your custom agent skill instructions and guidelines.
   const benchmarkCaught = result.score === null ? 0 : Math.min(10, Math.max(0, Math.round((100 - Math.min(result.score, 100)) / 10) + (hasInjectionRisk ? 3 : 0)));
   const securedPrompt = getSecuredPrompt();
   const reportScore = result.score === null ? 'pending' : String(result.score);
-  const reportUrl = clientOrigin
+  const legacyReportUrl = clientOrigin
     ? `${clientOrigin}/report-card?score=${encodeURIComponent(reportScore)}&verdict=${encodeURIComponent(jailbreakVerdict)}&findings=${encodeURIComponent(String(result.findings.length))}&owasp=${encodeURIComponent(owaspLabels.join(','))}`
     : '';
+  const executionPathReport = result.score === null ? null : createExecutionPathReport({
+    score: result.score,
+    status: result.status,
+    findings: result.findings,
+  });
+  const reportUrl = clientOrigin && executionPathReport
+    ? createReportUrl(clientOrigin, executionPathReport)
+    : legacyReportUrl;
+  const reportMarkdown = executionPathReport ? reportToMarkdown(executionPathReport, reportUrl) : '';
+  const reportIssueTemplate = executionPathReport ? reportToIssueTemplate(executionPathReport, reportUrl) : '';
+  const reportPrComment = executionPathReport ? reportToPrComment(executionPathReport, reportUrl) : '';
   const badgeMarkdown = result.score === null
     ? '[![PromptSonar](https://img.shields.io/badge/PromptSonar-pending-lightgrey)](https://github.com/meghal86/promptsonar)'
     : `[![PromptSonar: ${jailbreakVerdict}](https://img.shields.io/badge/PromptSonar-${jailbreakVerdict.replace(/\s+/g, '%20')}-${result.score >= 85 ? 'brightgreen' : result.score >= 70 ? 'yellow' : 'red'})](${reportUrl || 'https://github.com/meghal86/promptsonar'})`;
@@ -3528,6 +3540,27 @@ Define your custom agent skill instructions and guidelines.
                         className="rounded-lg bg-slate-950 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
                       >
                         Copy Report Card
+                      </button>
+                      <button
+                        onClick={() => copyText(reportMarkdown, 'Copied public report markdown.')}
+                        disabled={!executionPathReport}
+                        className="rounded-lg border border-[#E4E3DE] bg-white px-4 py-2.5 text-xs font-black uppercase tracking-widest text-[#57534E] transition hover:bg-slate-50 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Copy Markdown Summary
+                      </button>
+                      <button
+                        onClick={() => copyText(reportIssueTemplate, 'Copied GitHub issue template.')}
+                        disabled={!executionPathReport}
+                        className="rounded-lg border border-[#E4E3DE] bg-white px-4 py-2.5 text-xs font-black uppercase tracking-widest text-[#57534E] transition hover:bg-slate-50 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Copy Issue Template
+                      </button>
+                      <button
+                        onClick={() => copyText(reportPrComment, 'Copied PR comment.')}
+                        disabled={!executionPathReport}
+                        className="rounded-lg border border-[#E4E3DE] bg-white px-4 py-2.5 text-xs font-black uppercase tracking-widest text-[#57534E] transition hover:bg-slate-50 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Copy PR Comment
                       </button>
                       <button
                         onClick={() => copyText(badgeMarkdown, 'Copied GitHub badge markdown.')}
