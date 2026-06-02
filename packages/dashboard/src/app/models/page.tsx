@@ -18,6 +18,9 @@ export default function ModelsPage() {
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
               Compare model safety posture, behavior variance, and scan readiness from the playground evaluation pipeline.
             </p>
+            <p className="mt-2 max-w-2xl text-xs font-semibold leading-5 text-slate-500">
+              Safety Score is out of 100; higher means fewer risky findings.
+            </p>
           </div>
           <Link href="/playground" className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50">
             Back to Playground

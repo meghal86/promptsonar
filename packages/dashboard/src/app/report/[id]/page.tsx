@@ -90,9 +90,9 @@ export default async function PublicReportPage({ params, searchParams }: ReportP
       <main className="min-h-screen bg-[#F6F1E8] px-5 py-10 text-slate-950">
         <section className="mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">PromptSonar Report</p>
-          <h1 className="mt-3 text-3xl font-black">Report payload missing</h1>
+          <h1 className="mt-3 text-3xl font-black">Report data missing</h1>
           <p className="mt-3 text-sm leading-6 text-slate-600">
-            This public report route is read-only and does not rescan prompts. Open a report URL with a sanitized payload.
+            This public report route is read-only and does not rescan prompts. Open a report URL with sanitized report link data.
           </p>
           <Link href="/playground" className="mt-6 inline-flex rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">
             Open Playground
@@ -149,15 +149,18 @@ export default async function PublicReportPage({ params, searchParams }: ReportP
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Execution Risk</p>
               <p className="mt-2 text-2xl font-black">{executionRisk} / 100</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">out of 100; higher means more dangerous reachability</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Confidence</p>
               <p className="mt-2 text-2xl font-black">{report.confidence.score}%</p>
               <p className="text-xs font-bold text-slate-500">{report.confidence.level}</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">higher = more certain</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Root Cause</p>
               <p className="mt-2 text-sm font-black">{humanize(report.root_cause?.rule_id)}</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">The main reason this scan was flagged.</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reached action</p>
@@ -207,6 +210,7 @@ export default async function PublicReportPage({ params, searchParams }: ReportP
             {report.workflow_diff ? (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-800">
                 {report.workflow_diff.risk_reduction}% risk reduction - path removed: {report.workflow_diff.execution_path_removed ? 'YES' : 'NO'}
+                <p className="mt-1 text-xs font-semibold normal-case tracking-normal">estimated reduction after applying the safer pattern</p>
               </div>
             ) : null}
           </div>

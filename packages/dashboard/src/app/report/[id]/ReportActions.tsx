@@ -68,6 +68,7 @@ export function ReportActions({ report, reportUrl }: ReportActionsProps) {
       <button
         onClick={() => downloadText(`promptsonar-report-${report.report_id}.sarif`, reportToSarif(report), 'application/sarif+json')}
         className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-widest text-slate-700 transition hover:bg-slate-50"
+        title="SARIF is for GitHub code scanning and security tools."
       >
         Export SARIF
       </button>

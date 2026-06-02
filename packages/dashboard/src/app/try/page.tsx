@@ -629,6 +629,9 @@ export default function TryPage() {
             <p className="text-[11.5px] font-medium text-[#A8A29E]">
               Finds prompts that can misuse tools, memory, MCP servers, or sensitive actions.
             </p>
+            <p className="max-w-sm text-[10.5px] font-medium leading-relaxed text-[#A8A29E]">
+              MCP servers are connected tools an agent can call.
+            </p>
           </div>
 
           <h1 className="text-[34px] sm:text-[40px] font-black leading-[1.05] tracking-tight">
@@ -673,6 +676,9 @@ export default function TryPage() {
             </button>
           ))}
         </div>
+        <p className="text-[11px] font-medium leading-relaxed text-[#A8A29E]">
+          Prompt Injection means user-provided text tries to override or ignore the prompt&apos;s original instructions.
+        </p>
 
         {validation && (
           <p className="text-[14px] font-medium text-amber-700" role="alert">

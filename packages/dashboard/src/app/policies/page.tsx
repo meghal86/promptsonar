@@ -66,6 +66,7 @@ export default function PoliciesPage() {
                   <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Min Score</p>
                     <p className="mt-2 text-2xl font-black text-emerald-700">{policy.minScore}</p>
+                    <p className="mt-1 text-[10px] font-semibold text-[#78716C]">Safety Score threshold, out of 100.</p>
                   </div>
                   <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Blocked</p>

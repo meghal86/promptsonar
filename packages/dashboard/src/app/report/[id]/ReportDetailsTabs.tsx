@@ -85,6 +85,7 @@ export function ReportDetailsTabs({
           </div>
           <div className="space-y-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Confidence reasons</p>
+            <p className="text-[11px] font-medium text-slate-500">Confidence: higher means the scanner found stronger evidence.</p>
             {(confidenceReasons.length ? confidenceReasons : ["No confidence details available."]).slice(0, 5).map((reason) => (
               <div key={reason} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700">
                 {reason}
@@ -116,6 +117,7 @@ export function ReportDetailsTabs({
             {report.workflow_diff ? (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-800">
                 {report.workflow_diff.risk_reduction}% risk reduction - path removed: {report.workflow_diff.execution_path_removed ? "YES" : "NO"}
+                <p className="mt-1 text-xs font-semibold normal-case tracking-normal">estimated reduction after applying the safer pattern</p>
               </div>
             ) : null}
           </div>
@@ -183,7 +185,7 @@ export function ReportDetailsTabs({
               {fix.finding_rule_id}
             </div>
           )) : (
-            <p className="text-sm text-slate-600">No rule mappings available for this report.</p>
+            <p className="text-sm text-slate-600">No rules were attached to this report.</p>
           )}
         </div>
       )}
