@@ -14,9 +14,9 @@ export default function HistoryPage() {
         <header className="mb-10 flex flex-col gap-4 border-b border-[#E4E3DE] pb-8 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">PromptSonar</p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">Audit History</h1>
+            <h1 className="mt-2 text-4xl font-black tracking-tight">Scan History</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-              Recent playground, scanner, and release-validation activity for the local demo workspace.
+              Recent playground and scanner activity for the local demo workspace.
             </p>
           </div>
           <Link href="/playground" className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50">
@@ -30,7 +30,7 @@ export default function HistoryPage() {
               <div className="font-mono text-sm font-bold text-slate-400">{item.time}</div>
               <div>
                 <h2 className="font-black">{item.event}</h2>
-                <p className="mt-1 text-sm text-slate-500">Local validation event</p>
+                <p className="mt-1 text-sm text-slate-500">Scan</p>
               </div>
               <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">{item.result}</div>
             </div>

@@ -361,7 +361,7 @@ export default function IntelligencePage() {
         <header className="mb-8 flex flex-col gap-4 border-b border-[#E4E3DE] pb-8 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">PromptSonar Intelligence</p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">Execution Path Intelligence</h1>
+            <h1 className="mt-2 text-4xl font-black tracking-tight">Path Analysis</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#57534E]">
               Analyze how prompts propagate through memory, MCP servers, tools, privileged sinks, and execution workflows.
             </p>
@@ -413,7 +413,7 @@ export default function IntelligencePage() {
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-4">
               <div>
-                <h2 className="text-xl font-black">Trust Boundary Observatory</h2>
+                <h2 className="text-xl font-black">Risk Boundary Map</h2>
                 <p className="mt-1 text-sm text-[#78716C]">Where execution paths cross from untrusted prompt context into higher-privilege workflow surfaces.</p>
               </div>
               <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black uppercase tracking-wider text-red-700">{intelligence.attackSurface.trustBoundaryCrossed} crossed</span>
@@ -452,6 +452,7 @@ export default function IntelligencePage() {
 
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
             <h2 className="text-xl font-black">Execution Path Confidence</h2>
+            <p className="mt-1 text-sm text-[#78716C]">Confidence: higher = more certain.</p>
             <div className="mt-6 space-y-4">
               {[
                 ['Average Path Confidence', `${intelligence.executionPathConfidence.average}%`],
@@ -472,7 +473,7 @@ export default function IntelligencePage() {
         <section className="mt-6 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
             <div className="border-b border-[#E4E3DE] pb-4">
-              <h2 className="text-xl font-black">Root Cause Intelligence</h2>
+              <h2 className="text-xl font-black">Root Causes</h2>
               <p className="mt-1 text-sm text-[#78716C]">The repeatable causes behind observed execution paths and privileged boundary crossings.</p>
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-3">
@@ -499,7 +500,7 @@ export default function IntelligencePage() {
           </article>
 
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-black">Replay Intelligence</h2>
+            <h2 className="text-xl font-black">Scan History &amp; Reruns</h2>
             <div className="mt-6 space-y-4">
               {[
                 ['Replay-capable paths', intelligence.replayReadiness.paths],
