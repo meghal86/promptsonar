@@ -436,7 +436,7 @@ const RoleBadge: React.FC<{ role: DisplayNode["__displayRole"] }> = ({ role }) =
     role === "source"
       ? "Untrusted source"
       : role === "sink"
-      ? "Privileged sink"
+      ? "Sensitive action"
       : role === "boundary"
       ? "Trust boundary"
       : "Workflow node";
@@ -453,7 +453,7 @@ const ConfidenceDots: React.FC<{ confidence?: string }> = ({ confidence }) => {
     <span
       className="inline-flex items-center gap-[2px]"
       aria-label={`Confidence ${confidence || "medium"}`}
-      title={`Confidence: ${(confidence || "medium").toUpperCase()}`}
+      title={`Confidence: ${(confidence || "medium").toUpperCase()}. Higher = more certain.`}
     >
       {[0, 1, 2].map((i) => (
         <span
@@ -572,7 +572,7 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
   compact = false,
   maxVisibleNodes = 6,
   className,
-  emptyMessage = "No high-confidence source-to-sink execution path inferred.",
+  emptyMessage = "No dangerous Execution Path found.",
 }) => {
   const [expandedAll, setExpandedAll] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -679,12 +679,15 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
           </button>
         </div>
       </div>
+      <p className="-mt-1 text-[10.5px] font-medium text-slate-500">
+        Execution Path: the route from user input to a tool, memory, file, network call, or command. MCP servers are connected tools an agent can call.
+      </p>
 
       {/* Graph row */}
       <div
         className="-mx-1 overflow-x-auto px-1 pb-2 scrollbar-none"
         role="group"
-        aria-label="Inferred execution path from untrusted source to privileged sink"
+        aria-label="Inferred Execution Path from untrusted source to sensitive action"
       >
         <ol className="flex items-stretch gap-1 sm:gap-1.5">
           {items.map((item, index) => {
@@ -762,6 +765,9 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
                   Confidence {(node.confidence || "medium").toUpperCase()}
                 </span>
               </div>
+              <p className="mt-1 text-[10px] font-medium text-slate-500">
+                Confidence: higher = more certain.
+              </p>
               {node.reason && (
                 <p className="mt-1.5 text-[11px] font-semibold leading-relaxed text-slate-600">
                   {node.reason}
@@ -788,7 +794,7 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
         )}
         {path.privilegedSinkReached && (
           <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-800">
-            Privileged sink reached
+            Sensitive action reached
           </span>
         )}
         {collapsedCount > 0 && !expandedAll && (

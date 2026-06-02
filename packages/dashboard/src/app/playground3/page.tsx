@@ -3265,267 +3265,293 @@ Define your custom agent skill instructions and guidelines.
                 );
               })()}
 
-              {/* V3 - SECTION 8: EXECUTION PATH REMOVED (Before vs After) */}
+              {/* V3 - SECTION 8: FIX */}
               <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
-                <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
+                <div className="flex flex-col gap-3 border-b border-[#E4E3DE] pb-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Hardening Fix</h3>
-                    <p className="text-[10px] text-slate-500 italic mt-0.5">Actionable before/after structural rewrite comparison</p>
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Fix</h3>
+                    <p className="text-[10px] text-slate-500 italic mt-0.5">Recommended Safer Prompt to use instead</p>
                   </div>
-                  {primaryWorkflowFinding && (() => {
-                    const remedy = getRemediation(primaryWorkflowFinding);
-                    return (
-                      <button
-                        onClick={() => copyText(remedy.after, 'Remediation pattern copied.')}
-                        className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
-                      >
-                        📋 Copy Safer Pattern
-                      </button>
-                    );
-                  })()}
+                  {primaryWorkflowFinding && (
+                    <button
+                      onClick={() => copyText(securedPrompt, 'Safer prompt copied.')}
+                      className="rounded-lg bg-slate-950 px-4 py-2 text-[10px] font-black uppercase tracking-wider text-white shadow-3xs hover:bg-slate-800 cursor-pointer"
+                    >
+                      Copy Safer Prompt
+                    </button>
+                  )}
                 </div>
 
                 {primaryWorkflowFinding ? (() => {
                   const remedy = getRemediation(primaryWorkflowFinding);
+                  const diff = primaryWorkflow?.workflow_diff;
+                  const hasRiskReduction = typeof diff?.riskReduction === 'number';
+                  const saferReasons = [
+                    remedy.mitigation,
+                    ...getBreakChainSteps(primaryWorkflow),
+                  ].filter(Boolean).slice(0, 3);
+
                   return (
                     <div className="space-y-4">
-                      <div className="text-[11.5px] text-[#57534E] leading-relaxed">
-                        <span className="font-bold text-slate-800 block mb-0.5">Security Rationale:</span> 
-                        {remedy.rationale}
-                      </div>
-                      
-                      <div className="text-[11.5px] text-[#57534E] leading-relaxed">
-                        <span className="font-bold text-slate-800 block mb-0.5">Suggested Mitigation:</span> 
-                        {remedy.mitigation}
+                      <div className="flex flex-col gap-1">
+                        <h4 className="text-[15px] font-black tracking-tight text-slate-950">Recommended Safer Prompt</h4>
+                        <p className="text-[11.5px] leading-relaxed text-[#57534E]">
+                          Use this rewrite when you want the same task with stricter boundaries around user input, tools, and sensitive actions.
+                        </p>
                       </div>
 
-                      {/* Execution Path Diff Block */}
-                      <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4.5 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E4E3DE]/40 pb-2.5">
-                          <span className="text-[9.5px] font-black uppercase tracking-widest text-[#A8A29E] block">
-                            Execution Path Hardening Proof
-                          </span>
-                          <span className="text-[10px] font-black uppercase text-emerald-750 bg-white border border-emerald-200 px-2.5 py-0.5 rounded shadow-3xs">
-                            Risk Reduction: {typeof primaryWorkflow?.workflow_diff?.riskReduction === 'number'
-                              ? `${primaryWorkflow.workflow_diff.riskReduction}%`
-                              : (primaryWorkflowFinding?.severity === 'critical' ? '96%' : primaryWorkflowFinding?.severity === 'high' ? '92%' : '88%')}
-                          </span>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                          {/* Before Path */}
-                          <div className="flex flex-col gap-2 rounded-xl border border-red-200/50 bg-red-50/10 p-3.5">
-                            <span className="text-[9.5px] uppercase font-black text-red-750 flex items-center gap-1.5 select-none">
-                              <span className="h-1.5 w-1.5 rounded-full bg-red-655 animate-pulse"></span>
-                              Threat Pathway (Before)
-                            </span>
-                            
-                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-red-900 leading-normal">
-                              {primaryWorkflow?.path?.nodes && primaryWorkflow.path.nodes.length > 0 ? (
-                                primaryWorkflow.path.nodes.map((n: any, idx: number) => (
-                                  <React.Fragment key={idx}>
-                                    {idx > 0 && (
-                                      <svg className="w-3.5 h-3.5 text-red-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                      </svg>
-                                    )}
-                                    <span className="bg-white border border-red-200 px-2.5 py-1 rounded-lg shadow-3xs uppercase text-[9.5px] truncate max-w-[140px] tracking-tight">
-                                      {humanType(n.type)}
-                                    </span>
-                                  </React.Fragment>
-                                ))
-                              ) : (
-                                <span className="italic text-red-700">Privileged Execution Pathway Active</span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* After Path */}
-                          <div className="flex flex-col gap-2 rounded-xl border border-emerald-200/50 bg-emerald-50/10 p-3.5">
-                            <span className="text-[9.5px] uppercase font-black text-emerald-750 flex items-center gap-1.5 select-none">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
-                              Hardened Isolation Pathway (After)
-                            </span>
-                            
-                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-emerald-900 leading-normal">
-                              {(primaryWorkflow?.workflow_diff?.after?.nodes?.map((n: any) => n.type) || ['user_input', 'model', 'response']).map((type: string, idx: number) => (
-                                <React.Fragment key={idx}>
-                                  {idx > 0 && (
-                                    <svg className="w-3.5 h-3.5 text-emerald-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                    </svg>
-                                  )}
-                                  <span className="bg-white border border-emerald-200 px-2.5 py-1 rounded-lg shadow-3xs uppercase text-[9.5px] tracking-tight">
-                                    {humanType(type)}
-                                  </span>
-                                </React.Fragment>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                        {/* Before */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="rounded-lg border border-red-200 bg-red-50/15 flex flex-col overflow-hidden">
                           <div className="bg-red-50/55 border-b border-red-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-red-750 font-sans select-none">
-                            🔴 Original Prompt segment (Before)
+                            Before
                           </div>
-                          <pre className="p-3 font-mono text-[10px] leading-relaxed text-red-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
-                            {remedy.before}
+                          <pre className="min-h-[220px] max-h-[340px] p-3 font-mono text-[10.5px] leading-relaxed text-red-900 overflow-auto whitespace-pre-wrap select-text break-words">
+                            {promptText || remedy.before}
                           </pre>
                         </div>
 
-                        {/* After */}
                         <div className="rounded-lg border border-emerald-200 bg-emerald-50/15 flex flex-col overflow-hidden">
                           <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-emerald-750 font-sans select-none">
-                            🟢 Auto-Hardened Prompt (Safer Rewrite)
+                            After
                           </div>
-                          <pre className="p-3 font-mono text-[10px] leading-relaxed text-emerald-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
-                            {remedy.after}
+                          <pre className="min-h-[220px] max-h-[340px] p-3 font-mono text-[10.5px] leading-relaxed text-emerald-900 overflow-auto whitespace-pre-wrap select-text break-words">
+                            {securedPrompt}
                           </pre>
                         </div>
                       </div>
 
-                      {/* Removed Nodes / Edges (real diff data) */}
-                      {(() => {
-                        const diff = primaryWorkflow?.workflow_diff;
-                        if (!diff || (diff.removedNodes.length === 0 && diff.removedEdges.length === 0)) return null;
-                        return (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[10px]">
-                            <div className="rounded-lg border border-[#E4E3DE]/60 bg-[#FAF9F6] p-3">
-                              <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Nodes</span>
-                              <div className="flex flex-wrap gap-1">
-                                {diff.removedNodes.length > 0 ? diff.removedNodes.map((t: string, i: number) => (
-                                  <span key={i} className="font-mono bg-white border border-red-200 text-red-800 px-1.5 py-0.5 rounded uppercase text-[8.5px] tracking-tight line-through">{humanType(t)}</span>
-                                )) : <span className="italic text-slate-400">None</span>}
-                              </div>
-                            </div>
-                            <div className="rounded-lg border border-[#E4E3DE]/60 bg-[#FAF9F6] p-3">
-                              <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Edges</span>
-                              <div className="flex flex-wrap gap-1">
-                                {diff.removedEdges.length > 0 ? diff.removedEdges.map((e: string, i: number) => (
-                                  <span key={i} className="font-mono bg-white border border-red-200 text-red-800 px-1.5 py-0.5 rounded text-[8.5px] tracking-tight">{e}</span>
-                                )) : <span className="italic text-slate-400">None</span>}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Execution Path Removed block (verification, real diff data) */}
-                      {(() => {
-                        const diff = primaryWorkflow?.workflow_diff;
-                        const pathRemoved = diff ? diff.executionPathRemoved : true;
-                        return (
-                          <div className={`rounded-lg border p-3.5 flex items-center justify-between text-xs ${pathRemoved ? 'border-emerald-250 bg-emerald-50/20' : 'border-amber-250 bg-amber-50/20'}`}>
-                            <div className="flex items-center gap-2">
-                              <span className={`font-bold ${pathRemoved ? 'text-emerald-700' : 'text-amber-700'}`}>{pathRemoved ? '✓' : '⚠'}</span>
-                              <span className={`font-bold ${pathRemoved ? 'text-emerald-900' : 'text-amber-900'}`}>
-                                {pathRemoved ? 'Safer structure verified' : 'Partial remediation — privileged sink still reachable'}
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        {hasRiskReduction && (
+                          <div className="rounded-xl border border-emerald-200 bg-emerald-50/20 px-4 py-3">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700 block">Risk Reduction</span>
+                            <div className="mt-1 flex flex-wrap items-baseline gap-2">
+                              <span className="text-3xl font-black text-emerald-900 leading-none">{diff.riskReduction}%</span>
+                              <span className="text-[11px] font-bold text-emerald-800">
+                                {diff.executionPathRemoved ? 'Dangerous route removed' : 'Route still needs review'}
                               </span>
                             </div>
-                            <span className={`font-mono text-[9px] font-bold px-2 py-0.5 rounded border select-none uppercase tracking-wide ${pathRemoved ? 'text-emerald-700 bg-emerald-100/50 border-emerald-200/40' : 'text-amber-700 bg-amber-100/50 border-amber-200/40'}`}>
-                              {pathRemoved ? 'Execution Path Removed' : 'Path Not Fully Removed'}
-                            </span>
                           </div>
-                        );
-                      })()}
+                        )}
+
+                        <button
+                          onClick={() => copyText(securedPrompt, 'Safer prompt copied.')}
+                          className="rounded-lg bg-slate-950 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-3xs hover:bg-slate-800 cursor-pointer lg:min-w-[210px]"
+                        >
+                          Copy Safer Prompt
+                        </button>
+                      </div>
+
+                      {saferReasons.length > 0 && (
+                        <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6]/60 p-4">
+                          <h5 className="text-[9.5px] font-black uppercase tracking-widest text-[#A8A29E]">Why This Is Safer</h5>
+                          <ul className="mt-2 space-y-1.5">
+                            {saferReasons.map((reason: string, idx: number) => (
+                              <li key={idx} className="flex items-start gap-2 text-[12px] font-semibold leading-relaxed text-slate-700">
+                                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                                <span>{reason}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   );
                 })() : (
                   <div className="py-6 px-4 text-center text-[#57534E] text-[11.5px] border border-dashed border-emerald-200 rounded-xl bg-emerald-50/10 select-none flex flex-col items-center justify-center gap-1.5">
-                    <span className="text-xl">🛡️</span>
                     <span className="font-black uppercase tracking-wider text-emerald-750">No structural remediation required</span>
                     <p className="text-[10px] text-slate-500 max-w-md leading-relaxed">
-                      PromptSonar didn't find any dynamic execution vulnerabilities or privileged sink pathways. The current prompt layout is well-contained.
+                      PromptSonar did not find a dangerous Execution Path for this scan.
                     </p>
                   </div>
                 )}
               </section>
 
-              {/* V3 - SECTION 9: PROMPT OPTIMIZATION */}
+              {/* V3 - SECTION 9: DETAILS / COMPARE SCANS */}
               <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 shrink-0">
-                <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
-                  <div>
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Optimizer & Compressor</h3>
-                    <p className="text-[10px] text-slate-500 italic mt-0.5">Statically remove redundant instructions, optimize templates, and maximize security</p>
-                  </div>
-                  {result.compression?.compressedText && (
-                    <button
-                      onClick={() => copyText(result.compression.compressedText, 'Compressed prompt copied.')}
-                      className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
-                    >
-                      📋 Copy Compressed Prompt
-                    </button>
-                  )}
+                <div className="border-b border-[#E4E3DE] pb-3">
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Details</h3>
+                  <p className="text-[10px] text-slate-500 italic mt-0.5">Compare Scans</p>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Left Column: Token ROI metrics */}
-                  <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4 flex flex-col justify-between gap-4">
-                    <div className="space-y-4">
-                      <div>
-                        <span className="text-[9px] text-[#A8A29E] uppercase tracking-widest font-black block">Compression Ratio</span>
-                        <div className="mt-1 flex items-end gap-1">
-                          <span className="text-3xl font-black text-slate-900 leading-none">
-                            {result.roi?.compressionRatio || '0%'}
-                          </span>
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/50 px-1.5 py-0.5 rounded uppercase tracking-wide">
-                            Optimized
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        <div>
-                          <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Original</span>
-                          <span className="font-mono font-bold text-slate-700">{result.roi?.originalTokens || 0} tokens</span>
-                        </div>
-                        <div>
-                          <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Compressed</span>
-                          <span className="font-mono font-bold text-slate-700">{result.roi?.newTokens || 0} tokens</span>
-                        </div>
-                      </div>
-
-                      <div className="border-t border-[#E4E3DE]/60 pt-3">
-                        <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Estimated Savings</span>
-                        <span className="text-sm font-bold text-slate-800 font-mono">
-                          ${(result.roi?.dollarsSavedPer10kCalls || 0).toFixed(4)} <span className="text-[10.5px] font-sans font-medium text-slate-500">per 10k calls</span>
+                {primaryWorkflowFinding && (
+                  <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4.5 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E4E3DE]/40 pb-2.5">
+                      <span className="text-[9.5px] font-black uppercase tracking-widest text-[#A8A29E] block">
+                        Workflow Diff
+                      </span>
+                      {typeof primaryWorkflow?.workflow_diff?.riskReduction === 'number' && (
+                        <span className="text-[10px] font-black uppercase text-emerald-750 bg-white border border-emerald-200 px-2.5 py-0.5 rounded shadow-3xs">
+                          Risk Reduction: {primaryWorkflow.workflow_diff.riskReduction}%
                         </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                      <div className="flex flex-col gap-2 rounded-xl border border-red-200/50 bg-red-50/10 p-3.5">
+                        <span className="text-[9.5px] uppercase font-black text-red-750 flex items-center gap-1.5 select-none">
+                          <span className="h-1.5 w-1.5 rounded-full bg-red-655"></span>
+                          Before Route
+                        </span>
+
+                        <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-red-900 leading-normal">
+                          {primaryWorkflow?.path?.nodes && primaryWorkflow.path.nodes.length > 0 ? (
+                            primaryWorkflow.path.nodes.map((n: any, idx: number) => (
+                              <React.Fragment key={idx}>
+                                {idx > 0 && (
+                                  <svg className="w-3.5 h-3.5 text-red-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                  </svg>
+                                )}
+                                <span className="bg-white border border-red-200 px-2.5 py-1 rounded-lg shadow-3xs uppercase text-[9.5px] truncate max-w-[140px] tracking-tight">
+                                  {humanType(n.type)}
+                                </span>
+                              </React.Fragment>
+                            ))
+                          ) : (
+                            <span className="italic text-red-700">No before route available</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 rounded-xl border border-emerald-200/50 bg-emerald-50/10 p-3.5">
+                        <span className="text-[9.5px] uppercase font-black text-emerald-750 flex items-center gap-1.5 select-none">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span>
+                          After Route
+                        </span>
+
+                        <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-emerald-900 leading-normal">
+                          {primaryWorkflow?.workflow_diff?.after?.nodes?.length ? (
+                            primaryWorkflow.workflow_diff.after.nodes.map((n: any, idx: number) => (
+                              <React.Fragment key={idx}>
+                                {idx > 0 && (
+                                  <svg className="w-3.5 h-3.5 text-emerald-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                  </svg>
+                                )}
+                                <span className="bg-white border border-emerald-200 px-2.5 py-1 rounded-lg shadow-3xs uppercase text-[9.5px] tracking-tight">
+                                  {humanType(n.type)}
+                                </span>
+                              </React.Fragment>
+                            ))
+                          ) : (
+                            <span className="italic text-emerald-700">No after route available</span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="text-[10px] text-slate-500 leading-relaxed italic bg-white border border-slate-200/60 p-2.5 rounded-lg select-none">
-                      ⚡ PromptSonar statically removes redundant sentences, structural bloat, and optimizes delimiter nesting to maximize prompt engineering efficiency.
+                    {(() => {
+                      const diff = primaryWorkflow?.workflow_diff;
+                      if (!diff || (diff.removedNodes.length === 0 && diff.removedEdges.length === 0)) return null;
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[10px]">
+                          <div className="rounded-lg border border-[#E4E3DE]/60 bg-white p-3">
+                            <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Nodes</span>
+                            <div className="flex flex-wrap gap-1">
+                              {diff.removedNodes.length > 0 ? diff.removedNodes.map((t: string, i: number) => (
+                                <span key={i} className="font-mono bg-white border border-red-200 text-red-800 px-1.5 py-0.5 rounded uppercase text-[8.5px] tracking-tight line-through">{humanType(t)}</span>
+                              )) : <span className="italic text-slate-400">None</span>}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-[#E4E3DE]/60 bg-white p-3">
+                            <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Edges</span>
+                            <div className="flex flex-wrap gap-1">
+                              {diff.removedEdges.length > 0 ? diff.removedEdges.map((e: string, i: number) => (
+                                <span key={i} className="font-mono bg-white border border-red-200 text-red-800 px-1.5 py-0.5 rounded text-[8.5px] tracking-tight">{e}</span>
+                              )) : <span className="italic text-slate-400">None</span>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                <details className="group rounded-xl border border-[#E4E3DE] bg-[#FAF9F6]/40">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+                    <div>
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Compression</h4>
+                      <p className="text-[10px] text-slate-500 italic mt-0.5">Token metrics and compressed prompt for advanced optimization review</p>
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 group-open:hidden">Expand</span>
+                    <span className="hidden text-[9px] font-black uppercase tracking-wider text-slate-500 group-open:inline">Collapse</span>
+                  </summary>
+
+                  <div className="border-t border-[#E4E3DE] p-4">
+                    <div className="mb-4 flex justify-end">
+                      {result.compression?.compressedText && (
+                        <button
+                          onClick={() => copyText(result.compression.compressedText, 'Compressed prompt copied.')}
+                          className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
+                        >
+                          Copy Compressed Prompt
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="bg-white border border-[#E4E3DE]/60 rounded-xl p-4 flex flex-col justify-between gap-4">
+                        <div className="space-y-4">
+                          <div>
+                            <span className="text-[9px] text-[#A8A29E] uppercase tracking-widest font-black block">Compression Ratio</span>
+                            <div className="mt-1 flex items-end gap-1">
+                              <span className="text-3xl font-black text-slate-900 leading-none">
+                                {result.roi?.compressionRatio || '0%'}
+                              </span>
+                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/50 px-1.5 py-0.5 rounded uppercase tracking-wide">
+                                Compressed
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Original Tokens</span>
+                              <span className="font-mono font-bold text-slate-700">{result.roi?.originalTokens || 0} tokens</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Compressed Tokens</span>
+                              <span className="font-mono font-bold text-slate-700">{result.roi?.newTokens || 0} tokens</span>
+                            </div>
+                          </div>
+
+                          <div className="border-t border-[#E4E3DE]/60 pt-3">
+                            <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Estimated Savings</span>
+                            <span className="text-sm font-bold text-slate-800 font-mono">
+                              ${(result.roi?.dollarsSavedPer10kCalls || 0).toFixed(4)} <span className="text-[10.5px] font-sans font-medium text-slate-500">per 10k calls</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-[10px] text-slate-500 leading-relaxed italic bg-[#FAF9F6] border border-slate-200/60 p-2.5 rounded-lg select-none">
+                          PromptSonar statically removes redundant sentences, structural bloat, and optimizes delimiter nesting for prompt efficiency.
+                        </div>
+                      </div>
+
+                      <div className="lg:col-span-2 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="rounded-lg border border-slate-200 bg-white flex flex-col overflow-hidden">
+                            <div className="bg-slate-50 border-b border-slate-200 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-slate-650 font-sans select-none">
+                              Original Prompt
+                            </div>
+                            <div className="p-3 font-mono text-[10.5px] leading-relaxed text-slate-700 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
+                              {promptText || 'No prompt scanned yet.'}
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border border-emerald-250 bg-emerald-50/10 flex flex-col overflow-hidden">
+                            <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-emerald-800 font-sans select-none">
+                              Compressed Prompt
+                            </div>
+                            <div className="p-3 font-mono text-[10.5px] leading-relaxed text-emerald-950 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
+                              {result.compression?.compressedText || 'Compressed prompt will appear after running scan.'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-
-                  {/* Right 2 Columns: Comparative prompts */}
-                  <div className="lg:col-span-2 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Original Prompt preview */}
-                      <div className="rounded-lg border border-slate-200 bg-[#FAF9F6]/20 flex flex-col overflow-hidden">
-                        <div className="bg-slate-50 border-b border-slate-200 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-slate-650 font-sans select-none">
-                          📝 Original Prompt (Before)
-                        </div>
-                        <div className="p-3 font-mono text-[10.5px] leading-relaxed text-slate-700 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
-                          {promptText || 'No prompt scanned yet.'}
-                        </div>
-                      </div>
-
-                      {/* Compressed/Optimized Prompt preview */}
-                      <div className="rounded-lg border border-emerald-250 bg-emerald-50/10 flex flex-col overflow-hidden">
-                        <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1.5 text-[8.5px] font-black uppercase tracking-wider text-emerald-800 font-sans select-none">
-                          ⚡ Compressed & Optimized Prompt (After)
-                        </div>
-                        <div className="p-3 font-mono text-[10.5px] leading-relaxed text-emerald-950 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
-                          {result.compression?.compressedText || 'Optimized text will appear after running scan.'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                </details>
               </section>
 
               {/* V3 - SECTION 10: DIAGNOSTICS */}

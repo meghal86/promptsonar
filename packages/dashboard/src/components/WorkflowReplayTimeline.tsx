@@ -62,7 +62,7 @@ export function WorkflowReplayTimeline({ replay, compact = false }: WorkflowRepl
   if (!events.length) {
     return (
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-        No workflow replay emitted.
+        No replay available for this scan.
       </div>
     );
   }
@@ -75,6 +75,9 @@ export function WorkflowReplayTimeline({ replay, compact = false }: WorkflowRepl
           replay v{replay?.replay_version || replay?.replayVersion || "1.0"}
         </span>
       </div>
+      <p className="-mt-1 text-[11px] font-medium text-slate-500">
+        Replay shows the scan steps that can be rerun or reviewed.
+      </p>
       <div className="space-y-2">
         {events.map((event) => {
           const riskAfter = event.risk_after || event.riskAfter || "SAFE";
@@ -121,6 +124,7 @@ export function WorkflowReplayTimeline({ replay, compact = false }: WorkflowRepl
                   </div>
                   <div>
                     <span className="font-black uppercase tracking-wider text-slate-400">Evidence</span>
+                    <p className="text-[10px] font-medium text-slate-500">Supporting details from this scan step.</p>
                     <p className="mt-1 text-[11px] text-slate-700">
                       {evidence[0]?.label || "workflow graph"}
                       {evidence[0]?.source ? `: ${evidence[0].source}` : ""}

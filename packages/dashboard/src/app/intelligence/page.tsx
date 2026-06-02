@@ -232,7 +232,7 @@ function buildIntelligence() {
   const rootCauseGroups = [
     {
       rootCause: 'MCP Tool Poisoning',
-      supporting: ['Workflow Escalation', 'Privileged Sink Access', 'Approval Bypass'],
+      supporting: ['Workflow Escalation', 'Sensitive Action Access', 'Approval Bypass'],
       findings: allRuleFindings.filter((finding) => includesAny(finding.rule_id, ['mcp', 'workflow_escalation', 'privileged_sink']))
     },
     {
@@ -280,7 +280,7 @@ function buildIntelligence() {
     ...workflowFindings.slice(0, 3).map((finding) => ({
       id: `workflow:${finding.sourceFile}:${finding.rule_id}`,
       time: fileTime(finding.sourceFile),
-      event: finding.workflow?.path.privilegedSinkReached ? 'Privileged Sink Reached' : finding.workflow?.path.trustBoundaryCrossed ? 'Trust Boundary Crossed' : 'Execution Path Introduced',
+      event: finding.workflow?.path.privilegedSinkReached ? 'Sensitive Action Reached' : finding.workflow?.path.trustBoundaryCrossed ? 'Trust Boundary Crossed' : 'Execution Path Introduced',
       detail: finding.workflow?.workflow_replay ? 'Replay Generated' : `Rule: ${finding.rule_id}`,
       confidence: finding.workflow?.confidence_score ?? finding.workflow?.path.confidence_score ?? 0
     })),
@@ -361,9 +361,9 @@ export default function IntelligencePage() {
         <header className="mb-8 flex flex-col gap-4 border-b border-[#E4E3DE] pb-8 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">PromptSonar Intelligence</p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">Execution Path Intelligence</h1>
+            <h1 className="mt-2 text-4xl font-black tracking-tight">Path Analysis</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#57534E]">
-              Analyze how prompts propagate through memory, MCP servers, tools, privileged sinks, and execution workflows.
+              Analyze how prompts propagate through memory, MCP servers, tools, sensitive actions, and execution workflows. MCP servers are connected tools an agent can call.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -371,7 +371,7 @@ export default function IntelligencePage() {
               Back to Playground
             </Link>
             <Link href="/risk-registry" className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800">
-              Open Risk Registry
+              Open Risk Catalog
             </Link>
           </div>
         </header>
@@ -380,7 +380,7 @@ export default function IntelligencePage() {
           <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-4">
             <div>
               <h2 className="text-2xl font-black">Top Execution Paths</h2>
-              <p className="mt-1 text-sm text-[#78716C]">Highest-risk source-to-sink workflows inferred from existing PromptSonar scan evidence.</p>
+              <p className="mt-1 text-sm text-[#78716C]">Highest-risk Execution Paths inferred from existing PromptSonar scan evidence. An Execution Path is the route from user input to a tool, memory, file, network call, or command.</p>
             </div>
             <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black uppercase tracking-wider text-red-700">
               {intelligence.attackSurface.executionPathsDetected} paths
@@ -413,7 +413,7 @@ export default function IntelligencePage() {
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-4">
               <div>
-                <h2 className="text-xl font-black">Trust Boundary Observatory</h2>
+                <h2 className="text-xl font-black">Risk Boundary Map</h2>
                 <p className="mt-1 text-sm text-[#78716C]">Where execution paths cross from untrusted prompt context into higher-privilege workflow surfaces.</p>
               </div>
               <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black uppercase tracking-wider text-red-700">{intelligence.attackSurface.trustBoundaryCrossed} crossed</span>
@@ -451,7 +451,8 @@ export default function IntelligencePage() {
           </article>
 
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-black">Execution Path Confidence</h2>
+              <h2 className="text-xl font-black">Execution Path Confidence</h2>
+            <p className="mt-1 text-sm text-[#78716C]">Confidence: higher = more certain. Coverage is the percent of scanned paths with this data available.</p>
             <div className="mt-6 space-y-4">
               {[
                 ['Average Path Confidence', `${intelligence.executionPathConfidence.average}%`],
@@ -472,8 +473,8 @@ export default function IntelligencePage() {
         <section className="mt-6 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
             <div className="border-b border-[#E4E3DE] pb-4">
-              <h2 className="text-xl font-black">Root Cause Intelligence</h2>
-              <p className="mt-1 text-sm text-[#78716C]">The repeatable causes behind observed execution paths and privileged boundary crossings.</p>
+              <h2 className="text-xl font-black">Root Causes</h2>
+              <p className="mt-1 text-sm text-[#78716C]">Root Cause means the main reason a scan was flagged. This section shows repeatable causes behind observed Execution Paths.</p>
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-3">
               {intelligence.rootCauseGroups.map((group) => (
@@ -499,7 +500,8 @@ export default function IntelligencePage() {
           </article>
 
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-black">Replay Intelligence</h2>
+            <h2 className="text-xl font-black">Scan History &amp; Reruns</h2>
+            <p className="mt-1 text-sm text-[#78716C]">Coverage is the percent of scanned paths with this data available.</p>
             <div className="mt-6 space-y-4">
               {[
                 ['Replay-capable paths', intelligence.replayReadiness.paths],
@@ -547,7 +549,7 @@ export default function IntelligencePage() {
             </div>
 
             <div className="mt-8 border-t border-[#E4E3DE] pt-6">
-              <h3 className="text-sm font-black uppercase tracking-widest text-[#A8A29E]">MCP Execution Registry</h3>
+              <h3 className="text-sm font-black uppercase tracking-widest text-[#A8A29E]">MCP Execution List</h3>
               <div className="mt-4 space-y-4">
                 {intelligence.mcpRegistry.map((risk) => (
                   <div key={risk.ruleId} className="border-b border-[#F1F0EC] pb-4 last:border-0">
@@ -565,7 +567,7 @@ export default function IntelligencePage() {
             <div className="mt-6 space-y-4">
               {[
                 ['Trust Boundaries Crossed', intelligence.attackSurface.trustBoundaryCrossed],
-                ['Privileged Sinks Reached', intelligence.attackSurface.privilegedSinksReached],
+                ['Sensitive Actions Reached', intelligence.attackSurface.privilegedSinksReached],
                 ['Execution Paths Detected', intelligence.attackSurface.executionPathsDetected],
                 ['Confidence Average', `${intelligence.attackSurface.confidenceAverage}%`]
               ].map(([label, value]) => (
