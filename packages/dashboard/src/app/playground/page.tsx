@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { WorkflowGraph } from '@/components/WorkflowGraph';
+import { WorkflowReplayTimeline } from '@/components/WorkflowReplayTimeline';
 import { PROMPTSONAR_VERSION } from '@/lib/version';
 import { createExecutionPathReport, createReportUrl, reportToIssueTemplate, reportToMarkdown, reportToPrComment } from '@/lib/reports/executionPathReport';
 
@@ -427,6 +428,7 @@ Define your custom agent skill instructions and guidelines.
 
   // Active overlay modal state
   const [activeModal, setActiveModal] = useState<'attack_map' | 'timeline' | 'drift' | 'remediations' | 'dossier' | null>(null);
+  const [activeDetailsTab, setActiveDetailsTab] = useState<'findings' | 'compare' | 'history' | 'models' | 'rules' | 'report'>('findings');
   const [expandedRemediations, setExpandedRemediations] = useState<Record<string, boolean>>({});
   const [expandedFindings, setExpandedFindings] = useState<Record<string, boolean>>({});
   const [showAllAdditional, setShowAllAdditional] = useState<boolean>(false);
@@ -1911,6 +1913,51 @@ Define your custom agent skill instructions and guidelines.
     }
   };
 
+  const reachedAction = primaryWorkflow?.sink
+    ? humanType(primaryWorkflow.sink)
+    : primaryWorkflow?.path?.nodes?.length
+      ? humanType(primaryWorkflow.path.nodes[primaryWorkflow.path.nodes.length - 1].type)
+      : 'None';
+  const scanVerdict = hasHighRiskWorkflow ? 'HIGH RISK' : 'SAFE';
+  const scanConsequence = hasHighRiskWorkflow
+    ? `This prompt can reach ${reachedAction.toLowerCase()}.`
+    : 'No dangerous tool action found.';
+  const scanTone = hasHighRiskWorkflow
+    ? 'border-red-200 bg-red-50/45 text-red-800'
+    : 'border-emerald-200 bg-emerald-50/30 text-emerald-800';
+  const whyReasons = (() => {
+    if (!hasCompletedScan) return [];
+    const reasons: string[] = [];
+    const add = (value?: string) => {
+      const text = value?.trim();
+      if (text && !reasons.includes(text)) reasons.push(text);
+    };
+    const evidence = getWorkflowEvidence(promptText, primaryWorkflow);
+    evidence.forEach((item) => {
+      if (/autoExecute/i.test(item)) add('Auto approval is enabled.');
+      else if (/permissions="\*"/i.test(item)) add('Wildcard permissions were detected.');
+      else if (/bash|shell/i.test(item)) add('Shell execution is reachable.');
+      else if (/approval/i.test(item)) add('Approval bypass text was detected.');
+      else add(item);
+    });
+    if (primaryWorkflow?.path?.trustBoundaryCrossed) add('User-controlled text reaches a more sensitive part of the workflow.');
+    if (primaryWorkflow?.path?.privilegedSinkReached) add(`${reachedAction} is reachable.`);
+    if (primaryWorkflowFinding?.explanation) add(primaryWorkflowFinding.explanation);
+    if (reasons.length === 0) add('No dangerous tool action found.');
+    return reasons.slice(0, 5);
+  })();
+  const primaryRiskReduction = typeof primaryWorkflow?.workflow_diff?.riskReduction === 'number'
+    ? `${primaryWorkflow.workflow_diff.riskReduction}%`
+    : null;
+  const detailTabs: Array<{ key: typeof activeDetailsTab; label: string }> = [
+    { key: 'findings', label: 'Findings' },
+    { key: 'compare', label: 'Compare Scans' },
+    { key: 'history', label: 'Scan History' },
+    { key: 'models', label: 'Models' },
+    { key: 'rules', label: 'Rules' },
+    { key: 'report', label: 'Full Report' },
+  ];
+
   return (
     <div className="h-screen w-screen bg-[#FAF9F6] text-[#1C1917] font-sans flex selection:bg-slate-200 selection:text-slate-900 antialiased overflow-hidden">
       <style jsx global>{`
@@ -2106,7 +2153,7 @@ Define your custom agent skill instructions and guidelines.
                 <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span>Open in Playground</span>
+              <span>Edit prompt</span>
               <svg className="w-3 h-3 text-[#A8A29E]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
@@ -2422,14 +2469,39 @@ Define your custom agent skill instructions and guidelines.
               ==================================================================== */}
           {hasCompletedScan && (
             <>
+              {/* BLOCK 1: SCAN RESULT */}
+              <section className={`order-1 rounded-xl border p-5 shadow-xs ${scanTone} flex flex-col gap-4 shrink-0`}>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-black uppercase tracking-[0.24em] opacity-70">Scan Result</span>
+                    <h2 className="text-3xl font-black tracking-tight">{scanVerdict}</h2>
+                    <p className="text-sm font-semibold leading-6 text-slate-800">{scanConsequence}</p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3 lg:min-w-[420px]">
+                    <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Score</span>
+                      <span className="mt-1 block font-mono text-lg font-black text-slate-900">{result.score}/100</span>
+                    </div>
+                    <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Reached action</span>
+                      <span className="mt-1 block font-bold text-slate-900">{reachedAction}</span>
+                    </div>
+                    <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Last scan</span>
+                      <span className="mt-1 block font-mono font-black text-slate-900">{scanTime || 'Just now'}</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
               {/* V2 - SECTION 2: EXECUTION PATH HERO */}
-              <section ref={resultsRef} className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0">
+              <section ref={resultsRef} className="order-2 bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0">
                 <div className="px-5 py-4 border-b border-[#E4E3DE] bg-[#FAF9F6] flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h2 className="text-[12px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Path Hero</h2>
-                    <p className="text-[11px] text-slate-500 italic mt-0.5">PromptSonar workflow propagation trace</p>
+                    <h2 className="text-[12px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Flow</h2>
+                    <p className="text-[11px] text-slate-500 italic mt-0.5">Where this prompt can go.</p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="hidden flex-wrap gap-2">
                     <button
                       onClick={() => copyText('npx @promptsonar/cli scan ./prompts --format json', 'CLI command copied.')}
                       className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
@@ -2465,12 +2537,22 @@ Define your custom agent skill instructions and guidelines.
                     )}
                   </div>
 
+                  {primaryWorkflow?.workflow_replay && (
+                    <div className="hidden border-t border-[#E4E3DE]/60 pt-5">
+                      <WorkflowReplayTimeline replay={primaryWorkflow.workflow_replay} />
+                    </div>
+                  )}
+
                   {/* Forensic Path Evidence Ledger */}
                   {primaryWorkflow?.path?.nodes && primaryWorkflow.path.nodes.length > 0 && (
-                    <div className="border-t border-[#E4E3DE]/60 pt-5 space-y-4">
+                    <details className="border-t border-[#E4E3DE]/60 pt-5">
+                      <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">
+                        Show technical node evidence
+                      </summary>
+                      <div className="mt-4 space-y-4">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E] block">
-                          Interactive Path Forensic Evidence
+                          Technical node evidence
                         </span>
                         <span className="text-[9px] font-bold text-slate-500 bg-[#FAF9F6] border border-[#E4E3DE]/60 px-2 py-0.5 rounded uppercase select-none">
                           {primaryWorkflow.path.nodes.length} Nodes Traced
@@ -2524,7 +2606,7 @@ Define your custom agent skill instructions and guidelines.
                                 {node.evidence && (
                                   <div className="flex flex-col gap-1.5 mt-1">
                                     <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E] select-none block">
-                                      Granular Telemetry Proof
+                                      Matched evidence
                                     </span>
                                     <pre className="bg-white/80 border border-[#E4E3DE]/60 rounded-lg p-2.5 font-mono text-[10px] leading-relaxed text-slate-700 whitespace-pre-wrap select-all max-h-[100px] overflow-y-auto font-bold">
                                       {node.evidence}
@@ -2536,7 +2618,8 @@ Define your custom agent skill instructions and guidelines.
                           );
                         })}
                       </div>
-                    </div>
+                      </div>
+                    </details>
                   )}
                 </div>
               </section>
@@ -2549,7 +2632,7 @@ Define your custom agent skill instructions and guidelines.
                 const borderStyle = hasPrivPath ? "border-red-200 bg-red-50/40" : "border-emerald-250 bg-emerald-50/20";
                 
                 return (
-                  <section className={`rounded-xl border p-5 ${borderStyle} flex flex-col gap-3 shrink-0`}>
+                  <section className={`hidden rounded-xl border p-5 ${borderStyle} flex-col gap-3 shrink-0`}>
                     <div className="flex items-center justify-between">
                       <span className={`text-[12px] font-black tracking-widest uppercase ${textStyle}`}>{verdictText}</span>
                       <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${hasPrivPath ? 'border-red-200 bg-red-100/50 text-red-800' : 'border-emerald-200 bg-emerald-100/50 text-emerald-800'}`}>
@@ -2561,11 +2644,20 @@ Define your custom agent skill instructions and guidelines.
               })()}
 
               {/* V2 - SECTION 4: EVIDENCE (Source, Confidence, Boundaries) */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+              <section className="order-3 bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
                 <div>
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Evidence & Workflow Metadata</h3>
-                  <p className="text-[10px] text-slate-500 italic mt-0.5">Confidence metrics, boundary crossings, and privilege sinks</p>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Why This Happened</h3>
+                  <p className="text-[10px] text-slate-500 italic mt-0.5">The highest-signal reasons from this scan.</p>
                 </div>
+
+                <ul className="grid gap-2 text-sm font-semibold leading-6 text-slate-700">
+                  {whyReasons.map((reason) => (
+                    <li key={reason} className="flex gap-2 rounded-lg border border-[#E4E3DE]/70 bg-[#FAF9F6] px-3 py-2">
+                      <span className={hasHighRiskWorkflow ? 'text-red-600' : 'text-emerald-600'} aria-hidden="true">•</span>
+                      <span>{reason}</span>
+                    </li>
+                  ))}
+                </ul>
 
                 {(() => {
                   const conf = getWorkflowConfidence(promptText, primaryWorkflow);
@@ -2585,7 +2677,10 @@ Define your custom agent skill instructions and guidelines.
                   const evidenceList = getWorkflowEvidence(promptText, primaryWorkflow);
 
                   return (
-                    <div className="space-y-4">
+                    <details className="space-y-4 rounded-xl border border-[#E4E3DE]/60 bg-white p-3">
+                      <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">
+                        Show scan metadata
+                      </summary>
                       {/* Metric Grid */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4">
                         <div>
@@ -2622,15 +2717,15 @@ Define your custom agent skill instructions and guidelines.
                           </div>
                         </div>
                       )}
-                    </div>
+                    </details>
                   );
                 })()}
               </section>
 
               {/* V2 - SECTION 5: ROOT CAUSE */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+              <section className={`${activeDetailsTab === 'findings' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4`}>
                 <div className="border-b border-[#E4E3DE] pb-2 shrink-0">
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Enterprise Root Cause Ledger</h3>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Main Issue Details</h3>
                   <p className="text-[10px] text-slate-500 italic mt-0.5">Structured failure-mode mappings mapped strictly to security response rules</p>
                 </div>
 
@@ -2736,11 +2831,11 @@ Define your custom agent skill instructions and guidelines.
               </section>
 
               {/* V2 - SECTION 6: ACTIONABLE REMEDIATION (FIX) */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+              <section className="order-4 bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
                 <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
                   <div>
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Hardening Fix</h3>
-                    <p className="text-[10px] text-slate-500 italic mt-0.5">Actionable before/after structural rewrite comparison</p>
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Fix</h3>
+                    <p className="text-[10px] text-slate-500 italic mt-0.5">Before and after safer prompt structure.</p>
                   </div>
                   {primaryWorkflowFinding && (() => {
                     const remedy = getRemediation(primaryWorkflowFinding);
@@ -2776,9 +2871,7 @@ Define your custom agent skill instructions and guidelines.
                             Execution Path Hardening Proof
                           </span>
                           <span className="text-[10px] font-black uppercase text-emerald-750 bg-white border border-emerald-200 px-2.5 py-0.5 rounded shadow-3xs">
-                            Risk Reduction: {typeof primaryWorkflow?.workflow_diff?.riskReduction === 'number'
-                              ? `${primaryWorkflow.workflow_diff.riskReduction}%`
-                              : (primaryWorkflowFinding?.severity === 'critical' ? '96%' : primaryWorkflowFinding?.severity === 'high' ? '92%' : '88%')}
+                            {primaryRiskReduction ? `Risk Reduction: ${primaryRiskReduction}` : 'Risk reduction unavailable'}
                           </span>
                         </div>
                         
@@ -2857,12 +2950,17 @@ Define your custom agent skill instructions and guidelines.
                         </div>
                       </div>
 
-                      {/* Removed Nodes / Edges (real diff data) */}
-                      {(() => {
-                        const diff = primaryWorkflow?.workflow_diff;
-                        if (!diff || (diff.removedNodes.length === 0 && diff.removedEdges.length === 0)) return null;
-                        return (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[10px]">
+                      <details className="rounded-lg border border-[#E4E3DE]/60 bg-[#FAF9F6] p-3">
+                        <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">
+                          Show technical fix proof
+                        </summary>
+                        <div className="mt-3 space-y-3">
+                        {/* Removed Nodes / Edges (real diff data) */}
+                        {(() => {
+                          const diff = primaryWorkflow?.workflow_diff;
+                          if (!diff || (diff.removedNodes.length === 0 && diff.removedEdges.length === 0)) return null;
+                          return (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[10px]">
                             <div className="rounded-lg border border-[#E4E3DE]/60 bg-[#FAF9F6] p-3">
                               <span className="text-[8.5px] font-black uppercase tracking-widest text-[#A8A29E] block mb-1.5">Removed Nodes</span>
                               <div className="flex flex-wrap gap-1">
@@ -2880,27 +2978,29 @@ Define your custom agent skill instructions and guidelines.
                               </div>
                             </div>
                           </div>
-                        );
-                      })()}
+                          );
+                        })()}
 
-                      {/* Execution Path Removed block (verification, real diff data) */}
-                      {(() => {
-                        const diff = primaryWorkflow?.workflow_diff;
-                        const pathRemoved = diff ? diff.executionPathRemoved : true;
-                        return (
-                      <div className={`rounded-lg border p-3.5 flex items-center justify-between text-xs ${pathRemoved ? 'border-emerald-250 bg-emerald-50/20' : 'border-amber-250 bg-amber-50/20'}`}>
-                        <div className="flex items-center gap-2">
-                          <span className={`font-bold ${pathRemoved ? 'text-emerald-700' : 'text-amber-700'}`}>{pathRemoved ? '✓' : '⚠'}</span>
-                          <span className={`font-bold ${pathRemoved ? 'text-emerald-900' : 'text-amber-900'}`}>
-                            {pathRemoved ? 'Safer structure verified' : 'Partial remediation — privileged sink still reachable'}
-                          </span>
+                        {/* Execution Path Removed block (verification, real diff data) */}
+                        {(() => {
+                          const diff = primaryWorkflow?.workflow_diff;
+                          const pathRemoved = diff ? diff.executionPathRemoved : true;
+                          return (
+                            <div className={`rounded-lg border p-3.5 flex items-center justify-between text-xs ${pathRemoved ? 'border-emerald-250 bg-emerald-50/20' : 'border-amber-250 bg-amber-50/20'}`}>
+                              <div className="flex items-center gap-2">
+                                <span className={`font-bold ${pathRemoved ? 'text-emerald-700' : 'text-amber-700'}`}>{pathRemoved ? '✓' : '⚠'}</span>
+                                <span className={`font-bold ${pathRemoved ? 'text-emerald-900' : 'text-amber-900'}`}>
+                                  {pathRemoved ? 'Safer structure verified' : 'Partial remediation — privileged sink still reachable'}
+                                </span>
+                              </div>
+                              <span className={`font-mono text-[9px] font-bold px-2 py-0.5 rounded border select-none uppercase tracking-wide ${pathRemoved ? 'text-emerald-700 bg-emerald-100/50 border-emerald-200/40' : 'text-amber-700 bg-amber-100/50 border-amber-200/40'}`}>
+                                {pathRemoved ? 'Execution Path Removed' : 'Path Not Fully Removed'}
+                              </span>
+                            </div>
+                          );
+                        })()}
                         </div>
-                        <span className={`font-mono text-[9px] font-bold px-2 py-0.5 rounded border select-none uppercase tracking-wide ${pathRemoved ? 'text-emerald-700 bg-emerald-100/50 border-emerald-200/40' : 'text-amber-700 bg-amber-100/50 border-amber-200/40'}`}>
-                          {pathRemoved ? 'Execution Path Removed' : 'Path Not Fully Removed'}
-                        </span>
-                      </div>
-                        );
-                      })()}
+                      </details>
                     </div>
                   );
                 })() : (
@@ -2914,8 +3014,36 @@ Define your custom agent skill instructions and guidelines.
                 )}
               </section>
 
+              {/* BLOCK 5: DETAILS */}
+              <section className="order-5 rounded-xl border border-[#E4E3DE] bg-white p-4 shadow-xs shrink-0">
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <h2 className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">Details</h2>
+                    <p className="mt-1 text-[11px] font-medium text-slate-500">
+                      Advanced scan evidence, comparisons, rules, model checks, and exports.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {detailTabs.map((tab) => (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setActiveDetailsTab(tab.key)}
+                        className={`rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition ${
+                          activeDetailsTab === tab.key
+                            ? 'border-slate-900 bg-slate-900 text-white'
+                            : 'border-[#E4E3DE] bg-[#FAF9F6] text-[#57534E] hover:bg-slate-50'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
               {/* V2 - SECTION 6b: PROMPT COMPRESSION & OPTIMIZATION (PROMPT ENGINEERING) */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 shrink-0">
+              <section className={`${activeDetailsTab === 'compare' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
                 <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
                   <div>
                     <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Optimizer & Compressor</h3>
@@ -2931,7 +3059,36 @@ Define your custom agent skill instructions and guidelines.
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="rounded-xl border border-red-200/50 bg-red-50/10 p-3.5">
+                    <span className="text-[9.5px] uppercase font-black text-red-750">Before route</span>
+                    <div className="mt-2 flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-red-900">
+                      {primaryWorkflow?.path?.nodes?.length ? primaryWorkflow.path.nodes.map((node: any, idx: number) => (
+                        <React.Fragment key={`${node.type}-${idx}`}>
+                          {idx > 0 && <span className="text-red-400">→</span>}
+                          <span className="rounded-lg border border-red-200 bg-white px-2 py-1 uppercase">{humanType(node.type)}</span>
+                        </React.Fragment>
+                      )) : <span className="italic text-red-700">No risky route found.</span>}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200/50 bg-emerald-50/10 p-3.5">
+                    <span className="text-[9.5px] uppercase font-black text-emerald-750">After route</span>
+                    <div className="mt-2 flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-emerald-900">
+                      {(primaryWorkflow?.workflow_diff?.after?.nodes?.map((node: any) => node.type) || ['user_input', 'model', 'response']).map((type: string, idx: number) => (
+                        <React.Fragment key={`${type}-${idx}`}>
+                          {idx > 0 && <span className="text-emerald-400">→</span>}
+                          <span className="rounded-lg border border-emerald-200 bg-white px-2 py-1 uppercase">{humanType(type)}</span>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <details className="rounded-xl border border-[#E4E3DE] bg-white p-4">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">
+                    Prompt compression
+                  </summary>
+                  <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {/* Left Column: Token ROI metrics */}
                   <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4 flex flex-col justify-between gap-4">
                     <div className="space-y-4">
@@ -2995,11 +3152,12 @@ Define your custom agent skill instructions and guidelines.
                       </div>
                     </div>
                   </div>
-                </div>
+                  </div>
+                </details>
               </section>
 
               {/* V2 - SECTION 7: PROMPT AUDIT (Line-by-line dangerous highlight viewer) */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+              <section className={`${activeDetailsTab === 'findings' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4`}>
                 <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
                   <div className="flex min-w-0 items-center gap-2">
                     <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Audit Workspace</h2>
@@ -3088,7 +3246,7 @@ Define your custom agent skill instructions and guidelines.
               </section>
 
               {/* V2 - SECTION 8: DETAILED FINDINGS (Full Width card) */}
-              <section className="print-findings-list bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 overflow-hidden">
+              <section className={`${activeDetailsTab === 'findings' ? 'order-6 flex' : 'hidden'} print-findings-list bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 overflow-hidden`}>
                 <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
                   <div className="flex items-center gap-1 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
                     <span>Anomalies / Findings</span>
@@ -3391,7 +3549,7 @@ Define your custom agent skill instructions and guidelines.
               </section>
 
               {/* V2 - SECTION 9: PILLAR DIAGNOSTICS (Full Width card) */}
-              <section className="bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4 overflow-hidden shrink-0">
+              <section className={`${activeDetailsTab === 'findings' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 overflow-hidden shrink-0`}>
                 <div className="flex flex-col gap-2 pb-2 border-b border-[#E4E3DE] shrink-0">
                   <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
                     <span>Pillar Diagnostics</span>
@@ -3460,8 +3618,125 @@ Define your custom agent skill instructions and guidelines.
                 </div>
               </section>
 
+              <section className={`${activeDetailsTab === 'history' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+                <div className="border-b border-[#E4E3DE] pb-3">
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Scan History</h3>
+                  <p className="mt-1 text-[11px] font-medium text-slate-500">Current scan and replay timeline details.</p>
+                </div>
+                <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4 text-sm">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="font-bold text-slate-800">Current scan</span>
+                    <span className="font-mono text-xs font-black text-slate-700">{scanTime || 'Just now'}</span>
+                  </div>
+                  <p className="mt-2 text-xs font-medium text-[#57534E]">
+                    Previous scan records are available from the Audit History page.
+                  </p>
+                  <Link href="/history" className="mt-3 inline-flex rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[11px] font-black uppercase tracking-wider text-slate-700 hover:bg-slate-50">
+                    Open Scan History
+                  </Link>
+                </div>
+                <details className="rounded-xl border border-[#E4E3DE] bg-white p-4">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">
+                    Timeline content
+                  </summary>
+                  <div className="mt-4">
+                    {primaryWorkflow?.workflow_replay ? (
+                      <WorkflowReplayTimeline replay={primaryWorkflow.workflow_replay} />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-500">No replay available for this scan.</p>
+                    )}
+                  </div>
+                </details>
+              </section>
+
+              <section className={`${activeDetailsTab === 'models' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+                <div className="border-b border-[#E4E3DE] pb-3">
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Models</h3>
+                  <p className="mt-1 text-[11px] font-medium text-slate-500">Cross-model scan summary and model breakdown.</p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Safety pass rate</span>
+                    <p className="mt-1 text-2xl font-black">{result.crossModelResult?.safety_pass_rate}%</p>
+                  </div>
+                  <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Regressions detected</span>
+                    <p className="mt-1 text-2xl font-black">{result.crossModelResult?.regressions_detected ? 'YES' : 'NO'}</p>
+                  </div>
+                </div>
+                <details className="rounded-xl border border-[#E4E3DE] bg-white p-4">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">
+                    Model breakdown table
+                  </summary>
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="w-full min-w-[620px] text-left text-xs">
+                      <thead className="text-[10px] uppercase tracking-wider text-slate-500">
+                        <tr>
+                          <th className="p-2">Model</th>
+                          <th className="p-2">Drift Index</th>
+                          <th className="p-2">Safety Score</th>
+                          <th className="p-2">Structure Score</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E4E3DE]">
+                        {result.crossModelResult?.modelBreakdown?.map((model: any) => (
+                          <tr key={model.model}>
+                            <td className="p-2 font-mono font-black">{model.model}</td>
+                            <td className="p-2 font-mono">{(model.driftIndex || 0).toFixed(2)}</td>
+                            <td className="p-2 font-mono">{model.safetyScore}%</td>
+                            <td className="p-2 font-mono">{model.structureScore}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+                <Link href="/models" className="self-start rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[11px] font-black uppercase tracking-wider text-slate-700 hover:bg-slate-50">
+                  Open Models
+                </Link>
+              </section>
+
+              <section className={`${activeDetailsTab === 'rules' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+                <div className="border-b border-[#E4E3DE] pb-3">
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Rules</h3>
+                  <p className="mt-1 text-[11px] font-medium text-slate-500">Constraint results, integrations, and developer exports.</p>
+                </div>
+                <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Contract validation</span>
+                  <p className={`mt-1 text-sm font-black ${result.contractResult?.passed === false ? 'text-red-700' : 'text-emerald-700'}`}>
+                    {result.contractResult?.passed === false ? 'Failed' : 'Passed'}
+                  </p>
+                  {result.contractResult?.passed === false && (
+                    <ul className="mt-2 list-disc space-y-1 pl-4 text-xs font-medium text-red-800">
+                      {result.contractResult.violations.map((violation: string) => (
+                        <li key={violation}>{violation}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <details className="rounded-xl border border-[#E4E3DE] bg-white p-4">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">
+                    Developer exports and integrations
+                  </summary>
+                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                    <button onClick={() => copyText('npx @promptsonar/cli scan ./prompts --format json', 'CLI command copied.')} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700">
+                      Copy CLI command
+                    </button>
+                    <button onClick={copyWorkflowJson} disabled={!primaryWorkflowFinding} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700 disabled:opacity-45">
+                      Copy finding JSON
+                    </button>
+                    <button onClick={() => copyText("- uses: promptsonar/action@v1\n  with:\n    path: './prompts'", "GitHub Action workflow step copied.")} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700">
+                      Copy Action YAML
+                    </button>
+                    <button onClick={() => triggerToast("SARIF report schema loaded: ready to pipe to GitHub Advanced Security.")} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700">
+                      Verify Schema
+                    </button>
+                  </div>
+                </details>
+              </section>
+
               {/* V2 - SECTION 10: SHARE REPORT (VIRAL REPORT CARD) */}
-              <section ref={reportCardRef} className="bg-white border border-[#E4E3DE] rounded-xl shadow-xs shrink-0 overflow-hidden">
+              <section ref={reportCardRef} className={`${activeDetailsTab === 'report' ? 'order-6 block' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl shadow-xs shrink-0 overflow-hidden`}>
                 <div className="border-b border-[#E4E3DE] bg-[#FAF9F6] px-5 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex items-center gap-2 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
                     <span className={`h-2 w-2 rounded-full ${

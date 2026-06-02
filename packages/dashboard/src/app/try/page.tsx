@@ -206,27 +206,49 @@ function pickWorst(findings: Finding[]): Finding | null {
 // Deterministic, path-specific one-liner. Most severe applicable sink wins.
 function pathSentence(types: Set<string>, sink?: string): string {
   if (types.has("shell_execution") || types.has("tool_execution") || sink === "shell_execution") {
-    return "This prompt can influence tools that execute commands.";
+    return "This prompt can reach shell execution.";
   }
   if (types.has("credential_store") || types.has("secret")) {
-    return "This prompt may expose secrets or credentials.";
+    return "This prompt can reach stored secrets or credentials.";
   }
   if (types.has("filesystem_access")) {
-    return "This prompt can influence tools that modify files.";
+    return "This prompt can reach file access.";
   }
   if (types.has("network_access") || types.has("external_api")) {
-    return "This prompt can influence tools that make network calls.";
+    return "This prompt can reach network or API calls.";
   }
   if (types.has("mcp_server") || types.has("mcp_tool") || types.has("privileged_tool")) {
-    return "This prompt can influence tools with sensitive access.";
+    return "This prompt can reach a connected tool with sensitive access.";
   }
   if (types.has("agent_memory")) {
-    return "This prompt can influence persistent memory.";
+    return "This prompt can reach saved agent memory.";
   }
   if (types.has("retrieved_context") || types.has("rag_context")) {
-    return "Retrieved content in this prompt can influence tools or memory.";
+    return "Retrieved content can reach tools or memory.";
   }
-  return "Untrusted input in this prompt can reach a privileged action.";
+  return "This prompt can reach a sensitive action.";
+}
+
+function whyBullets(finding: Finding | null, critical: boolean, sinkType?: string): string[] {
+  if (!critical || !finding) {
+    return ["No dangerous tool action found."];
+  }
+
+  const bullets: string[] = [];
+  const add = (value?: string) => {
+    const text = value?.trim();
+    if (text && !bullets.includes(text)) bullets.push(text);
+  };
+
+  const text = `${finding.explanation || ""} ${finding.matchedText || ""}`.toLowerCase();
+  if (text.includes("autoexecute")) add("Auto approval is enabled.");
+  if (text.includes("permissions") && text.includes("*")) add("Wildcard permissions were detected.");
+  if (finding.workflow?.path?.trustBoundaryCrossed) add("User-controlled text reaches a more sensitive part of the workflow.");
+  if (finding.workflow?.path?.privilegedSinkReached) add(`${NODE_LABELS[sinkType || ""] || "A sensitive action"} is reachable.`);
+  add(finding.explanation);
+  if (finding.matchedText) add(`Matched prompt text: ${finding.matchedText}`);
+
+  return bullets.slice(0, 5);
 }
 
 // Example prompts for the input-screen chips. Filling only — never auto-scans.
@@ -382,9 +404,7 @@ export default function TryPage() {
       ];
     }
 
-    const verdict = critical
-      ? "CRITICAL EXECUTION PATH DETECTED"
-      : "NO PRIVILEGED EXECUTION PATH FOUND";
+    const verdict = critical ? "HIGH RISK" : "SAFE";
 
     const fix = critical && worst ? hardening(worst) : null;
 
@@ -394,12 +414,12 @@ export default function TryPage() {
       ? `/playground?prompt=${encodeURIComponent(prompt)}`
       : "/playground";
 
-    // Shareable one-line scan summary, derived from existing scan data.
-    const pathLine = displayNodes.map((n) => n.label).join(" → ");
     const riskLabel = (path?.risk || (critical ? "critical" : "none")).toUpperCase();
     const sinkLabel = critical
       ? (NODE_LABELS[sinkType || ""] || sinkType || "—").toUpperCase()
       : "NONE";
+    const consequence = critical ? pathSentence(nodeTypes, sinkType) : "No dangerous tool action found.";
+    const reasons = whyBullets(worst, critical, sinkType);
 
     return (
       <main
@@ -409,20 +429,53 @@ export default function TryPage() {
             : "bg-gradient-to-b from-[#F2FBF6] to-[#FAF9F6] text-[#1C1917]"
         }`}
       >
-        <div className="w-full max-w-md flex flex-col gap-8">
-          {/* Verdict headline — dominant */}
-          <h1
-            className={`flex flex-col gap-2 text-3xl sm:text-[34px] font-black uppercase leading-[1.05] tracking-tight ${
-              critical ? "text-red-600" : "text-emerald-600"
-            }`}
-          >
-            <span className="text-3xl sm:text-4xl" aria-hidden="true">
-              {critical ? "⚠️" : "✅"}
+        <div className="w-full max-w-md flex flex-col gap-7">
+          {/* BLOCK 1 — Scan Result */}
+          <section className="flex flex-col gap-3">
+            <span className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">
+              Scan Result
             </span>
-            <span>{verdict}</span>
-          </h1>
+            <h1
+              className={`flex flex-col gap-2 text-3xl sm:text-[34px] font-black uppercase leading-[1.05] tracking-tight ${
+                critical ? "text-red-600" : "text-emerald-600"
+              }`}
+            >
+              <span className="text-3xl sm:text-4xl" aria-hidden="true">
+                {critical ? "⚠️" : "✅"}
+              </span>
+              <span>{verdict}</span>
+            </h1>
+            <p className="text-[16px] font-semibold leading-relaxed text-[#44403C]">
+              {consequence}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-2xl border border-[#E4E3DE] bg-white px-4 py-3">
+                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
+                  Risk
+                </dt>
+                <dd className={`mt-1 font-mono text-[12.5px] font-bold ${critical ? "text-red-600" : "text-emerald-600"}`}>
+                  {riskLabel}
+                </dd>
+              </div>
+              <div className="rounded-2xl border border-[#E4E3DE] bg-white px-4 py-3">
+                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
+                  Reached action
+                </dt>
+                <dd className={`mt-1 font-mono text-[12.5px] font-bold ${critical ? "text-red-600" : "text-[#57534E]"}`}>
+                  {sinkLabel}
+                </dd>
+              </div>
+            </div>
+          </section>
 
-          {/* Workflow path — the HERO. Largest element; fills the first screen. */}
+          {/* BLOCK 2 — Prompt Flow */}
+          <section className="flex flex-col gap-3">
+            <div>
+              <h2 className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">
+                Prompt Flow
+              </h2>
+              <p className="mt-1 text-[13px] font-medium text-[#57534E]">Where this prompt can go.</p>
+            </div>
           <div
             className={`flex min-h-[320px] flex-col items-center justify-center gap-0 rounded-3xl border p-6 sm:p-10 ${
               critical ? "border-red-200 bg-white/70" : "border-emerald-200 bg-white/70"
@@ -461,49 +514,28 @@ export default function TryPage() {
               );
             })}
           </div>
+          </section>
 
-          {/* One sentence — secondary to the graph */}
-          <p className="text-center text-[16px] font-medium leading-relaxed text-[#44403C]">
-            {critical
-              ? pathSentence(nodeTypes, sinkType)
-              : "This prompt stays contained."}
-          </p>
+          {/* BLOCK 3 — Why This Happened */}
+          <section className="rounded-2xl border border-[#E4E3DE] bg-white p-4">
+            <h2 className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">
+              Why This Happened
+            </h2>
+            <ul className="mt-3 space-y-2 text-[13px] font-medium leading-relaxed text-[#44403C]">
+              {reasons.map((reason) => (
+                <li key={reason} className="flex gap-2">
+                  <span className={critical ? "text-red-500" : "text-emerald-600"} aria-hidden="true">•</span>
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
 
-          {/* Shareable scan summary — existing data only */}
-          <dl className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-[#E4E3DE] bg-[#E4E3DE] text-left">
-            <div className="flex flex-col gap-0.5 bg-white px-4 py-3">
-              <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
-                Execution Path
-              </dt>
-              <dd className="font-mono text-[12.5px] font-semibold leading-snug text-[#1C1917] break-words">
-                {pathLine}
-              </dd>
-            </div>
-            <div className="grid grid-cols-2 gap-px bg-[#E4E3DE]">
-              <div className="flex flex-col gap-0.5 bg-white px-4 py-3">
-                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
-                  Risk
-                </dt>
-                <dd className={`font-mono text-[12.5px] font-bold ${critical ? "text-red-600" : "text-emerald-600"}`}>
-                  {riskLabel}
-                </dd>
-              </div>
-              <div className="flex flex-col gap-0.5 bg-white px-4 py-3">
-                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
-                  Sink
-                </dt>
-                <dd className={`font-mono text-[12.5px] font-bold ${critical ? "text-red-600" : "text-[#57534E]"}`}>
-                  {sinkLabel}
-                </dd>
-              </div>
-            </div>
-          </dl>
-
-          {/* HOW TO STOP THIS — directly below workflow, revealed on demand */}
+          {/* BLOCK 4 — Fix */}
           {critical && fix && showFix && (
             <div className="flex flex-col gap-2.5 rounded-2xl border border-[#E4E3DE] bg-white p-4">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#1C1917]">
-                How to stop this
+                Fix
               </span>
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-3.5">
                 <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-red-600">
@@ -595,7 +627,7 @@ export default function TryPage() {
               <span className="text-[19px] font-black tracking-tight">PromptSonar</span>
             </div>
             <p className="text-[11.5px] font-medium text-[#A8A29E]">
-              Detects: Prompt Injection • MCP Poisoning • Memory Escalation
+              Finds prompts that can misuse tools, memory, MCP servers, or sensitive actions.
             </p>
           </div>
 
@@ -603,8 +635,8 @@ export default function TryPage() {
             Can your prompt reach execution?
           </h1>
           <p className="mx-auto max-w-md text-[15px] leading-relaxed text-[#57534E]">
-            Paste any prompt and see how instructions travel through memory,
-            tools, and execution.
+            Paste any prompt and see whether it can reach tools, memory,
+            MCP servers, or sensitive actions.
           </p>
         </div>
 
@@ -660,7 +692,7 @@ export default function TryPage() {
           disabled={loading}
           className="inline-flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-slate-900 px-6 text-[17px] font-bold text-white shadow-md transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {loading ? "Tracing…" : "Trace Execution Path →"}
+          {loading ? "Scanning…" : "Scan Prompt"}
         </button>
 
         {/* Trust strip */}

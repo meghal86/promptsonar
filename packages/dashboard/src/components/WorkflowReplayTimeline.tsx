@@ -62,7 +62,7 @@ export function WorkflowReplayTimeline({ replay, compact = false }: WorkflowRepl
   if (!events.length) {
     return (
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-        No workflow replay emitted.
+        No replay available for this scan.
       </div>
     );
   }
