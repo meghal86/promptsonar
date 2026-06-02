@@ -8,6 +8,8 @@ import { scanFiles, generateSarif } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt } from '@promptsonar/core';
 import { runPromptTests } from './tester';
+import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
+import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
 
 const VERSION = '1.4.0';
 
@@ -29,6 +31,10 @@ function formatPolicySchemaError(fileName: string): string {
         '',
         'See documentation: github.com/meghal86/promptsonar'
     ].join('\n');
+}
+
+function commandOption<T = any>(command: any, key: string): T {
+    return typeof command?.opts === 'function' ? command.opts()[key] : command?.[key];
 }
 
 function isGitTracked(filePath: string): boolean {
@@ -450,6 +456,114 @@ program
             process.exit(1);
         }
     });
+
+program
+    .command('benchmark')
+    .description('Run the canonical PromptSonar execution-path security benchmark')
+    .option('--dataset <path>', 'Path to benchmark dataset directory or cases.json', path.resolve(process.cwd(), 'benchmarks', 'execution-path'))
+    .option('--format <type>', 'Output format (terminal|json|markdown)', 'terminal')
+    .option('--output <file>', 'Write benchmark output to a file')
+    .option('--no-fail', 'Do not exit non-zero when benchmark cases fail')
+    .action((options) => {
+        try {
+            const summary = runBenchmark(options.dataset);
+            if (!['terminal', 'json', 'markdown'].includes(options.format)) {
+                console.error(chalk.red(`[PromptSonar] Benchmark error: unknown format "${options.format}". Use terminal, json, or markdown.`));
+                process.exit(1);
+            }
+
+            const output = options.format === 'json'
+                ? JSON.stringify(summary, null, 2)
+                : options.format === 'markdown'
+                    ? benchmarkToMarkdown(summary)
+                    : benchmarkToTerminal(summary);
+
+            if (options.output) {
+                fs.writeFileSync(path.resolve(options.output), `${output}\n`, 'utf-8');
+                console.log(chalk.green(`Benchmark report written to ${options.output}`));
+            } else {
+                console.log(output);
+            }
+
+            if (summary.failedCount > 0 && options.fail !== false) {
+                process.exit(1);
+            }
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Benchmark error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+const examplesCommand = new Command('examples')
+    .description('Browse the canonical PromptSonar real-world execution-path example library')
+    .action(() => {
+        try {
+            console.log(examplesListToTerminal(listExamples()));
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Examples error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+examplesCommand
+    .command('list')
+    .description('List available execution-path examples')
+    .option('--library <path>', 'Path to examples/cases directory')
+    .option('--format <type>', 'Output format (terminal|json)', 'terminal')
+    .action((options) => {
+        try {
+            const selectedFormat = commandOption<string>(options, 'format');
+            const examplesRoot = commandOption<string | undefined>(options, 'library');
+            if (!['terminal', 'json'].includes(selectedFormat)) {
+                console.error(chalk.red(`[PromptSonar] Examples error: unknown format "${selectedFormat}". Use terminal or json.`));
+                process.exit(1);
+            }
+
+            const examples = listExamples(examplesRoot);
+            const output = selectedFormat === 'json'
+                ? JSON.stringify(examples, null, 2)
+                : examplesListToTerminal(examples);
+            console.log(output);
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Examples error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+examplesCommand
+    .command('show')
+    .description('Show one execution-path example')
+    .argument('[case]', 'Example case id')
+    .option('--library <path>', 'Path to examples/cases directory')
+    .option('--format <type>', 'Output format (terminal|json|markdown)', 'terminal')
+    .action((caseId, options) => {
+        try {
+            const selectedFormat = commandOption<string>(options, 'format');
+            const examplesRoot = commandOption<string | undefined>(options, 'library');
+            if (!['terminal', 'json', 'markdown'].includes(selectedFormat)) {
+                console.error(chalk.red(`[PromptSonar] Examples error: unknown format "${selectedFormat}". Use terminal, json, or markdown.`));
+                process.exit(1);
+            }
+
+            if (!caseId) {
+                console.log(examplesListToTerminal(listExamples(examplesRoot)));
+                return;
+            }
+
+            const example = loadExample(caseId, examplesRoot);
+            const output = selectedFormat === 'json'
+                ? JSON.stringify(example, null, 2)
+                : selectedFormat === 'markdown'
+                    ? exampleToMarkdown(example)
+                    : exampleToTerminal(example);
+            console.log(output);
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Examples error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+program.addCommand(examplesCommand);
 
 program
     .command('sbom')

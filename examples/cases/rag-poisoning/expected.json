@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "1.0",
+  "id": "rag-poisoning",
+  "category": "RAG Poisoning",
+  "overview": "Retrieved RAG context contains instructions that override tool policy and reach shell execution.",
+  "source": {
+    "derivedFrom": "benchmarks/execution-path/cases.json",
+    "enginesReused": [
+      "evaluatePrompt",
+      "analyzeExecutionPath",
+      "workflow provenance",
+      "workflow confidence",
+      "workflow replay",
+      "workflow diff"
+    ],
+    "scannerChanges": false
+  },
+  "vulnerableArtifact": "vulnerable.prompt",
+  "vulnerablePrompt": "vulnerable.prompt",
+  "expectedFindings": [
+    {
+      "ruleId": "sec_workflow_escalation",
+      "severity": "critical",
+      "description": "Retrieved context can influence the tool router."
+    },
+    {
+      "ruleId": "sec_privileged_sink_access",
+      "severity": "critical",
+      "description": "The path reaches shell execution."
+    }
+  ],
+  "executionPath": {
+    "nodes": [
+      "retrieved_context",
+      "tool_router",
+      "shell_execution"
+    ],
+    "display": "Retrieved Context -> Tool Router -> Shell Execution",
+    "privilegedSinkReached": true,
+    "trustBoundariesCrossed": 2
+  },
+  "provenanceEvidence": [
+    {
+      "node": "retrieved_context",
+      "evidence": "Retrieved Context is inferred from the RAG Poisoning execution path fixture.",
+      "source": "vulnerable.prompt",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access"
+      ]
+    },
+    {
+      "node": "tool_router",
+      "evidence": "Tool Router is inferred from the RAG Poisoning execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access"
+      ]
+    },
+    {
+      "node": "shell_execution",
+      "evidence": "Shell Execution is inferred from the RAG Poisoning execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access"
+      ]
+    }
+  ],
+  "confidence": {
+    "score": 55,
+    "level": "MEDIUM",
+    "expectedRange": {
+      "min": 50,
+      "max": 60
+    },
+    "source": "workflow confidence engine"
+  },
+  "rootCause": {
+    "ruleId": "sec_workflow_escalation",
+    "label": "Workflow Escalation",
+    "supportingFindings": [
+      "Retrieval Boundary Crossing",
+      "Tool Router Escalation"
+    ],
+    "source": "root cause grouping engine"
+  },
+  "workflowReplay": {
+    "replayVersion": "1.0",
+    "generatedFrom": "workflow graph",
+    "eventCount": 3,
+    "timeline": [
+      "MEMORY_READ",
+      "TOOL_ROUTER",
+      "SHELL"
+    ],
+    "summary": "RAG Poisoning replay follows Retrieved Context -> Tool Router -> Shell Execution."
+  },
+  "workflowDiff": {
+    "workflowDiffVersion": "1.0",
+    "executionPathRemoved": true,
+    "riskReduction": 95,
+    "beforePath": [
+      "retrieved_context",
+      "tool_router",
+      "shell_execution"
+    ],
+    "afterPath": [
+      "user_input",
+      "model",
+      "response"
+    ],
+    "removedNodes": [
+      "retrieved_context",
+      "tool_router",
+      "shell_execution"
+    ],
+    "diffReason": "privileged_sink_removed"
+  },
+  "remediatedArtifact": "remediated.prompt",
+  "expectedRiskReduction": {
+    "percent": 95,
+    "rationale": "The remediated version removes the privileged sink or routing surface that made the execution path dangerous."
+  }
+}

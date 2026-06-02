@@ -1,0 +1,1 @@
+Use scoped read-only tools by default. Require explicit approval for command execution and limit file access to declared workspace paths.

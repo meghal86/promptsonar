@@ -1,0 +1,38 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "PromptSonar",
+          "rules": [
+            {
+              "id": "sec_workflow_escalation",
+              "shortDescription": {
+                "text": "Workflow escalation reaches a privileged sink."
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "sec_workflow_escalation",
+          "level": "error",
+          "message": {
+            "text": "Untrusted input can reach shell execution through the tool router."
+          },
+          "properties": {
+            "workflow": {
+              "pathSummary": "user_input -> tool_router -> shell_execution",
+              "privilegedSinkReached": true,
+              "confidence": 50,
+              "replayReady": true,
+              "riskReduction": 95
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

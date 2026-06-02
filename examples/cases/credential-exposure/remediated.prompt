@@ -1,0 +1,1 @@
+Reference credentials only through a secret manager handle. Never place token values in prompt context, memory, logs, or network-bound messages.

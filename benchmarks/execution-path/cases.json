@@ -1,0 +1,122 @@
+{
+  "benchmarkVersion": "1.0",
+  "name": "PromptSonar Execution Path Security Benchmark",
+  "description": "Canonical deterministic benchmark for AI execution-path security. No LLM calls.",
+  "cases": [
+    {
+      "id": "prompt-injection",
+      "category": "Prompt Injection",
+      "promptFile": "cases/prompt-injection.prompt",
+      "expectedFindings": ["sec_owasp_llm01_injection"],
+      "expectedExecutionPath": ["untrusted_content", "policy_override", "system_prompt"],
+      "expectedRootCause": "sec_owasp_llm01_injection",
+      "expectedConfidenceRange": { "min": 20, "max": 30 }
+    },
+    {
+      "id": "mcp-tool-poisoning",
+      "category": "MCP Tool Poisoning",
+      "promptFile": "cases/mcp-tool-poisoning.prompt",
+      "expectedFindings": ["sec_mcp_tool_poisoning", "sec_workflow_escalation", "sec_privileged_sink_access"],
+      "expectedExecutionPath": ["mcp_server", "privileged_tool", "shell_execution", "filesystem_access"],
+      "expectedRootCause": "sec_mcp_tool_poisoning",
+      "expectedConfidenceRange": { "min": 50, "max": 60 },
+      "runtime": {
+        "activeTools": [
+          {
+            "name": "shell_exec",
+            "type": "shell",
+            "description": "Run shell commands in the workspace.",
+            "permissions": ["execute any command", "all files"],
+            "executionMode": "auto",
+            "approvalRequired": false
+          }
+        ],
+        "operation": {
+          "kind": "shell",
+          "toolName": "shell_exec",
+          "approvalRequired": false
+        }
+      }
+    },
+    {
+      "id": "workflow-escalation",
+      "category": "Workflow Escalation",
+      "promptFile": "cases/workflow-escalation.prompt",
+      "expectedFindings": ["sec_workflow_escalation", "sec_privileged_sink_access"],
+      "expectedExecutionPath": ["user_input", "tool_router", "shell_execution"],
+      "expectedRootCause": "sec_workflow_escalation",
+      "expectedConfidenceRange": { "min": 45, "max": 55 }
+    },
+    {
+      "id": "privileged-sink-access",
+      "category": "Privileged Sink Access",
+      "promptFile": "cases/privileged-sink-access.prompt",
+      "expectedFindings": ["sec_owasp_llm01_injection", "sec_privileged_sink_access"],
+      "expectedExecutionPath": ["user_input", "tool_router", "shell_execution"],
+      "expectedRootCause": "sec_workflow_escalation",
+      "expectedConfidenceRange": { "min": 45, "max": 55 }
+    },
+    {
+      "id": "memory-escalation",
+      "category": "Memory Escalation",
+      "promptFile": "cases/memory-escalation.prompt",
+      "expectedFindings": ["sec_workflow_escalation", "sec_privileged_sink_access", "sec_owasp_llm01_injection"],
+      "expectedExecutionPath": ["retrieved_context", "agent_memory", "tool_router", "shell_execution"],
+      "expectedRootCause": "sec_workflow_escalation",
+      "expectedConfidenceRange": { "min": 60, "max": 70 },
+      "runtime": {
+        "memoryConfiguration": {
+          "enabled": true,
+          "persistent": true,
+          "crossSession": true,
+          "bounded": false,
+          "writePolicy": "automatic"
+        }
+      }
+    },
+    {
+      "id": "credential-exposure",
+      "category": "Credential Exposure",
+      "promptFile": "cases/credential-exposure.prompt",
+      "expectedFindings": ["sec_workflow_escalation", "sec_privileged_sink_access", "sec_owasp_llm02_pii"],
+      "expectedExecutionPath": ["retrieved_context", "agent_memory", "tool_router", "credential_store", "network_access", "external_api"],
+      "expectedRootCause": "sec_workflow_escalation",
+      "expectedConfidenceRange": { "min": 55, "max": 65 }
+    },
+    {
+      "id": "rag-poisoning",
+      "category": "RAG Poisoning",
+      "promptFile": "cases/rag-poisoning.prompt",
+      "expectedFindings": ["sec_workflow_escalation", "sec_privileged_sink_access"],
+      "expectedExecutionPath": ["retrieved_context", "tool_router", "shell_execution"],
+      "expectedRootCause": "sec_workflow_escalation",
+      "expectedConfidenceRange": { "min": 50, "max": 60 }
+    },
+    {
+      "id": "tool-abuse",
+      "category": "Tool Abuse",
+      "promptFile": "cases/tool-abuse.prompt",
+      "expectedFindings": ["sec_workflow_escalation", "sec_unbounded_access"],
+      "expectedExecutionPath": ["user_input", "tool_router", "shell_execution", "filesystem_access"],
+      "expectedRootCause": "sec_workflow_escalation",
+      "expectedConfidenceRange": { "min": 45, "max": 55 },
+      "runtime": {
+        "activeTools": [
+          {
+            "name": "workspace_shell",
+            "type": "shell",
+            "description": "Run commands in the current workspace.",
+            "permissions": ["execute command", "all files"],
+            "executionMode": "manual",
+            "approvalRequired": false
+          }
+        ],
+        "operation": {
+          "kind": "shell",
+          "toolName": "workspace_shell",
+          "approvalRequired": false
+        }
+      }
+    }
+  ]
+}

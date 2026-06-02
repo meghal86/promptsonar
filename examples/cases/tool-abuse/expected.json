@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "1.0",
+  "id": "tool-abuse",
+  "category": "Tool Abuse",
+  "overview": "Unrestricted tools allow broad filesystem reads and command execution without confirmation.",
+  "source": {
+    "derivedFrom": "benchmarks/execution-path/cases.json",
+    "enginesReused": [
+      "evaluatePrompt",
+      "analyzeExecutionPath",
+      "workflow provenance",
+      "workflow confidence",
+      "workflow replay",
+      "workflow diff"
+    ],
+    "scannerChanges": false
+  },
+  "vulnerableArtifact": "vulnerable.prompt",
+  "vulnerablePrompt": "vulnerable.prompt",
+  "expectedFindings": [
+    {
+      "ruleId": "sec_workflow_escalation",
+      "severity": "critical",
+      "description": "User input can route into unrestricted tool execution."
+    },
+    {
+      "ruleId": "sec_unbounded_access",
+      "severity": "high",
+      "description": "The tool policy allows broad filesystem or command access."
+    }
+  ],
+  "executionPath": {
+    "nodes": [
+      "user_input",
+      "tool_router",
+      "shell_execution",
+      "filesystem_access"
+    ],
+    "display": "User Input -> Tool Router -> Shell Execution -> Filesystem Access",
+    "privilegedSinkReached": true,
+    "trustBoundariesCrossed": 3
+  },
+  "provenanceEvidence": [
+    {
+      "node": "user_input",
+      "evidence": "User Input is inferred from the Tool Abuse execution path fixture.",
+      "source": "vulnerable.prompt",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_unbounded_access"
+      ]
+    },
+    {
+      "node": "tool_router",
+      "evidence": "Tool Router is inferred from the Tool Abuse execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_unbounded_access"
+      ]
+    },
+    {
+      "node": "shell_execution",
+      "evidence": "Shell Execution is inferred from the Tool Abuse execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_unbounded_access"
+      ]
+    },
+    {
+      "node": "filesystem_access",
+      "evidence": "Filesystem Access is inferred from the Tool Abuse execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_workflow_escalation",
+        "sec_unbounded_access"
+      ]
+    }
+  ],
+  "confidence": {
+    "score": 50,
+    "level": "MEDIUM",
+    "expectedRange": {
+      "min": 45,
+      "max": 55
+    },
+    "source": "workflow confidence engine"
+  },
+  "rootCause": {
+    "ruleId": "sec_workflow_escalation",
+    "label": "Workflow Escalation",
+    "supportingFindings": [
+      "Unbounded Tool Access",
+      "Privileged Sink Access"
+    ],
+    "source": "root cause grouping engine"
+  },
+  "workflowReplay": {
+    "replayVersion": "1.0",
+    "generatedFrom": "workflow graph",
+    "eventCount": 4,
+    "timeline": [
+      "USER_INPUT",
+      "TOOL_ROUTER",
+      "SHELL",
+      "FILESYSTEM"
+    ],
+    "summary": "Tool Abuse replay follows User Input -> Tool Router -> Shell Execution -> Filesystem Access."
+  },
+  "workflowDiff": {
+    "workflowDiffVersion": "1.0",
+    "executionPathRemoved": true,
+    "riskReduction": 95,
+    "beforePath": [
+      "user_input",
+      "tool_router",
+      "shell_execution",
+      "filesystem_access"
+    ],
+    "afterPath": [
+      "user_input",
+      "model",
+      "response"
+    ],
+    "removedNodes": [
+      "tool_router",
+      "shell_execution",
+      "filesystem_access"
+    ],
+    "diffReason": "privileged_sink_removed"
+  },
+  "remediatedArtifact": "remediated.prompt",
+  "expectedRiskReduction": {
+    "percent": 95,
+    "rationale": "The remediated version removes the privileged sink or routing surface that made the execution path dangerous."
+  }
+}

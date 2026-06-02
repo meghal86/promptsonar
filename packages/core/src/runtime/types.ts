@@ -153,6 +153,15 @@ export interface AgentRuntimeAdapterInput {
     config?: RuntimeConfig;
 }
 
+/** Shared adapter input contract for Cursor, Claude Code, Codex, Windsurf, and future agent hosts. */
+export interface AgentIntegrationInput extends AgentRuntimeAdapterInput {}
+
+/** Shared ALLOW/WARN/BLOCK decision type returned by agent integration adapters. */
+export type ExecutionReviewDecision = RuntimeDecision;
+
+/** Shared runtime review report contract returned by agent integration adapters. */
+export interface AgentIntegrationReport extends ExecutionPathAnalysisResult {}
+
 /** Options for `createPromptSonarMiddleware()`. */
 export interface PromptSonarMiddlewareOptions {
     config?: RuntimeConfig;
