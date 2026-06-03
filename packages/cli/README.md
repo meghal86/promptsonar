@@ -23,6 +23,27 @@ promptsonar sbom ./src --output prompt-sbom.json
 promptsonar demo
 ```
 
+## Repo Scan Behavior
+
+Workspace scans are local and bounded for large repositories:
+
+- Respects `.gitignore`.
+- Respects `.promptsonarignore`.
+- Skips common dependency, build, cache, coverage, docs, tests, benchmark, result, asset, map, and lockfile paths.
+- Skips files larger than 1 MB by default.
+- Caps scans at 2,000 files by default.
+- Deduplicates repeated findings and summarizes noisy low-risk findings in reports.
+
+Use `.promptsonarignore` for path-only exclusions:
+
+```gitignore
+examples/**
+fixtures/vulnerable/**
+results/**
+```
+
+Use `.promptsonar-waivers.yaml` or inline `promptsonar-ignore` comments for reviewed rule-specific suppressions.
+
 ## Notes
 
 - Zero LLM calls.

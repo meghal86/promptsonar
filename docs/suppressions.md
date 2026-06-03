@@ -8,10 +8,13 @@ PromptSonar supports suppressions for reviewed false positives, intentionally vu
 promptsonar scan . --waiver .promptsonar-waivers.yaml
 ```
 
-If `--waiver` is not provided, PromptSonar auto-discovers these files from the scanned root:
+For repository scans, PromptSonar reads these files from the scanned root when present:
 
+- `.gitignore`
 - `.promptsonar-waivers.yaml`
 - `.promptsonarignore`
+
+`.gitignore` and `.promptsonarignore` affect which files are scanned. Waivers and inline suppressions affect which findings count after a file is scanned.
 
 ## YAML Suppression Format
 
@@ -57,15 +60,31 @@ waivers:
 
 ## .promptsonarignore
 
-`.promptsonarignore` is path-only. Each non-empty, non-comment line is treated as a path glob:
+`.promptsonarignore` is path-only. It uses standard gitignore-style matching and is intended for PromptSonar-specific exclusions that should not necessarily be in `.gitignore`:
 
 ```gitignore
 # Ignore generated fixtures
 tests/fixtures/generated/**
 examples/vulnerable-prompts/**
+results/**
 ```
 
 Use YAML suppressions when you need rule-specific suppression or a reason.
+
+## .gitignore
+
+Repository scans also respect `.gitignore`. This keeps PromptSonar aligned with normal development workflows and avoids scanning generated or vendored files that the repository already marks as ignored.
+
+Use `.gitignore` for general project artifacts:
+
+```gitignore
+node_modules/
+dist/
+coverage/
+generated/**
+```
+
+Use `.promptsonarignore` when the path should be excluded only from PromptSonar health reports, such as intentionally vulnerable examples or benchmark fixtures.
 
 ## Inline Suppressions
 

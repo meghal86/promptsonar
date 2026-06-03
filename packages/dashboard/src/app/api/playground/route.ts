@@ -85,7 +85,7 @@ export async function POST(request: Request) {
       context: { filePath: 'playground.ts' }
     });
 
-    // 5. Optional: Contract Validation
+    // 5. Optional: Prompt Rules validation
     let contractResult = null;
     if (contractYaml && typeof contractYaml === 'string' && contractYaml.trim().length > 0) {
       try {

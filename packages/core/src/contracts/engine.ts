@@ -24,6 +24,17 @@ export const PromptContractSchema = z.object({
   })
 });
 
+const PromptRulesSchema = z.object({
+  rules: z.array(z.object({
+    name: z.string(),
+    type: z.string(),
+    format: z.string().optional(),
+    style: z.string().optional(),
+    max_tokens: z.number().optional(),
+    phrases: z.array(z.string()).optional()
+  }))
+});
+
 export interface ContractProperty {
   type: 'string' | 'number' | 'boolean';
 }
@@ -52,6 +63,12 @@ export interface ContractValidationResult {
   contractId: string;
 }
 
+interface PromptRule {
+  name: string;
+  type: string;
+  phrases?: string[];
+}
+
 /**
  * Parses and validates a contract YAML string.
  */
@@ -73,7 +90,29 @@ export function validatePromptAgainstContract(
   let contractId = 'unknown';
 
   try {
-    const contractObj = parsePromptContract(contractYaml);
+    const parsedYaml = YAML.parse(contractYaml);
+
+    if (parsedYaml?.rules) {
+      const promptRules = PromptRulesSchema.parse(parsedYaml);
+      for (const rule of promptRules.rules as PromptRule[]) {
+        if (rule.type === 'deny_phrase') {
+          for (const phrase of rule.phrases || []) {
+            const regex = new RegExp(`\\b${phrase.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'i');
+            if (regex.test(promptText)) {
+              violations.push(`Rule "${rule.name}" failed: prompt contains blocked phrase "${phrase}".`);
+            }
+          }
+        }
+      }
+
+      return {
+        passed: violations.length === 0,
+        violations,
+        contractId: 'prompt-rules'
+      };
+    }
+
+    const contractObj = PromptContractSchema.parse(parsedYaml) as unknown as PromptContract;
     const contract = contractObj.contract;
     contractId = contract.id;
 
@@ -144,7 +183,7 @@ export function validatePromptAgainstContract(
     }
 
   } catch (err: any) {
-    violations.push(`Contract Parsing Error: ${err.message}`);
+    violations.push(`Prompt Rules Parsing Error: ${err.message}`);
   }
 
   return {
