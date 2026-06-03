@@ -28,7 +28,7 @@ export default function PoliciesPage() {
         <header className="mb-10 flex flex-col gap-4 border-b border-[#E4E3DE] pb-8 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">Security Policies</p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">Policy Control Center</h1>
+            <h1 className="mt-2 text-4xl font-black tracking-tight">Your Rules</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#57534E]">
               Manage rule-based guardrails that decide when prompts pass, warn, or block before they ship.
             </p>
@@ -82,11 +82,25 @@ export default function PoliciesPage() {
               <div className="mt-5 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
                 <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Policy Rules</p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {policy.rules.map((rule) => (
-                    <span key={rule} className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-2 font-mono text-xs font-bold text-[#57534E]">
-                      {rule}
-                    </span>
-                  ))}
+                  {policy.rules.map((rule) => {
+                    const plainLabel = rule === 'max_critical: 0'
+                      ? 'No critical findings allowed'
+                      : rule === 'max_high: 2'
+                      ? 'Max 2 high-severity findings'
+                      : null;
+                    return (
+                      <div key={rule} className="flex flex-col gap-1">
+                        {plainLabel && (
+                          <span className="rule-plain-label text-[10px] font-semibold text-[#78716C]">
+                            {plainLabel}
+                          </span>
+                        )}
+                        <span className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-2 font-mono text-xs font-bold text-[#57534E]">
+                          {rule}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </article>

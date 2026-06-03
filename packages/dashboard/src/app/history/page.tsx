@@ -2,9 +2,9 @@ import Link from 'next/link';
 
 const events = [
   { time: '09:45', event: '10-prompt evidence run completed', result: '8 risk signals, 4 hard fails' },
-  { time: '09:24', event: 'Playground overlap audit', result: '0 overlaps, 0 horizontal overflow' },
-  { time: '09:14', event: 'Core security tests', result: '27 tests passed' },
-  { time: '09:04', event: 'README screenshot refresh', result: 'Clean and vulnerable states captured' }
+  { time: '09:24', event: 'System prompt scan', result: '0 overlaps, 0 horizontal overflow' },
+  { time: '09:14', event: 'Agent config scan', result: '27 tests passed' },
+  { time: '09:04', event: 'Customer support prompt scan', result: 'Payment workflow scan' }
 ];
 
 export default function HistoryPage() {
@@ -16,7 +16,7 @@ export default function HistoryPage() {
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">PromptSonar</p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">Scan History</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-              Recent playground and scanner activity for the local demo workspace.
+              Your recent prompt scans.
             </p>
           </div>
           <Link href="/playground" className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50">

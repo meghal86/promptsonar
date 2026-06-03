@@ -4,16 +4,41 @@ import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
-import { scanFiles, generateSarif } from './scanner';
+import { scanFiles, generateSarif, ScanResult, scoreFromFindings } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult } from '@promptsonar/core';
 import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
 import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
 
-const VERSION = '1.4.0';
+const VERSION = '1.4.3';
 
 const program = new Command();
+
+function summarizeWorkspaceScore(results: ScanResult[]): { score: number; status: 'pass' | 'warn' | 'fail' } {
+    if (results.length === 0) return { score: 100, status: 'pass' };
+
+    const findings = results.flatMap(result => result.findings.filter(finding => !finding.waived));
+    const scores = results.map(result => result.overall_score);
+    const aggregateScore = scoreFromFindings(findings);
+    const worstScore = Math.min(...scores);
+
+    let score = Math.min(aggregateScore, worstScore);
+    let status: 'pass' | 'warn' | 'fail' = score < 70 ? 'fail' : score < 85 ? 'warn' : 'pass';
+
+    if (findings.some(finding => finding.severity === 'critical')) {
+        score = Math.min(score, 49);
+        status = 'fail';
+    } else if (findings.some(finding => finding.severity === 'high' && (finding.category === 'security' || finding.category === 'ethics'))) {
+        score = Math.min(score, 69);
+        status = 'fail';
+    } else if (findings.some(finding => finding.severity === 'medium' && (finding.category === 'security' || finding.category === 'ethics'))) {
+        score = Math.min(score, 84);
+        if (status === 'pass') status = 'warn';
+    }
+
+    return { score, status };
+}
 
 function isZodSchemaError(err: any): boolean {
     return err?.name === 'ZodError' || Array.isArray(err?.issues);
@@ -284,12 +309,9 @@ program
 
                 // Aggregate results for the report
                 let allFindings: any[] = [];
-                let totalScore = 0;
-                let promptsEvaluated = 0;
-
                 for (const res of results) {
                     const basename = path.basename(res.filePath);
-                    allFindings.push(...res.findings.map(f => ({
+                    allFindings.push(...res.findings.filter(f => !f.waived).map(f => ({
                         rule_id: f.rule_id,
                         severity: f.severity,
                         category: f.category || 'security',
@@ -298,17 +320,16 @@ program
                         line: f.line,
                         file: basename
                     })));
-                    totalScore += res.overall_score;
-                    promptsEvaluated++;
                 }
 
-                const avgScore = promptsEvaluated > 0 ? Math.round(totalScore / promptsEvaluated) : 100;
-                const hasCritical = allFindings.some(f => f.severity === 'critical');
+                const summary = summarizeWorkspaceScore(results);
+                const scanSummary = results.find(result => result.scan_summary)?.scan_summary;
 
                 const masterResult = {
-                    score: hasCritical ? Math.min(avgScore, 49) : avgScore,
-                    status: (hasCritical || avgScore < 70) ? 'fail' : (avgScore < 85 ? 'warn' : 'pass'),
-                    findings: allFindings
+                    score: summary.score,
+                    status: summary.status,
+                    findings: allFindings,
+                    scan_summary: scanSummary
                 };
 
                 const html = generateHtmlReport(masterResult as any, "Workspace Scan Summary", "");

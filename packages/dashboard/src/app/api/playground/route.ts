@@ -8,6 +8,16 @@ import {
 import { supabase } from '@/lib/supabase';
 import { checkUsageLimit, incrementScanUsage } from '@/lib/billing';
 
+const MAX_PLAYGROUND_PROMPT_CHARS = 100_000;
+const LARGE_SCAN_MESSAGE = 'This scan is too large for the web playground. Use the CLI for full repository scans: npx @promptsonar/cli scan .';
+const RATE_LIMIT_MESSAGE = 'Rate limit reached. Please wait a moment and try again.';
+
+function isRateLimitError(err: any): boolean {
+  const status = err?.status || err?.code || err?.cause?.status;
+  const message = String(err?.message || err || '').toLowerCase();
+  return status === 429 || message.includes('429') || message.includes('too many requests') || message.includes('rate limit');
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -17,6 +27,13 @@ export async function POST(request: Request) {
 
     if (!promptText || typeof promptText !== 'string') {
       return NextResponse.json({ error: 'promptText must be a valid string' }, { status: 400 });
+    }
+    if (promptText.length > MAX_PLAYGROUND_PROMPT_CHARS) {
+      return NextResponse.json({
+        error: LARGE_SCAN_MESSAGE,
+        code: 'PLAYGROUND_SCAN_TOO_LARGE',
+        cli: 'npx @promptsonar/cli scan .',
+      }, { status: 413 });
     }
 
     // 1. Resolve active Org ID
@@ -113,6 +130,9 @@ export async function POST(request: Request) {
     });
   } catch (err: any) {
     console.error("Playground API error:", err);
+    if (isRateLimitError(err)) {
+      return NextResponse.json({ error: RATE_LIMIT_MESSAGE, code: 'RATE_LIMITED' }, { status: 429 });
+    }
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

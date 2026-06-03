@@ -461,6 +461,7 @@ Define your custom agent skill instructions and guidelines.
     variables: JSON.stringify({})
   });
   const analysisRequestIdRef = useRef(0);
+  const scanInFlightRef = useRef(false);
   // True once the visitor has run their first explicit scan. Gates live auto-scan
   // and drives the one-time smooth scroll down to results.
   const firstScanDoneRef = useRef(false);
@@ -471,6 +472,10 @@ Define your custom agent skill instructions and guidelines.
     customContract?: string,
     customVars?: Record<string, any>
   ) {
+    if (scanInFlightRef.current) {
+      triggerToast('A scan is already running.');
+      return;
+    }
     setError(null);
     const pText = customPrompt !== undefined ? customPrompt : promptText;
     const cYaml = customContract !== undefined ? customContract : contractYaml;
@@ -485,6 +490,7 @@ Define your custom agent skill instructions and guidelines.
     };
 
     setLoading(true);
+    scanInFlightRef.current = true;
     const requestId = ++analysisRequestIdRef.current;
     try {
       const res = await fetch('/api/playground', {
@@ -499,7 +505,12 @@ Define your custom agent skill instructions and guidelines.
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || `Playground audit failed with HTTP ${res.status}`);
+        const fallback = res.status === 429
+          ? 'Rate limit reached. Please wait a moment and try again.'
+          : res.status === 413
+            ? 'This scan is too large for the web playground. Use the CLI for full repository scans: npx @promptsonar/cli scan .'
+            : `Playground audit failed with HTTP ${res.status}`;
+        throw new Error(data.error || fallback);
       }
 
       if (requestId !== analysisRequestIdRef.current) {
@@ -576,6 +587,7 @@ Define your custom agent skill instructions and guidelines.
     } finally {
       if (requestId === analysisRequestIdRef.current) {
         setLoading(false);
+        scanInFlightRef.current = false;
       }
     }
   }

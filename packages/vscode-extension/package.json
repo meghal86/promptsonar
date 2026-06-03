@@ -2,7 +2,7 @@
     "name": "promptsonar",
     "displayName": "PromptSonar",
     "description": "Static scanner for prompt injection (OWASP LLM01), API key leaks & jailbreaks in code. Local, fast, no LLM calls.",
-    "version": "1.4.2",
+    "version": "1.4.3",
     "icon": "icon.png",
     "keywords": [
         "prompt",
@@ -154,6 +154,11 @@
                     "type": "number",
                     "default": 1048576,
                     "description": "Maximum file size (bytes) PromptSonar will scan live. Larger files are skipped to keep the editor responsive."
+                },
+                "promptsonar.maxWorkspaceScanFiles": {
+                    "type": "number",
+                    "default": 2000,
+                    "description": "Maximum number of files PromptSonar will scan in a workspace scan after ignore rules are applied."
                 }
             }
         }
@@ -164,13 +169,14 @@
         "compile": "node esbuild.js --production",
         "watch": "node esbuild.js --watch",
         "package": "vsce package --no-dependencies",
-        "publish:marketplace": "vsce publish --no-dependencies --packagePath promptsonar-1.4.2.vsix",
+        "publish:marketplace": "vsce publish --no-dependencies --packagePath promptsonar-1.4.3.vsix",
         "lint": "eslint src --ext ts",
         "test": "vitest run",
         "pretest": "npm run compile"
     },
     "dependencies": {
-        "@promptsonar/core": "^1.4.0",
+        "@promptsonar/core": "^1.4.3",
+        "ignore": "^5.3.2",
         "vscode-languageclient": "^9.0.1",
         "vscode-languageserver": "^9.0.1",
         "vscode-languageserver-textdocument": "^1.0.11",

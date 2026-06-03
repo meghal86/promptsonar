@@ -16,7 +16,7 @@ export async function generateMetadata({ searchParams }: ReportCardPageProps): P
   const verdict = params?.verdict || 'Scan pending';
   const findings = params?.findings || '0';
   const title = score === 'pending'
-    ? 'PromptSonar Security Report Card'
+    ? 'PromptSonar Scan Report'
     : `PromptSonar ${score}/100 - ${verdict}`;
   const description = `PromptSonar found ${findings} finding${findings === '1' ? '' : 's'} and marked this prompt as "${verdict}". OWASP LLM Top 10 mapped.`;
 
@@ -63,7 +63,7 @@ export default async function ReportCardPage({ searchParams }: ReportCardPagePro
         <div className={`bg-gradient-to-br ${scoreTone} p-8 text-white md:p-12`}>
           <div className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.3em] text-white/70">PromptSonar Security Report Card</p>
+              <p className="text-xs font-black uppercase tracking-[0.3em] text-white/70">PromptSonar Scan Report</p>
               <h1 className="mt-4 text-5xl font-black tracking-tight md:text-7xl">
                 {hasScore ? `${numericScore}/100` : 'Pending'}
               </h1>

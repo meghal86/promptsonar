@@ -1,6 +1,6 @@
 {
     "name": "@promptsonar/action",
-    "version": "1.4.0",
+    "version": "1.4.3",
     "private": true,
     "description": "GitHub Action for PromptSonar prompt security scanning",
     "main": "dist/action.js",

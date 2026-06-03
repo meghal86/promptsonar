@@ -15,7 +15,7 @@ export default function ProjectsPage() {
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">PromptSonar Overview</p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">Project Security Command Center</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#57534E]">
-              Overview of prompt-security posture across apps, agents, and repositories.
+              Overview of prompt-security status across apps, agents, and repositories.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">

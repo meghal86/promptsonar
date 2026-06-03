@@ -159,7 +159,7 @@ const INTERESTING_NODE_TYPES = new Set<string>([
   "policy_override",
 ]);
 
-// Node types that represent a privileged execution sink (rendered in red).
+// Node types that represent a sensitive action (rendered in red).
 const PRIVILEGED_SINK_TYPES = new Set<string>([
   "shell_execution",
   "tool_execution",
@@ -186,7 +186,7 @@ function pathRichness(f: Finding): number {
 }
 
 // Score a finding so we can surface exactly one — the worst AND most specific.
-// Privileged sinks dominate; among those we prefer the richest workflow path,
+// Sensitive actions dominate; among those we prefer the richest workflow path,
 // so risky prompts no longer all collapse to the same generic chain.
 function findingScore(f: Finding): number {
   let s = 0;
@@ -231,7 +231,7 @@ function pathSentence(types: Set<string>, sink?: string): string {
 
 function whyBullets(finding: Finding | null, critical: boolean, sinkType?: string): string[] {
   if (!critical || !finding) {
-    return ["No dangerous tool action found."];
+    return ["This prompt stays contained. No risky destinations found."];
   }
 
   const bullets: string[] = [];
@@ -254,7 +254,7 @@ function whyBullets(finding: Finding | null, critical: boolean, sinkType?: strin
 // Example prompts for the input-screen chips. Filling only — never auto-scans.
 const EXAMPLE_PROMPTS: { label: string; prompt: string }[] = [
   {
-    label: "MCP Tool Poisoning",
+    label: "MCP Tool Hijacking",
     prompt: 'MCP server:\nautoExecute: true\npermissions: "*"\ncommand: "bash"',
   },
   {
@@ -329,6 +329,7 @@ export default function TryPage() {
   }, []);
 
   async function handleScan() {
+    if (loading) return;
     setError(null);
     if (!prompt.trim()) {
       setValidation("Paste a prompt to scan.");
@@ -344,14 +345,19 @@ export default function TryPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || `Scan failed (HTTP ${res.status})`);
+        const fallback = res.status === 429
+          ? "Rate limit reached. Please wait a moment and try again."
+          : res.status === 413
+            ? "This scan is too large for the web playground. Use the CLI for full repository scans: npx @promptsonar/cli scan ."
+            : `Scan failed (HTTP ${res.status})`;
+        throw new Error(data?.error || fallback);
       }
       const findings: Finding[] = Array.isArray(data.findings) ? data.findings : [];
       setWorst(pickWorst(findings));
       setShowFix(false);
       setScreen("result");
-    } catch {
-      setError("Couldn't scan that prompt. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't scan that prompt. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -396,7 +402,7 @@ export default function TryPage() {
         return { label: labelFor(node).toUpperCase(), danger };
       });
     } else {
-      // Contained: a calm, safe flow. Nothing reaches a privileged sink.
+      // Contained: a calm, safe flow. Nothing reaches a sensitive action.
       displayNodes = [
         { label: "USER INPUT", danger: false },
         { label: "MODEL", danger: false },
@@ -418,7 +424,7 @@ export default function TryPage() {
     const sinkLabel = critical
       ? (NODE_LABELS[sinkType || ""] || sinkType || "—").toUpperCase()
       : "NONE";
-    const consequence = critical ? pathSentence(nodeTypes, sinkType) : "No dangerous tool action found.";
+    const consequence = critical ? pathSentence(nodeTypes, sinkType) : "This prompt stays contained. No risky destinations found.";
     const reasons = whyBullets(worst, critical, sinkType);
 
     return (
@@ -459,7 +465,7 @@ export default function TryPage() {
               </div>
               <div className="rounded-2xl border border-[#E4E3DE] bg-white px-4 py-3">
                 <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
-                  Reached action
+                  Reached
                 </dt>
                 <dd className={`mt-1 font-mono text-[12.5px] font-bold ${critical ? "text-red-600" : "text-[#57534E]"}`}>
                   {sinkLabel}
@@ -579,7 +585,7 @@ export default function TryPage() {
                       : "border border-[#E4E3DE] bg-white text-[#1C1917] hover:bg-slate-50"
                   }`}
                 >
-                  View Full Analysis →
+                  Full Analysis →
                 </Link>
               </>
             ) : (
@@ -594,7 +600,7 @@ export default function TryPage() {
                   href={playgroundHref}
                   className="inline-flex min-h-[52px] w-full items-center justify-center rounded-xl border border-[#E4E3DE] bg-white px-5 text-[16px] font-semibold text-[#1C1917] shadow-sm transition-colors hover:bg-slate-50"
                 >
-                  View Full Analysis →
+                  Full Analysis →
                 </Link>
               </>
             )}
@@ -627,7 +633,7 @@ export default function TryPage() {
               <span className="text-[19px] font-black tracking-tight">PromptSonar</span>
             </div>
             <p className="text-[11.5px] font-medium text-[#A8A29E]">
-              Finds prompts that can misuse tools, memory, MCP servers, or sensitive actions.
+              Finds prompts that can misuse tools, memory, shell commands, or stored secrets.
             </p>
             <p className="max-w-sm text-[10.5px] font-medium leading-relaxed text-[#A8A29E]">
               MCP servers are connected tools an agent can call.
@@ -635,11 +641,11 @@ export default function TryPage() {
           </div>
 
           <h1 className="text-[34px] sm:text-[40px] font-black leading-[1.05] tracking-tight">
-            Can your prompt reach execution?
+            See where your prompt goes.
           </h1>
           <p className="mx-auto max-w-md text-[15px] leading-relaxed text-[#57534E]">
-            Paste any prompt and see whether it can reach tools, memory,
-            MCP servers, or sensitive actions.
+            Paste any prompt and find out exactly what it can reach — tools, memory,
+            shell commands, or stored secrets.
           </p>
         </div>
 
@@ -705,7 +711,7 @@ export default function TryPage() {
         <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-[12.5px] text-[#A8A29E]">
           <span>No account required</span>
           <span aria-hidden="true">·</span>
-          <span>Runs locally</span>
+          <span>No data stored</span>
           <span aria-hidden="true">·</span>
           <span>Uses real security rules</span>
         </div>

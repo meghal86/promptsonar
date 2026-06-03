@@ -297,7 +297,7 @@ export default function McpAuditPage() {
 
             {/* Rules Check list */}
             <div className="mb-6">
-              <h3 className="text-[10px] font-black uppercase tracking-wider text-[#A8A29E] mb-3">7-Pillar Config Integrity Check</h3>
+              <h3 className="text-[10px] font-black uppercase tracking-wider text-[#A8A29E] mb-3">7-Category Config Integrity Check</h3>
               <div className="grid gap-2 text-xs">
                 
                 {/* 1. TLS Check */}

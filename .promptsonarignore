@@ -1,0 +1,17 @@
+# PromptSonar repository self-scan ignores.
+# These paths contain intentional vulnerable prompts, attack fixtures, or demo
+# copy used to test and demonstrate the scanner itself.
+examples/cases/**
+examples/vulnerable-prompts/**
+examples/**
+README.md
+PromptSonar_*.md
+packages/cli/src/cli.ts
+packages/cli/src/scanner.ts
+action/src/scanner-bridge.ts
+scripts/run-feature-smoke.js
+packages/dashboard/src/app/playground/page.tsx
+packages/dashboard/src/app/playground1/page.tsx
+packages/dashboard/src/app/playground3/page.tsx
+packages/dashboard/src/app/try/page.tsx
+packages/core/src/workflow/**
