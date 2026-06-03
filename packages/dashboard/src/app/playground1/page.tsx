@@ -21,16 +21,7 @@ const INITIAL_AUDIT_RESULT = {
     violations: []
   },
   findings: [],
-  crossModelResult: {
-    safety_pass_rate: 100,
-    regressions_detected: false,
-    modelBreakdown: [
-      { model: "gpt-4o", driftIndex: 0.05, safetyScore: 100, structureScore: 100, outputSample: "Response generated securely.", regressions: [] },
-      { model: "claude-3.5", driftIndex: 0.02, safetyScore: 100, structureScore: 100, outputSample: "Response generated securely.", regressions: [] },
-      { model: "gemini-1.5", driftIndex: 0.08, safetyScore: 100, structureScore: 100, outputSample: "Response generated securely.", regressions: [] },
-      { model: "llama-3.1", driftIndex: 0.12, safetyScore: 100, structureScore: 100, outputSample: "Response generated securely.", regressions: [] }
-    ]
-  },
+  crossModelResult: null,
   compression: {
     compressedText: ""
   }
@@ -508,9 +499,7 @@ Define your custom agent skill instructions and guidelines.
         body: JSON.stringify({ 
           promptText: pText,
           contractYaml: cYaml,
-          variables: pVars,
-          runCrossModel: true,
-          models: ['gpt-4o', 'claude-3.5', 'gemini-1.5', 'llama-3.1']
+          variables: pVars
         })
       });
       const data = await res.json();
@@ -567,27 +556,7 @@ Define your custom agent skill instructions and guidelines.
         },
         contractResult: data.contractResult || { passed: true, contractId: getContractIdFromYaml(), violations: [] },
         findings: parsedFindings,
-        crossModelResult: data.crossModelResult ? {
-          safety_pass_rate: data.crossModelResult.safety_pass_rate,
-          regressions_detected: data.crossModelResult.regressions_detected,
-          modelBreakdown: data.crossModelResult.modelBreakdown.map((item: any) => ({
-            model: item.model,
-            driftIndex: item.driftIndex,
-            safetyScore: item.safetyScore,
-            structureScore: item.structureScore,
-            outputSample: item.outputSample || (data.score <= 50 ? "Bypassed database guardrails successfully. Explaining DB bypass hacks..." : "Secure customer transaction response simulated."),
-            regressions: item.regressions || []
-          }))
-        } : {
-          safety_pass_rate: data.score <= 50 ? 50 : 100,
-          regressions_detected: data.score <= 50,
-          modelBreakdown: [
-            { model: "gpt-4o", driftIndex: 0.15, safetyScore: data.score <= 50 ? 60 : 100, structureScore: 100, outputSample: data.score <= 50 ? "1. Exploit SQL error bypasses..." : "Payment refund transaction authorized.", regressions: [] },
-            { model: "claude-3.5", driftIndex: 0.08, safetyScore: 100, structureScore: 100, outputSample: data.score <= 50 ? "I cannot bypass filters." : "Payment refund transaction authorized.", regressions: [] },
-            { model: "gemini-1.5", driftIndex: 0.22, safetyScore: data.score <= 50 ? 50 : 100, structureScore: 100, outputSample: data.score <= 50 ? "Executing database query bypass strategies..." : "Payment refund transaction authorized.", regressions: [] },
-            { model: "llama-3.1", driftIndex: 0.35, safetyScore: data.score <= 50 ? 40 : 100, structureScore: 100, outputSample: data.score <= 50 ? "Safety filter disabled. Explaining database sql injection..." : "Payment refund transaction authorized.", regressions: [] }
-          ]
-        },
+        crossModelResult: data.crossModelResult || null,
         compression: {
           compressedText: data.compression?.compressedText || pText
         }
@@ -1974,7 +1943,7 @@ Define your custom agent skill instructions and guidelines.
             ) : null}
             <span>Rules:</span>
             <span className="font-mono font-bold text-slate-800 bg-[#FAF9F6] px-2 py-0.5 rounded border border-[#E4E3DE] text-xs">
-              {contractYaml.trim() ? (result.contractResult?.contractId || getContractIdFromYaml() || 'no-contract-id') : 'None'}
+              {contractYaml.trim() ? 'Custom Rules' : 'None'}
             </span>
             <span className="text-[#A8A29E]">•</span>
             <span>Last Scan: <strong className="font-mono text-slate-800">{scanTime || 'Never'}</strong></span>
@@ -2315,7 +2284,7 @@ Define your custom agent skill instructions and guidelines.
                             : 'text-[#A8A29E] hover:text-[#1C1917]'
                         }`}
                       >
-                        {tab === 'prompt' ? 'Prompt' : tab === 'optimized' ? 'Optimized ✦ Pro' : tab === 'contract' ? 'Rule Spec' : tab === 'variables' ? 'Variables' : 'Skill Designer'}
+                        {tab === 'prompt' ? 'Prompt' : tab === 'optimized' ? 'Optimized ✦ Pro' : tab === 'contract' ? 'Prompt Rules' : tab === 'variables' ? 'Variables' : 'Skill Designer'}
                       </button>
                     ))}
                   </div>
@@ -2392,12 +2361,12 @@ Define your custom agent skill instructions and guidelines.
                     ) : (
                       /* Audit Preview Mode matching mockup details exactly */
                       <div className="flex-1 flex flex-col mt-2 min-h-0">
-                        {/* Contract violations warning banner */}
+                        {/* Prompt rule warning banner */}
                         {result.contractResult && result.contractResult.passed === false && (
                           <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3.5 text-xs text-red-700 flex flex-col gap-1.5 shrink-0">
                             <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[10px] text-red-700">
                               <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></span>
-                              <span>Rule Violations: {result.contractResult.contractId}</span>
+                              <span>Rules Failed</span>
                             </div>
                             <ul className="list-disc pl-4 space-y-1 text-red-850 font-medium leading-relaxed">
                               {result.contractResult.violations.map((violation: string, vIdx: number) => (
@@ -2493,7 +2462,7 @@ Define your custom agent skill instructions and guidelines.
                   </div>
                 )}
 
-                {/* 2. Contract YAML Tab Panel */}
+                {/* 2. Prompt Rules Tab Panel */}
                 {activeLeftTab === 'contract' && (
                   <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
                     <div className="flex justify-between items-center text-[10px] text-[#A8A29E] font-mono tracking-wider font-semibold mb-2">
@@ -2659,11 +2628,11 @@ Define your custom agent skill instructions and guidelines.
                   </div>
                 )}
 
-                {/* 5. Agent Skill Designer Tab Panel */}
+                {/* 5. Agent Skill Builder Tab Panel */}
                 {activeLeftTab === 'skills' && (
                   <div className="flex-1 flex flex-col min-h-0 overflow-y-auto gap-4">
                     <div className="flex justify-between items-center text-[10px] text-[#A8A29E] font-mono tracking-wider font-semibold">
-                      <span>VISUAL AGENT-SKILL REGISTRY & DESIGNER</span>
+                      <span>AGENT SKILL BUILDER</span>
                       <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 font-bold font-sans">
                         Compliant
                       </span>
@@ -2719,30 +2688,31 @@ Define your custom agent skill instructions and guidelines.
                           </div>
                         </div>
 
-                        {/* Package Info Card */}
+                        {/* Copy / Export */}
                         <div className="border border-[#E4E3DE] bg-white rounded-xl p-4 flex flex-col gap-3">
                           <div>
-                            <h4 className="text-[10px] font-black uppercase tracking-wider text-[#A8A29E]">Skill Manifest</h4>
-                            <p className="font-black text-sm text-slate-900 mt-1">{selectedSkill === 'new' ? 'new-agent-skill' : selectedSkill}</p>
-                          </div>
-                          
-                          <div className="grid gap-1.5 font-mono text-[10px] text-[#87827C]">
-                            <div>📂 {selectedSkill === 'new' ? 'new-agent-skill' : selectedSkill}/</div>
-                            <div>  ├── 📄 SKILL.md</div>
-                            <div>  ├── 📂 scripts/</div>
-                            <div>  │    └── 📄 run.js</div>
-                            <div>  └── 📂 resources/</div>
-                            <div>       └── 📄 prompt.prompt</div>
+                            <h4 className="text-[10px] font-black uppercase tracking-wider text-[#A8A29E]">Copy / Export</h4>
+                            <p className="font-black text-sm text-slate-900 mt-1">Copy SKILL.md for now.</p>
                           </div>
 
                           <button
-                            onClick={() => {
-                              triggerToast(`Successfully generated and downloaded ${selectedSkill}-skill.zip deployment package!`);
-                            }}
+                            type="button"
+                            onClick={() => copyText(skillContent, 'SKILL.md copied.')}
+                            disabled={!skillContent.trim()}
                             className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 shadow-xs mt-2"
                           >
-                            <span>Export Skill Package (.zip)</span>
+                            <span>Copy SKILL.md</span>
                           </button>
+                          <button
+                            type="button"
+                            disabled
+                            className="w-full bg-slate-100 text-slate-400 border border-[#E4E3DE] font-bold py-2.5 rounded-lg text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-xs cursor-not-allowed"
+                          >
+                            <span>Export package — coming soon</span>
+                          </button>
+                          <p className="text-[11px] font-medium text-slate-500">
+                            ZIP export is not available yet. Copy SKILL.md for now.
+                          </p>
                         </div>
                       </div>
 
@@ -3538,7 +3508,7 @@ Define your custom agent skill instructions and guidelines.
                       <span className="text-[10px] text-amber-700 font-extrabold uppercase tracking-widest block">Attack Path Diagram</span>
                       <h3 className="text-xl font-black text-slate-950 mt-1">Attack Path Diagram</h3>
                       <p className="text-xs text-[#78716C] mt-1">
-                        Dynamic evaluation trace path auditing variables, contract specifications, and system instruction gates.
+                        Dynamic evaluation trace path auditing variables, prompt rules, and system instruction gates.
                       </p>
                     </div>
 
@@ -3571,8 +3541,8 @@ Define your custom agent skill instructions and guidelines.
                             ? 'bg-red-950/40 border-red-500/60 text-red-300' 
                             : 'bg-slate-900/60 border-slate-800 text-emerald-300'
                         }`}>
-                          <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider">02. Spec Gate</span>
-                          <span className="text-xs font-bold block">Rule Spec</span>
+                          <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider">02. Rule Gate</span>
+                          <span className="text-xs font-bold block">Prompt Rules</span>
                           <span className={`px-2 py-0.5 rounded text-[8px] font-bold border ${result.contractResult?.passed === false ? 'bg-red-500/20 border-red-500 text-red-300 animate-pulse' : 'bg-emerald-950 border-emerald-700 text-emerald-300'}`}>
                             {result.contractResult?.passed === false ? 'VIOLATED' : 'PASSED'}
                           </span>
@@ -3623,13 +3593,13 @@ Define your custom agent skill instructions and guidelines.
                             {"Vulnerability scanner analyzed prompt pipelines and detected active threats. "}
                             {result.contractResult?.passed === false ? (
                               <>
-                                {"Prompt contract specs failed compliance parameters at "}
+                                {"Prompt rules failed at "}
                                 <strong className="text-red-400 font-mono">Rule Check 02</strong>
                                 {` with ${result.contractResult.violations.length} active violations. `}
                               </>
                             ) : (
                               <>
-                                {"Prompt contract specs passed compliance validations successfully at "}
+                                {"Prompt rules passed at "}
                                 <strong className="text-emerald-400 font-mono">Rule Check 02</strong>
                                 {". "}
                               </>
@@ -3748,54 +3718,29 @@ Define your custom agent skill instructions and guidelines.
                   <div className="space-y-6 flex flex-col h-full min-h-0 overflow-y-auto">
                     <div>
                       <span className="text-[10px] text-amber-700 font-extrabold uppercase tracking-widest block">Model Comparison</span>
-                      <h3 className="text-xl font-black text-slate-950 mt-1">Model Evaluation Sandbox</h3>
+                      <h3 className="text-xl font-black text-slate-950 mt-1">Manual Model Comparison</h3>
                       <p className="text-xs text-[#78716C] mt-1">
-                        Drift indices, safety regression thresholds, and comparative output validation across models.
+                        PromptSonar never calls models automatically. Paste model outputs manually to compare behavior.
                       </p>
                     </div>
 
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-[#FAF9F6] border border-[#E4E3DE] p-4 rounded-xl text-center space-y-1">
-                          <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Safety Pass Rate</span>
-                          <span className={`text-2xl font-black tracking-tight ${result.crossModelResult?.safety_pass_rate >= 85 ? 'text-emerald-700' : 'text-red-700 animate-pulse'}`}>
-                            {result.crossModelResult?.safety_pass_rate}%
-                          </span>
-                        </div>
-                        <div className="bg-[#FAF9F6] border border-[#E4E3DE] p-4 rounded-xl text-center space-y-1">
-                          <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Regressions Detected</span>
-                          <span className={`text-2xl font-black tracking-tight ${result.crossModelResult?.regressions_detected ? 'text-red-750 animate-pulse' : 'text-emerald-750'}`}>
-                            {result.crossModelResult?.regressions_detected ? 'YES' : 'NO'}
-                          </span>
-                        </div>
+                    <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-5">
+                      <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-amber-700">
+                        Experimental
+                      </span>
+                      <h4 className="mt-4 text-sm font-black text-slate-950">No live model evaluation ran for this scan.</h4>
+                      <p className="mt-2 text-sm leading-6 text-[#57534E]">
+                        The playground scan reviews the prompt only. To compare GPT, Claude, Gemini, local models, or any other provider, paste their outputs into the manual comparison page.
+                      </p>
+                      <div className="mt-4 grid gap-2 text-xs font-bold text-slate-600 sm:grid-cols-2">
+                        <div className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-2">Safety differences</div>
+                        <div className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-2">Instruction-following differences</div>
+                        <div className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-2">Format differences</div>
+                        <div className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-2">Prompt flow differences</div>
                       </div>
-
-                      <div className="border border-[#E4E3DE] rounded-xl overflow-hidden">
-                        <table className="w-full border-collapse text-left text-xs">
-                          <thead className="bg-[#FAF9F6] border-b border-[#E4E3DE] font-bold uppercase tracking-wider text-slate-500 text-[10px]">
-                            <tr>
-                              <th className="p-4">Model Core</th>
-                              <th className="p-4">Behavior Variance</th>
-                              <th className="p-4">Safety Score</th>
-                              <th className="p-4">Output Verification Sample</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[#E4E3DE] font-medium leading-normal text-slate-700">
-                            {result.crossModelResult?.modelBreakdown?.map((m: any, idx: number) => (
-                              <tr key={idx} className="hover:bg-slate-50/50">
-                                <td className="p-4 font-bold uppercase text-slate-900 font-mono">{m.model}</td>
-                                <td className="p-4 font-mono font-bold text-slate-800">{(m.driftIndex || 0).toFixed(2)}</td>
-                                <td className="p-4">
-                                  <span className={`px-2 py-0.5 rounded text-[9.5px] font-bold border ${m.safetyScore >= 80 ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
-                                    {m.safetyScore}%
-                                  </span>
-                                </td>
-                                <td className="p-4 italic font-sans text-slate-500 max-w-[250px] truncate">{m.outputSample}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      <Link href="/models" className="mt-5 inline-flex rounded-lg bg-slate-950 px-4 py-2 text-[11px] font-black uppercase tracking-wider text-white hover:bg-slate-800">
+                        Open Manual Comparison
+                      </Link>
                     </div>
                   </div>
                 )}
@@ -3880,14 +3825,14 @@ Define your custom agent skill instructions and guidelines.
                         </span>
                       </div>
 
-                      {/* Grid Item 2: Spec Status */}
+                      {/* Grid Item 2: Rule Status */}
                       <div className="bg-[#FAF9F6] border border-[#E4E3DE] p-4 rounded-xl text-center space-y-1 shadow-3xs">
                         <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Rule Check</span>
                         <span className={`text-2xl font-black block tracking-tight ${result.contractResult?.passed ? 'text-emerald-700' : 'text-red-700'}`}>
-                          {result.contractResult?.passed ? 'COMPLIANT' : 'INFRACTION'}
+                          {contractYaml.trim() ? (result.contractResult?.passed ? 'PASSED' : 'FAILED') : 'NOT APPLIED'}
                         </span>
                         <span className="text-[8.5px] text-slate-400 uppercase font-mono tracking-widest truncate">
-                          ID: {result.contractResult?.contractId || 'no-contract'}
+                          {contractYaml.trim() ? 'Custom Rules' : 'No optional rules'}
                         </span>
                       </div>
 
