@@ -325,6 +325,7 @@ const getExecutionRisks = (findings: any[]) => {
 
 export default function PlaygroundPage() {
   const [activeLeftTab, setActiveLeftTab] = useState<'prompt' | 'contract' | 'variables' | 'optimized' | 'skills'>('prompt');
+  type ScanSource = 'Prompt Editor' | 'YAML Constraints' | 'Agent Skill';
   const [selectedSkill, setSelectedSkill] = useState<string>('custom-writer-skill');
   const [skillContent, setSkillContent] = useState<string>(`---
 name: Custom Writer Skill
@@ -405,6 +406,8 @@ Define your custom agent skill instructions and guidelines.
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(INITIAL_AUDIT_RESULT); // Pristine empty report
   const [scanTime, setScanTime] = useState<string | null>(null);
+  const [scanSourceLabel, setScanSourceLabel] = useState<string | null>(null);
+  const [scannedInputText, setScannedInputText] = useState<string>("");
   const [scanJustUpdated, setScanJustUpdated] = useState<boolean>(false);
   const [clientOrigin, setClientOrigin] = useState<string>("");
   const [printGeneratedAt, setPrintGeneratedAt] = useState<string>("Pending local print timestamp");
@@ -458,10 +461,11 @@ Define your custom agent skill instructions and guidelines.
     }
   };
 
-  const lastAnalyzedRef = useRef<{ promptText: string; contractYaml: string; variables: string }>({
+  const lastAnalyzedRef = useRef<{ promptText: string; contractYaml: string; variables: string; source: string }>({
     promptText: "",
     contractYaml: "",
-    variables: JSON.stringify({})
+    variables: JSON.stringify({}),
+    source: ""
   });
   const analysisRequestIdRef = useRef(0);
   // True once the visitor has run their first explicit scan. Gates live auto-scan
@@ -472,11 +476,19 @@ Define your custom agent skill instructions and guidelines.
   async function runAnalysis(
     customPrompt?: string,
     customContract?: string,
-    customVars?: Record<string, any>
+    customVars?: Record<string, any>,
+    customSource?: ScanSource
   ) {
     setError(null);
-    const pText = customPrompt !== undefined ? customPrompt : promptText;
-    const cYaml = customContract !== undefined ? customContract : contractYaml;
+    const source: ScanSource = customSource || (customPrompt !== undefined
+      ? 'Prompt Editor'
+      : activeLeftTab === 'skills'
+        ? 'Agent Skill'
+        : activeLeftTab === 'contract'
+          ? 'YAML Constraints'
+          : 'Prompt Editor');
+    const pText = customPrompt !== undefined ? customPrompt : (source === 'Agent Skill' ? skillContent : promptText);
+    const cYaml = customContract !== undefined ? customContract : (source === 'YAML Constraints' ? contractYaml : "");
     const pVars = getScanVariables(pText, customVars !== undefined ? customVars : variables);
 
     if (!pText.trim()) return;
@@ -484,7 +496,8 @@ Define your custom agent skill instructions and guidelines.
     lastAnalyzedRef.current = {
       promptText: pText,
       contractYaml: cYaml,
-      variables: JSON.stringify(pVars)
+      variables: JSON.stringify(pVars),
+      source
     };
 
     setLoading(true);
@@ -512,6 +525,8 @@ Define your custom agent skill instructions and guidelines.
       const now = new Date();
       const timeStr = now.toTimeString().split(' ')[0];
       setScanTime(timeStr);
+      setScanSourceLabel(source === 'Agent Skill' ? 'SKILL.md' : source);
+      setScannedInputText(pText);
       setScanJustUpdated(true);
       if (scanUpdatedTimeoutRef.current) {
         clearTimeout(scanUpdatedTimeoutRef.current);
@@ -982,40 +997,58 @@ Define your custom agent skill instructions and guidelines.
     if (!firstScanDoneRef.current) {
       return;
     }
-    if (!promptText.trim()) {
+    const source: ScanSource = activeLeftTab === 'skills'
+      ? 'Agent Skill'
+      : activeLeftTab === 'contract'
+        ? 'YAML Constraints'
+        : 'Prompt Editor';
+    const inputText = source === 'Agent Skill' ? skillContent : promptText;
+    const inputContract = source === 'YAML Constraints' ? contractYaml : "";
+
+    if (!inputText.trim()) {
       return;
     }
 
     if (
-      promptText === lastAnalyzedRef.current.promptText &&
-      contractYaml === lastAnalyzedRef.current.contractYaml &&
-      variablesJson === lastAnalyzedRef.current.variables
+      inputText === lastAnalyzedRef.current.promptText &&
+      inputContract === lastAnalyzedRef.current.contractYaml &&
+      variablesJson === lastAnalyzedRef.current.variables &&
+      source === lastAnalyzedRef.current.source
     ) {
       return;
     }
 
     const handler = setTimeout(() => {
-      runAnalysis(promptText, contractYaml, variables);
+      runAnalysis(inputText, inputContract, variables, source);
     }, 1000); // 1000ms debounce for smoother live updates
 
     return () => {
       clearTimeout(handler);
     };
-  }, [promptText, contractYaml, variablesJson]);
+  }, [promptText, contractYaml, skillContent, variablesJson, activeLeftTab]);
 
   // Instantly trigger scan when switching to Audit view if stale
   useEffect(() => {
-    if (firstScanDoneRef.current && editorMode === 'audit' && promptText.trim()) {
+    const source: ScanSource = activeLeftTab === 'skills'
+      ? 'Agent Skill'
+      : activeLeftTab === 'contract'
+        ? 'YAML Constraints'
+        : 'Prompt Editor';
+    const inputText = source === 'Agent Skill' ? skillContent : promptText;
+    const inputContract = source === 'YAML Constraints' ? contractYaml : "";
+
+    if (firstScanDoneRef.current && editorMode === 'audit' && inputText.trim()) {
       const currentVarsStr = JSON.stringify(variables);
       if (
-        promptText !== lastAnalyzedRef.current.promptText ||
-        contractYaml !== lastAnalyzedRef.current.contractYaml ||
-        currentVarsStr !== lastAnalyzedRef.current.variables
+        inputText !== lastAnalyzedRef.current.promptText ||
+        inputContract !== lastAnalyzedRef.current.contractYaml ||
+        currentVarsStr !== lastAnalyzedRef.current.variables ||
+        source !== lastAnalyzedRef.current.source
       ) {
-        runAnalysis(promptText, contractYaml, variables);
+        runAnalysis(inputText, inputContract, variables, source);
       }
     }
-  }, [editorMode]);
+  }, [editorMode, activeLeftTab, promptText, contractYaml, skillContent, variablesJson]);
 
   const handleVariableChange = (key: string, val: string) => {
     let castValue: any = val;
@@ -1884,6 +1917,20 @@ Define your custom agent skill instructions and guidelines.
     }
   };
 
+  const activeScanSource: ScanSource = activeLeftTab === 'skills'
+    ? 'Agent Skill'
+    : activeLeftTab === 'contract'
+      ? 'YAML Constraints'
+      : 'Prompt Editor';
+  const activeScanInput = activeScanSource === 'Agent Skill' ? skillContent : promptText;
+  const activeScanContract = activeScanSource === 'YAML Constraints' ? contractYaml : "";
+  const scanDisabled = loading || !activeScanInput.trim();
+  const scanButtonLabel = activeScanSource === 'Agent Skill' ? 'Scan Skill' : activeScanSource === 'YAML Constraints' ? 'Scan Prompt + Rules' : 'Scan Prompt';
+  const scanEmptyHelper = activeScanSource === 'Agent Skill'
+    ? 'Add SKILL.md content before scanning.'
+    : 'Paste a prompt before scanning.';
+  const displayedScanText = scannedInputText || promptText;
+
   const reachedAction = primaryWorkflow?.sink
     ? humanType(primaryWorkflow.sink)
     : primaryWorkflow?.path?.nodes?.length
@@ -1903,7 +1950,7 @@ Define your custom agent skill instructions and guidelines.
       const text = value?.trim();
       if (text && !reasons.includes(text)) reasons.push(text);
     };
-    const evidence = getWorkflowEvidence(promptText, primaryWorkflow);
+    const evidence = getWorkflowEvidence(displayedScanText, primaryWorkflow);
     evidence.forEach((item) => {
       if (/autoExecute/i.test(item)) add('Auto approval is enabled.');
       else if (/permissions="\*"/i.test(item)) add('Wildcard permissions were detected.');
@@ -2176,9 +2223,9 @@ Define your custom agent skill instructions and guidelines.
               <option value="optimized">✓ Clean (Secure) Example</option>
             </select>
             <button
-              onClick={() => runAnalysis()}
-              disabled={!promptText.trim()}
-              aria-label="Re-scan current prompt"
+              onClick={() => runAnalysis(activeScanInput, activeScanContract, variables, activeScanSource)}
+              disabled={scanDisabled}
+              aria-label={`Re-scan current ${activeScanSource === 'Agent Skill' ? 'skill' : 'prompt'}`}
               className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#1C1917] shadow-3xs hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2233,6 +2280,12 @@ Define your custom agent skill instructions and guidelines.
             </span>
             <span className="text-[#A8A29E]">•</span>
             <span>Last Scan: <strong className="font-mono text-slate-800">{scanTime || 'Never'}</strong></span>
+            {scanSourceLabel && (
+              <>
+                <span className="text-[#A8A29E]">•</span>
+                <span>Source: <strong className="font-mono text-slate-800">{scanSourceLabel}</strong></span>
+              </>
+            )}
           </div>
         </div>
         )}
@@ -2387,15 +2440,32 @@ Define your custom agent skill instructions and guidelines.
                         placeholder="# My Agent Skill..."
                         className="w-full min-h-[160px] font-mono text-[12px] text-slate-800 bg-[#FAF9F6] border border-[#E4E3DE] rounded-xl p-4 outline-none resize-y leading-6 font-bold"
                       />
+                      {!skillContent.trim() && (
+                        <p className="text-[11px] font-semibold text-amber-700">
+                          Add SKILL.md content before scanning.
+                        </p>
+                      )}
                       
-                      <button
-                        onClick={() => {
-                          triggerToast(`Successfully generated and downloaded ${selectedSkill}-skill.zip deployment package!`);
-                        }}
-                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 shadow-xs"
-                      >
-                        <span>Export Skill Package (.zip)</span>
-                      </button>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => copyText(skillContent, 'SKILL.md copied.')}
+                          disabled={!skillContent.trim()}
+                          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <span>Copy SKILL.md</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full bg-slate-100 text-slate-400 border border-[#E4E3DE] font-bold py-2 rounded-lg text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-xs cursor-not-allowed"
+                        >
+                          <span>Export package — coming soon</span>
+                        </button>
+                      </div>
+                      <p className="text-[11px] font-medium text-slate-500">
+                        ZIP export is not available yet. You can copy SKILL.md for now.
+                      </p>
                     </div>
                   </div>
                 )}
@@ -2427,16 +2497,21 @@ Define your custom agent skill instructions and guidelines.
                     </select>
                   </div>
                   <button
-                    onClick={() => runAnalysis()}
-                    disabled={!promptText.trim() || loading}
+                    onClick={() => runAnalysis(activeScanInput, activeScanContract, variables, activeScanSource)}
+                    disabled={scanDisabled}
                     className="shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-[13px] font-bold text-white shadow-sm transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3 3L22 4" />
                     </svg>
-                    <span>{loading ? 'Scanning…' : 'Scan Prompt'}</span>
+                    <span>{loading ? 'Scanning…' : scanButtonLabel}</span>
                   </button>
                 </div>
+                {scanDisabled && !loading && (
+                  <p className="text-[11px] font-semibold text-amber-700">
+                    {scanEmptyHelper}
+                  </p>
+                )}
               </div>
             </div>
           </section>
@@ -2454,10 +2529,14 @@ Define your custom agent skill instructions and guidelines.
                     <h2 className="text-3xl font-black tracking-tight">{scanVerdict}</h2>
                     <p className="text-sm font-semibold leading-6 text-slate-800">{scanConsequence}</p>
                   </div>
-                  <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3 lg:min-w-[420px]">
+                  <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-4 lg:min-w-[520px]">
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Score</span>
                       <span className="mt-1 block font-mono text-lg font-black text-slate-900">{result.score}/100</span>
+                    </div>
+                    <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Source</span>
+                      <span className="mt-1 block font-bold text-slate-900">{scanSourceLabel || 'Prompt Editor'}</span>
                     </div>
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Reached</span>
@@ -2638,7 +2717,7 @@ Define your custom agent skill instructions and guidelines.
                 </ul>
 
                 {(() => {
-                  const conf = getWorkflowConfidence(promptText, primaryWorkflow);
+                  const conf = getWorkflowConfidence(displayedScanText, primaryWorkflow);
                   const boundaryCrossed = primaryWorkflow?.path?.trustBoundaryCrossed ? "YES (Warning)" : "NO";
                   const sinkReached = primaryWorkflow?.path?.privilegedSinkReached ? "YES (Escalated)" : "NO";
                   
@@ -2652,7 +2731,7 @@ Define your custom agent skill instructions and guidelines.
                     sourceVal = primaryWorkflow.source;
                   }
 
-                  const evidenceList = getWorkflowEvidence(promptText, primaryWorkflow);
+                  const evidenceList = getWorkflowEvidence(displayedScanText, primaryWorkflow);
 
                   return (
                     <details className="space-y-4 rounded-xl border border-[#E4E3DE]/60 bg-white p-3">
@@ -3119,7 +3198,7 @@ Define your custom agent skill instructions and guidelines.
                           📝 Original Prompt (Before)
                         </div>
                         <div className="p-3 font-mono text-[10.5px] leading-relaxed text-slate-700 overflow-y-auto max-h-[160px] whitespace-pre-wrap select-text">
-                          {promptText || 'Paste a prompt above to see where it can go.'}
+                          {displayedScanText || 'Paste a prompt above to see where it can go.'}
                         </div>
                       </div>
 
@@ -3745,7 +3824,7 @@ Define your custom agent skill instructions and guidelines.
                           <span className="h-1.5 w-1.5 rounded-full bg-red-500"></span>
                         </div>
                         <p className="mt-3 line-clamp-6 font-mono text-[11px] leading-5 text-[#57534E]">
-                          {promptText || 'Paste a prompt above to see where it can go.'}
+                          {displayedScanText || 'Paste a prompt above to see where it can go.'}
                         </p>
                       </div>
                       <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6]/40 border-l-4 border-l-emerald-500 p-4 shadow-3xs">
