@@ -3,8 +3,7 @@ import {
   evaluatePrompt, 
   compressPromptLLMLingua, 
   calculateROI,
-  validatePromptAgainstContract,
-  runCrossModelEvaluation
+  validatePromptAgainstContract
 } from '@promptsonar/core';
 import { supabase } from '@/lib/supabase';
 import { checkUsageLimit, incrementScanUsage } from '@/lib/billing';
@@ -12,7 +11,7 @@ import { checkUsageLimit, incrementScanUsage } from '@/lib/billing';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { promptText, contractYaml, variables, runCrossModel, models } = body;
+    const { promptText, contractYaml, variables } = body;
     let orgId = body.orgId;
     const localSandbox = !orgId;
 
@@ -83,16 +82,8 @@ export async function POST(request: Request) {
       }
     }
 
-    // 6. Optional: Cross-Model Evaluation
-    let crossModelResult = null;
-    if (runCrossModel) {
-      try {
-        const modelList = Array.isArray(models) ? models : ['gpt-4o', 'claude-3.5'];
-        crossModelResult = await runCrossModelEvaluation(promptText, 'playground.ts', modelList);
-      } catch (err: any) {
-        console.error("Cross-model eval failed:", err);
-      }
-    }
+    // 6. Model comparison is manual-only. No provider calls or synthetic results are run here.
+    const crossModelResult = null;
 
     // 7. Enforce Rule QF-4: Token estimate only, compression pending license
     const estimatedTokens = Math.ceil(promptText.length / 4);
