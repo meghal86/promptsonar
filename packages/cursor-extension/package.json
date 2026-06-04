@@ -1,0 +1,68 @@
+{
+  "name": "@promptsonar/cursor-extension",
+  "displayName": "PromptSonar for Cursor",
+  "description": "Cursor integration for local PromptSonar execution-path analysis. No LLM calls, no telemetry.",
+  "version": "1.4.0",
+  "private": true,
+  "main": "./dist/extension.js",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Linters",
+    "Machine Learning"
+  ],
+  "contributes": {
+    "commands": [
+      { "command": "promptsonar.cursor.scanCurrentFile", "title": "PromptSonar: Scan Current File" },
+      { "command": "promptsonar.cursor.openExecutionPath", "title": "PromptSonar: Open Execution Path" },
+      { "command": "promptsonar.cursor.showWorkflowReplay", "title": "PromptSonar: Show Workflow Replay" },
+      { "command": "promptsonar.cursor.showWorkflowDiff", "title": "PromptSonar: Show Workflow Diff" },
+      { "command": "promptsonar.cursor.applyFixAndShowWorkflowDiff", "title": "PromptSonar: Apply Fix + Show Workflow Diff" },
+      { "command": "promptsonar.cursor.exportSarif", "title": "PromptSonar: Export SARIF" },
+      { "command": "promptsonar.cursor.copyReport", "title": "PromptSonar: Copy Report" },
+      { "command": "promptsonar.cursor.openPlayground", "title": "PromptSonar: Open Playground" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "promptsonar-cursor-sidebar",
+          "title": "PromptSonar",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "promptsonar-cursor-sidebar": [
+        {
+          "id": "promptsonar-cursor-execution-path",
+          "name": "PromptSonar Execution Path"
+        }
+      ]
+    },
+    "configuration": {
+      "type": "object",
+      "title": "PromptSonar Cursor",
+      "properties": {
+        "promptsonar.cursor.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "description": "Delay before re-scanning while typing."
+        },
+        "promptsonar.cursor.maxFileSizeBytes": {
+          "type": "number",
+          "default": 1048576,
+          "description": "Maximum file size PromptSonar will scan live."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@promptsonar/core": "*"
+  },
+  "devDependencies": {}
+}

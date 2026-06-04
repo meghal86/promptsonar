@@ -9,6 +9,9 @@ import {
     WorkflowRisk,
     WorkflowTrust,
 } from './types';
+import { attachProvenance } from './provenance';
+import { buildWorkflowDiff } from './diff';
+import { buildWorkflowReplay } from './replay';
 import type { Severity } from '../rules/types';
 
 interface PatternDef {
@@ -281,6 +284,8 @@ function trustFor(type: WorkflowNodeType): WorkflowTrust {
         external_api: 'privileged',
         policy_override: 'untrusted',
         secret: 'privileged',
+        model: 'trusted',
+        response: 'trusted',
         unknown: 'unknown',
     };
     return trustByType[type];
@@ -523,14 +528,7 @@ function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[])
         severityReason: severityReason(risk, sink, haystack),
     };
 
-    const evidenceList = extractWorkflowEvidence(haystack);
-    const confidenceMetrics = calculateWorkflowConfidence(haystack, path);
-
-    path.confidence_score = confidenceMetrics.score;
-    path.confidence_level = confidenceMetrics.level;
-    path.workflow_evidence = evidenceList;
-
-    return {
+    const workflow: FindingWorkflow = {
         path,
         source: nodeSpecs[0].type,
         sink,
@@ -543,6 +541,21 @@ function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[])
         confidence_level: confidenceMetrics.level,
         workflow_evidence: evidenceList,
     };
+
+    // Feature 1/2/4: attach the deterministic, evidence-backed provenance layer.
+    const enriched = attachProvenance(workflow, input);
+
+    // Workflow Diff Engine: when the path reaches a privileged sink, attach the
+    // deterministic before/after remediation diff. Additive and backward
+    // compatible — consumers that don't read `workflow_diff` are unaffected.
+    if (enriched.path.privilegedSinkReached) {
+        const diff = buildWorkflowDiff(enriched);
+        enriched.workflow_diff = diff;
+        enriched.path.workflow_diff = diff;
+    }
+    enriched.workflow_replay = buildWorkflowReplay(enriched);
+
+    return enriched;
 }
 
 

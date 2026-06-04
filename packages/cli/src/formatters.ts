@@ -1,7 +1,8 @@
 import chalk from 'chalk';
+import { analyzeRootCause, humanRuleName } from '@promptsonar/core';
 import { ScanResult } from './scanner';
 
-const VERSION = '1.2.0';
+const VERSION = '1.4.0';
 
 // Severity color/emoji map
 const SEVERITY_DISPLAY: Record<string, { emoji: string; color: (s: string) => string; label: string }> = {
@@ -16,18 +17,64 @@ function shouldShowWorkflow(severity: string): boolean {
 }
 
 function formatWorkflowPath(finding: ScanResult['findings'][number]): string[] {
-    if (!finding.workflow || !shouldShowWorkflow(finding.severity)) return [];
+    const workflow = finding.workflow as any;
+    if (!workflow || !shouldShowWorkflow(finding.severity)) return [];
 
     const lines = ['     AI Workflow Path:'];
-    finding.workflow.path.nodes.forEach((node, index) => {
+    workflow.path.nodes.forEach((node: any, index: number) => {
         const prefix = index === 0 ? '       ' : '         -> ';
         const trust = node.trust === 'unknown' ? '' : ` (${node.trust})`;
         lines.push(`${prefix}${node.type}${trust}`);
     });
+
+    // Execution Path Confidence (deterministic provenance score).
+    if (typeof workflow.confidence_score === 'number') {
+        const level = workflow.confidence_level ? ` (${workflow.confidence_level})` : '';
+        lines.push(`     Execution Path Confidence: ${workflow.confidence_score}%${level}`);
+    }
+
     lines.push('     Risk:');
-    lines.push(`       ${finding.workflow.path.summary.replace(/_/g, ' ')} is a ${finding.workflow.risk} workflow path.`);
+    lines.push(`       ${workflow.path.summary.replace(/_/g, ' ')} is a ${workflow.risk} workflow path.`);
+
+    // Workflow Diff (remediation before/after).
+    const diff = workflow.workflow_diff;
+    if (diff) {
+        lines.push('     Workflow Diff:');
+        if (diff.executionPathRemoved) {
+            lines.push(chalk.green('       ✓ Execution Path Removed'));
+        } else {
+            lines.push(chalk.yellow(`       ⚠ Path not fully removed (${diff.diffReason})`));
+        }
+        lines.push(`       Risk Reduction: ${diff.riskReduction}% (${diff.beforeRisk} -> ${diff.afterRisk})`);
+        if (Array.isArray(diff.removedNodes) && diff.removedNodes.length > 0) {
+            lines.push(`       Removed Nodes: ${diff.removedNodes.map((n: string) => n.replace(/_/g, ' ')).join(', ')}`);
+        }
+    }
+
     lines.push('     Recommendation:');
-    lines.push(`       ${finding.workflow.recommendation}`);
+    lines.push(`       ${workflow.recommendation}`);
+    return lines;
+}
+
+/**
+ * Root Cause Analysis block for a single scanned file: the finding that best
+ * explains the cluster, plus the related findings describing the same issue.
+ * Deterministic — no findings are deleted or suppressed.
+ */
+function formatRootCause(result: ScanResult): string[] {
+    const analysis = analyzeRootCause(result.findings as any);
+    if (!analysis) return [];
+
+    const lines: string[] = [];
+    lines.push(chalk.bold('  Root Cause:'));
+    lines.push(`     ${humanRuleName(analysis.rootCause.rule_id)}`);
+    if (analysis.supportingFindings.length > 0) {
+        lines.push('  Supporting:');
+        for (const sf of analysis.supportingFindings) {
+            lines.push(`     - ${humanRuleName(sf.rule_id)}`);
+        }
+    }
+    lines.push('');
     return lines;
 }
 
@@ -95,6 +142,9 @@ export function formatTerminal(results: ScanResult[]): string {
                 }
                 lines.push('');
             }
+
+            // Root Cause Analysis (groups related findings; organization only).
+            lines.push(...formatRootCause(result));
         }
 
         // Summary line

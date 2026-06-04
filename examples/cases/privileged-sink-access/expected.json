@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "1.0",
+  "id": "privileged-sink-access",
+  "category": "Privileged Sink Access",
+  "overview": "A prompt template forwards injected user instructions to a shell command tool.",
+  "source": {
+    "derivedFrom": "benchmarks/execution-path/cases.json",
+    "enginesReused": [
+      "evaluatePrompt",
+      "analyzeExecutionPath",
+      "workflow provenance",
+      "workflow confidence",
+      "workflow replay",
+      "workflow diff"
+    ],
+    "scannerChanges": false
+  },
+  "vulnerableArtifact": "vulnerable.prompt",
+  "vulnerablePrompt": "vulnerable.prompt",
+  "expectedFindings": [
+    {
+      "ruleId": "sec_owasp_llm01_injection",
+      "severity": "high",
+      "description": "User input contains instruction override language."
+    },
+    {
+      "ruleId": "sec_privileged_sink_access",
+      "severity": "critical",
+      "description": "The inferred execution path reaches shell execution."
+    }
+  ],
+  "executionPath": {
+    "nodes": [
+      "user_input",
+      "tool_router",
+      "shell_execution"
+    ],
+    "display": "User Input -> Tool Router -> Shell Execution",
+    "privilegedSinkReached": true,
+    "trustBoundariesCrossed": 2
+  },
+  "provenanceEvidence": [
+    {
+      "node": "user_input",
+      "evidence": "User Input is inferred from the Privileged Sink Access execution path fixture.",
+      "source": "vulnerable.prompt",
+      "ruleIds": [
+        "sec_owasp_llm01_injection",
+        "sec_privileged_sink_access"
+      ]
+    },
+    {
+      "node": "tool_router",
+      "evidence": "Tool Router is inferred from the Privileged Sink Access execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_owasp_llm01_injection",
+        "sec_privileged_sink_access"
+      ]
+    },
+    {
+      "node": "shell_execution",
+      "evidence": "Shell Execution is inferred from the Privileged Sink Access execution path fixture.",
+      "source": "workflow graph",
+      "ruleIds": [
+        "sec_owasp_llm01_injection",
+        "sec_privileged_sink_access"
+      ]
+    }
+  ],
+  "confidence": {
+    "score": 50,
+    "level": "MEDIUM",
+    "expectedRange": {
+      "min": 45,
+      "max": 55
+    },
+    "source": "workflow confidence engine"
+  },
+  "rootCause": {
+    "ruleId": "sec_workflow_escalation",
+    "label": "Workflow Escalation",
+    "supportingFindings": [
+      "Prompt Injection",
+      "Privileged Sink Access"
+    ],
+    "source": "root cause grouping engine"
+  },
+  "workflowReplay": {
+    "replayVersion": "1.0",
+    "generatedFrom": "workflow graph",
+    "eventCount": 3,
+    "timeline": [
+      "USER_INPUT",
+      "TOOL_ROUTER",
+      "SHELL"
+    ],
+    "summary": "Privileged Sink Access replay follows User Input -> Tool Router -> Shell Execution."
+  },
+  "workflowDiff": {
+    "workflowDiffVersion": "1.0",
+    "executionPathRemoved": true,
+    "riskReduction": 95,
+    "beforePath": [
+      "user_input",
+      "tool_router",
+      "shell_execution"
+    ],
+    "afterPath": [
+      "user_input",
+      "model",
+      "response"
+    ],
+    "removedNodes": [
+      "tool_router",
+      "shell_execution"
+    ],
+    "diffReason": "privileged_sink_removed"
+  },
+  "remediatedArtifact": "remediated.prompt",
+  "expectedRiskReduction": {
+    "percent": 95,
+    "rationale": "The remediated version removes the privileged sink or routing surface that made the execution path dangerous."
+  }
+}

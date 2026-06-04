@@ -6,8 +6,8 @@
         "action"
     ],
     "scripts": {
-        "build": "npm run build --workspace packages/core && npm run build --workspace packages/cli && npm run build --workspace packages/dashboard && npm run build --workspace action",
-        "test": "npm run build --workspace packages/core && npm run test --workspace packages/core && npm run test --workspace packages/cli",
+        "build": "npm run build --workspace packages/core && npm run build --workspace packages/cli && npm run build --workspace packages/cursor-extension && npm run build --workspace packages/claude-code && npm run build --workspace packages/dashboard && npm run build --workspace action",
+        "test": "npm run build --workspace packages/core && npm run test --workspace packages/core && npm run test --workspace packages/cli && npm run test --workspace packages/cursor-extension && npm run test --workspace packages/claude-code",
         "lint": "eslint 'packages/*/src/**/*.ts' 'action/src/**/*.ts'",
         "clean": "rimraf packages/*/dist action/dist",
         "adoption:metrics": "node scripts/capture-adoption-metrics.js",
@@ -28,5 +28,5 @@
         },
         "postcss": "8.5.15"
     },
-    "version": "1.2.0"
+    "version": "1.4.0"
 }

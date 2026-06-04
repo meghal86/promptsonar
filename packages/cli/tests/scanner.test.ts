@@ -5,6 +5,8 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { scanFiles, generateSarif } from '../src/scanner';
 import { formatJson, getExitCode } from '../src/formatters';
+import { benchmarkToMarkdown, runBenchmark } from '../src/benchmark';
+import { exampleToMarkdown, listExamples, loadExample } from '../src/examples';
 
 function makeTempDir(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'promptsonar-cli-test-'));
@@ -139,4 +141,71 @@ describe('CLI scanner suppressions and SARIF', () => {
         expect(result.stdout).toContain('PromptSonar agent demo');
         expect(result.stdout).toContain('https://promptsonar.vercel.app/playground');
     }, 30000);
+
+    it('runs the execution-path benchmark suite', () => {
+        const datasetPath = path.resolve(__dirname, '..', '..', '..', 'benchmarks', 'execution-path');
+        const summary = runBenchmark(datasetPath);
+
+        expect(summary.caseCount).toBe(8);
+        expect(summary.score).toBe(100);
+        expect(summary.passRate).toBe(100);
+        expect(summary.findingsAccuracy).toBe(100);
+        expect(summary.executionPathAccuracy).toBe(100);
+        expect(summary.confidenceAccuracy).toBe(100);
+        expect(summary.cases.map(testCase => testCase.category)).toEqual([
+            'Prompt Injection',
+            'MCP Tool Poisoning',
+            'Workflow Escalation',
+            'Privileged Sink Access',
+            'Memory Escalation',
+            'Credential Exposure',
+            'RAG Poisoning',
+            'Tool Abuse',
+        ]);
+    });
+
+    it('formats execution-path benchmark markdown reports', () => {
+        const datasetPath = path.resolve(__dirname, '..', '..', '..', 'benchmarks', 'execution-path');
+        const summary = runBenchmark(datasetPath);
+        const markdown = benchmarkToMarkdown(summary);
+
+        expect(markdown).toContain('PromptSonar Execution Path Benchmark Report');
+        expect(markdown).toContain('Execution path accuracy: 100%');
+        expect(markdown).toContain('`prompt-injection`');
+    });
+
+    it('lists the real-world execution-path example library', () => {
+        const examplesRoot = path.resolve(__dirname, '..', '..', '..', 'examples', 'cases');
+        const examples = listExamples(examplesRoot);
+
+        expect(examples).toHaveLength(8);
+        expect(examples.map(example => example.id)).toEqual([
+            'credential-exposure',
+            'mcp-tool-poisoning',
+            'memory-escalation',
+            'privileged-sink-access',
+            'prompt-injection',
+            'rag-poisoning',
+            'tool-abuse',
+            'workflow-escalation',
+        ]);
+        expect(examples.every(example => example.source.scannerChanges === false)).toBe(true);
+    });
+
+    it('shows a real-world example with replay, diff, confidence, and remediation', () => {
+        const examplesRoot = path.resolve(__dirname, '..', '..', '..', 'examples', 'cases');
+        const example = loadExample('mcp-tool-poisoning', examplesRoot);
+        const markdown = exampleToMarkdown(example);
+
+        expect(example.manifest.executionPath.nodes).toEqual([
+            'mcp_server',
+            'privileged_tool',
+            'shell_execution',
+            'filesystem_access',
+        ]);
+        expect(example.manifest.workflowReplay.eventCount).toBe(4);
+        expect(example.manifest.workflowDiff.executionPathRemoved).toBe(true);
+        expect(example.manifest.expectedRiskReduction.percent).toBe(95);
+        expect(markdown).toContain('## Remediated Artifact');
+    });
 });

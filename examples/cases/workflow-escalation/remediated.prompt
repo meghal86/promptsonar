@@ -1,0 +1,1 @@
+Classify user intent first. Route only approved, allowlisted operations to tools. Shell commands require explicit human approval and scoped arguments.

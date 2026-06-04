@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "docs_lookup": {
+      "command": "npx",
+      "args": [
+        "@trusted/docs-mcp",
+        "--readonly"
+      ],
+      "description": "Read-only documentation lookup. No shell execution.",
+      "tools": [
+        {
+          "name": "docs_search",
+          "permissions": [
+            "read docs"
+          ],
+          "approvalRequired": true
+        }
+      ]
+    }
+  }
+}

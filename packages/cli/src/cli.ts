@@ -8,8 +8,10 @@ import { scanFiles, generateSarif } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt } from '@promptsonar/core';
 import { runPromptTests } from './tester';
+import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
+import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
 
-const VERSION = '1.2.0';
+const VERSION = '1.4.0';
 
 const program = new Command();
 
@@ -29,6 +31,10 @@ function formatPolicySchemaError(fileName: string): string {
         '',
         'See documentation: github.com/meghal86/promptsonar'
     ].join('\n');
+}
+
+function commandOption<T = any>(command: any, key: string): T {
+    return typeof command?.opts === 'function' ? command.opts()[key] : command?.[key];
 }
 
 function isGitTracked(filePath: string): boolean {
@@ -294,7 +300,19 @@ function formatMcpTerminal(results: McpAuditResult[]): string {
                         const trust = node.trust === 'unknown' ? '' : ` (${node.trust})`;
                         lines.push(`${prefix}${node.type}${trust}`);
                     });
+                    if (typeof finding.workflow.confidence_score === 'number') {
+                        const level = finding.workflow.confidence_level ? ` (${finding.workflow.confidence_level})` : '';
+                        lines.push(`Execution Path Confidence: ${finding.workflow.confidence_score}%${level}`);
+                    }
                     lines.push(`Risk: ${finding.workflow.path.summary.replace(/_/g, ' ')} is a ${finding.workflow.risk} workflow path.`);
+                    const diff = finding.workflow.workflow_diff;
+                    if (diff) {
+                        lines.push('Workflow Diff:');
+                        lines.push(diff.executionPathRemoved
+                            ? chalk.green('  ✓ Execution Path Removed')
+                            : chalk.yellow(`  ⚠ Path not fully removed (${diff.diffReason})`));
+                        lines.push(`  Risk Reduction: ${diff.riskReduction}% (${diff.beforeRisk} -> ${diff.afterRisk})`);
+                    }
                     lines.push(`Recommendation: ${finding.workflow.recommendation}`);
                 }
                 lines.push('');
@@ -311,7 +329,9 @@ function formatMcpSarif(results: McpAuditResult[]): string {
     const sarifResults: any[] = [];
 
     for (const result of results) {
+        const serverIndex = new Map((result.servers || []).map(s => [s.server, s]));
         for (const finding of result.findings) {
+            const serverSummary = finding.server ? serverIndex.get(finding.server) : undefined;
             ruleMap.set(finding.rule_id, {
                 id: finding.rule_id,
                 name: finding.rule_id,
@@ -323,6 +343,12 @@ function formatMcpSarif(results: McpAuditResult[]): string {
                 level: finding.severity === 'critical' || finding.severity === 'high' ? 'error' : finding.severity === 'medium' ? 'warning' : 'note',
                 message: { text: `${finding.message} Fix: ${finding.fix}` },
                 properties: {
+                    mcp_evidence: finding.evidence,
+                    mcp_confidence_contribution: finding.confidence_contribution,
+                    mcp_risk_score: serverSummary?.risk_score,
+                    mcp_capabilities: serverSummary?.capabilities,
+                    mcp_permissions: serverSummary?.permissions,
+                    mcp_execution_mode: serverSummary?.execution_mode,
                     workflow: finding.workflow ? {
                         source: finding.workflow.source,
                         sink: finding.workflow.sink,
@@ -336,6 +362,22 @@ function formatMcpSarif(results: McpAuditResult[]): string {
                         explanation: finding.workflow.path.explanation,
                         riskStory: finding.workflow.path.riskStory,
                         severityReason: finding.workflow.path.severityReason,
+                    } : undefined,
+                    workflow_diff: finding.workflow?.workflow_diff ? {
+                        workflow_diff_version: finding.workflow.workflow_diff.workflowDiffVersion,
+                        diff_reason: finding.workflow.workflow_diff.diffReason,
+                        risk_reduction: finding.workflow.workflow_diff.riskReduction,
+                        before_risk: finding.workflow.workflow_diff.beforeRisk,
+                        after_risk: finding.workflow.workflow_diff.afterRisk,
+                        execution_path_removed: finding.workflow.workflow_diff.executionPathRemoved,
+                        removed_nodes: finding.workflow.workflow_diff.removedNodes,
+                        removed_edges: finding.workflow.workflow_diff.removedEdges,
+                        added_nodes: finding.workflow.workflow_diff.addedNodes,
+                        added_edges: finding.workflow.workflow_diff.addedEdges,
+                        before_path: finding.workflow.workflow_diff.before.nodes.map(node => node.type),
+                        after_path: finding.workflow.workflow_diff.after.nodes.map(node => node.type),
+                        removed_privileged_sinks: finding.workflow.workflow_diff.comparison.privilegedSinks.removed,
+                        trust_boundary_removed: finding.workflow.workflow_diff.comparison.trustBoundaries.removed,
                     } : undefined,
                 },
                 locations: [{
@@ -361,6 +403,19 @@ function formatMcpSarif(results: McpAuditResult[]): string {
                 },
             },
             results: sarifResults,
+            properties: {
+                mcp_run_risk_score: results.map(r => ({
+                    filePath: r.filePath,
+                    risk_score: r.risk_score,
+                    servers: (r.servers || []).map(s => ({
+                        server: s.server,
+                        capabilities: s.capabilities,
+                        permissions: s.permissions,
+                        execution_mode: s.execution_mode,
+                        risk_score: s.risk_score,
+                    })),
+                })),
+            },
         }],
     }, null, 2);
 }
@@ -401,6 +456,114 @@ program
             process.exit(1);
         }
     });
+
+program
+    .command('benchmark')
+    .description('Run the canonical PromptSonar execution-path security benchmark')
+    .option('--dataset <path>', 'Path to benchmark dataset directory or cases.json', path.resolve(process.cwd(), 'benchmarks', 'execution-path'))
+    .option('--format <type>', 'Output format (terminal|json|markdown)', 'terminal')
+    .option('--output <file>', 'Write benchmark output to a file')
+    .option('--no-fail', 'Do not exit non-zero when benchmark cases fail')
+    .action((options) => {
+        try {
+            const summary = runBenchmark(options.dataset);
+            if (!['terminal', 'json', 'markdown'].includes(options.format)) {
+                console.error(chalk.red(`[PromptSonar] Benchmark error: unknown format "${options.format}". Use terminal, json, or markdown.`));
+                process.exit(1);
+            }
+
+            const output = options.format === 'json'
+                ? JSON.stringify(summary, null, 2)
+                : options.format === 'markdown'
+                    ? benchmarkToMarkdown(summary)
+                    : benchmarkToTerminal(summary);
+
+            if (options.output) {
+                fs.writeFileSync(path.resolve(options.output), `${output}\n`, 'utf-8');
+                console.log(chalk.green(`Benchmark report written to ${options.output}`));
+            } else {
+                console.log(output);
+            }
+
+            if (summary.failedCount > 0 && options.fail !== false) {
+                process.exit(1);
+            }
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Benchmark error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+const examplesCommand = new Command('examples')
+    .description('Browse the canonical PromptSonar real-world execution-path example library')
+    .action(() => {
+        try {
+            console.log(examplesListToTerminal(listExamples()));
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Examples error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+examplesCommand
+    .command('list')
+    .description('List available execution-path examples')
+    .option('--library <path>', 'Path to examples/cases directory')
+    .option('--format <type>', 'Output format (terminal|json)', 'terminal')
+    .action((options) => {
+        try {
+            const selectedFormat = commandOption<string>(options, 'format');
+            const examplesRoot = commandOption<string | undefined>(options, 'library');
+            if (!['terminal', 'json'].includes(selectedFormat)) {
+                console.error(chalk.red(`[PromptSonar] Examples error: unknown format "${selectedFormat}". Use terminal or json.`));
+                process.exit(1);
+            }
+
+            const examples = listExamples(examplesRoot);
+            const output = selectedFormat === 'json'
+                ? JSON.stringify(examples, null, 2)
+                : examplesListToTerminal(examples);
+            console.log(output);
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Examples error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+examplesCommand
+    .command('show')
+    .description('Show one execution-path example')
+    .argument('[case]', 'Example case id')
+    .option('--library <path>', 'Path to examples/cases directory')
+    .option('--format <type>', 'Output format (terminal|json|markdown)', 'terminal')
+    .action((caseId, options) => {
+        try {
+            const selectedFormat = commandOption<string>(options, 'format');
+            const examplesRoot = commandOption<string | undefined>(options, 'library');
+            if (!['terminal', 'json', 'markdown'].includes(selectedFormat)) {
+                console.error(chalk.red(`[PromptSonar] Examples error: unknown format "${selectedFormat}". Use terminal, json, or markdown.`));
+                process.exit(1);
+            }
+
+            if (!caseId) {
+                console.log(examplesListToTerminal(listExamples(examplesRoot)));
+                return;
+            }
+
+            const example = loadExample(caseId, examplesRoot);
+            const output = selectedFormat === 'json'
+                ? JSON.stringify(example, null, 2)
+                : selectedFormat === 'markdown'
+                    ? exampleToMarkdown(example)
+                    : exampleToTerminal(example);
+            console.log(output);
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Examples error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+program.addCommand(examplesCommand);
 
 program
     .command('sbom')

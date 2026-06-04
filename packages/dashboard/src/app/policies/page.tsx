@@ -27,10 +27,10 @@ export default function PoliciesPage() {
       <main className="mx-auto max-w-6xl px-6 py-12">
         <header className="mb-10 flex flex-col gap-4 border-b border-[#E4E3DE] pb-8 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">PromptSonar Governance</p>
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">Security Policies</p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">Policy Control Center</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#57534E]">
-              Manage DSL guardrails that decide when prompts pass, warn, or block before they ship.
+              Manage rule-based guardrails that decide when prompts pass, warn, or block before they ship.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -66,6 +66,7 @@ export default function PoliciesPage() {
                   <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Min Score</p>
                     <p className="mt-2 text-2xl font-black text-emerald-700">{policy.minScore}</p>
+                    <p className="mt-1 text-[10px] font-semibold text-[#78716C]">Safety Score threshold, out of 100.</p>
                   </div>
                   <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Blocked</p>
@@ -73,7 +74,7 @@ export default function PoliciesPage() {
                   </div>
                   <button className="rounded-xl border border-[#E4E3DE] bg-white p-4 text-left transition hover:bg-slate-50">
                     <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Action</p>
-                    <p className="mt-2 text-sm font-black text-slate-900">Edit DSL</p>
+                    <p className="mt-2 text-sm font-black text-slate-900">Edit Rules</p>
                   </button>
                 </div>
               </div>

@@ -11,8 +11,13 @@ import {
 import { PromptSonarWebviewPanel } from './WebviewPanel';
 import { PromptSonarCodeLensProvider } from './CodeLensProvider';
 import { PromptSonarSidebarProvider } from './SidebarProvider';
+import { ExecutionPathProvider } from './ExecutionPathProvider';
+import { PromptSonarQuickFixProvider } from './QuickFixProvider';
+import { isScannable, isMcpConfigFile } from '../shared/detection';
+import { executionPathText, pickWorstWorkflowFinding, reportText } from '../shared/model';
+import { applyAllFixes, workflowDiffReport, workflowDiffReportBetween } from '../shared/quickfix';
 // @ts-ignore
-import { parseFile, evaluatePrompt, compressPromptLLMLingua } from '@promptsonar/core';
+import { parseFile, evaluatePrompt, compressPromptLLMLingua, auditMcpConfig, formatToSarif } from '@promptsonar/core';
 
 let client: LanguageClient;
 
@@ -36,6 +41,23 @@ const SUPPORTED_LANGUAGES = new Set([
 ]);
 
 const WORKSPACE_SCAN_GLOB = '**/*.{ts,tsx,js,jsx,py,go,java,rs,cs,prompt,ai,chat,json,yml,yaml}';
+
+const PROMPTSONAR_DOCUMENT_SELECTOR: vscode.DocumentSelector = [
+    { scheme: 'file', language: 'python' },
+    { scheme: 'file', language: 'typescript' },
+    { scheme: 'file', language: 'javascript' },
+    { scheme: 'file', language: 'typescriptreact' },
+    { scheme: 'file', language: 'javascriptreact' },
+    { scheme: 'file', language: 'go' },
+    { scheme: 'file', language: 'java' },
+    { scheme: 'file', language: 'rust' },
+    { scheme: 'file', language: 'csharp' },
+    { scheme: 'file', language: 'markdown' },
+    { scheme: 'file', language: 'plaintext' },
+    { scheme: 'file', language: 'json' },
+    { scheme: 'file', language: 'yaml' },
+    { scheme: 'file', pattern: '**/*.{prompt,md,txt,json,yml,yaml}' },
+];
 
 const SUPPORTED_MARKDOWN_PROMPT_FILES = new Set([
     'skill.md',
@@ -120,8 +142,8 @@ function isIgnoredWorkspaceFile(filePath: string): boolean {
     return WORKSPACE_EXCLUDE_SEGMENTS.some(segment => normalized.includes(`/${segment}/`));
 }
 
-function isSupportedLanguage(languageId: string): boolean {
-    return SUPPORTED_LANGUAGES.has(languageId);
+function isSupportedLanguage(languageId: string, fileName?: string, content?: string): boolean {
+    return SUPPORTED_LANGUAGES.has(languageId) || Boolean(fileName && isScannable(fileName, content));
 }
 
 export function activate(context: ExtensionContext) {
@@ -143,15 +165,7 @@ export function activate(context: ExtensionContext) {
 
     // Options to control the language client
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [
-            { scheme: 'file', language: 'python' },
-            { scheme: 'file', language: 'typescript' },
-            { scheme: 'file', language: 'javascript' },
-            { scheme: 'file', language: 'go' },
-            { scheme: 'file', language: 'java' },
-            { scheme: 'file', language: 'rust' },
-            { scheme: 'file', language: 'csharp' }
-        ],
+        documentSelector: PROMPTSONAR_DOCUMENT_SELECTOR as any,
         synchronize: {
             // Notify the server about file changes to '.clientrc files contained in the workspace
             fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
@@ -161,8 +175,16 @@ export function activate(context: ExtensionContext) {
     // Explicitly register a CodeLens Provider on the client side just in case the LSP capabilities map fails
     context.subscriptions.push(
         languages.registerCodeLensProvider(
-            clientOptions.documentSelector as any,
+            PROMPTSONAR_DOCUMENT_SELECTOR,
             new PromptSonarCodeLensProvider()
+        )
+    );
+
+    context.subscriptions.push(
+        languages.registerCodeActionsProvider(
+            PROMPTSONAR_DOCUMENT_SELECTOR,
+            new PromptSonarQuickFixProvider(),
+            { providedCodeActionKinds: PromptSonarQuickFixProvider.providedKinds }
         )
     );
 
@@ -180,7 +202,7 @@ export function activate(context: ExtensionContext) {
     // Auto-trigger on file OPEN
     context.subscriptions.push(
         workspace.onDidOpenTextDocument(doc => {
-            if (isSupportedLanguage(doc.languageId)) {
+            if (isSupportedLanguage(doc.languageId, doc.fileName, doc.getText())) {
                 // The server will auto-validate via onDidChangeContent,
                 // but we explicitly request validation on open too
                 client.sendNotification('promptsonar/requestValidation', { uri: doc.uri.toString() });
@@ -191,7 +213,7 @@ export function activate(context: ExtensionContext) {
     // Auto-refresh on file SAVE (< 2 seconds target)
     context.subscriptions.push(
         workspace.onDidSaveTextDocument(doc => {
-            if (isSupportedLanguage(doc.languageId)) {
+            if (isSupportedLanguage(doc.languageId, doc.fileName, doc.getText())) {
                 client.sendNotification('promptsonar/requestValidation', { uri: doc.uri.toString() });
             }
         })
@@ -204,6 +226,28 @@ export function activate(context: ExtensionContext) {
     // Register Sidebar Tree Provider
     const sidebarProvider = new PromptSonarSidebarProvider(context);
     window.registerTreeDataProvider('promptsonar-explorer', sidebarProvider);
+    const executionPathProvider = new ExecutionPathProvider();
+    window.registerTreeDataProvider('promptsonar-execution-path', executionPathProvider);
+
+    let executionPathTimer: NodeJS.Timeout | undefined;
+    const refreshExecutionPath = (doc?: vscode.TextDocument) => {
+        if (executionPathTimer) clearTimeout(executionPathTimer);
+        const debounceMs = workspace.getConfiguration('promptsonar').get<number>('debounceMs', 300);
+        executionPathTimer = setTimeout(() => executionPathProvider.update(doc), debounceMs);
+    };
+
+    if (window.activeTextEditor) {
+        refreshExecutionPath(window.activeTextEditor.document);
+    }
+
+    context.subscriptions.push(
+        window.onDidChangeActiveTextEditor(editor => refreshExecutionPath(editor?.document)),
+        workspace.onDidChangeTextDocument(event => {
+            if (window.activeTextEditor?.document.uri.toString() === event.document.uri.toString()) {
+                refreshExecutionPath(event.document);
+            }
+        })
+    );
 
     // Listen for custom notifications from the server
     client.onNotification('promptsonar/scanResult', (params: { score: number | null, file: string, tokenEstimate?: number }) => {
@@ -229,6 +273,54 @@ export function activate(context: ExtensionContext) {
             statusBarItem.hide();
         }
     });
+
+    async function scanActiveDocument(): Promise<{ document: vscode.TextDocument; findings: any[]; mcpAudit?: any; result: any; text: string } | undefined> {
+        const editor = window.activeTextEditor;
+        if (!editor) {
+            window.showErrorMessage('No active file.');
+            return undefined;
+        }
+
+        const document = editor.document;
+        const text = document.getText();
+        if (!isScannable(document.fileName, text)) {
+            window.showInformationMessage('Open a prompt, agent, system prompt, or MCP config file first.');
+            return undefined;
+        }
+
+        const maxFileSizeBytes = workspace.getConfiguration('promptsonar').get<number>('maxFileSizeBytes', 1048576);
+        if (Buffer.byteLength(text, 'utf8') > maxFileSizeBytes) {
+            window.showWarningMessage(`PromptSonar skipped ${path.basename(document.fileName)} because it is larger than ${maxFileSizeBytes} bytes.`);
+            return undefined;
+        }
+
+        let findings: any[] = [];
+        let mcpAudit: any | undefined;
+        if (isMcpConfigFile(document.fileName)) {
+            mcpAudit = auditMcpConfig(document.fileName, text);
+            findings = mcpAudit.findings.map((finding: any) => ({
+                rule_id: finding.rule_id,
+                category: 'security',
+                severity: finding.severity,
+                explanation: finding.message,
+                suggested_fix: finding.fix,
+                workflow: finding.workflow,
+            }));
+        } else {
+            const prompts = await parseFile({ filePath: document.fileName, content: text, language: '' });
+            for (const prompt of prompts) {
+                const evaluation = evaluatePrompt({ text: prompt.text, context: { filePath: document.fileName } });
+                findings.push(...evaluation.findings);
+            }
+        }
+
+        const score = findings.some(f => f.severity === 'critical') ? 40
+            : findings.some(f => f.severity === 'high') ? 65
+                : findings.length ? 80
+                    : 100;
+        const status = score < 70 ? 'fail' : score < 85 ? 'warn' : 'pass';
+        return { document, findings, mcpAudit, result: { score, status, findings }, text };
+    }
 
     // Register Health Check Command (triggered via CodeLens or Editor Title Menu)
     context.subscriptions.push(
@@ -279,6 +371,87 @@ export function activate(context: ExtensionContext) {
             } catch (e) {
                 window.showErrorMessage(`PromptSonar Scan Failed: ${String(e)}`);
             }
+        })
+    );
+
+    context.subscriptions.push(
+        commands.registerCommand('promptsonar.scanCurrentFile', async () => {
+            const scan = await scanActiveDocument();
+            if (!scan) return;
+            executionPathProvider.update(scan.document);
+            await PromptSonarWebviewPanel.createOrShow(context.extensionUri, scan.result, scan.text);
+        }),
+        commands.registerCommand('promptsonar.openExecutionPath', async () => {
+            if (window.activeTextEditor) executionPathProvider.update(window.activeTextEditor.document);
+            await commands.executeCommand('workbench.view.extension.promptsonar-sidebar');
+        }),
+        commands.registerCommand('promptsonar.copyExecutionPath', async () => {
+            const scan = await scanActiveDocument();
+            if (!scan) return;
+            const workflow = pickWorstWorkflowFinding(scan.findings)?.workflow;
+            await vscode.env.clipboard.writeText(executionPathText(workflow));
+            window.showInformationMessage('PromptSonar execution path copied.');
+        }),
+        commands.registerCommand('promptsonar.copyReport', async () => {
+            const scan = await scanActiveDocument();
+            if (!scan) return;
+            await vscode.env.clipboard.writeText(reportText(scan.findings, scan.mcpAudit, scan.document.fileName));
+            window.showInformationMessage('PromptSonar report copied.');
+        }),
+        commands.registerCommand('promptsonar.showWorkflowDiff', async () => {
+            const scan = await scanActiveDocument();
+            if (!scan) return;
+            const workflow = pickWorstWorkflowFinding(scan.findings)?.workflow;
+            const doc = await workspace.openTextDocument({
+                content: workflowDiffReport(workflow),
+                language: 'markdown',
+            });
+            await window.showTextDocument(doc, vscode.ViewColumn.Beside);
+        }),
+        commands.registerCommand('promptsonar.applyFixAndShowWorkflowDiff', async () => {
+            const before = await scanActiveDocument();
+            if (!before) return;
+            const beforeWorkflow = pickWorstWorkflowFinding(before.findings)?.workflow;
+
+            const hardened = applyAllFixes(before.text);
+            if (hardened === before.text) {
+                window.showInformationMessage('PromptSonar: no deterministic fixes matched this file.');
+                return;
+            }
+
+            const edit = new vscode.WorkspaceEdit();
+            const fullRange = new vscode.Range(before.document.positionAt(0), before.document.positionAt(before.text.length));
+            edit.replace(before.document.uri, fullRange, hardened);
+            const applied = await vscode.workspace.applyEdit(edit);
+            if (!applied) {
+                window.showErrorMessage('PromptSonar: failed to apply fix edits.');
+                return;
+            }
+
+            const after = await scanActiveDocument();
+            const afterWorkflow = after ? pickWorstWorkflowFinding(after.findings)?.workflow : undefined;
+            const doc = await workspace.openTextDocument({
+                content: workflowDiffReportBetween(beforeWorkflow, afterWorkflow),
+                language: 'markdown',
+            });
+            await window.showTextDocument(doc, vscode.ViewColumn.Beside);
+        }),
+        commands.registerCommand('promptsonar.exportSarif', async () => {
+            const scan = await scanActiveDocument();
+            if (!scan) return;
+            const sarifFindings = scan.findings.map((finding: any) => ({
+                ...finding,
+                filePath: scan.document.fileName,
+                line: 1,
+                column: 1,
+            }));
+            const sarif = formatToSarif(sarifFindings, scan.document.fileName);
+            const outputUri = Uri.file(path.join(path.dirname(scan.document.fileName), 'promptsonar-vscode.sarif'));
+            await workspace.fs.writeFile(outputUri, Buffer.from(sarif, 'utf8'));
+            window.showInformationMessage(`PromptSonar SARIF exported to ${outputUri.fsPath}`);
+        }),
+        commands.registerCommand('promptsonar.openPlayground', async () => {
+            await vscode.env.openExternal(Uri.parse('https://github.com/meghal86/promptsonar#readme'));
         })
     );
 
@@ -477,9 +650,24 @@ export function activate(context: ExtensionContext) {
 
                         const fileData = await workspace.fs.readFile(file);
                         const text = Buffer.from(fileData).toString('utf8');
+                        const contentHash = hashContent(text);
+                        const cached = scanCache.get(file.fsPath);
+                        if (cached?.contentHash === contentHash) {
+                            allFindings.push(...cached.findings);
+                            totalScore += cached.score;
+                            promptsEvaluated += cached.promptsEvaluated;
+                            combinedText += cached.combinedText;
+                            if (cached.promptsEvaluated > 0) filesWithPrompts++;
+                            scanLog.appendLine(`↻ ${basename} — reused cached scan`);
+                            continue;
+                        }
 
                         // Use fast regex-based extraction (no WASM dependency)
                         const detectedPrompts = fastExtractPrompts(file.fsPath, text);
+                        const fileFindings: any[] = [];
+                        let fileScore = 0;
+                        let filePromptsEvaluated = 0;
+                        let fileCombinedText = '';
 
                         if (detectedPrompts.length > 0) {
                             filesWithPrompts++;
@@ -489,14 +677,28 @@ export function activate(context: ExtensionContext) {
                         for (const prompt of detectedPrompts) {
                             try {
                                 const result = evaluatePrompt({ text: prompt.text, context: { filePath: file.fsPath } }, config);
-                                allFindings.push(...result.findings.map((f: any) => ({ ...f, file: basename, line: prompt.startLine })));
+                                const findings = result.findings.map((f: any) => ({ ...f, file: basename, line: prompt.startLine }));
+                                fileFindings.push(...findings);
+                                allFindings.push(...findings);
                                 totalScore += result.score;
+                                fileScore += result.score;
                                 promptsEvaluated++;
-                                combinedText += prompt.text + '\n\n';
+                                filePromptsEvaluated++;
+                                const promptText = prompt.text + '\n\n';
+                                combinedText += promptText;
+                                fileCombinedText += promptText;
                             } catch (err: any) {
                                 scanLog.appendLine(`  ⚠ Error evaluating prompt in ${basename}: ${err.message}`);
                             }
                         }
+
+                        scanCache.set(file.fsPath, {
+                            contentHash,
+                            findings: fileFindings,
+                            score: fileScore,
+                            promptsEvaluated: filePromptsEvaluated,
+                            combinedText: fileCombinedText,
+                        });
                     }
 
                     scanLog.appendLine(`\n═══ Scan Complete ═══`);
