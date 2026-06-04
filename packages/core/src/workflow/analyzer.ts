@@ -537,9 +537,6 @@ function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[])
         recommendation,
         confidence,
         explanation,
-        confidence_score: confidenceMetrics.score,
-        confidence_level: confidenceMetrics.level,
-        workflow_evidence: evidenceList,
     };
 
     // Feature 1/2/4: attach the deterministic, evidence-backed provenance layer.

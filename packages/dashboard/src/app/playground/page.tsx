@@ -3293,8 +3293,6 @@ Define your custom agent skill instructions and guidelines.
                     <span className="text-[10.5px] text-[#A8A29E] font-medium font-sans">Line-by-line compliance & API key leak warnings</span>
                   </div>
                 </div>
-              </section>
-
                 <div className="flex flex-col relative min-h-[300px] overflow-y-auto select-text font-mono text-[13px] leading-7 py-1">
                   {result.contractResult && result.contractResult.passed === false && (
                     <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700 flex flex-col gap-1 shrink-0">
@@ -3603,19 +3601,12 @@ Define your custom agent skill instructions and guidelines.
                           <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Developer CLI</span>
                           <p className="text-[10px] text-[#57534E] leading-relaxed mt-1 font-semibold">Scan local prompts in terminal or pipeline scripts.</p>
                         </div>
-                        <div
-                          className="relative h-1.5 flex-1 rounded-full bg-slate-100 overflow-hidden"
-                          role="progressbar"
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-valuenow={pct}
-                          aria-label={`${p.label} score`}
+                        <button
+                          onClick={() => copyText("npx @promptsonar/cli scan .", "CLI scan command copied.")}
+                          className="w-full text-center py-2 bg-white hover:bg-slate-50 border border-[#E4E3DE] text-slate-800 font-bold rounded-lg text-[10px] uppercase tracking-wider transition-all shadow-3xs"
                         >
-                          <div
-                            className={`absolute inset-y-0 left-0 ${barColor} transition-[width] duration-300`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
+                          Copy CLI command
+                        </button>
                       </div>
 
                       <div className="rounded-xl border border-[#E4E3DE] bg-slate-50/40 p-3.5 flex flex-col justify-between gap-3">
@@ -3624,25 +3615,17 @@ Define your custom agent skill instructions and guidelines.
                           <p className="text-[10px] text-[#57534E] leading-relaxed mt-1 font-semibold">Real-time analysis, warning highlights, and inline fixes as you write prompts.</p>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </section>
 
                       <div className="rounded-xl border border-[#E4E3DE] bg-slate-50/40 p-3.5 flex flex-col justify-between gap-3">
                         <div>
                           <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">GitHub Action</span>
                           <p className="text-[10px] text-[#57534E] leading-relaxed mt-1 font-semibold">Block compromised agent configurations and credential exposure in PRs.</p>
                         </div>
-                        <button 
-                          onClick={() => {
-                            copyText("- uses: promptsonar/action@v1\n  with:\n    path: './prompts'", "GitHub Action workflow step copied.");
-                          }}
-                          className="w-full text-center py-2 bg-white hover:bg-slate-50 border border-[#E4E3DE] text-slate-800 font-bold rounded-lg text-[10px] uppercase tracking-wider transition-all shadow-3xs flex items-center justify-center gap-1.5"
-                          title="Use this in a GitHub Actions workflow file."
+                        <button
+                          onClick={() => copyText("- uses: promptsonar/action@v1\n  with:\n    path: './prompts'", "GitHub Action workflow step copied.")}
+                          className="w-full text-center py-2 bg-white hover:bg-slate-50 border border-[#E4E3DE] text-slate-800 font-bold rounded-lg text-[10px] uppercase tracking-wider transition-all shadow-3xs"
                         >
-                          <span>Copy GitHub Action</span>
-                          <span className="text-[9px] opacity-60">📋</span>
+                          Copy GitHub Action
                         </button>
                       </div>
 
@@ -3651,10 +3634,9 @@ Define your custom agent skill instructions and guidelines.
                           <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">SARIF Export</span>
                           <p className="text-[10px] text-[#57534E] leading-relaxed mt-1 font-semibold">For GitHub code scanning and security tools.</p>
                         </div>
-                        <button 
-                          onClick={() => copyText("npx @promptsonar/cli scan .", "CLI scan command copied.")}
-                          className="text-slate-400 hover:text-slate-900 ml-1 shrink-0 transition-colors cursor-pointer"
-                          title="Copy"
+                        <button
+                          onClick={() => triggerToast("SARIF report schema loaded.")}
+                          className="w-full text-center py-2 bg-white hover:bg-slate-50 border border-[#E4E3DE] text-slate-800 font-bold rounded-lg text-[10px] uppercase tracking-wider transition-all shadow-3xs"
                         >
                           Check export format
                         </button>
@@ -3670,6 +3652,7 @@ Define your custom agent skill instructions and guidelines.
                   <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
                     <span>Pillar Diagnostics</span>
                   </div>
+                </div>
 
                 <div className="flex-1 overflow-y-auto min-h-0 py-1">
                   <div className="space-y-2">
