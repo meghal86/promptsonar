@@ -349,7 +349,7 @@ function analyzeReportRootCause(findings: ReportFindingInput[]): RootCauseAnalys
 }
 
 const PRIVILEGED_SINK_TYPES = new Set([
-  'privileged_tool',
+  'sensitive_tool',
   'tool_execution',
   'shell_execution',
   'network_access',
@@ -392,8 +392,8 @@ function findPrivilegedSink(workflow?: FindingWorkflow): string | null {
 
 function confidenceReasons(workflow: FindingWorkflow | undefined, evidence: string[]): string[] {
   const reasons = new Set<string>();
-  if (workflow?.path.privilegedSinkReached) reasons.add('Privileged sink reached');
-  if (workflow?.path.trustBoundaryCrossed) reasons.add('Trust boundary crossed');
+  if (workflow?.path.privilegedSinkReached) reasons.add('Dangerous destination reached');
+  if (workflow?.path.trustBoundaryCrossed) reasons.add('Risk boundary crossed');
   if (workflow?.path.nodes.some((node) => node.type === 'shell_execution')) reasons.add('Shell execution present');
   if (workflow?.path.nodes.some((node) => node.type === 'mcp_server' || node.type === 'mcp_tool')) reasons.add('MCP surface present');
   for (const item of evidence.slice(0, 4)) {
@@ -536,21 +536,21 @@ export function reportToMarkdown(report: ExecutionPathReport, reportUrl?: string
   const supportingFindings = report.root_cause?.supporting_findings || [];
   const recommended = report.recommended_fixes || [];
   const lines = [
-    `## PromptSonar Execution Path Review`,
+    `## PromptSonar Prompt Flow Review`,
     ``,
     `- Verdict: ${report.verdict || report.workflow?.risk || 'none'}`,
     `- Execution risk: ${report.execution_risk ?? report.workflow_diff?.before_risk ?? 0}/100`,
     `- Confidence: ${report.confidence.score}% ${report.confidence.level}`,
     `- Findings: ${report.findings_summary.total}`,
     `- Root cause: ${report.root_cause?.rule_id || 'none'}`,
-    `- Privileged sink: ${report.privileged_sink || 'none'}`,
+    `- Dangerous destination: ${report.privileged_sink || 'none'}`,
     `- Replay events: ${report.workflow_replay?.events.length || 0}`,
     `- Risk reduction: ${report.workflow_diff?.risk_reduction ?? 0}%`,
     `- Report hash: \`${report.report_hash}\``,
     reportUrl ? `- Report URL: ${reportUrl}` : '',
     ``,
-    `### Execution Path`,
-    report.workflow?.summary || 'No execution path inferred.',
+    `### Prompt Flow`,
+    report.workflow?.summary || 'No prompt flow inferred.',
     ``,
     `### Evidence`,
     ...(evidenceItems.length
@@ -573,7 +573,7 @@ export function reportToMarkdown(report: ExecutionPathReport, reportUrl?: string
       ? report.workflow_replay.events.map((event) => `- ${event.index}. ${event.timestamp} ${event.type}: ${event.risk_transition}`)
       : ['- No replay events emitted.']),
     ``,
-    `### Workflow Diff`,
+    `### Compare Scans`,
     report.workflow_diff
       ? `Before: ${report.workflow_diff.before_path.join(' -> ')}\nAfter: ${report.workflow_diff.after_path.join(' -> ')}\nRisk reduction: ${report.workflow_diff.risk_reduction}%\nExecution path removed: ${report.workflow_diff.execution_path_removed ? 'YES' : 'NO'}`
       : 'No workflow diff emitted.',
@@ -588,12 +588,12 @@ export function reportToMarkdown(report: ExecutionPathReport, reportUrl?: string
 
 export function reportToIssueTemplate(report: ExecutionPathReport, reportUrl?: string): string {
   return [
-    `### PromptSonar Execution Path Review`,
+    `### PromptSonar Prompt Flow Review`,
     ``,
     reportToMarkdown(report, reportUrl),
     ``,
     `### Expected Action`,
-    `Review the execution path, confirm whether the privileged sink is intended, and apply least-privilege controls before merge.`,
+    `Review the prompt flow, confirm whether the dangerous destination is intended, and apply least-privilege controls before merge.`,
   ].join('\n');
 }
 
@@ -601,10 +601,10 @@ export function reportToPrComment(report: ExecutionPathReport, reportUrl?: strin
   const verdict = report.verdict || report.workflow?.risk || 'none';
   const executionRisk = report.execution_risk ?? report.workflow_diff?.before_risk ?? 0;
   return [
-    `**PromptSonar Execution Path Review**`,
+    `**PromptSonar Prompt Flow Review**`,
     ``,
     `Verdict: **${verdict}** | Execution risk: **${executionRisk}/100** | Confidence: **${report.confidence.score}% ${report.confidence.level}**`,
-    report.workflow ? `Path: \`${report.workflow.summary}\`` : `Path: no execution path inferred.`,
+    report.workflow ? `Path: \`${report.workflow.summary}\`` : `Path: no prompt flow inferred.`,
     report.root_cause ? `Root cause: \`${report.root_cause.rule_id}\`` : `Root cause: none`,
     report.workflow_diff ? `Risk reduction: **${report.workflow_diff.risk_reduction}%** | Path removed: **${report.workflow_diff.execution_path_removed ? 'YES' : 'NO'}**` : '',
     reportUrl ? `[Open public report](${reportUrl})` : '',

@@ -16,6 +16,6 @@ describe('VS Code manifest commands', () => {
     });
 
     it('depends on the workflow-aware core package', () => {
-        expect(manifest.dependencies['@promptsonar/core']).toBe('^1.4.0');
+        expect(manifest.dependencies['@promptsonar/core']).toBe('^1.4.3');
     });
 });

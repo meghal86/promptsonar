@@ -6,7 +6,7 @@ type Trust =
   | "trusted"
   | "semi_trusted"
   | "untrusted"
-  | "privileged"
+  | "sensitive"
   | "unknown";
 
 type Confidence = "low" | "medium" | "high";
@@ -22,7 +22,7 @@ type NodeType =
   | "rag_context"
   | "mcp_server"
   | "mcp_tool"
-  | "privileged_tool"
+  | "sensitive_tool"
   | "tool_router"
   | "tool_execution"
   | "shell_execution"
@@ -103,7 +103,7 @@ const TYPE_LABEL: Record<string, string> = {
   rag_context: "RAG context",
   mcp_server: "MCP server",
   mcp_tool: "MCP tool",
-  privileged_tool: "Privileged tool",
+  sensitive_tool: "Sensitive tool",
   tool_router: "Tool router",
   tool_execution: "Tool execution",
   shell_execution: "Shell execution",
@@ -147,8 +147,8 @@ interface NodePalette {
 }
 
 function paletteFor(node: WorkflowNode, role: DisplayNode["__displayRole"]): NodePalette {
-  // Privileged sink: strong red
-  if (role === "sink" || node.trust === "privileged") {
+  // Dangerous destination: strong red
+  if (role === "sink" || node.trust === "sensitive") {
     return {
       border: "border-rose-300",
       bg: "bg-rose-50",
@@ -172,7 +172,7 @@ function paletteFor(node: WorkflowNode, role: DisplayNode["__displayRole"]): Nod
     node.type === "mcp_server" ||
     node.type === "mcp_tool" ||
     node.type === "tool_router" ||
-    node.type === "privileged_tool" ||
+    node.type === "sensitive_tool" ||
     node.type === "tool_execution"
   ) {
     return {
@@ -249,7 +249,7 @@ function simplifyNodes(
     const prev = nodes[i - 1];
     const cur = nodes[i];
     if (
-      cur.trust === "privileged" ||
+      cur.trust === "sensitive" ||
       cur.privilegePropagated ||
       (prev && prev.trust !== cur.trust)
     ) {
@@ -294,7 +294,7 @@ interface EdgeStyle {
   strokeWidth: number;
   dashArray?: string;
   arrow: string;
-  tone: "default" | "tainted" | "boundary" | "privileged";
+  tone: "default" | "tainted" | "boundary" | "sensitive";
 }
 
 function styleForEdge(
@@ -302,20 +302,20 @@ function styleForEdge(
   to: WorkflowNode | undefined,
   edge: WorkflowEdge | undefined,
 ): EdgeStyle {
-  // Privileged propagation overrides
-  const privileged =
+  // Sensitive propagation overrides
+  const sensitive =
     edge?.privilegePropagated ||
-    to?.trust === "privileged" ||
+    to?.trust === "sensitive" ||
     edge?.type === "permission_flow";
-  if (privileged) {
+  if (sensitive) {
     return {
       stroke: "#e11d48", // rose-600
       strokeWidth: 2,
       arrow: "#e11d48",
-      tone: "privileged",
+      tone: "sensitive",
     };
   }
-  // Trust boundary (dashed)
+  // Risk boundary (dashed)
   if (
     edge?.type === "trust_boundary" ||
     (from && to && from.trust !== to.trust && from.trust && to.trust)
@@ -367,7 +367,7 @@ const Connector: React.FC<{
       {label && !compact && (
         <span
           className={`mb-0.5 max-w-[80px] truncate rounded-full border bg-white px-1.5 py-[1px] text-[8.5px] font-bold uppercase tracking-wider ${
-            style.tone === "privileged"
+            style.tone === "sensitive"
               ? "border-rose-200 text-rose-700"
               : style.tone === "boundary"
               ? "border-amber-200 text-amber-700"
@@ -424,7 +424,7 @@ const Connector: React.FC<{
       </svg>
       {showBoundary && !compact && (
         <span className="mt-0.5 text-[7.5px] font-black uppercase tracking-widest text-amber-700">
-          Trust boundary
+          Risk boundary
         </span>
       )}
     </div>
@@ -438,7 +438,7 @@ const RoleBadge: React.FC<{ role: DisplayNode["__displayRole"] }> = ({ role }) =
       : role === "sink"
       ? "Sensitive action"
       : role === "boundary"
-      ? "Trust boundary"
+      ? "Risk boundary"
       : "Workflow node";
   return (
     <span className="text-[8.5px] font-black uppercase tracking-widest opacity-70">
@@ -453,7 +453,7 @@ const ConfidenceDots: React.FC<{ confidence?: string }> = ({ confidence }) => {
     <span
       className="inline-flex items-center gap-[2px]"
       aria-label={`Confidence ${confidence || "medium"}`}
-      title={`Confidence: ${(confidence || "medium").toUpperCase()}. Higher = more certain.`}
+      title={`Confidence: ${(confidence || "medium").toUpperCase()}. How certain the scanner is that this path exists. Higher is more reliable.`}
     >
       {[0, 1, 2].map((i) => (
         <span
@@ -475,7 +475,7 @@ const NodeCard: React.FC<{
   onBlur: () => void;
 }> = ({ node, active, compact, onFocus, onBlur }) => {
   const palette = paletteFor(node, node.__displayRole);
-  const isPrivileged = node.__displayRole === "sink" || node.trust === "privileged";
+  const isSensitive = node.__displayRole === "sink" || node.trust === "sensitive";
 
   return (
     <button
@@ -491,7 +491,7 @@ const NodeCard: React.FC<{
       }${node.privilegePropagated ? ", privilege propagated" : ""}`}
       className={`group relative shrink-0 cursor-default rounded-xl border ${palette.border} ${palette.bg} ${palette.text} px-3.5 py-2.5 text-left shadow-3xs ring-1 ${palette.ring} transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
         active ? "ring-2" : ""
-      } ${isPrivileged ? "ps-critical-node" : ""} ${
+      } ${isSensitive ? "ps-critical-node" : ""} ${
         compact ? "min-w-[120px] max-w-[170px]" : "min-w-[150px] sm:min-w-[170px] max-w-[200px] min-h-[80px]"
       }`}
     >
@@ -504,7 +504,7 @@ const NodeCard: React.FC<{
       </div>
       <div
         className={`mt-1 truncate font-mono text-[11.5px] font-black ${
-          isPrivileged ? "text-rose-900" : ""
+          isSensitive ? "text-rose-900" : ""
         }`}
         title={humanType(node.type)}
       >
@@ -523,7 +523,7 @@ const NodeCard: React.FC<{
             Tainted
           </span>
         )}
-        {node.privilegePropagated && !isPrivileged && (
+        {node.privilegePropagated && !isSensitive && (
           <span
             className="rounded border border-rose-300 bg-white/70 px-1.5 py-[1px] text-[8px] font-black uppercase tracking-wider text-rose-700"
             title="Privilege propagates through this node"
@@ -572,7 +572,7 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
   compact = false,
   maxVisibleNodes = 6,
   className,
-  emptyMessage = "No dangerous Execution Path found.",
+  emptyMessage = "No dangerous Prompt Flow found.",
 }) => {
   const [expandedAll, setExpandedAll] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -601,7 +601,7 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
         role="status"
       >
         <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-          Workflow graph
+          Prompt Flow
         </div>
         <p className="mt-1 text-[12px] font-semibold leading-relaxed text-slate-600">
           {emptyMessage}
@@ -656,7 +656,7 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-            Privileged
+            Sensitive
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -680,14 +680,14 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
         </div>
       </div>
       <p className="-mt-1 text-[10.5px] font-medium text-slate-500">
-        Execution Path: the route from user input to a tool, memory, file, network call, or command. MCP servers are connected tools an agent can call.
+        Prompt Flow: the route from user input to a tool, memory, file, network call, or command. MCP servers are connected tools an agent can call.
       </p>
 
       {/* Graph row */}
       <div
         className="-mx-1 overflow-x-auto px-1 pb-2 scrollbar-none"
         role="group"
-        aria-label="Inferred Execution Path from untrusted source to sensitive action"
+        aria-label="Inferred Prompt Flow from untrusted source to sensitive action"
       >
         <ol className="flex items-stretch gap-1 sm:gap-1.5">
           {items.map((item, index) => {
@@ -766,7 +766,7 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
                 </span>
               </div>
               <p className="mt-1 text-[10px] font-medium text-slate-500">
-                Confidence: higher = more certain.
+                How certain the scanner is that this path exists. Higher is more reliable.
               </p>
               {node.reason && (
                 <p className="mt-1.5 text-[11px] font-semibold leading-relaxed text-slate-600">
@@ -789,7 +789,7 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
       <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold text-slate-500">
         {path.trustBoundaryCrossed && (
           <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-800">
-            Trust boundary crossed
+            Risk boundary crossed
           </span>
         )}
         {path.privilegedSinkReached && (

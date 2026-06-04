@@ -11,6 +11,7 @@ export * from './governance/parser';
 export * from './governance/engine';
 export * from './contracts/engine';
 export * from './evaluation/crossModel';
+export * from './modelComparison';
 export * from './mcp';
 export * from './workflow';
 export * from './runtime';

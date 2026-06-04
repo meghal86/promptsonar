@@ -1,0 +1,21 @@
+{
+  "prompt": "Summarize this support ticket safely and return JSON with summary and next_steps.",
+  "expectedFormat": "json",
+  "outputs": [
+    {
+      "modelId": "gpt-4o-example",
+      "modelName": "GPT-4o Example",
+      "output": "{\"summary\":\"Customer asks for help resetting a password.\",\"next_steps\":[\"Verify account ownership\",\"Send password reset instructions\"]}"
+    },
+    {
+      "modelId": "claude-example",
+      "modelName": "Claude Example",
+      "output": "{\"summary\":\"Customer cannot access their account.\",\"next_steps\":[\"Confirm identity\",\"Use approved reset flow\"]}"
+    },
+    {
+      "modelId": "gemini-example",
+      "modelName": "Gemini Example",
+      "output": "{\"summary\":\"Password reset request.\",\"next_steps\":[\"Validate identity\",\"Do not disclose stored secrets\"]}"
+    }
+  ]
+}

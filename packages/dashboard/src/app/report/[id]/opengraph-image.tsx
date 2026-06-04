@@ -33,7 +33,7 @@ export default async function Image({ searchParams }: { searchParams?: Promise<{
   const report = readReport(params?.payload);
   const path = report?.workflow?.path?.length
     ? report.workflow.path.map(humanize).join(' -> ')
-    : 'No execution path inferred';
+    : 'No prompt flow inferred';
   const verdict = report?.verdict || report?.workflow?.risk || 'none';
   const confidence = report ? `${report.confidence.score}% ${report.confidence.level}` : 'No report';
   const root = humanize(report?.root_cause?.rule_id);
@@ -61,7 +61,7 @@ export default async function Image({ searchParams }: { searchParams?: Promise<{
               PromptSonar
             </div>
             <div style={{ marginTop: '22px', fontSize: '64px', lineHeight: 1, fontWeight: 900 }}>
-              Execution Path Review
+              Prompt Flow Review
             </div>
           </div>
           <div style={{ border: '2px solid #fb7185', borderRadius: '18px', padding: '18px 24px', color: '#fecdd3', fontSize: '28px', fontWeight: 900, textTransform: 'uppercase' }}>
@@ -71,7 +71,7 @@ export default async function Image({ searchParams }: { searchParams?: Promise<{
 
         <div style={{ border: '1px solid #334155', borderRadius: '20px', background: '#111827', padding: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={{ fontSize: '18px', letterSpacing: '3px', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 900 }}>
-            Execution Path
+            Prompt Flow
           </div>
           <div style={{ fontSize: '32px', lineHeight: 1.22, fontWeight: 900 }}>
             {path}
@@ -88,7 +88,7 @@ export default async function Image({ searchParams }: { searchParams?: Promise<{
             <div style={{ marginTop: '8px', fontSize: '28px', fontWeight: 900 }}>{confidence}</div>
           </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '16px' }}>
-            <div style={{ fontSize: '16px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Privileged Sink</div>
+            <div style={{ fontSize: '16px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Dangerous Destination</div>
             <div style={{ marginTop: '8px', fontSize: '28px', fontWeight: 900 }}>{sink}</div>
           </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #334155', borderRadius: '18px', padding: '16px' }}>

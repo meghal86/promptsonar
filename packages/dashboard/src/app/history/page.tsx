@@ -1,22 +1,35 @@
 import Link from 'next/link';
 
-const events = [
-  { time: '09:45', event: '10-prompt evidence run completed', result: '8 risk signals, 4 hard fails' },
-  { time: '09:24', event: 'Playground overlap audit', result: '0 overlaps, 0 horizontal overflow' },
-  { time: '09:14', event: 'Core security tests', result: '27 tests passed' },
-  { time: '09:04', event: 'README screenshot refresh', result: 'Clean and vulnerable states captured' }
+const futureFeatures = [
+  'scan timeline',
+  'risk trends',
+  'compare scans',
+  'project activity',
+  'saved reports',
+];
+
+const exportFormats = [
+  'Report',
+  'Markdown',
+  'JSON',
+  'SARIF',
 ];
 
 export default function HistoryPage() {
   return (
     <div className="min-h-screen bg-[#FAF9F6] text-slate-950">
-      <main className="mx-auto max-w-5xl px-6 py-12">
-        <header className="mb-10 flex flex-col gap-4 border-b border-[#E4E3DE] pb-8 md:flex-row md:items-end md:justify-between">
+      <main className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-12">
+        <header className="flex flex-col gap-4 border-b border-[#E4E3DE] pb-8 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">PromptSonar</p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">Scan History</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <h1 className="text-4xl font-black tracking-tight">History Coming Soon</h1>
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700">
+                Local-first
+              </span>
+            </div>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-              Recent playground and scanner activity for the local demo workspace.
+              PromptSonar currently runs locally and does not store scans.
             </p>
           </div>
           <Link href="/playground" className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50">
@@ -24,17 +37,41 @@ export default function HistoryPage() {
           </Link>
         </header>
 
-        <section className="rounded-2xl border border-[#E4E3DE] bg-white shadow-sm">
-          {events.map((item, index) => (
-            <div key={item.event} className={`grid gap-4 p-6 md:grid-cols-[90px_1fr_220px] ${index !== events.length - 1 ? 'border-b border-[#E4E3DE]' : ''}`}>
-              <div className="font-mono text-sm font-bold text-slate-400">{item.time}</div>
-              <div>
-                <h2 className="font-black">{item.event}</h2>
-                <p className="mt-1 text-sm text-slate-500">Scan</p>
-              </div>
-              <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">{item.result}</div>
+        <section className="rounded-2xl border border-[#E4E3DE] bg-white p-8 shadow-sm">
+          <div className="max-w-3xl">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Why history is unavailable today</p>
+            <h2 className="mt-3 text-2xl font-black">No persistent scan database is connected.</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              The dashboard does not have cloud storage, team storage, or a persistent scan-history table. PromptSonar will not display fabricated activity, timestamps, events, or trend metrics.
+            </p>
+          </div>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">What will be available</p>
+            <ul className="mt-4 grid gap-2 text-sm font-semibold text-slate-700">
+              {futureFeatures.map(feature => (
+                <li key={feature} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2">
+                  {feature}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Current export options</p>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Current scans can be exported manually instead of stored as history.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-sm font-black text-slate-700">
+              {exportFormats.map(format => (
+                <div key={format} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2">
+                  {format}
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </section>
       </main>
     </div>

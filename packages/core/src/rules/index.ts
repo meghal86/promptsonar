@@ -40,29 +40,61 @@ function upgradedSeverity(current: Severity, workflowRisk?: string): Severity {
 }
 
 function scoreFindings(findings: Finding[]): { score: number; status: 'pass' | 'warn' | 'fail' } {
-    let totalPenalty = 0;
+    const severityTotals: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+    const severityCaps: Record<Severity, number> = { critical: 80, high: 60, medium: 40, low: 20 };
+    const categoryTotals: Record<string, number> = {};
+    const categoryCaps: Record<string, number> = {
+        security: 85,
+        ethics: 40,
+        clarity: 25,
+        structure: 20,
+        best_practices: 15,
+        consistency: 15,
+        efficiency: 15,
+    };
+
     for (const finding of findings) {
-        if (finding.category === 'security') totalPenalty += (finding.penalty_score || 0) * 0.40;
-        if (finding.category === 'clarity') totalPenalty += (finding.penalty_score || 0) * 0.15;
-        if (finding.category === 'structure') totalPenalty += (finding.penalty_score || 0) * 0.15;
-        if (finding.category === 'best_practices') totalPenalty += (finding.penalty_score || 0) * 0.15;
-        if (finding.category === 'consistency') totalPenalty += (finding.penalty_score || 0) * 0.10;
-        if (finding.category === 'efficiency') totalPenalty += (finding.penalty_score || 0) * 0.05;
-        if (finding.category === 'ethics') totalPenalty += (finding.penalty_score || 0) * 0.05;
+        const penalty = finding.category === 'best_practices'
+            ? 0.25
+            : finding.severity === 'critical'
+                ? 25
+                : finding.severity === 'high'
+                    ? 12
+                    : finding.severity === 'medium'
+                        ? 5
+                        : 1;
+        severityTotals[finding.severity] += penalty;
+        categoryTotals[finding.category] = (categoryTotals[finding.category] || 0) + penalty;
 
         if (finding.workflow?.path?.privilegedSinkReached) {
-            totalPenalty += finding.workflow.risk === 'critical' ? 22 : 14;
+            categoryTotals.security = (categoryTotals.security || 0) + (finding.workflow.risk === 'critical' ? 20 : 12);
         } else if (finding.workflow?.path?.trustBoundaryCrossed) {
-            totalPenalty += 8;
+            categoryTotals.security = (categoryTotals.security || 0) + 6;
         }
     }
 
-    let score = Math.max(0, Math.min(100, Math.round(100 - totalPenalty)));
+    const severityPenalty = Object.entries(severityTotals)
+        .reduce((total, [severity, value]) => total + Math.min(value, severityCaps[severity as Severity]), 0);
+    const categoryPenalty = Object.entries(categoryTotals)
+        .reduce((total, [category, value]) => total + Math.min(value, categoryCaps[category] ?? 20), 0);
+    let score = Math.max(0, Math.min(100, Math.round(100 - Math.min(severityPenalty, categoryPenalty))));
     let status: 'pass' | 'warn' | 'fail' = score < 70 ? 'fail' : score < 85 ? 'warn' : 'pass';
 
-    const hasCritical = findings.some(f => f.severity === 'critical');
-    if (hasCritical) {
-        score = Math.min(score, 49);
+    const criticalCount = findings.filter(f => f.severity === 'critical').length;
+    const highCount = findings.filter(f => f.severity === 'high').length;
+    if (criticalCount >= 2) {
+        score = Math.min(score, 40);
+        status = 'fail';
+    } else if (criticalCount === 1) {
+        score = Math.min(score, 60);
+        status = 'fail';
+    }
+
+    if (highCount >= 5) {
+        score = Math.min(score, 65);
+        status = 'fail';
+    } else if (highCount >= 3) {
+        score = Math.min(score, 75);
         status = 'fail';
     }
 
@@ -93,6 +125,14 @@ function scoreFindings(findings: Finding[]): { score: number; status: 'pass' | '
         score = Math.min(score, 84);
         status = 'warn';
     }
+
+    if (findings.length >= 1000) score = Math.min(score, 55);
+    else if (findings.length >= 500) score = Math.min(score, 65);
+    else if (findings.length >= 100) score = Math.min(score, 80);
+    else if (findings.length >= 25) score = Math.min(score, 85);
+    else if (findings.length >= 10) score = Math.min(score, 90);
+    if (score < 70) status = 'fail';
+    else if (score < 85 && status === 'pass') status = 'warn';
 
     return { score, status };
 }

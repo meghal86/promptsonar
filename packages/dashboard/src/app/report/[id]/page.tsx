@@ -118,7 +118,7 @@ export default async function PublicReportPage({ params, searchParams }: ReportP
     }));
   const reachedAction = report.privileged_sink || path[path.length - 1] || 'None';
   const scanConsequence = verdict.toLowerCase() === 'ready' || verdict.toLowerCase() === 'none'
-    ? 'No dangerous tool action found.'
+    ? 'This prompt stays contained. No risky destinations found.'
     : `This prompt can reach ${humanize(reachedAction).toLowerCase()}.`;
   const whyItems = [
     ...evidenceItems.map((item) => item.label),
@@ -163,7 +163,7 @@ export default async function PublicReportPage({ params, searchParams }: ReportP
               <p className="mt-1 text-xs font-semibold text-slate-500">The main reason this scan was flagged.</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reached action</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reached</p>
               <p className="mt-2 text-sm font-black">{report.privileged_sink || 'None'}</p>
             </div>
           </div>

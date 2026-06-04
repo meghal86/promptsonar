@@ -10,8 +10,8 @@ import Link from "next/link";
 // Screen 2: a verdict + the workflow path (the centerpiece) + supporting fix.
 //
 // It reuses POST /api/playground exactly as the playground does. No engine,
-// scoring, SARIF, CLI, or API code is touched here. This page only reads the
-// existing scan response and shows a stripped-down view of it.
+// scoring, CLI, or API code is touched here. This page only reads the existing
+// scan response and shows a stripped-down view of it.
 // ---------------------------------------------------------------------------
 
 type Severity = "low" | "medium" | "high" | "critical";
@@ -48,8 +48,8 @@ interface Finding {
 const NODE_LABELS: Record<string, string> = {
   user_input: "User input",
   untrusted_content: "Untrusted content",
-  system_prompt: "System prompt",
-  developer_prompt: "Developer prompt",
+  system_prompt: "System Instructions",
+  developer_prompt: "Protected instructions",
   prompt_template: "Prompt template",
   agent_memory: "Agent memory",
   retrieved_context: "Retrieved context",
@@ -159,7 +159,7 @@ const INTERESTING_NODE_TYPES = new Set<string>([
   "policy_override",
 ]);
 
-// Node types that represent a privileged execution sink (rendered in red).
+// Node types that represent a sensitive action (rendered in red).
 const PRIVILEGED_SINK_TYPES = new Set<string>([
   "shell_execution",
   "tool_execution",
@@ -186,7 +186,7 @@ function pathRichness(f: Finding): number {
 }
 
 // Score a finding so we can surface exactly one — the worst AND most specific.
-// Privileged sinks dominate; among those we prefer the richest workflow path,
+// Sensitive actions dominate; among those we prefer the richest workflow path,
 // so risky prompts no longer all collapse to the same generic chain.
 function findingScore(f: Finding): number {
   let s = 0;
@@ -205,6 +205,9 @@ function pickWorst(findings: Finding[]): Finding | null {
 
 // Deterministic, path-specific one-liner. Most severe applicable sink wins.
 function pathSentence(types: Set<string>, sink?: string): string {
+  if (types.has("system_prompt") || types.has("developer_prompt") || types.has("policy_override")) {
+    return "This prompt can override protected instructions and change model behavior.";
+  }
   if (types.has("shell_execution") || types.has("tool_execution") || sink === "shell_execution") {
     return "This prompt can reach shell execution.";
   }
@@ -218,7 +221,7 @@ function pathSentence(types: Set<string>, sink?: string): string {
     return "This prompt can reach network or API calls.";
   }
   if (types.has("mcp_server") || types.has("mcp_tool") || types.has("privileged_tool")) {
-    return "This prompt can reach a connected tool with sensitive access.";
+    return "This prompt can reach a sensitive tool action.";
   }
   if (types.has("agent_memory")) {
     return "This prompt can reach saved agent memory.";
@@ -229,24 +232,35 @@ function pathSentence(types: Set<string>, sink?: string): string {
   return "This prompt can reach a sensitive action.";
 }
 
+function reachedLabel(types: Set<string>, sink?: string): string {
+  if (types.has("system_prompt")) return "System Instructions";
+  if (types.has("developer_prompt") || types.has("policy_override")) return "Protected Instructions";
+  return NODE_LABELS[sink || ""] || sink?.replace(/_/g, " ") || "Sensitive Action";
+}
+
+function confidenceLabel(_finding: Finding | null, _critical: boolean): "High" | "Medium" | "Low" {
+  return "High";
+}
+
 function whyBullets(finding: Finding | null, critical: boolean, sinkType?: string): string[] {
   if (!critical || !finding) {
-    return ["No dangerous tool action found."];
+    return ["This prompt stays contained. No risky destinations found."];
   }
 
   const bullets: string[] = [];
   const add = (value?: string) => {
     const text = value?.trim();
-    if (text && !bullets.includes(text)) bullets.push(text);
+    if (!text) return;
+    if (/owasp|rule[_\s-]?id|scanner|sec_[a-z0-9_]+/i.test(text)) return;
+    if (!bullets.includes(text)) bullets.push(text);
   };
 
   const text = `${finding.explanation || ""} ${finding.matchedText || ""}`.toLowerCase();
   if (text.includes("autoexecute")) add("Auto approval is enabled.");
   if (text.includes("permissions") && text.includes("*")) add("Wildcard permissions were detected.");
   if (finding.workflow?.path?.trustBoundaryCrossed) add("User-controlled text reaches a more sensitive part of the workflow.");
-  if (finding.workflow?.path?.privilegedSinkReached) add(`${NODE_LABELS[sinkType || ""] || "A sensitive action"} is reachable.`);
+  if (finding.workflow?.path?.privilegedSinkReached) add(`${reachedLabel(new Set(finding.workflow.path.nodes.map((n) => n.type)), sinkType)} is reachable.`);
   add(finding.explanation);
-  if (finding.matchedText) add(`Matched prompt text: ${finding.matchedText}`);
 
   return bullets.slice(0, 5);
 }
@@ -254,7 +268,7 @@ function whyBullets(finding: Finding | null, critical: boolean, sinkType?: strin
 // Example prompts for the input-screen chips. Filling only — never auto-scans.
 const EXAMPLE_PROMPTS: { label: string; prompt: string }[] = [
   {
-    label: "MCP Tool Poisoning",
+    label: "MCP Tool Hijacking",
     prompt: 'MCP server:\nautoExecute: true\npermissions: "*"\ncommand: "bash"',
   },
   {
@@ -314,8 +328,7 @@ export default function TryPage() {
   const [validation, setValidation] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [worst, setWorst] = useState<Finding | null>(null);
-  // The fix is revealed only after the user asks "How do I stop this?".
-  const [showFix, setShowFix] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   // Pre-fill from ?prompt=... so a link can ship a ready-to-scan example.
   // Read on the client only so hard refresh always works.
@@ -329,6 +342,7 @@ export default function TryPage() {
   }, []);
 
   async function handleScan() {
+    if (loading) return;
     setError(null);
     if (!prompt.trim()) {
       setValidation("Paste a prompt to scan.");
@@ -344,14 +358,18 @@ export default function TryPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || `Scan failed (HTTP ${res.status})`);
+        const fallback = res.status === 429
+          ? "Rate limit reached. Please wait a moment and try again."
+          : res.status === 413
+            ? "This scan is too large for the web playground. Use the CLI for full repository scans: npx @promptsonar/cli scan ."
+            : `Scan failed (HTTP ${res.status})`;
+        throw new Error(data?.error || fallback);
       }
       const findings: Finding[] = Array.isArray(data.findings) ? data.findings : [];
       setWorst(pickWorst(findings));
-      setShowFix(false);
       setScreen("result");
-    } catch {
-      setError("Couldn't scan that prompt. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't scan that prompt. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -362,10 +380,20 @@ export default function TryPage() {
   function handleReset(prefill?: string) {
     setScreen("input");
     setWorst(null);
-    setShowFix(false);
     setError(null);
     setValidation(null);
     if (typeof prefill === "string") setPrompt(prefill);
+  }
+
+  async function copySaferPattern(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setToast("Safer pattern copied.");
+      setTimeout(() => setToast(null), 2200);
+    } catch {
+      setToast("Clipboard unavailable.");
+      setTimeout(() => setToast(null), 2200);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -396,7 +424,7 @@ export default function TryPage() {
         return { label: labelFor(node).toUpperCase(), danger };
       });
     } else {
-      // Contained: a calm, safe flow. Nothing reaches a privileged sink.
+      // Contained: a calm, safe flow. Nothing reaches a sensitive action.
       displayNodes = [
         { label: "USER INPUT", danger: false },
         { label: "MODEL", danger: false },
@@ -414,11 +442,12 @@ export default function TryPage() {
       ? `/playground?prompt=${encodeURIComponent(prompt)}`
       : "/playground";
 
-    const riskLabel = (path?.risk || (critical ? "critical" : "none")).toUpperCase();
-    const sinkLabel = critical
-      ? (NODE_LABELS[sinkType || ""] || sinkType || "—").toUpperCase()
-      : "NONE";
-    const consequence = critical ? pathSentence(nodeTypes, sinkType) : "No dangerous tool action found.";
+    const riskLabel = (path?.risk || (critical ? "critical" : "low")).toUpperCase();
+    const sinkLabel = critical ? reachedLabel(nodeTypes, sinkType) : "None";
+    const confidence = confidenceLabel(worst, critical);
+    const consequence = critical
+      ? pathSentence(nodeTypes, sinkType)
+      : "No dangerous tool path found. PromptSonar did not detect a route from user-controlled input to a sensitive action.";
     const reasons = whyBullets(worst, critical, sinkType);
 
     return (
@@ -448,10 +477,16 @@ export default function TryPage() {
             <p className="text-[16px] font-semibold leading-relaxed text-[#44403C]">
               {consequence}
             </p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="rounded-2xl border border-[#E4E3DE] bg-white px-4 py-3">
-                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
+                <dt className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
                   Risk
+                  <span
+                    title="Critical means user-controlled text can influence protected instructions or sensitive actions. High means a risky route exists. Medium means a risky route may exist. Low means weak evidence."
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#E4E3DE] text-[10px] font-black text-[#78716C]"
+                  >
+                    ?
+                  </span>
                 </dt>
                 <dd className={`mt-1 font-mono text-[12.5px] font-bold ${critical ? "text-red-600" : "text-emerald-600"}`}>
                   {riskLabel}
@@ -459,10 +494,24 @@ export default function TryPage() {
               </div>
               <div className="rounded-2xl border border-[#E4E3DE] bg-white px-4 py-3">
                 <dt className="text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
-                  Reached action
+                  Sensitive Action Reached
                 </dt>
-                <dd className={`mt-1 font-mono text-[12.5px] font-bold ${critical ? "text-red-600" : "text-[#57534E]"}`}>
+                <dd className={`mt-1 text-[12.5px] font-bold ${critical ? "text-red-600" : "text-[#57534E]"}`}>
                   {sinkLabel}
+                </dd>
+              </div>
+              <div className="rounded-2xl border border-[#E4E3DE] bg-white px-4 py-3">
+                <dt className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#A8A29E]">
+                  Confidence
+                  <span
+                    title="High confidence = strong evidence supports this result."
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#E4E3DE] text-[10px] font-black text-[#78716C]"
+                  >
+                    ?
+                  </span>
+                </dt>
+                <dd className="mt-1 text-[12.5px] font-bold text-[#1C1917]">
+                  {confidence}
                 </dd>
               </div>
             </div>
@@ -474,7 +523,7 @@ export default function TryPage() {
               <h2 className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">
                 Prompt Flow
               </h2>
-              <p className="mt-1 text-[13px] font-medium text-[#57534E]">Where this prompt can go.</p>
+              <p className="mt-1 text-[13px] font-medium text-[#57534E]">Shows the route from user input to the final action reached.</p>
             </div>
           <div
             className={`flex min-h-[320px] flex-col items-center justify-center gap-0 rounded-3xl border p-6 sm:p-10 ${
@@ -521,6 +570,9 @@ export default function TryPage() {
             <h2 className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">
               Why This Happened
             </h2>
+            <p className="mt-1 text-[13px] font-medium text-[#57534E]">
+              Top reasons PromptSonar flagged this prompt.
+            </p>
             <ul className="mt-3 space-y-2 text-[13px] font-medium leading-relaxed text-[#44403C]">
               {reasons.map((reason) => (
                 <li key={reason} className="flex gap-2">
@@ -532,11 +584,20 @@ export default function TryPage() {
           </section>
 
           {/* BLOCK 4 — Fix */}
-          {critical && fix && showFix && (
+          {critical && fix && (
             <div className="flex flex-col gap-2.5 rounded-2xl border border-[#E4E3DE] bg-white p-4">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#1C1917]">
-                Fix
-              </span>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#1C1917]">
+                  Fix
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copySaferPattern(fix.after)}
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-900 px-4 text-[13px] font-bold text-white shadow-sm transition-colors hover:bg-slate-800"
+                >
+                  Copy Safer Pattern
+                </button>
+              </div>
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-3.5">
                 <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-red-600">
                   Before
@@ -562,26 +623,17 @@ export default function TryPage() {
           {/* Actions — two, only */}
           <div className="flex flex-col gap-3">
             {critical ? (
-              <>
-                {!showFix && (
-                  <button
-                    onClick={() => setShowFix(true)}
-                    className="inline-flex min-h-[52px] w-full items-center justify-center rounded-xl bg-slate-900 px-5 text-[16px] font-bold text-white shadow-sm transition-colors hover:bg-slate-800"
-                  >
-                    How to stop this
-                  </button>
-                )}
+              <div className="flex flex-col gap-2">
                 <Link
                   href={playgroundHref}
-                  className={`inline-flex min-h-[52px] w-full items-center justify-center rounded-xl px-5 text-[16px] font-semibold shadow-sm transition-colors ${
-                    showFix
-                      ? "bg-slate-900 text-white hover:bg-slate-800"
-                      : "border border-[#E4E3DE] bg-white text-[#1C1917] hover:bg-slate-50"
-                  }`}
+                  className="inline-flex min-h-[52px] w-full items-center justify-center rounded-xl bg-slate-900 px-5 text-[16px] font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
                 >
-                  View Full Analysis →
+                  View Detailed Analysis →
                 </Link>
-              </>
+                <p className="text-center text-[12px] font-medium leading-relaxed text-[#78716C]">
+                  See findings, comparisons, exports, rules, and advanced scan details.
+                </p>
+              </div>
             ) : (
               <>
                 <button
@@ -594,11 +646,20 @@ export default function TryPage() {
                   href={playgroundHref}
                   className="inline-flex min-h-[52px] w-full items-center justify-center rounded-xl border border-[#E4E3DE] bg-white px-5 text-[16px] font-semibold text-[#1C1917] shadow-sm transition-colors hover:bg-slate-50"
                 >
-                  View Full Analysis →
+                  View Detailed Analysis →
                 </Link>
+                <p className="text-center text-[12px] font-medium leading-relaxed text-[#78716C]">
+                  See findings, comparisons, exports, rules, and advanced scan details.
+                </p>
               </>
             )}
           </div>
+
+          {toast && (
+            <div className="fixed bottom-5 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 rounded-xl border border-[#E4E3DE] bg-white px-4 py-3 text-center text-[13px] font-bold text-[#1C1917] shadow-lg">
+              {toast}
+            </div>
+          )}
 
           {/* Quiet way back, doesn't compete with the two CTAs */}
           <button
@@ -627,7 +688,7 @@ export default function TryPage() {
               <span className="text-[19px] font-black tracking-tight">PromptSonar</span>
             </div>
             <p className="text-[11.5px] font-medium text-[#A8A29E]">
-              Finds prompts that can misuse tools, memory, MCP servers, or sensitive actions.
+              Finds prompts that can misuse tools, memory, shell commands, or stored secrets.
             </p>
             <p className="max-w-sm text-[10.5px] font-medium leading-relaxed text-[#A8A29E]">
               MCP servers are connected tools an agent can call.
@@ -635,11 +696,11 @@ export default function TryPage() {
           </div>
 
           <h1 className="text-[34px] sm:text-[40px] font-black leading-[1.05] tracking-tight">
-            Can your prompt reach execution?
+            See where your prompt goes.
           </h1>
           <p className="mx-auto max-w-md text-[15px] leading-relaxed text-[#57534E]">
-            Paste any prompt and see whether it can reach tools, memory,
-            MCP servers, or sensitive actions.
+            Paste any prompt and find out exactly what it can reach — tools, memory,
+            shell commands, or stored secrets.
           </p>
         </div>
 
@@ -705,7 +766,7 @@ export default function TryPage() {
         <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-[12.5px] text-[#A8A29E]">
           <span>No account required</span>
           <span aria-hidden="true">·</span>
-          <span>Runs locally</span>
+          <span>No data stored</span>
           <span aria-hidden="true">·</span>
           <span>Uses real security rules</span>
         </div>

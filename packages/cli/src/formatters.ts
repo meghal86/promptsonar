@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { analyzeRootCause, humanRuleName } from '@promptsonar/core';
 import { ScanResult } from './scanner';
 
-const VERSION = '1.4.0';
+const VERSION = '1.4.3';
 
 // Severity color/emoji map
 const SEVERITY_DISPLAY: Record<string, { emoji: string; color: (s: string) => string; label: string }> = {
@@ -90,6 +90,11 @@ export function formatJson(results: ScanResult[]): string {
         status: r.status,
         pillar_scores: r.pillar_scores,
         findings_count: r.findings_count,
+        total_findings_count: r.total_findings_count ?? r.findings_count,
+        unique_findings_count: r.unique_findings_count ?? r.findings_count,
+        repeated_findings_count: r.repeated_findings_count ?? 0,
+        summarized_findings_count: r.summarized_findings_count ?? 0,
+        scan_summary: r.scan_summary,
         findings: r.findings,
     }));
 
@@ -105,6 +110,24 @@ export function formatJson(results: ScanResult[]): string {
  */
 export function formatTerminal(results: ScanResult[]): string {
     const lines: string[] = [];
+    const DISPLAY_LIMIT = 200;
+    let displayedFindingCount = 0;
+    let hiddenByTerminalLimit = 0;
+
+    const summary = results.find(result => result.scan_summary)?.scan_summary;
+    if (summary) {
+        lines.push('');
+        lines.push(chalk.bold(`PromptSonar v${VERSION}`) + ' — workspace summary');
+        lines.push(`  Files scanned: ${summary.files_scanned}`);
+        lines.push(`  Files skipped: ${summary.files_skipped}`);
+        if (Object.keys(summary.skipped_reasons).length > 0) {
+            lines.push(`  Skipped reasons: ${Object.entries(summary.skipped_reasons).map(([reason, count]) => `${reason}=${count}`).join(', ')}`);
+        }
+        lines.push(`  Findings: ${summary.findings_unique} unique${summary.findings_repeated > 0 ? `, ${summary.findings_repeated} repeated instances collapsed` : ''}`);
+        if (summary.findings_summarized > 0) {
+            lines.push(`  Summary cap: ${summary.findings_summarized} lower-priority findings summarized`);
+        }
+    }
 
     for (const result of results) {
         lines.push('');
@@ -115,16 +138,23 @@ export function formatTerminal(results: ScanResult[]): string {
             lines.push(chalk.green('  ✅ No findings. Prompt looks clean!'));
         } else {
             for (const f of result.findings) {
+                const mustShow = f.severity === 'critical' || f.severity === 'high';
+                if (!mustShow && displayedFindingCount >= DISPLAY_LIMIT) {
+                    hiddenByTerminalLimit++;
+                    continue;
+                }
+                displayedFindingCount++;
                 const sev = SEVERITY_DISPLAY[f.severity] || SEVERITY_DISPLAY.low;
+                const repeatLabel = (f.instance_count || 1) > 1 ? `  (${f.instance_count} instances)` : '';
                 if (f.waived) {
                     // Waived findings: dimmed with [WAIVED] tag
-                    lines.push(chalk.dim(`  ⚠️  ${sev.label.padEnd(10)} ${f.rule_id}  [WAIVED]`));
+                    lines.push(chalk.dim(`  ⚠️  ${sev.label.padEnd(10)} ${f.rule_id}${repeatLabel}  [WAIVED]`));
                     lines.push(chalk.dim(`     Line ${f.line}:${f.column} — ${f.message}`));
                     if (f.suppression_reason) {
                         lines.push(chalk.dim(`     Suppression: ${f.suppression_reason}`));
                     }
                 } else {
-                    lines.push(`  ${sev.emoji} ${sev.color(sev.label.padEnd(10))} ${chalk.bold(f.rule_id)}`);
+                    lines.push(`  ${sev.emoji} ${sev.color(sev.label.padEnd(10))} ${chalk.bold(f.rule_id)}${repeatLabel}`);
                     lines.push(`     Line ${f.line}:${f.column} — ${f.message}`);
                     if (f.evidence) {
                         lines.push(`     Evidence: ${f.evidence}`);
@@ -145,6 +175,10 @@ export function formatTerminal(results: ScanResult[]): string {
 
             // Root Cause Analysis (groups related findings; organization only).
             lines.push(...formatRootCause(result));
+            if ((result.summarized_findings_count || 0) > 0) {
+                lines.push(`  Showing top findings for this file. ${result.summarized_findings_count} additional lower-priority finding${result.summarized_findings_count === 1 ? '' : 's'} summarized.`);
+                lines.push('');
+            }
         }
 
         // Summary line
@@ -156,9 +190,17 @@ export function formatTerminal(results: ScanResult[]): string {
             severityCounts[f.severity] = (severityCounts[f.severity] || 0) + 1;
         }
         const countParts = Object.entries(severityCounts).map(([sev, count]) => `${count} ${sev}`);
-        const countStr = countParts.length > 0 ? ` (${result.findings_count} findings: ${countParts.join(', ')})` : '';
+        const repeatText = (result.repeated_findings_count || 0) > 0 ? `, ${result.repeated_findings_count} repeated collapsed` : '';
+        const summarizedText = (result.summarized_findings_count || 0) > 0 ? `, ${result.summarized_findings_count} summarized` : '';
+        const countStr = countParts.length > 0 ? ` (${result.findings_count} unique findings: ${countParts.join(', ')}${repeatText}${summarizedText})` : '';
 
         lines.push(statusColor(`Score: ${result.overall_score}/100 ${statusIcon}`) + countStr);
+        lines.push('');
+    }
+
+    if (hiddenByTerminalLimit > 0) {
+        lines.push(`Showing top ${DISPLAY_LIMIT} non-critical/high findings. ${hiddenByTerminalLimit} additional low-priority finding${hiddenByTerminalLimit === 1 ? '' : 's'} summarized in terminal output.`);
+        lines.push('Use --json or --sarif for the complete machine-readable result.');
         lines.push('');
     }
 

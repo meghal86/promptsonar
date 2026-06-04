@@ -14,6 +14,7 @@ import { PromptSonarSidebarProvider } from './SidebarProvider';
 import { ExecutionPathProvider } from './ExecutionPathProvider';
 import { PromptSonarQuickFixProvider } from './QuickFixProvider';
 import { isScannable, isMcpConfigFile } from '../shared/detection';
+import { isPromptSonarIgnoredPath, parsePromptSonarIgnore, PromptSonarIgnoreMatcher } from '../shared/ignore';
 import { executionPathText, pickWorstWorkflowFinding, reportText } from '../shared/model';
 import { applyAllFixes, workflowDiffReport, workflowDiffReportBetween } from '../shared/quickfix';
 // @ts-ignore
@@ -26,10 +27,35 @@ interface CachedScanEntry {
     contentHash: string;
     findings: any[];
     score: number;
+    scores?: number[];
     promptsEvaluated: number;
     combinedText: string;
 }
 const scanCache = new Map<string, CachedScanEntry>();
+
+function summarizeWorkspaceScore(scores: number[], findings: any[]): { score: number; status: 'pass' | 'warn' | 'fail' } {
+    if (scores.length === 0) return { score: 100, status: 'pass' };
+
+    const avgScore = Math.round(scores.reduce((total, score) => total + score, 0) / scores.length);
+    const worstScore = Math.min(...scores);
+    const activeFindings = findings.filter(finding => !finding.waived);
+
+    let score = Math.min(avgScore, worstScore);
+    let status: 'pass' | 'warn' | 'fail' = score < 70 ? 'fail' : score < 85 ? 'warn' : 'pass';
+
+    if (activeFindings.some(finding => finding.severity === 'critical')) {
+        score = Math.min(score, 49);
+        status = 'fail';
+    } else if (activeFindings.some(finding => finding.severity === 'high' && (finding.category === 'security' || finding.category === 'ethics'))) {
+        score = Math.min(score, 69);
+        status = 'fail';
+    } else if (activeFindings.some(finding => finding.severity === 'medium' && (finding.category === 'security' || finding.category === 'ethics'))) {
+        score = Math.min(score, 84);
+        if (status === 'pass') status = 'warn';
+    }
+
+    return { score, status };
+}
 
 function hashContent(content: string): string {
     return crypto.createHash('md5').update(content).digest('hex');
@@ -41,6 +67,7 @@ const SUPPORTED_LANGUAGES = new Set([
 ]);
 
 const WORKSPACE_SCAN_GLOB = '**/*.{ts,tsx,js,jsx,py,go,java,rs,cs,prompt,ai,chat,json,yml,yaml}';
+const WORKSPACE_SCAN_EXCLUDE_GLOB = '**/{node_modules,dist,out,build,coverage,.next,.turbo,.vercel,.cache,.pytest_cache,.git,.vscode-test,tests,test,__tests__,docs,evidence,benchmarks,results,tmp,logs,scratch,examples}/**';
 
 const PROMPTSONAR_DOCUMENT_SELECTOR: vscode.DocumentSelector = [
     { scheme: 'file', language: 'python' },
@@ -74,7 +101,9 @@ const WORKSPACE_EXCLUDE_SEGMENTS = [
     'coverage',
     '.next',
     '.turbo',
+    '.vercel',
     '.cache',
+    '.pytest_cache',
     '.git',
     '.vscode-test',
     'tests',
@@ -83,32 +112,60 @@ const WORKSPACE_EXCLUDE_SEGMENTS = [
     'docs',
     'evidence',
     'benchmarks',
+    'examples',
     'examples/reports',
     'agentsabha-angigravity',
     'custom-writer-skill',
     'my-writer-agent',
     'scratch',
+    'results',
+    'tmp',
+    'logs',
     // PromptSonar's own implementation stores detector strings and simulated
     // model outputs here; they are not application prompts.
     'packages/core/src/rules',
     'packages/core/src/mcp',
     'packages/core/src/evaluation',
     'packages/core/src/parser',
+    'packages/core/src/workflow',
     'packages/vscode-extension/src/client',
 ];
 
 const WORKSPACE_EXCLUDE_PATH_PARTS = [
     '/packages/cli/src/mcpauditor.ts',
     '/action/src/action.ts',
+    '/packages/dashboard/src/app/playground/page.tsx',
+    '/packages/dashboard/src/app/playground1/page.tsx',
+    '/packages/dashboard/src/app/playground3/page.tsx',
+    '/packages/dashboard/src/app/try/page.tsx',
 ];
 
 const WORKSPACE_EXCLUDE_FILE_SUFFIXES = [
     '.min.js',
     '.bundle.js',
+    '.chunk.js',
+    '.compiled.js',
     '.hot-update.js',
+    '.map',
+    '.d.ts.map',
+    '.min.css',
+    '.bundle.css',
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.webp',
+    '.svg',
+    '.ico',
+    '.ttf',
+    '.otf',
+    '.woff',
+    '.woff2',
+    '.log',
     'package-lock.json',
     'pnpm-lock.yaml',
     'yarn.lock',
+    'bun.lockb',
 ];
 
 const WORKSPACE_EXCLUDE_FILE_PREFIXES = [
@@ -140,6 +197,25 @@ function isIgnoredWorkspaceFile(filePath: string): boolean {
     }
 
     return WORKSPACE_EXCLUDE_SEGMENTS.some(segment => normalized.includes(`/${segment}/`));
+}
+
+async function loadWorkspaceIgnoreMatchers(workspaceFolders: readonly vscode.WorkspaceFolder[]): Promise<PromptSonarIgnoreMatcher[]> {
+    const matchers: PromptSonarIgnoreMatcher[] = [];
+
+    for (const folder of workspaceFolders) {
+        for (const fileName of ['.gitignore', '.promptsonarignore']) {
+            try {
+                const ignoreUri = Uri.joinPath(folder.uri, fileName);
+                const fileData = await workspace.fs.readFile(ignoreUri);
+                const content = Buffer.from(fileData).toString('utf8');
+                matchers.push(parsePromptSonarIgnore(content, folder.uri.fsPath));
+            } catch {
+                // Ignore files are optional.
+            }
+        }
+    }
+
+    return matchers;
 }
 
 function isSupportedLanguage(languageId: string, fileName?: string, content?: string): boolean {
@@ -612,6 +688,7 @@ export function activate(context: ExtensionContext) {
             }
 
             scanLog.clear();
+            scanCache.clear();
             scanLog.show(true); // show the output channel so user can see progress
             scanLog.appendLine('═══ PromptSonar Workspace Scan ═══');
             scanLog.appendLine(`Started at ${new Date().toLocaleTimeString()}`);
@@ -619,16 +696,30 @@ export function activate(context: ExtensionContext) {
             window.withProgress({
                 location: vscode.ProgressLocation.Notification,
                 title: "PromptSonar: Scanning Workspace...",
-                cancellable: false
-            }, async (progress) => {
+                cancellable: true
+            }, async (progress, token) => {
                 try {
-                    const sourceFiles = await workspace.findFiles(WORKSPACE_SCAN_GLOB, undefined);
-                    const markdownInstructionFiles = await workspace.findFiles('**/{SKILL.md,skills.md,AGENT.md,AGENTS.md,agent.md,agents.md}', undefined);
+                    const workspaceIgnoreMatchers = await loadWorkspaceIgnoreMatchers(workspaceFolders);
+                    const sourceFiles = await workspace.findFiles(WORKSPACE_SCAN_GLOB, WORKSPACE_SCAN_EXCLUDE_GLOB);
+                    const markdownInstructionFiles = await workspace.findFiles('**/{SKILL.md,skills.md,AGENT.md,AGENTS.md,agent.md,agents.md}', WORKSPACE_SCAN_EXCLUDE_GLOB);
                     const rawFiles = [...sourceFiles, ...markdownInstructionFiles];
-                    const files = rawFiles.filter(f => !isIgnoredWorkspaceFile(f.fsPath));
+                    const candidateFiles = rawFiles.filter(f =>
+                        !isIgnoredWorkspaceFile(f.fsPath) &&
+                        !isPromptSonarIgnoredPath(f.fsPath, workspaceIgnoreMatchers)
+                    ).sort((a, b) => a.fsPath.localeCompare(b.fsPath));
+                    const configScope = workspace.getConfiguration('promptsonar');
+                    const maxWorkspaceScanFiles = Math.max(1, configScope.get<number>('maxWorkspaceScanFiles', 2000));
+                    const files = candidateFiles.slice(0, maxWorkspaceScanFiles);
                     const excludedCount = rawFiles.length - files.length;
+                    const skippedByLimit = Math.max(0, candidateFiles.length - files.length);
+                    const maxFileSizeBytes = configScope.get<number>('maxFileSizeBytes', 1048576);
+                    let skippedLargeFiles = 0;
+                    let cancelled = false;
 
                     scanLog.appendLine(`Found ${files.length} scannable files (${excludedCount} generated/test/doc files excluded)\n`);
+                    if (skippedByLimit > 0) {
+                        scanLog.appendLine(`Workspace scan limited to ${files.length} files (${skippedByLimit} additional files skipped by promptsonar.maxWorkspaceScanFiles).`);
+                    }
 
                     if (files.length === 0) {
                         window.showInformationMessage('No scannable files found in the workspace.');
@@ -638,15 +729,28 @@ export function activate(context: ExtensionContext) {
                     const config = { efficiency: { token_budget: 8192 } };
 
                     let allFindings: any[] = [];
-                    let totalScore = 0;
+                    let promptScores: number[] = [];
                     let promptsEvaluated = 0;
                     let combinedText = '';
                     let filesWithPrompts = 0;
 
                     for (let i = 0; i < files.length; i++) {
+                        if (token.isCancellationRequested) {
+                            cancelled = true;
+                            scanLog.appendLine('\nScan cancelled by user.');
+                            break;
+                        }
+
                         const file = files[i];
                         const basename = path.basename(file.fsPath);
                         progress.report({ message: `(${i + 1}/${files.length}) ${basename}`, increment: (100 / files.length) });
+
+                        const stat = await workspace.fs.stat(file);
+                        if (stat.size > maxFileSizeBytes) {
+                            skippedLargeFiles++;
+                            scanLog.appendLine(`↷ ${basename} — skipped (${stat.size} bytes exceeds ${maxFileSizeBytes})`);
+                            continue;
+                        }
 
                         const fileData = await workspace.fs.readFile(file);
                         const text = Buffer.from(fileData).toString('utf8');
@@ -654,7 +758,7 @@ export function activate(context: ExtensionContext) {
                         const cached = scanCache.get(file.fsPath);
                         if (cached?.contentHash === contentHash) {
                             allFindings.push(...cached.findings);
-                            totalScore += cached.score;
+                            promptScores.push(...(cached.scores || Array.from({ length: cached.promptsEvaluated }, () => Math.round(cached.score / cached.promptsEvaluated))));
                             promptsEvaluated += cached.promptsEvaluated;
                             combinedText += cached.combinedText;
                             if (cached.promptsEvaluated > 0) filesWithPrompts++;
@@ -680,7 +784,7 @@ export function activate(context: ExtensionContext) {
                                 const findings = result.findings.map((f: any) => ({ ...f, file: basename, line: prompt.startLine }));
                                 fileFindings.push(...findings);
                                 allFindings.push(...findings);
-                                totalScore += result.score;
+                                promptScores.push(result.score);
                                 fileScore += result.score;
                                 promptsEvaluated++;
                                 filePromptsEvaluated++;
@@ -696,37 +800,35 @@ export function activate(context: ExtensionContext) {
                             contentHash,
                             findings: fileFindings,
                             score: fileScore,
+                            scores: promptScores.slice(promptScores.length - filePromptsEvaluated),
                             promptsEvaluated: filePromptsEvaluated,
                             combinedText: fileCombinedText,
                         });
                     }
 
                     scanLog.appendLine(`\n═══ Scan Complete ═══`);
-                    scanLog.appendLine(`Files scanned: ${files.length}`);
+                    scanLog.appendLine(`Files scanned: ${files.length - skippedLargeFiles}`);
+                    scanLog.appendLine(`Files skipped by size: ${skippedLargeFiles}`);
+                    scanLog.appendLine(`Files skipped by workspace limit: ${skippedByLimit}`);
                     scanLog.appendLine(`Files with prompts: ${filesWithPrompts}`);
                     scanLog.appendLine(`Total prompts: ${promptsEvaluated}`);
                     scanLog.appendLine(`Total findings: ${allFindings.length}`);
                     scanLog.appendLine(`Finished at ${new Date().toLocaleTimeString()}`);
 
                     if (promptsEvaluated === 0) {
+                        if (cancelled) {
+                            window.showInformationMessage(`PromptSonar: Workspace scan cancelled. Scanned ${files.length - skippedLargeFiles} files before cancellation.`);
+                            return;
+                        }
                         window.showInformationMessage(`PromptSonar: Scanned ${files.length} files — no prompts found.`);
                         return;
                     }
 
-                    const averageScore = Math.round(totalScore / promptsEvaluated);
-                    let status: "pass" | "warn" | "fail" = "pass";
-                    if (averageScore < 70) status = "fail";
-                    else if (averageScore < 85) status = "warn";
-
-                    const hasCritical = allFindings.some(f => f.severity === 'critical');
-                    let finalScore = averageScore;
-                    if (hasCritical) {
-                        status = "fail";
-                    }
+                    const summary = summarizeWorkspaceScore(promptScores, allFindings);
 
                     const masterResult = {
-                        score: finalScore,
-                        status,
+                        score: summary.score,
+                        status: summary.status,
                         findings: allFindings
                     };
 

@@ -17,9 +17,29 @@ https://marketplace.visualstudio.com/items?itemName=promptsonar-tools.promptsona
 - PromptSonar Activity Bar workbench with Execution Path, Workflow Evidence, Confidence, Root Cause, Workflow Diff, and MCP risk sections.
 - Command Palette actions: scan current file, open execution path, show workflow diff, export SARIF, copy report, copy execution path, and open playground.
 - Deterministic quick fixes for wildcard permissions, `autoExecute`, hardcoded credentials, and untrusted user input patterns.
-- Workspace scan command from the Command Palette.
+- Workspace scan command from the Command Palette with `.gitignore` and `.promptsonarignore` support.
 - Local static rules for prompt injection, Unicode evasion, secrets, structure, and clarity.
 - Same rule family as `@promptsonar/cli`.
+
+## Workspace Scan Guardrails
+
+`PromptSonar: Scan Entire Workspace` is designed for real repositories, not just small demos:
+
+- Clears stale workspace scan cache before each full scan.
+- Respects `.gitignore`.
+- Respects `.promptsonarignore`.
+- Skips common generated, dependency, build, cache, coverage, docs, tests, benchmark, result, asset, map, and lockfile paths.
+- Skips files larger than `promptsonar.maxFileSizeBytes` (`1048576` by default).
+- Caps full workspace scans with `promptsonar.maxWorkspaceScanFiles` (`2000` by default).
+- Runs locally and makes zero LLM calls.
+
+Use `.promptsonarignore` for PromptSonar-specific path exclusions:
+
+```gitignore
+examples/**
+fixtures/vulnerable/**
+results/**
+```
 
 ## Manual Test
 

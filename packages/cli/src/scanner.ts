@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import fg from 'fast-glob';
+import ignore, { Ignore } from 'ignore';
 import {
     parseFile,
     evaluatePrompt,
@@ -25,7 +26,22 @@ export interface ScanResult {
     status: 'pass' | 'warn' | 'fail';
     pillar_scores: Record<string, number>;
     findings_count: number;
+    total_findings_count?: number;
+    unique_findings_count?: number;
+    repeated_findings_count?: number;
+    summarized_findings_count?: number;
     findings: ScanFinding[];
+    scan_summary?: ScanSummary;
+}
+
+export interface ScanSummary {
+    files_scanned: number;
+    files_skipped: number;
+    skipped_reasons: Record<string, number>;
+    findings_total: number;
+    findings_unique: number;
+    findings_repeated: number;
+    findings_summarized: number;
 }
 
 export interface ScanFinding {
@@ -45,9 +61,15 @@ export interface ScanFinding {
     risk: string;
     docs_url: string;
     waived: boolean;
+    instance_count?: number;
     workflow?: FindingWorkflow;
     suppression_reason?: string;
     suppression_source?: string;
+}
+
+interface WorkspaceIgnoreMatcher {
+    rootPath: string;
+    matcher: Ignore;
 }
 
 // Maps rule IDs to their OWASP references
@@ -248,12 +270,38 @@ function loadPromptSonarIgnore(filePath: string): Suppression[] {
     return fs.readFileSync(filePath, 'utf-8')
         .split(/\r?\n/)
         .map(line => line.trim())
-        .filter(line => line && !line.startsWith('#'))
+        .filter(line => line && !line.startsWith('#') && !line.startsWith('!'))
         .map(pattern => ({
             path: pattern,
             reason: 'Matched .promptsonarignore path pattern',
             source: filePath,
         }));
+}
+
+function loadWorkspaceIgnoreMatchers(rootPath: string): WorkspaceIgnoreMatcher[] {
+    const matchers: WorkspaceIgnoreMatcher[] = [];
+
+    for (const fileName of ['.gitignore', '.promptsonarignore']) {
+        const ignorePath = path.join(rootPath, fileName);
+        if (!fs.existsSync(ignorePath)) continue;
+        matchers.push({
+            rootPath,
+            matcher: ignore().add(fs.readFileSync(ignorePath, 'utf-8')),
+        });
+    }
+
+    return matchers;
+}
+
+function isIgnoredByWorkspaceIgnore(filePath: string, matchers: WorkspaceIgnoreMatcher[]): boolean {
+    return matchers.some(({ rootPath, matcher }) => {
+        const relativePath = path.relative(rootPath, filePath).replace(/\\/g, '/');
+        if (relativePath === '' || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+            return false;
+        }
+
+        return matcher.ignores(relativePath);
+    });
 }
 
 // Compute per-pillar scores from scan findings
@@ -305,7 +353,9 @@ const DEFAULT_IGNORE_PATTERNS = [
     '**/coverage/**',
     '**/.next/**',
     '**/.turbo/**',
+    '**/.vercel/**',
     '**/.cache/**',
+    '**/.pytest_cache/**',
     '**/.git/**',
     '**/.vscode-test/**',
     '**/tests/**',
@@ -322,13 +372,33 @@ const DEFAULT_IGNORE_PATTERNS = [
     '**/scratch/**',
     '**/results/**',
     '**/tmp/**',
+    '**/logs/**',
+    '**/*.log',
     '**/*.promptsonar-fixed',
     '**/*.min.js',
+    '**/*.min.css',
     '**/*.bundle.js',
+    '**/*.bundle.css',
+    '**/*.chunk.js',
+    '**/*.compiled.js',
     '**/*.hot-update.js',
+    '**/*.map',
+    '**/*.d.ts.map',
+    '**/*.png',
+    '**/*.jpg',
+    '**/*.jpeg',
+    '**/*.gif',
+    '**/*.webp',
+    '**/*.svg',
+    '**/*.ico',
+    '**/*.ttf',
+    '**/*.otf',
+    '**/*.woff',
+    '**/*.woff2',
     '**/package-lock.json',
     '**/pnpm-lock.yaml',
     '**/yarn.lock',
+    '**/bun.lockb',
     '**/.promptsonar-waivers.yaml',
     '**/.promptsonarignore',
     '**/.promptsonar-policy.yaml',
@@ -348,6 +418,13 @@ const WORKFLOW_RELEVANT_PATTERNS = [
     'rag/**/*',
     '**/*.prompt.*',
 ];
+
+const MAX_FILE_SIZE_BYTES = 1024 * 1024;
+const DEFAULT_MAX_FILES = 2000;
+const MAX_FINDINGS_PER_FILE = 50;
+const MAX_RENDERED_CRITICAL_HIGH_PER_FILE = 100;
+const MAX_LOW_PER_CATEGORY_PER_FILE = 20;
+const MAX_BEST_PRACTICE_PER_FILE = 10;
 
 function getLanguageForExt(ext: string): string {
     switch (ext) {
@@ -370,13 +447,183 @@ function isRecognizedMcpConfig(filePath: string): boolean {
         || normalized === 'claude_desktop_config.json';
 }
 
-function scoreFromFindings(findings: ScanFinding[]): number {
-    return Math.max(0, 100 - findings.reduce((total, finding) => total + getPenaltyForSeverity(finding.severity), 0));
+async function collectCandidateFiles(resolvedPath: string, ignore: string[]): Promise<string[]> {
+    const patterns = SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
+    const files = await fg(patterns, {
+        cwd: resolvedPath,
+        absolute: true,
+        ignore,
+    });
+
+    const markdownPromptFiles = await fg(['**/*.md'], {
+        cwd: resolvedPath,
+        absolute: true,
+        ignore,
+    });
+    files.push(
+        ...markdownPromptFiles.filter(filePath =>
+            SUPPORTED_MARKDOWN_PROMPT_FILES.has(path.basename(filePath).toLowerCase())
+        )
+    );
+    files.push(...await fg(WORKFLOW_RELEVANT_PATTERNS, {
+        cwd: resolvedPath,
+        absolute: true,
+        onlyFiles: true,
+        ignore,
+    }));
+
+    return Array.from(new Set(files)).sort();
+}
+
+function sortFindings(findings: ScanFinding[]): ScanFinding[] {
+    const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    return [...findings].sort((a, b) => {
+        const severityDelta = (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9);
+        if (severityDelta !== 0) return severityDelta;
+        const ruleDelta = a.rule_id.localeCompare(b.rule_id);
+        if (ruleDelta !== 0) return ruleDelta;
+        return a.line - b.line;
+    });
+}
+
+function normalizedEvidence(finding: ScanFinding): string {
+    return (finding.evidence || finding.message || '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 220);
+}
+
+function dedupeFindings(filePath: string, findings: ScanFinding[]): { findings: ScanFinding[]; repeatedCount: number } {
+    const byKey = new Map<string, ScanFinding>();
+    let repeatedCount = 0;
+
+    for (const finding of findings) {
+        const key = [
+            filePath.replace(/\\/g, '/'),
+            finding.rule_id,
+            finding.category,
+            finding.line || 0,
+            normalizedEvidence(finding),
+        ].join('|');
+        const existing = byKey.get(key);
+        if (existing) {
+            repeatedCount++;
+            existing.instance_count = (existing.instance_count || 1) + 1;
+            existing.waived = existing.waived && finding.waived;
+            if (!existing.suppression_reason) existing.suppression_reason = finding.suppression_reason;
+            if (!existing.suppression_source) existing.suppression_source = finding.suppression_source;
+            continue;
+        }
+        byKey.set(key, { ...finding, instance_count: finding.instance_count || 1 });
+    }
+
+    return { findings: sortFindings(Array.from(byKey.values())), repeatedCount };
+}
+
+export function dedupeScanFindings(filePath: string, findings: ScanFinding[]): { findings: ScanFinding[]; repeatedCount: number } {
+    return dedupeFindings(filePath, findings);
+}
+
+function capFindingsForDisplay(findings: ScanFinding[]): { findings: ScanFinding[]; summarizedCount: number } {
+    const sorted = sortFindings(findings);
+    const criticalHigh = sorted.filter(finding => finding.severity === 'critical' || finding.severity === 'high');
+    const displayed: ScanFinding[] = criticalHigh.slice(0, MAX_RENDERED_CRITICAL_HIGH_PER_FILE);
+    const effectiveLimit = Math.max(MAX_FINDINGS_PER_FILE, Math.min(criticalHigh.length, MAX_RENDERED_CRITICAL_HIGH_PER_FILE));
+    const lowCategoryCounts = new Map<string, number>();
+
+    for (const finding of sorted) {
+        if (displayed.includes(finding)) continue;
+        if ((finding.severity === 'critical' || finding.severity === 'high') && criticalHigh.length > MAX_RENDERED_CRITICAL_HIGH_PER_FILE) continue;
+        if (displayed.length >= effectiveLimit) break;
+
+        if (finding.severity === 'low') {
+            const current = lowCategoryCounts.get(finding.category) || 0;
+            const categoryLimit = finding.category === 'best_practices'
+                ? MAX_BEST_PRACTICE_PER_FILE
+                : MAX_LOW_PER_CATEGORY_PER_FILE;
+            if (current >= categoryLimit) continue;
+            lowCategoryCounts.set(finding.category, current + 1);
+        }
+
+        if (displayed.length < effectiveLimit) {
+            displayed.push(finding);
+        }
+    }
+
+    return {
+        findings: sortFindings(displayed),
+        summarizedCount: Math.max(0, findings.length - displayed.length),
+    };
+}
+
+export function scoreFromFindings(findings: Array<Pick<ScanFinding, 'severity' | 'category' | 'waived' | 'workflow'>>): number {
+    const activeFindings = findings.filter(finding => !finding.waived);
+    const severityTotals: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+    const severityCaps: Record<string, number> = { critical: 80, high: 60, medium: 40, low: 20 };
+    const categoryTotals: Record<string, number> = {};
+    const categoryCaps: Record<string, number> = {
+        security: 85,
+        ethics: 40,
+        clarity: 25,
+        structure: 20,
+        best_practices: 15,
+        consistency: 15,
+        efficiency: 15,
+    };
+
+    for (const finding of activeFindings) {
+        const penalty = finding.category === 'best_practices'
+            ? 0.25
+            : finding.severity === 'critical'
+                ? 25
+                : finding.severity === 'high'
+                    ? 12
+                    : finding.severity === 'medium'
+                        ? 5
+                        : 1;
+        severityTotals[finding.severity] = (severityTotals[finding.severity] || 0) + penalty;
+        categoryTotals[finding.category] = (categoryTotals[finding.category] || 0) + penalty;
+
+        if (finding.workflow?.path?.privilegedSinkReached) {
+            categoryTotals.security = (categoryTotals.security || 0) + (finding.workflow.risk === 'critical' ? 20 : 12);
+        } else if (finding.workflow?.path?.trustBoundaryCrossed) {
+            categoryTotals.security = (categoryTotals.security || 0) + 6;
+        }
+    }
+
+    const severityPenalty = Object.entries(severityTotals)
+        .reduce((total, [severity, value]) => total + Math.min(value, severityCaps[severity] ?? value), 0);
+    const categoryPenalty = Object.entries(categoryTotals)
+        .reduce((total, [category, value]) => total + Math.min(value, categoryCaps[category] ?? 20), 0);
+    let score = Math.max(0, Math.round(100 - Math.min(severityPenalty, categoryPenalty)));
+
+    const criticalCount = activeFindings.filter(finding => finding.severity === 'critical').length;
+    const highCount = activeFindings.filter(finding => finding.severity === 'high').length;
+    if (criticalCount >= 2) score = Math.min(score, 40);
+    else if (criticalCount === 1) score = Math.min(score, 60);
+    if (highCount >= 5) score = Math.min(score, 65);
+    else if (highCount >= 3) score = Math.min(score, 75);
+
+    if (activeFindings.length >= 1000) score = Math.min(score, 55);
+    else if (activeFindings.length >= 500) score = Math.min(score, 65);
+    else if (activeFindings.length >= 100) score = Math.min(score, 80);
+    else if (activeFindings.length >= 25) score = Math.min(score, 85);
+    else if (activeFindings.length >= 10) score = Math.min(score, 90);
+
+    return score;
 }
 
 function statusFromFindings(findings: ScanFinding[]): ScanResult['status'] {
     if (findings.some(finding => finding.severity === 'critical' || finding.severity === 'high')) return 'fail';
     if (findings.length > 0) return 'warn';
+    return 'pass';
+}
+
+function statusFromScoreAndFindings(score: number, findings: ScanFinding[]): ScanResult['status'] {
+    if (findings.some(finding => !finding.waived && (finding.severity === 'critical' || finding.severity === 'high'))) return 'fail';
+    if (score < 70) return 'fail';
+    if (score < 85 || findings.some(finding => !finding.waived)) return 'warn';
     return 'pass';
 }
 
@@ -416,8 +663,23 @@ export async function scanFiles(targetPath: string, options: {
     verbose?: boolean;
     diffOnly?: boolean;
     waiverFile?: string;
+    maxFiles?: number;
+    maxFileSizeBytes?: number;
 }): Promise<ScanResult[]> {
     const results: ScanResult[] = [];
+    const scanSummary: ScanSummary = {
+        files_scanned: 0,
+        files_skipped: 0,
+        skipped_reasons: {},
+        findings_total: 0,
+        findings_unique: 0,
+        findings_repeated: 0,
+        findings_summarized: 0,
+    };
+    const noteSkipped = (reason: string, count = 1) => {
+        scanSummary.files_skipped += count;
+        scanSummary.skipped_reasons[reason] = (scanSummary.skipped_reasons[reason] || 0) + count;
+    };
 
     let activeSuppressions: Suppression[] = [];
     for (const suppressionFile of findSuppressionFiles(targetPath, options.waiverFile)) {
@@ -439,67 +701,67 @@ export async function scanFiles(targetPath: string, options: {
     // Resolve target
     const resolvedPath = path.resolve(targetPath);
     let files: string[] = [];
+    const maxFiles = options.maxFiles || DEFAULT_MAX_FILES;
+    const maxFileSizeBytes = options.maxFileSizeBytes || MAX_FILE_SIZE_BYTES;
+    const scanRoot = fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory()
+        ? resolvedPath
+        : path.dirname(resolvedPath);
+    const promptsonarIgnorePath = path.join(scanRoot, '.promptsonarignore');
+    const promptsonarIgnorePatterns = fs.existsSync(promptsonarIgnorePath)
+        ? fs.readFileSync(promptsonarIgnorePath, 'utf-8')
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(line => line && !line.startsWith('#') && !line.startsWith('!'))
+        : [];
+    const ignorePatterns = [...DEFAULT_IGNORE_PATTERNS, ...promptsonarIgnorePatterns];
+    const workspaceIgnoreMatchers = loadWorkspaceIgnoreMatchers(scanRoot);
 
     if (fs.statSync(resolvedPath).isDirectory()) {
-        const patterns = SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
-        files = await fg(patterns, {
-            cwd: resolvedPath,
-            absolute: true,
-            ignore: DEFAULT_IGNORE_PATTERNS,
-        });
-
-        const markdownPromptFiles = await fg(['**/*.md'], {
-            cwd: resolvedPath,
-            absolute: true,
-            ignore: DEFAULT_IGNORE_PATTERNS,
-        });
-        files.push(
-            ...markdownPromptFiles.filter(filePath =>
-                SUPPORTED_MARKDOWN_PROMPT_FILES.has(path.basename(filePath).toLowerCase())
-            )
-        );
-        files.push(...await fg(WORKFLOW_RELEVANT_PATTERNS, {
-            cwd: resolvedPath,
-            absolute: true,
-            onlyFiles: true,
-            ignore: DEFAULT_IGNORE_PATTERNS,
-        }));
-        files = Array.from(new Set(files));
+        files = await collectCandidateFiles(resolvedPath, ignorePatterns);
+        files = files.filter(file => !isIgnoredByWorkspaceIgnore(file, workspaceIgnoreMatchers));
+        if (files.length > maxFiles) {
+            noteSkipped('max_files_exceeded', files.length - maxFiles);
+            files = files.slice(0, maxFiles);
+        }
     } else {
         files = [resolvedPath];
     }
 
     for (const filePath of files) {
+        const stats = fs.statSync(filePath);
+        if (stats.size > maxFileSizeBytes) {
+            noteSkipped('file_too_large');
+            if (options.verbose) {
+                console.warn(`[PromptSonar] Skipping ${filePath}: file is larger than ${maxFileSizeBytes} bytes`);
+            }
+            continue;
+        }
+
         const content = fs.readFileSync(filePath, 'utf-8');
         const ext = path.extname(filePath).toLowerCase();
         const language = getLanguageForExt(ext);
         const inlineSuppressions = extractInlineSuppressions(content);
+        scanSummary.files_scanned++;
 
         try {
             if (isRecognizedMcpConfig(filePath)) {
                 const mcpResult = auditMcpConfig(filePath, content);
                 if (mcpResult.findings.length > 0) {
                     const scanFindings = mcpResult.findings.map(finding => mapMcpFinding(finding, filePath));
-                    results.push({
-                        filePath,
-                        overall_score: scoreFromFindings(scanFindings),
-                        status: statusFromFindings(scanFindings),
-                        pillar_scores: computePillarScores(scanFindings),
-                        findings_count: scanFindings.length,
-                        findings: scanFindings,
-                    });
+                    results.push(buildScanResult(filePath, scanFindings, scanSummary));
                     continue;
                 }
             }
 
             const prompts = await parseFile({ filePath, content, language });
+            const fileFindings: ScanFinding[] = [];
 
             for (const prompt of prompts) {
                 const evalResult: RuleResult = evaluatePrompt(
                     { text: prompt.text, language, context: { filePath } }
                 );
 
-                const scanFindings: ScanFinding[] = evalResult.findings.map(f => {
+                fileFindings.push(...evalResult.findings.map(f => {
                     const configSuppression = isFindingSuppressed(f.rule_id, filePath, activeSuppressions);
                     const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions);
                     const owasp = getOwaspRef(f.rule_id);
@@ -536,25 +798,49 @@ export async function scanFiles(targetPath: string, options: {
                         suppression_reason: configSuppression?.reason || (inlineSuppressed ? 'Inline promptsonar-ignore comment' : undefined),
                         suppression_source: configSuppression?.source || (inlineSuppressed ? 'inline' : undefined),
                     };
-                });
+                }));
+            }
 
-                results.push({
-                    filePath,
-                    overall_score: evalResult.score,
-                    status: evalResult.status,
-                    pillar_scores: computePillarScores(scanFindings),
-                    findings_count: scanFindings.length,
-                    findings: scanFindings,
-                });
+            if (prompts.length > 0) {
+                results.push(buildScanResult(filePath, fileFindings, scanSummary));
             }
         } catch (err) {
+            noteSkipped('scan_error');
             if (options.verbose) {
                 console.warn(`[PromptSonar] Skipping ${filePath}: ${err}`);
             }
         }
     }
 
+    for (const result of results) {
+        result.scan_summary = { ...scanSummary, skipped_reasons: { ...scanSummary.skipped_reasons } };
+    }
+
     return results;
+}
+
+function buildScanResult(filePath: string, scanFindings: ScanFinding[], scanSummary: ScanSummary): ScanResult {
+    const { findings: uniqueFindings, repeatedCount } = dedupeFindings(filePath, scanFindings);
+    const { findings: displayedFindings, summarizedCount } = capFindingsForDisplay(uniqueFindings);
+    const score = scoreFromFindings(uniqueFindings);
+
+    scanSummary.findings_total += scanFindings.length;
+    scanSummary.findings_unique += uniqueFindings.length;
+    scanSummary.findings_repeated += repeatedCount;
+    scanSummary.findings_summarized += summarizedCount;
+
+    return {
+        filePath,
+        overall_score: score,
+        status: statusFromScoreAndFindings(score, uniqueFindings),
+        pillar_scores: computePillarScores(uniqueFindings),
+        findings_count: uniqueFindings.length,
+        total_findings_count: scanFindings.length,
+        unique_findings_count: uniqueFindings.length,
+        repeated_findings_count: repeatedCount,
+        summarized_findings_count: summarizedCount,
+        findings: displayedFindings,
+    };
 }
 
 export function generateSarif(results: ScanResult[]): string {

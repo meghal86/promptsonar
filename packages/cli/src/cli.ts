@@ -4,16 +4,41 @@ import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
-import { scanFiles, generateSarif } from './scanner';
+import { scanFiles, generateSarif, ScanResult, scoreFromFindings } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
-import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt } from '@promptsonar/core';
+import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult } from '@promptsonar/core';
 import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
 import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
 
-const VERSION = '1.4.0';
+const VERSION = '1.4.3';
 
 const program = new Command();
+
+function summarizeWorkspaceScore(results: ScanResult[]): { score: number; status: 'pass' | 'warn' | 'fail' } {
+    if (results.length === 0) return { score: 100, status: 'pass' };
+
+    const findings = results.flatMap(result => result.findings.filter(finding => !finding.waived));
+    const scores = results.map(result => result.overall_score);
+    const aggregateScore = scoreFromFindings(findings);
+    const worstScore = Math.min(...scores);
+
+    let score = Math.min(aggregateScore, worstScore);
+    let status: 'pass' | 'warn' | 'fail' = score < 70 ? 'fail' : score < 85 ? 'warn' : 'pass';
+
+    if (findings.some(finding => finding.severity === 'critical')) {
+        score = Math.min(score, 49);
+        status = 'fail';
+    } else if (findings.some(finding => finding.severity === 'high' && (finding.category === 'security' || finding.category === 'ethics'))) {
+        score = Math.min(score, 69);
+        status = 'fail';
+    } else if (findings.some(finding => finding.severity === 'medium' && (finding.category === 'security' || finding.category === 'ethics'))) {
+        score = Math.min(score, 84);
+        if (status === 'pass') status = 'warn';
+    }
+
+    return { score, status };
+}
 
 function isZodSchemaError(err: any): boolean {
     return err?.name === 'ZodError' || Array.isArray(err?.issues);
@@ -48,6 +73,110 @@ function isGitTracked(filePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+function modelNameFromFile(filePath: string): string {
+    const base = path.basename(filePath, path.extname(filePath));
+    return base
+        .split(/[-_]+/)
+        .filter(Boolean)
+        .map(part => part.length <= 3 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
+function readModelComparisonInput(options: any): ModelComparisonInput {
+    if (options.input) {
+        const inputPath = path.resolve(options.input);
+        if (!fs.existsSync(inputPath)) {
+            throw new Error(`Input file does not exist: ${options.input}`);
+        }
+        return JSON.parse(fs.readFileSync(inputPath, 'utf-8'));
+    }
+
+    if (!options.prompt || !options.outputs) {
+        throw new Error('Provide either --input comparison.json or both --prompt prompt.txt and --outputs ./outputs');
+    }
+
+    const promptPath = path.resolve(options.prompt);
+    const outputsDir = path.resolve(options.outputs);
+    if (!fs.existsSync(promptPath)) {
+        throw new Error(`Prompt file does not exist: ${options.prompt}`);
+    }
+    if (!fs.existsSync(outputsDir) || !fs.statSync(outputsDir).isDirectory()) {
+        throw new Error(`Outputs directory does not exist: ${options.outputs}`);
+    }
+
+    const outputFiles = fs.readdirSync(outputsDir)
+        .filter(file => /\.(txt|md|json)$/i.test(file))
+        .sort();
+
+    return {
+        prompt: fs.readFileSync(promptPath, 'utf-8'),
+        expectedFormat: options.expectedFormat,
+        outputs: outputFiles.map(file => {
+            const modelId = path.basename(file, path.extname(file));
+            return {
+                modelId,
+                modelName: modelNameFromFile(file),
+                output: fs.readFileSync(path.join(outputsDir, file), 'utf-8'),
+            };
+        }),
+    };
+}
+
+function statusLabel(status: string): string {
+    if (status === 'high_risk') return 'High Risk';
+    if (status === 'needs_review') return 'Needs Review';
+    return 'Stable';
+}
+
+function formatModelComparisonTable(result: ModelComparisonResult): string {
+    const rows = result.models.map(model => [
+        model.modelName,
+        `${model.safetyScore}/100`,
+        model.behaviorVariance.toFixed(2),
+        String(model.findingsCount),
+        statusLabel(model.status),
+    ]);
+    const headers = ['Model', 'Safety Score', 'Behavior Variance', 'Findings', 'Status'];
+    const widths = headers.map((header, index) => Math.max(header.length, ...rows.map(row => row[index].length)));
+    const line = (values: string[]) => values.map((value, index) => value.padEnd(widths[index])).join('  ');
+    const best = result.models.find(model => model.modelId === result.summary.bestModelId);
+    const riskiest = result.models.find(model => model.modelId === result.summary.riskiestModelId);
+
+    return [
+        'Model Behavior Comparison',
+        '',
+        line(headers),
+        line(headers.map((header, index) => '-'.repeat(widths[index]))),
+        ...rows.map(line),
+        '',
+        `Best model: ${best?.modelName || 'N/A'}`,
+        `Riskiest model: ${riskiest?.modelName || 'N/A'}`,
+        `Average safety score: ${result.summary.averageSafetyScore}/100`,
+        `Needs review count: ${result.summary.needsReviewCount}`,
+        '',
+        'Source: user-provided model outputs. No model calls were made.',
+    ].join('\n');
+}
+
+function formatModelComparisonMarkdown(result: ModelComparisonResult): string {
+    const best = result.models.find(model => model.modelId === result.summary.bestModelId);
+    const riskiest = result.models.find(model => model.modelId === result.summary.riskiestModelId);
+    return [
+        '# Model Behavior Comparison',
+        '',
+        `- Best model: ${best?.modelName || 'N/A'}`,
+        `- Riskiest model: ${riskiest?.modelName || 'N/A'}`,
+        `- Average safety score: ${result.summary.averageSafetyScore}/100`,
+        `- Needs review count: ${result.summary.needsReviewCount}`,
+        '',
+        '| Model | Safety Score | Behavior Variance | Findings | Status |',
+        '| --- | ---: | ---: | ---: | --- |',
+        ...result.models.map(model => `| ${model.modelName} | ${model.safetyScore}/100 | ${model.behaviorVariance.toFixed(2)} | ${model.findingsCount} | ${statusLabel(model.status)} |`),
+        '',
+        'Source: user-provided model outputs. No model calls were made.',
+    ].join('\n');
 }
 
 function fixPromptContent(content: string, ruleIds: string[], filePath: string): string {
@@ -180,12 +309,9 @@ program
 
                 // Aggregate results for the report
                 let allFindings: any[] = [];
-                let totalScore = 0;
-                let promptsEvaluated = 0;
-
                 for (const res of results) {
                     const basename = path.basename(res.filePath);
-                    allFindings.push(...res.findings.map(f => ({
+                    allFindings.push(...res.findings.filter(f => !f.waived).map(f => ({
                         rule_id: f.rule_id,
                         severity: f.severity,
                         category: f.category || 'security',
@@ -194,17 +320,16 @@ program
                         line: f.line,
                         file: basename
                     })));
-                    totalScore += res.overall_score;
-                    promptsEvaluated++;
                 }
 
-                const avgScore = promptsEvaluated > 0 ? Math.round(totalScore / promptsEvaluated) : 100;
-                const hasCritical = allFindings.some(f => f.severity === 'critical');
+                const summary = summarizeWorkspaceScore(results);
+                const scanSummary = results.find(result => result.scan_summary)?.scan_summary;
 
                 const masterResult = {
-                    score: hasCritical ? Math.min(avgScore, 49) : avgScore,
-                    status: (hasCritical || avgScore < 70) ? 'fail' : (avgScore < 85 ? 'warn' : 'pass'),
-                    findings: allFindings
+                    score: summary.score,
+                    status: summary.status,
+                    findings: allFindings,
+                    scan_summary: scanSummary
                 };
 
                 const html = generateHtmlReport(masterResult as any, "Workspace Scan Summary", "");
@@ -1145,6 +1270,35 @@ program
 
         } catch (err: any) {
             console.error(chalk.red(`[PromptSonar] Cross-Model Evaluation Error: ${err.message}`));
+            process.exit(1);
+        }
+    });
+
+program
+    .command('compare-models')
+    .description('Compare real user-provided model outputs locally')
+    .option('--prompt <file>', 'Path to the original prompt file')
+    .option('--outputs <dir>', 'Directory containing model output files')
+    .option('--input <file>', 'JSON comparison input file')
+    .option('--expected-format <format>', 'Expected output format: text, json, markdown, or custom')
+    .option('--format <format>', 'Output format: table, json, markdown', 'table')
+    .action(async (options) => {
+        try {
+            const input = readModelComparisonInput(options);
+            const result = compareModelOutputs(input);
+            const format = String(options.format || 'table').toLowerCase();
+
+            if (format === 'json') {
+                console.log(JSON.stringify(result, null, 2));
+            } else if (format === 'markdown') {
+                console.log(formatModelComparisonMarkdown(result));
+            } else if (format === 'table') {
+                console.log(formatModelComparisonTable(result));
+            } else {
+                throw new Error(`Unsupported format: ${options.format}`);
+            }
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Model comparison failed: ${err.message}`));
             process.exit(1);
         }
     });

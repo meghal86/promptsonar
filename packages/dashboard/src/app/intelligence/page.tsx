@@ -47,7 +47,7 @@ const workflowLabel: Record<string, string> = {
   rag_context: 'RAG Context',
   mcp_server: 'MCP Server',
   mcp_tool: 'MCP Tool',
-  privileged_tool: 'Privileged Tool',
+  sensitive_tool: 'Sensitive Tool',
   tool_router: 'Tool Router',
   tool_execution: 'Tool Execution',
   shell_execution: 'Shell Execution',
@@ -231,18 +231,18 @@ function buildIntelligence() {
 
   const rootCauseGroups = [
     {
-      rootCause: 'MCP Tool Poisoning',
+      rootCause: 'MCP Tool Hijacking',
       supporting: ['Workflow Escalation', 'Sensitive Action Access', 'Approval Bypass'],
       findings: allRuleFindings.filter((finding) => includesAny(finding.rule_id, ['mcp', 'workflow_escalation', 'privileged_sink']))
     },
     {
       rootCause: 'Prompt Injection',
-      supporting: ['Role Override', 'Policy Rewrite', 'Instruction Laundering'],
+      supporting: ['Role Override', 'Policy Rewrite', 'Instruction Laundering — instructions hidden inside trusted content'],
       findings: allRuleFindings.filter((finding) => includesAny(finding.rule_id, ['llm01', 'injection', 'override', 'evasion', 'unbounded_persona']))
     },
     {
-      rootCause: 'Memory Escalation',
-      supporting: ['Persistent Context Abuse', 'Memory Propagation', 'Tool Routing'],
+      rootCause: 'Memory Access Escalation — prompt gained access to stored memory',
+      supporting: ['Memory Manipulation — changing what the agent remembers across sessions', 'Memory Propagation', 'Tool Routing'],
       findings: allRuleFindings.filter((finding) => includesAny(`${finding.rule_id} ${finding.explanation}`, ['memory', 'persistent', 'future sessions', 'tool_router']))
     },
     {
@@ -280,14 +280,14 @@ function buildIntelligence() {
     ...workflowFindings.slice(0, 3).map((finding) => ({
       id: `workflow:${finding.sourceFile}:${finding.rule_id}`,
       time: fileTime(finding.sourceFile),
-      event: finding.workflow?.path.privilegedSinkReached ? 'Sensitive Action Reached' : finding.workflow?.path.trustBoundaryCrossed ? 'Trust Boundary Crossed' : 'Execution Path Introduced',
-      detail: finding.workflow?.workflow_replay ? 'Replay Generated' : `Rule: ${finding.rule_id}`,
+      event: finding.workflow?.path.privilegedSinkReached ? 'Sensitive Action Reached' : finding.workflow?.path.trustBoundaryCrossed ? 'Trust Boundary Crossed' : 'Prompt Flow Introduced',
+      detail: finding.workflow?.workflow_replay ? 'Rerun Available' : `Rule: ${finding.rule_id}`,
       confidence: finding.workflow?.confidence_score ?? finding.workflow?.path.confidence_score ?? 0
     })),
     ...mcpFindings.slice(0, 2).map((finding) => ({
       id: `mcp:${finding.sourceFile}:${finding.rule_id}`,
       time: fileTime(finding.sourceFile),
-      event: finding.rule_id === 'MCP-109' ? 'Root Cause Identified' : finding.rule_id === 'MCP-108' ? 'Execution Path Introduced' : 'Workflow Diff Created',
+      event: finding.rule_id === 'MCP-109' ? 'Root Cause Identified' : finding.rule_id === 'MCP-108' ? 'Prompt Flow Introduced' : 'Scan Comparison Created',
       detail: `Rule: ${finding.rule_id}`,
       confidence: finding.confidence_contribution || 0
     }))
@@ -296,7 +296,7 @@ function buildIntelligence() {
   return {
     signals: [
       {
-        label: 'Prompt Propagation Risk',
+        label: 'Spread Risk',
         value: overrideAttempts > 0 ? 'Critical' : 'Ready',
         tone: overrideAttempts > 0 ? 'red' : 'emerald',
         lines: [`Observed: ${overrideAttempts} override attempts`, `${roleRewritePatterns} role rewrite patterns`, `${launderingChains} instruction laundering chains`, 'Most Common: sec_owasp_llm01_injection']
@@ -308,7 +308,7 @@ function buildIntelligence() {
         lines: [`Detected: ${credentialLeaks} credential/PII leaks`, `${apiKeyExposure} API key exposures`, `${sensitiveContext} sensitive context references`, 'Highest Risk: credential or PII propagation']
       },
       {
-        label: 'Retrieval Boundary Crossings',
+        label: 'Retrieved Content Reaching Tools',
         value: ragBoundaryCrossings > 0 ? 'High' : 'Ready',
         tone: ragBoundaryCrossings > 0 ? 'amber' : 'emerald',
         lines: [`Detected: ${ragBoundaryCrossings} retrieval boundary crossings`, `${unvalidatedQueryPatterns} unvalidated_query patterns`, `${contextPoisoningRoutes} context poisoning routes`]
@@ -317,7 +317,7 @@ function buildIntelligence() {
         label: 'Replay & Audit Coverage',
         value: 'Ready',
         tone: 'emerald',
-        lines: ['Artifacts: SARIF', 'Public Report', 'Workflow Diff', 'Replay Timeline']
+        lines: ['Artifacts: SARIF', 'Public Report', 'Compare Scans', 'Replay Timeline']
       }
     ],
     attackSurface: {
@@ -363,7 +363,7 @@ export default function IntelligencePage() {
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">PromptSonar Intelligence</p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">Path Analysis</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#57534E]">
-              Analyze how prompts propagate through memory, MCP servers, tools, sensitive actions, and execution workflows. MCP servers are connected tools an agent can call.
+              See how prompts move through your system and where they can go wrong. MCP servers are connected tools an agent can call.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -371,7 +371,7 @@ export default function IntelligencePage() {
               Back to Playground
             </Link>
             <Link href="/risk-registry" className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800">
-              Open Risk Catalog
+              Risk List
             </Link>
           </div>
         </header>
@@ -379,8 +379,8 @@ export default function IntelligencePage() {
         <section className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-4">
             <div>
-              <h2 className="text-2xl font-black">Top Execution Paths</h2>
-              <p className="mt-1 text-sm text-[#78716C]">Highest-risk Execution Paths inferred from existing PromptSonar scan evidence. An Execution Path is the route from user input to a tool, memory, file, network call, or command.</p>
+              <h2 className="text-2xl font-black">Top Prompt Flows</h2>
+              <p className="mt-1 text-sm text-[#78716C]">Highest-risk Prompt Flows inferred from existing PromptSonar scan evidence. An Prompt Flow is the route from user input to a tool, memory, file, network call, or command.</p>
             </div>
             <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black uppercase tracking-wider text-red-700">
               {intelligence.attackSurface.executionPathsDetected} paths
@@ -390,7 +390,7 @@ export default function IntelligencePage() {
           <div className="mt-6 grid gap-4 lg:grid-cols-3">
             {intelligence.topExecutionPaths.map((entry, index) => (
               <article key={entry.path.join('>')} className="rounded-2xl border border-[#E4E3DE] bg-[#FAF9F6] p-5">
-                <p className="text-xs font-black uppercase tracking-widest text-[#A8A29E]">Top Execution Path #{index + 1}</p>
+                <p className="text-xs font-black uppercase tracking-widest text-[#A8A29E]">Top Prompt Flow #{index + 1}</p>
                 <div className="mt-4 space-y-2 font-mono text-sm font-black text-slate-900">
                   {entry.path.map((node, nodeIndex) => (
                     <div key={`${entry.path.join('>')}-${node}-${nodeIndex}`}>
@@ -414,7 +414,7 @@ export default function IntelligencePage() {
             <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-4">
               <div>
                 <h2 className="text-xl font-black">Risk Boundary Map</h2>
-                <p className="mt-1 text-sm text-[#78716C]">Where execution paths cross from untrusted prompt context into higher-privilege workflow surfaces.</p>
+                <p className="mt-1 text-sm text-[#78716C]">Where safe context ends and risky actions begin.</p>
               </div>
               <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black uppercase tracking-wider text-red-700">{intelligence.attackSurface.trustBoundaryCrossed} crossed</span>
             </div>
@@ -451,15 +451,15 @@ export default function IntelligencePage() {
           </article>
 
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-black">Execution Path Confidence</h2>
+              <h2 className="text-xl font-black">Detection Certainty</h2>
             <p className="mt-1 text-sm text-[#78716C]">Confidence: higher = more certain. Coverage is the percent of scanned paths with this data available.</p>
             <div className="mt-6 space-y-4">
               {[
-                ['Average Path Confidence', `${intelligence.executionPathConfidence.average}%`],
-                ['Highest Confidence Path', `${intelligence.executionPathConfidence.highest}%`],
-                ['Replay Coverage', `${intelligence.executionPathConfidence.replayCoverage}%`],
-                ['Evidence Coverage', `${intelligence.executionPathConfidence.evidenceCoverage}%`],
-                ['Replay Ready Paths', intelligence.executionPathConfidence.replayReadyPaths]
+                ['Average Certainty', `${intelligence.executionPathConfidence.average}%`],
+                ['Most Certain Path', `${intelligence.executionPathConfidence.highest}%`],
+                ['Re-runnable Scans', `${intelligence.executionPathConfidence.replayCoverage}%`],
+                ['Findings Coverage', `${intelligence.executionPathConfidence.evidenceCoverage}%`],
+                ['Re-runnable Scans', intelligence.executionPathConfidence.replayReadyPaths]
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between border-b border-[#F1F0EC] pb-3 last:border-0">
                   <p className="text-xs font-black uppercase tracking-widest text-[#A8A29E]">{label}</p>
@@ -474,7 +474,7 @@ export default function IntelligencePage() {
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
             <div className="border-b border-[#E4E3DE] pb-4">
               <h2 className="text-xl font-black">Root Causes</h2>
-              <p className="mt-1 text-sm text-[#78716C]">Root Cause means the main reason a scan was flagged. This section shows repeatable causes behind observed Execution Paths.</p>
+              <p className="mt-1 text-sm text-[#78716C]">Root Cause means the main reason a scan was flagged. This section shows repeatable causes behind observed Prompt Flows.</p>
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-3">
               {intelligence.rootCauseGroups.map((group) => (
@@ -504,10 +504,10 @@ export default function IntelligencePage() {
             <p className="mt-1 text-sm text-[#78716C]">Coverage is the percent of scanned paths with this data available.</p>
             <div className="mt-6 space-y-4">
               {[
-                ['Replay-capable paths', intelligence.replayReadiness.paths],
-                ['Evidence coverage', `${intelligence.replayReadiness.evidence}%`],
-                ['Confidence coverage', `${intelligence.replayReadiness.confidence}%`],
-                ['Diff coverage', `${intelligence.replayReadiness.diff}%`]
+                ['Re-runnable scans', intelligence.replayReadiness.paths],
+                ['Findings coverage', `${intelligence.replayReadiness.evidence}%`],
+                ['Detection certainty coverage', `${intelligence.replayReadiness.confidence}%`],
+                ['Compared scans', `${intelligence.replayReadiness.diff}%`]
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between border-b border-[#F1F0EC] pb-3 last:border-0">
                   <p className="text-xs font-black uppercase tracking-widest text-[#A8A29E]">{label}</p>
@@ -534,7 +534,7 @@ export default function IntelligencePage() {
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-black">Execution Intelligence Timeline</h2>
+            <h2 className="text-xl font-black">Scan Timeline</h2>
             <div className="mt-6 space-y-4">
               {intelligence.timeline.map((item) => (
                 <div key={item.id} className="grid grid-cols-[54px_1fr] gap-4 border-b border-[#F1F0EC] pb-4 last:border-0">
@@ -549,7 +549,7 @@ export default function IntelligencePage() {
             </div>
 
             <div className="mt-8 border-t border-[#E4E3DE] pt-6">
-              <h3 className="text-sm font-black uppercase tracking-widest text-[#A8A29E]">MCP Execution List</h3>
+              <h3 className="text-sm font-black uppercase tracking-widest text-[#A8A29E]">MCP Findings</h3>
               <div className="mt-4 space-y-4">
                 {intelligence.mcpRegistry.map((risk) => (
                   <div key={risk.ruleId} className="border-b border-[#F1F0EC] pb-4 last:border-0">
@@ -563,13 +563,13 @@ export default function IntelligencePage() {
           </article>
 
           <article className="rounded-2xl border border-[#E4E3DE] bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-black">Path Surface Counts</h2>
+            <h2 className="text-xl font-black">Paths Detected</h2>
             <div className="mt-6 space-y-4">
               {[
-                ['Trust Boundaries Crossed', intelligence.attackSurface.trustBoundaryCrossed],
+                ['Risk Boundaries Crossed', intelligence.attackSurface.trustBoundaryCrossed],
                 ['Sensitive Actions Reached', intelligence.attackSurface.privilegedSinksReached],
-                ['Execution Paths Detected', intelligence.attackSurface.executionPathsDetected],
-                ['Confidence Average', `${intelligence.attackSurface.confidenceAverage}%`]
+                ['Prompt Flows Detected', intelligence.attackSurface.executionPathsDetected],
+                ['Average Certainty', `${intelligence.attackSurface.confidenceAverage}%`]
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between border-b border-[#F1F0EC] pb-3 last:border-0">
                   <p className="text-xs font-black uppercase tracking-widest text-[#A8A29E]">{label}</p>

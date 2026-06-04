@@ -85,6 +85,7 @@ PromptSonar 1.4 bundles the engine work into one release. The scanner no longer
 just reports *what is wrong* — it explains **where execution can go, why the path
 exists, how confident it is, and how remediation changes the path**.
 
+- ✅ **Repo-scale scan guardrails in 1.4.3** — CLI and VS Code workspace scans now respect `.gitignore` and `.promptsonarignore`, skip large/generated files, cap very large workspaces, deduplicate repeated findings, and summarize noisy low-risk findings so reports stay usable on real repositories.
 - ✅ **MCP Safety Engine v2** — auto-approval, wildcard permissions, filesystem/shell/network capabilities, credential propagation, chained execution, privilege escalation, and approval bypass, each scored into an MCP Risk Score.
 - ✅ **Workflow Provenance** — every workflow node/edge traces back to a concrete rule match (no invented paths).
 - ✅ **Confidence Scoring** — a deterministic 0–100 execution-path confidence with LOW/MEDIUM/HIGH levels.
@@ -172,6 +173,33 @@ promptsonar sbom ./src --output prompt-sbom.json
 # Built-in demo
 promptsonar demo
 ```
+
+-----
+
+## Repo-Scale Scanning
+
+PromptSonar is designed to scan normal development repositories without walking every generated artifact.
+
+By default, CLI and VS Code workspace scans:
+
+- Respect `.gitignore`.
+- Respect `.promptsonarignore` for PromptSonar-specific path exclusions.
+- Skip generated, dependency, build, coverage, cache, docs, tests, benchmark, result, image, font, map, and lockfile paths.
+- Skip files larger than 1 MB unless configured otherwise.
+- Cap workspace scans at 2,000 files by default.
+- Deduplicate repeated findings and summarize low-risk noise so reports stay readable.
+
+Use `.promptsonarignore` for intentionally vulnerable fixtures, generated prompt corpora, public benchmark output, or files that should not be counted in repo health reports:
+
+```gitignore
+# PromptSonar-specific repo scan ignores
+examples/**
+fixtures/vulnerable/**
+results/**
+packages/my-app/generated-prompts/**
+```
+
+Use `.promptsonar-waivers.yaml` or inline `promptsonar-ignore` comments when you need a documented rule-specific exception. See [docs/suppressions.md](docs/suppressions.md).
 
 -----
 
@@ -352,7 +380,8 @@ workbench also brings execution-path analysis into the editor:
 - PromptSonar Activity Bar panel for Execution Path, Workflow Evidence, Confidence, Root Cause, Workflow Diff, and MCP Risk.
 - Command Palette actions: scan current file, open execution path, show workflow diff, export SARIF, copy report, copy execution path, and open playground.
 - Deterministic quick fixes for wildcard permissions, automatic execution, exposed credentials, and untrusted user input patterns.
-- Performance guardrails: 300 ms debounce, 1 MB max file size, local-only analysis, and scanner-cache reuse where applicable.
+- Workspace scan guardrails: `.gitignore` and `.promptsonarignore` support, stale-cache clearing before full workspace scans, deterministic file ordering, 1 MB default file-size limit, and a configurable `promptsonar.maxWorkspaceScanFiles` cap.
+- Live scan guardrails: 300 ms debounce, 1 MB max file size, and local-only analysis.
 
 Manual VS Code workbench test:
 
@@ -550,7 +579,7 @@ These are static-analysis signals, not confirmed exploits, CVEs, or maintainer-v
 - False positives are possible.
 - PromptSonar makes no external model calls during scanning.
 - Waivers are supported with `--waiver <file>`.
-- YAML suppressions, `.promptsonarignore`, and inline ignore comments are documented in [docs/suppressions.md](docs/suppressions.md).
+- `.gitignore`, `.promptsonarignore`, YAML suppressions, and inline ignore comments are documented in [docs/suppressions.md](docs/suppressions.md).
 - Dependency audit status and any residual moderate advisories are tracked in [docs/security-audit.md](docs/security-audit.md).
 
 -----

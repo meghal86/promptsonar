@@ -3,21 +3,37 @@ import {
   evaluatePrompt, 
   compressPromptLLMLingua, 
   calculateROI,
-  validatePromptAgainstContract,
-  runCrossModelEvaluation
+  validatePromptAgainstContract
 } from '@promptsonar/core';
 import { supabase } from '@/lib/supabase';
 import { checkUsageLimit, incrementScanUsage } from '@/lib/billing';
 
+const MAX_PLAYGROUND_PROMPT_CHARS = 100_000;
+const LARGE_SCAN_MESSAGE = 'This scan is too large for the web playground. Use the CLI for full repository scans: npx @promptsonar/cli scan .';
+const RATE_LIMIT_MESSAGE = 'Rate limit reached. Please wait a moment and try again.';
+
+function isRateLimitError(err: any): boolean {
+  const status = err?.status || err?.code || err?.cause?.status;
+  const message = String(err?.message || err || '').toLowerCase();
+  return status === 429 || message.includes('429') || message.includes('too many requests') || message.includes('rate limit');
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { promptText, contractYaml, variables, runCrossModel, models } = body;
+    const { promptText, contractYaml, variables } = body;
     let orgId = body.orgId;
     const localSandbox = !orgId;
 
     if (!promptText || typeof promptText !== 'string') {
       return NextResponse.json({ error: 'promptText must be a valid string' }, { status: 400 });
+    }
+    if (promptText.length > MAX_PLAYGROUND_PROMPT_CHARS) {
+      return NextResponse.json({
+        error: LARGE_SCAN_MESSAGE,
+        code: 'PLAYGROUND_SCAN_TOO_LARGE',
+        cli: 'npx @promptsonar/cli scan .',
+      }, { status: 413 });
     }
 
     // 1. Resolve active Org ID
@@ -69,7 +85,7 @@ export async function POST(request: Request) {
       context: { filePath: 'playground.ts' }
     });
 
-    // 5. Optional: Contract Validation
+    // 5. Optional: Prompt Rules validation
     let contractResult = null;
     if (contractYaml && typeof contractYaml === 'string' && contractYaml.trim().length > 0) {
       try {
@@ -83,16 +99,8 @@ export async function POST(request: Request) {
       }
     }
 
-    // 6. Optional: Cross-Model Evaluation
-    let crossModelResult = null;
-    if (runCrossModel) {
-      try {
-        const modelList = Array.isArray(models) ? models : ['gpt-4o', 'claude-3.5'];
-        crossModelResult = await runCrossModelEvaluation(promptText, 'playground.ts', modelList);
-      } catch (err: any) {
-        console.error("Cross-model eval failed:", err);
-      }
-    }
+    // 6. Model comparison is manual-only. No provider calls or synthetic results are run here.
+    const crossModelResult = null;
 
     // 7. Enforce Rule QF-4: Token estimate only, compression pending license
     const estimatedTokens = Math.ceil(promptText.length / 4);
@@ -122,6 +130,9 @@ export async function POST(request: Request) {
     });
   } catch (err: any) {
     console.error("Playground API error:", err);
+    if (isRateLimitError(err)) {
+      return NextResponse.json({ error: RATE_LIMIT_MESSAGE, code: 'RATE_LIMITED' }, { status: 429 });
+    }
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
