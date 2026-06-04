@@ -8,13 +8,12 @@ export async function GET(
   const { prompt_id: promptId } = await params;
 
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    // Return mock data for demo
     return NextResponse.json({
       prompt_id: promptId,
-      status: 42,
-      history: [
-        { timestamp: new Date().toISOString(), event: "Scan Blocked (Severity: Critical)", rule: "sec_owasp_llm01_injection", commit: "a1b2c3d4" }
-      ]
+      status: null,
+      history: [],
+      storageConfigured: false,
+      message: 'No saved scan history is available because persistent storage is not configured.'
     });
   }
 

@@ -69,7 +69,7 @@ const INDICATORS: IndicatorDef[] = [
     },
     {
         code: 'privileged_sink',
-        label: 'privileged sink reached',
+        label: 'Sensitive action reached',
         weight: 20,
         nodeTypes: ['shell_execution', 'tool_execution', 'privileged_tool', 'filesystem_access', 'network_access', 'credential_store', 'external_api'],
         fromPath: (p) => p.privilegedSinkReached,
@@ -110,7 +110,7 @@ const INDICATORS: IndicatorDef[] = [
     // Weak indicators
     {
         code: 'heuristic_match',
-        label: 'heuristic match',
+        label: 'Known injection pattern matched',
         weight: 5,
         nodeTypes: ['system_prompt', 'policy_override', 'user_input', 'untrusted_content'],
         pattern: /\bignore\s+(?:all\s+|previous\s+|prior\s+|earlier\s+)?(?:instructions?|restrictions?|rules?)\b|\boverride\s+instructions?\b|\brewrite\s+(?:the\s+)?system\s+prompt\b/i,

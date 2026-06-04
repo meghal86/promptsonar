@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { 
   evaluatePrompt, 
-  compressPromptLLMLingua, 
-  calculateROI,
   validatePromptAgainstContract
 } from '@promptsonar/core';
 import { supabase } from '@/lib/supabase';
@@ -102,16 +100,24 @@ export async function POST(request: Request) {
     // 6. Model comparison is manual-only. No provider calls or synthetic results are run here.
     const crossModelResult = null;
 
-    // 7. Enforce Rule QF-4: Token estimate only, compression pending license
+    // 7. Prompt optimization is not executed in this API. Do not return a fake rewrite.
     const estimatedTokens = Math.ceil(promptText.length / 4);
     const compression = {
+      available: false,
+      status: 'coming_soon',
       originalText: promptText,
-      compressedText: `Token estimate: ~${estimatedTokens} tokens (compression pending license)`,
+      compressedText: '',
       originalTokens: estimatedTokens,
-      compressedTokens: estimatedTokens,
-      compressionRatio: "0%"
+      compressedTokens: null,
+      compressionRatio: null,
+      message: 'Prompt Optimization is coming soon.'
     };
-    const roi = calculateROI(compression.originalTokens, compression.compressedTokens);
+    const roi = {
+      originalTokens: estimatedTokens,
+      newTokens: estimatedTokens,
+      compressionRatio: '0%',
+      dollarsSavedPer10kCalls: 0
+    };
 
     // 8. Increment monthly scan usage count in DB
     if (!localSandbox) {

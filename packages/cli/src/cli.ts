@@ -127,8 +127,8 @@ function readModelComparisonInput(options: any): ModelComparisonInput {
 
 function statusLabel(status: string): string {
     if (status === 'high_risk') return 'High Risk';
-    if (status === 'needs_review') return 'Needs Review';
-    return 'Stable';
+    if (status === 'needs_review') return 'Failed';
+    return 'Passed';
 }
 
 function formatModelComparisonTable(result: ModelComparisonResult): string {
@@ -1224,7 +1224,7 @@ program
 
 program
     .command('eval')
-    .description('Perform cross-model safety and structural evaluation on a prompt')
+    .description('Reserved for future BYOK live model evaluation; use compare with pasted outputs today')
     .argument('<prompt>', 'Path to the prompt file')
     .option('--models <list>', 'Comma-separated list of models to evaluate', 'gpt-4o,claude-3.5')
     .action(async (promptPath: string, options: CliOptions) => {
@@ -1277,6 +1277,7 @@ program
 
 program
     .command('compare-models')
+    .alias('compare')
     .description('Compare real user-provided model outputs locally')
     .option('--prompt <file>', 'Path to the original prompt file')
     .option('--outputs <dir>', 'Directory containing model output files')

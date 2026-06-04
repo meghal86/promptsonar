@@ -327,6 +327,29 @@ describe('CLI scanner suppressions and SARIF', () => {
         expect(parsed.models[1].formatPassed).toBe(false);
     }, 30000);
 
+    it('supports compare as the local model comparison alias', () => {
+        const dir = makeTempDir();
+        const inputPath = path.join(dir, 'comparison.json');
+        fs.writeFileSync(inputPath, JSON.stringify({
+            prompt: 'Return JSON.',
+            expectedFormat: 'json',
+            outputs: [
+                { modelId: 'a', modelName: 'Model A', output: '{"answer":"safe"}' },
+                { modelId: 'b', modelName: 'Model B', output: 'not json' },
+            ],
+        }), 'utf-8');
+
+        const result = spawnSync(process.execPath, ['-r', 'ts-node/register', 'src/cli.ts', 'compare', '--input', inputPath, '--format', 'json'], {
+            cwd: path.resolve(__dirname, '..'),
+            encoding: 'utf-8',
+        });
+
+        expect(result.status).toBe(0);
+        const parsed = JSON.parse(result.stdout);
+        expect(parsed.outputCount).toBe(2);
+        expect(parsed.models[1].formatPassed).toBe(false);
+    }, 30000);
+
     it('emits markdown model comparison output', () => {
         const dir = makeTempDir();
         const inputPath = path.join(dir, 'comparison.json');

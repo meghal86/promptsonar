@@ -788,7 +788,7 @@ export default function PlaygroundPage() {
         findings: parsedFindings,
         crossModelResult: null,
         compression: {
-          compressedText: data.compression?.compressedText || pText
+          compressedText: data.compression?.compressedText || ''
         }
       });
       setEditorMode('audit'); // Automatically show audit preview details!
@@ -1654,14 +1654,15 @@ export default function PlaygroundPage() {
     const TYPE_LABEL: Record<string, string> = {
       user_input: "User input",
       untrusted_content: "Untrusted content",
-      system_prompt: "System prompt",
-      developer_prompt: "Developer prompt",
+      system_prompt: "System Instructions",
+      developer_prompt: "Protected Instructions",
       prompt_template: "Prompt template",
       agent_memory: "Agent memory",
       retrieved_context: "Retrieved context",
       rag_context: "RAG context",
       mcp_server: "MCP server",
       mcp_tool: "MCP tool",
+      privileged_tool: "Sensitive tool",
       sensitive_tool: "Sensitive tool",
       tool_router: "Tool router",
       tool_execution: "Tool execution",
@@ -3458,18 +3459,32 @@ export default function PlaygroundPage() {
               <section className={`${activeDetailsTab === 'compare' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
                 <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
                   <div>
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Optimizer</h3>
-                    <p className="text-[10px] text-slate-500 italic mt-0.5">Remove redundant instructions and tighten your prompt structure</p>
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Optimization</h3>
+                    <p className="text-[10px] text-slate-500 italic mt-0.5">Coming Soon</p>
                   </div>
                   {result.compression?.compressedText && (
                     <button
-                      onClick={() => copyText(result.compression.compressedText, 'Compressed prompt copied.')}
+                      onClick={() => copyText(result.compression.compressedText, 'Optimized prompt copied.')}
                       className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
                     >
-                      📋 Copy Compressed Prompt
+                      Copy Optimized Prompt
                     </button>
                   )}
                 </div>
+
+                {!result.compression?.compressedText && (
+                  <div className="rounded-xl border border-dashed border-[#D6D3D1] bg-[#FAF9F6] p-5">
+                    <h4 className="text-sm font-black text-slate-950">Prompt Optimization Coming Soon</h4>
+                    <p className="mt-2 text-xs font-medium leading-relaxed text-slate-600">
+                      PromptSonar will not show fabricated optimization output. This feature will generate:
+                    </p>
+                    <ul className="mt-3 grid gap-2 text-xs font-bold text-slate-700 sm:grid-cols-2">
+                      {['Safer prompt version', 'Token reduction', 'Cost savings', 'Before/after comparison'].map(item => (
+                        <li key={item} className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-2">{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="rounded-xl border border-red-200/50 bg-red-50/10 p-3.5">
@@ -3496,6 +3511,7 @@ export default function PlaygroundPage() {
                   </div>
                 </div>
 
+                {result.compression?.compressedText && (
                 <details className="rounded-xl border border-[#E4E3DE] bg-white p-4">
                   <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">
                     Prompt compression
@@ -3566,13 +3582,14 @@ export default function PlaygroundPage() {
                   </div>
                   </div>
                 </details>
+                )}
               </section>
 
               {/* V2 - SECTION 7: PROMPT AUDIT (Line-by-line dangerous highlight viewer) */}
               <section className={`${activeDetailsTab === 'findings' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4`}>
                 <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
                   <div className="flex min-w-0 items-center gap-2">
-                    <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Scanner</h2>
+                    <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Path Findings</h2>
                     <span className="h-3 w-px bg-[#E6E4E0] mx-1"></span>
                     <span className="text-[10.5px] text-[#A8A29E] font-medium font-sans">Line-by-line compliance & API key leak warnings</span>
                   </div>

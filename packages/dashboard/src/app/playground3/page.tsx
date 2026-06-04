@@ -772,7 +772,7 @@ export default function PlaygroundPage() {
         findings: parsedFindings,
         crossModelResult: null,
         compression: {
-          compressedText: data.compression?.compressedText || pText
+          compressedText: data.compression?.compressedText || ''
         }
       });
       setEditorMode('audit'); // Automatically show audit preview details!
@@ -1689,14 +1689,15 @@ export default function PlaygroundPage() {
     const TYPE_LABEL: Record<string, string> = {
       user_input: "User input",
       untrusted_content: "Untrusted content",
-      system_prompt: "System prompt",
-      developer_prompt: "Developer prompt",
+      system_prompt: "System Instructions",
+      developer_prompt: "Protected Instructions",
       prompt_template: "Prompt template",
       agent_memory: "Agent memory",
       retrieved_context: "Retrieved context",
       rag_context: "RAG context",
       mcp_server: "MCP server",
       mcp_tool: "MCP tool",
+      privileged_tool: "Sensitive tool",
       sensitive_tool: "Sensitive tool",
       tool_router: "Tool router",
       tool_execution: "Tool execution",
@@ -2015,12 +2016,7 @@ export default function PlaygroundPage() {
   const benchmarkCaught = result.score === null ? 0 : Math.min(10, Math.max(0, Math.round((100 - Math.min(result.score, 100)) / 10) + (hasInjectionRisk ? 3 : 0)));
   const securedPrompt = getSecuredPrompt();
   const compressionEstimate = result.compression?.compressedText || '';
-  const isCompressionEstimateOnly = compressionEstimate.startsWith('Token estimate:');
-  const optimizerOutput = hasCompletedScan
-    ? isCompressionEstimateOnly
-      ? securedPrompt
-      : compressionEstimate || securedPrompt
-    : '';
+  const optimizerOutput = hasCompletedScan ? compressionEstimate : '';
   const reportScore = result.score === null ? 'pending' : String(result.score);
   const reportUrl = clientOrigin
     ? `${clientOrigin}/report-card?score=${encodeURIComponent(reportScore)}&verdict=${encodeURIComponent(jailbreakVerdict)}&findings=${encodeURIComponent(String(result.findings.length))}&owasp=${encodeURIComponent(owaspLabels.join(','))}`
@@ -2935,7 +2931,7 @@ export default function PlaygroundPage() {
                                 </div>
                               </div>
 
-                              {/* Forensic details / evidence */}
+                              {/* Technical evidence */}
                               <div className="grid gap-2 text-xs pl-7">
                                 {node.reason && (
                                   <p className="text-[11.5px] font-medium leading-relaxed opacity-95">
@@ -3832,8 +3828,8 @@ export default function PlaygroundPage() {
                 <details className="group rounded-xl border border-[#E4E3DE] bg-[#FAF9F6]/40">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
                     <div>
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Optimizer & Compressor</h4>
-                      <p className="text-[10px] text-slate-500 italic mt-0.5">Token estimate plus deterministic security-hardened prompt output</p>
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Optimization</h4>
+                      <p className="text-[10px] text-slate-500 italic mt-0.5">Coming Soon</p>
                     </div>
                     <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 group-open:hidden">Expand</span>
                     <span className="hidden text-[9px] font-black uppercase tracking-wider text-slate-500 group-open:inline">Collapse</span>
@@ -3841,7 +3837,7 @@ export default function PlaygroundPage() {
 
                   <div className="border-t border-[#E4E3DE] p-4">
                     <div className="mb-4 flex justify-end">
-                      {hasCompletedScan && (
+                      {hasCompletedScan && optimizerOutput && (
                         <button
                           onClick={() => copyText(optimizerOutput, 'Optimized prompt copied.')}
                           className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 cursor-pointer"
@@ -3851,6 +3847,21 @@ export default function PlaygroundPage() {
                       )}
                     </div>
 
+                    {hasCompletedScan && !optimizerOutput && (
+                      <div className="mb-4 rounded-xl border border-dashed border-[#D6D3D1] bg-white p-4">
+                        <h5 className="text-sm font-black text-slate-950">Prompt Optimization Coming Soon</h5>
+                        <p className="mt-2 text-xs font-medium leading-relaxed text-slate-600">
+                          PromptSonar will not show fabricated optimization output. This feature will generate:
+                        </p>
+                        <ul className="mt-3 grid gap-2 text-xs font-bold text-slate-700 sm:grid-cols-2">
+                          {['Safer prompt version', 'Token reduction', 'Cost savings', 'Before/after comparison'].map(item => (
+                            <li key={item} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2">{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {optimizerOutput && (
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                       <div className="bg-white border border-[#E4E3DE]/60 rounded-xl p-4 flex flex-col justify-between gap-4">
                         <div className="space-y-4">
@@ -3886,7 +3897,7 @@ export default function PlaygroundPage() {
                         </div>
 
                         <div className="text-[10px] text-slate-500 leading-relaxed italic bg-[#FAF9F6] border border-slate-200/60 p-2.5 rounded-lg select-none">
-                          Token compression is license-pending. PromptSonar still provides a deterministic safer prompt rewrite for security review.
+                          PromptSonar is displaying real optimization output returned by the scanner.
                         </div>
                       </div>
 
@@ -3912,6 +3923,7 @@ export default function PlaygroundPage() {
                         </div>
                       </div>
                     </div>
+                    )}
                   </div>
                 </details>
               </section>
