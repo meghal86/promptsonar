@@ -14,6 +14,7 @@ import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamp
 const VERSION = '1.4.3';
 
 const program = new Command();
+type CliOptions = Record<string, any>;
 
 function summarizeWorkspaceScore(results: ScanResult[]): { score: number; status: 'pass' | 'warn' | 'fail' } {
     if (results.length === 0) return { score: 100, status: 'pass' };
@@ -240,7 +241,7 @@ program
     .option('--policy-file <file>', 'Path to a .promptsonar-policy.yaml governance file')
     .option('--fix', 'Automatically repair scanned prompts for quality & safety issues')
     .option('--dry-run', 'Preview fixes without writing files')
-    .action(async (targetPath, options) => {
+    .action(async (targetPath: string, options: CliOptions) => {
         try {
             const results = await scanFiles(targetPath, {
                 verbose: options.verbose,
@@ -553,7 +554,7 @@ program
     .option('--json', 'Output audit results as JSON')
     .option('--sarif', 'Output audit results as SARIF')
     .option('--output <file>', 'Write audit output to a file')
-    .action((targetPath, options) => {
+    .action((targetPath: string | undefined, options: CliOptions) => {
         try {
             const results = auditDiscoveredMcpConfigs(targetPath);
             const selectedFormat = options.sarif ? 'sarif' : options.json ? 'json' : options.format;
@@ -661,7 +662,7 @@ examplesCommand
     .argument('[case]', 'Example case id')
     .option('--library <path>', 'Path to examples/cases directory')
     .option('--format <type>', 'Output format (terminal|json|markdown)', 'terminal')
-    .action((caseId, options) => {
+    .action((caseId: string | undefined, options: CliOptions) => {
         try {
             const selectedFormat = commandOption<string>(options, 'format');
             const examplesRoot = commandOption<string | undefined>(options, 'library');
@@ -696,7 +697,7 @@ program
     .argument('<path>', 'Path to file or directory to scan for the SBOM')
     .option('--output <file>', 'Write SBOM results to a JSON file', 'prompt-sbom.json')
     .option('-v, --verbose', 'Show detailed scan information')
-    .action(async (targetPath, options) => {
+    .action(async (targetPath: string, options: CliOptions) => {
         try {
             console.log(chalk.blue(`[PromptSonar] Scanning ${targetPath} for SBOM generation...`));
             const results = await scanFiles(targetPath, {
@@ -724,7 +725,7 @@ program
     .option('--format <type>', 'Export format (e.g., article19)', 'article19')
     .option('--output <file>', 'Write export results to a JSONL file')
     .option('-v, --verbose', 'Show detailed scan information')
-    .action(async (targetPath, options) => {
+    .action(async (targetPath: string, options: CliOptions) => {
         try {
             if (options.verbose) console.log(chalk.blue(`[PromptSonar] Scanning ${targetPath} for Export...`));
             const results = await scanFiles(targetPath, { verbose: options.verbose });
@@ -758,7 +759,7 @@ program
     .option('--write', 'Overwrite the original prompt file with the optimized output')
     .option('--output <file>', 'Save the compressed prompt to a specific output file')
     .option('-v, --verbose', 'Show detailed compression and ROI metrics')
-    .action(async (filePath, options) => {
+    .action(async (filePath: string, options: CliOptions) => {
         try {
             const absolutePath = path.resolve(filePath);
             if (!fs.existsSync(absolutePath)) {
@@ -805,7 +806,7 @@ program
     .description('Run adversarial fuzzing and security simulation on a prompt file')
     .argument('<file>', 'Path to the prompt template file to fuzz')
     .option('--output <file>', 'Write fuzzing report JSON to a file')
-    .action(async (filePath, options) => {
+    .action(async (filePath: string, options: CliOptions) => {
         try {
             const absolutePath = path.resolve(filePath);
             if (!fs.existsSync(absolutePath)) {
@@ -1056,7 +1057,7 @@ program
     .command('test')
     .description('Run prompt unit tests defined in a JSON test configuration file')
     .argument('[config]', 'Path to the test JSON config file')
-    .action(async (configPath) => {
+    .action(async (configPath: string | undefined) => {
         let selectedPath = configPath;
         if (!selectedPath) {
             if (fs.existsSync(path.resolve('prompts.test.json'))) {
@@ -1075,7 +1076,7 @@ program
     .description('Scaffold a standardized AI Agent Skill directory structure')
     .argument('<name>', 'Name of the skill to create')
     .option('--lang <type>', 'Language for the execution script template (js|ts|py)', 'ts')
-    .action((name, options) => {
+    .action((name: string, options: CliOptions) => {
         const skillDir = path.resolve(name);
         if (fs.existsSync(skillDir)) {
             console.error(chalk.red(`[PromptSonar] Error: Directory "${name}" already exists.`));
@@ -1177,7 +1178,7 @@ program
     .argument('<contract>', 'Path to the contract .prompt.yaml file')
     .requiredOption('--prompt <file>', 'Path to the prompt template file to test')
     .option('--vars <json>', 'JSON string representing dynamic template input variables')
-    .action(async (contractPath, options) => {
+    .action(async (contractPath: string, options: CliOptions) => {
         try {
             const absoluteContractPath = path.resolve(contractPath);
             const absolutePromptPath = path.resolve(options.prompt);
@@ -1226,7 +1227,7 @@ program
     .description('Perform cross-model safety and structural evaluation on a prompt')
     .argument('<prompt>', 'Path to the prompt file')
     .option('--models <list>', 'Comma-separated list of models to evaluate', 'gpt-4o,claude-3.5')
-    .action(async (promptPath, options) => {
+    .action(async (promptPath: string, options: CliOptions) => {
         try {
             const absolutePromptPath = path.resolve(promptPath);
             if (!fs.existsSync(absolutePromptPath)) {
@@ -1303,4 +1304,4 @@ program
         }
     });
 
-program.parse();
+program.parse(process.argv);
