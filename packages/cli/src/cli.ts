@@ -6,7 +6,7 @@ import * as path from 'path';
 import chalk from 'chalk';
 import { scanFiles, generateSarif, ScanResult, scoreFromFindings } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
-import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult } from '@promptsonar/core';
+import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport } from '@promptsonar/core';
 import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
 import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
@@ -178,6 +178,111 @@ function formatModelComparisonMarkdown(result: ModelComparisonResult): string {
         '',
         'Source: user-provided model outputs. No model calls were made.',
     ].join('\n');
+}
+
+function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
+    const summary = report.summary;
+    const reachableActions = Object.entries(summary.reachableSensitiveActions)
+        .filter(([, count]) => count > 0)
+        .map(([action, count]) => `${action}: ${count}`)
+        .join(', ') || 'None';
+    const lines: string[] = [];
+
+    lines.push(chalk.bold(`PromptSonar Repository Execution Analysis v${VERSION}`));
+    lines.push(`Repository: ${report.repository.name}`);
+    lines.push(`Trust Status: ${summary.trustStatus === 'High Risk' ? chalk.red(summary.trustStatus) : summary.trustStatus === 'Review Required' ? chalk.yellow(summary.trustStatus) : chalk.green(summary.trustStatus)}`);
+    lines.push('');
+    lines.push(chalk.bold('AI Surfaces Found'));
+    lines.push(`  Prompts: ${summary.aiSurfacesFound.prompts}`);
+    lines.push(`  Skills: ${summary.aiSurfacesFound.skills}`);
+    lines.push(`  MCP Servers: ${summary.aiSurfacesFound.mcpServers}`);
+    lines.push(`  Tools: ${summary.aiSurfacesFound.tools}`);
+    lines.push(`  Workflows: ${summary.aiSurfacesFound.workflows}`);
+    lines.push(`  Memory Systems: ${summary.aiSurfacesFound.memorySystems}`);
+    lines.push('');
+    lines.push(chalk.bold('Execution Graph'));
+    lines.push(`  Nodes: ${summary.executionGraph.nodes}`);
+    lines.push(`  Edges: ${summary.executionGraph.edges}`);
+    lines.push('');
+    lines.push(chalk.bold('Reachable Sensitive Actions'));
+    lines.push(`  ${reachableActions}`);
+    lines.push('');
+    lines.push(chalk.bold('Risk Summary'));
+    lines.push(`  Critical: ${summary.riskSummary.critical}`);
+    lines.push(`  High: ${summary.riskSummary.high}`);
+    lines.push(`  Medium: ${summary.riskSummary.medium}`);
+    lines.push(`  Low: ${summary.riskSummary.low}`);
+    lines.push('');
+    lines.push(chalk.bold('Reachable Execution Paths'));
+    lines.push(`  Total: ${report.reachablePaths.length}`);
+    lines.push(`  Confirmed: ${summary.confidenceSummary.confirmed}`);
+    lines.push(`  Probable: ${summary.confidenceSummary.probable}`);
+    lines.push(`  Potential: ${summary.confidenceSummary.potential}`);
+
+    if (report.reachablePaths.length > 0) {
+        lines.push('');
+        lines.push(chalk.bold('Highest Risk Path'));
+        const highestPath = report.reachablePaths[0];
+        lines.push(`  ${highestPath.sensitiveActions.join(', ') || 'No sensitive action'} · ${highestPath.confidenceLevel} · ${highestPath.confidence}%`);
+        lines.push(`    ${highestPath.explanation}`);
+        lines.push(`    Files: ${highestPath.files.length}`);
+        lines.push('');
+        lines.push(chalk.bold('Most Critical Paths'));
+        for (const pathItem of report.reachablePaths.slice(0, 5)) {
+            const risk = pathItem.risk === 'critical' ? chalk.red(pathItem.risk.toUpperCase()) : pathItem.risk === 'high' ? chalk.hex('#FF8C00')(pathItem.risk.toUpperCase()) : pathItem.risk.toUpperCase();
+            lines.push(`  ${risk} · ${pathItem.sensitiveActions.join(', ') || 'No sensitive action'} · ${pathItem.confidenceLevel} · ${pathItem.confidence}%`);
+            lines.push(`    ${pathItem.explanation}`);
+            if (pathItem.files.length > 0) {
+                lines.push(`    Files involved: ${pathItem.files.length}`);
+            }
+        }
+    }
+
+    return lines.join('\n');
+}
+
+function formatExecutionMapTerminal(report: RepositoryExecutionReport): string {
+    const lines: string[] = [];
+    lines.push(chalk.bold(`PromptSonar Execution Map v${VERSION}`));
+    lines.push(`Nodes: ${report.executionMap.nodes.length}`);
+    lines.push(`Edges: ${report.executionMap.edges.length}`);
+    lines.push(`Paths: ${report.executionMap.paths.length}`);
+    lines.push('');
+    lines.push(chalk.bold('Nodes'));
+    for (const node of report.executionMap.nodes.slice(0, 80)) {
+        const file = node.relativePath ? ` · ${node.relativePath}` : '';
+        lines.push(`  ${node.type} · ${node.label}${file}`);
+    }
+    if (report.executionMap.nodes.length > 80) {
+        lines.push(`  ... ${report.executionMap.nodes.length - 80} more nodes`);
+    }
+    lines.push('');
+    lines.push(chalk.bold('Edges'));
+    const nodeLabels = new Map(report.executionMap.nodes.map(node => [node.id, node.label]));
+    for (const edge of report.executionMap.edges.slice(0, 120)) {
+        lines.push(`  ${nodeLabels.get(edge.from) || edge.from} --${edge.type}--> ${nodeLabels.get(edge.to) || edge.to}`);
+    }
+    if (report.executionMap.edges.length > 120) {
+        lines.push(`  ... ${report.executionMap.edges.length - 120} more edges`);
+    }
+    return lines.join('\n');
+}
+
+async function buildRepositoryReport(targetPath: string, options: CliOptions): Promise<RepositoryExecutionReport> {
+    const results = await scanFiles(targetPath, {
+        verbose: options.verbose,
+        waiverFile: options.waiver
+    });
+    return analyzeRepositoryExecution(targetPath, results as any);
+}
+
+function writeOrPrint(output: string, outputPath?: string): void {
+    if (outputPath) {
+        fs.writeFileSync(path.resolve(outputPath), output, 'utf-8');
+        console.log(chalk.green(`Results written to ${outputPath}`));
+        return;
+    }
+    console.log(output);
 }
 
 function fixPromptContent(content: string, ruleIds: string[], filePath: string): string {
@@ -366,6 +471,62 @@ program
             process.exit(getExitCode(results, options.failOn));
         } catch (err: any) {
             console.error(chalk.red(`[PromptSonar] Error: ${err.message}`));
+            if (options.verbose) {
+                console.error(err.stack);
+            }
+            process.exit(1);
+        }
+    });
+
+program
+    .command('repo')
+    .description('Analyze repository-level AI execution paths')
+    .argument('<path>', 'Path to repository, directory, or file to analyze')
+    .option('-v, --verbose', 'Show detailed scan information')
+    .option('--json', 'Output repository report as JSON')
+    .option('--sarif', 'Output repository report as SARIF')
+    .option('--html', 'Output repository report as HTML')
+    .option('--output <file>', 'Write output to a file')
+    .option('--waiver <file>', 'Path to a .promptsonar.json waiver file')
+    .action(async (targetPath: string, options: CliOptions) => {
+        try {
+            const report = await buildRepositoryReport(targetPath, options);
+            const output = options.sarif
+                ? formatRepositoryReportSarif(report)
+                : options.html
+                    ? formatRepositoryReportHtml(report)
+                    : options.json
+                        ? formatRepositoryReportJson(report)
+                        : formatRepositoryTerminal(report);
+
+            writeOrPrint(output, options.output);
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Repository analysis error: ${err.message}`));
+            if (options.verbose) {
+                console.error(err.stack);
+            }
+            process.exit(1);
+        }
+    });
+
+program
+    .command('map')
+    .description('Build the repository AI execution graph')
+    .argument('<path>', 'Path to repository, directory, or file to map')
+    .option('-v, --verbose', 'Show detailed scan information')
+    .option('--json', 'Output execution graph as JSON')
+    .option('--output <file>', 'Write output to a file')
+    .option('--waiver <file>', 'Path to a .promptsonar.json waiver file')
+    .action(async (targetPath: string, options: CliOptions) => {
+        try {
+            const report = await buildRepositoryReport(targetPath, options);
+            const output = options.json
+                ? JSON.stringify(report.executionMap, null, 2)
+                : formatExecutionMapTerminal(report);
+
+            writeOrPrint(output, options.output);
+        } catch (err: any) {
+            console.error(chalk.red(`[PromptSonar] Execution map error: ${err.message}`));
             if (options.verbose) {
                 console.error(err.stack);
             }

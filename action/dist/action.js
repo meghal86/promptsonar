@@ -668,6 +668,26 @@ function computeConfidenceSummary(results) {
   if (bestScore < 0) return void 0;
   return { score: Math.round(bestScore), level: bestLevel };
 }
+function repositorySummaryMarkdown(report) {
+  const s = report.summary;
+  const reachableActions = Object.entries(s.reachableSensitiveActions).filter(([, count]) => count > 0).map(([name, count]) => `${name}: ${count}`).join(", ") || "None";
+  return [
+    "## PromptSonar Repository Execution Analysis",
+    "",
+    "| Metric | Value |",
+    "| --- | ---: |",
+    `| AI Surfaces | ${s.aiSurfacesFound.prompts + s.aiSurfacesFound.skills + s.aiSurfacesFound.mcpServers + s.aiSurfacesFound.tools + s.aiSurfacesFound.workflows + s.aiSurfacesFound.memorySystems} |`,
+    `| Execution Nodes | ${s.executionGraph.nodes} |`,
+    `| Execution Edges | ${s.executionGraph.edges} |`,
+    `| Reachable Sensitive Actions | ${report.reachablePaths.length} |`,
+    `| High Risk Paths | ${s.riskSummary.high} |`,
+    `| Critical Paths | ${s.riskSummary.critical} |`,
+    `| Trust Status | ${s.trustStatus} |`,
+    "",
+    `Reachable sensitive actions: ${reachableActions}`,
+    ""
+  ].join("\n");
+}
 function toCoreFindings(results) {
   const findings = [];
   for (const r of results) {
@@ -787,6 +807,38 @@ async function run() {
     const sarifPath = path2.join(workspace, "promptsonar-results.sarif");
     fs2.writeFileSync(sarifPath, generateSarif(results), "utf-8");
     core.setOutput("sarif-path", sarifPath);
+    const repositoryReport = (0, import_core2.analyzeRepositoryExecution)(workspace, results);
+    const repositoryReportPath = path2.join(workspace, "repository-report.json");
+    const executionMapPath = path2.join(workspace, "execution-map.json");
+    const repositoryHtmlPath = path2.join(workspace, "repository-report.html");
+    const repositorySarifPath = path2.join(workspace, "repository-report.sarif");
+    fs2.writeFileSync(repositoryReportPath, (0, import_core2.formatRepositoryReportJson)(repositoryReport), "utf-8");
+    fs2.writeFileSync(executionMapPath, JSON.stringify(repositoryReport.executionMap, null, 2), "utf-8");
+    fs2.writeFileSync(repositoryHtmlPath, (0, import_core2.formatRepositoryReportHtml)(repositoryReport), "utf-8");
+    fs2.writeFileSync(repositorySarifPath, (0, import_core2.formatRepositoryReportSarif)(repositoryReport), "utf-8");
+    core.setOutput("repository-report-path", repositoryReportPath);
+    core.setOutput("execution-map-path", executionMapPath);
+    core.setOutput("repository-html-report-path", repositoryHtmlPath);
+    core.setOutput("repository-sarif-path", repositorySarifPath);
+    core.setOutput("trust_status", repositoryReport.summary.trustStatus);
+    core.setOutput("reachable_sensitive_actions", String(repositoryReport.reachablePaths.length));
+    core.setOutput("high_risk_paths", String(repositoryReport.summary.riskSummary.high));
+    if (core.summary) {
+      await core.summary.addRaw(repositorySummaryMarkdown(repositoryReport)).write();
+    }
+    try {
+      const { DefaultArtifactClient } = await import("@actions/artifact");
+      const artifactClient = new DefaultArtifactClient();
+      await artifactClient.uploadArtifact("promptsonar-repository-execution-analysis", [
+        repositoryReportPath,
+        executionMapPath,
+        repositoryHtmlPath,
+        repositorySarifPath
+      ], workspace);
+      core.info("Repository execution analysis artifacts uploaded.");
+    } catch (error) {
+      core.warning(`Unable to upload repository execution artifacts: ${error.message}`);
+    }
     if (uploadSarif && isPrContext && token) {
       const commitSha = pullRequest?.head?.sha || process.env.GITHUB_SHA || "";
       const branch = pullRequest?.head?.ref || process.env.GITHUB_REF_NAME || "";

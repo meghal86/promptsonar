@@ -3,11 +3,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
     analyzeRootCause,
+    analyzeRepositoryExecution,
     auditMcpConfig,
     buildPrReviewSummaryMarkdown,
     computeWorkflowDiff,
     evaluatePrReviewGates,
     extractChangedLinesFromGitHubPatch,
+    formatRepositoryReportHtml,
+    formatRepositoryReportJson,
+    formatRepositoryReportSarif,
     humanRuleName,
     parsePromptSonarPrReviewConfig,
     pathToGraph,
@@ -217,6 +221,31 @@ function computeConfidenceSummary(results: ScanResult[]): { score: number; level
     return { score: Math.round(bestScore), level: bestLevel };
 }
 
+function repositorySummaryMarkdown(report: ReturnType<typeof analyzeRepositoryExecution>): string {
+    const s = report.summary;
+    const reachableActions = Object.entries(s.reachableSensitiveActions)
+        .filter(([, count]) => count > 0)
+        .map(([name, count]) => `${name}: ${count}`)
+        .join(', ') || 'None';
+
+    return [
+        '## PromptSonar Repository Execution Analysis',
+        '',
+        '| Metric | Value |',
+        '| --- | ---: |',
+        `| AI Surfaces | ${s.aiSurfacesFound.prompts + s.aiSurfacesFound.skills + s.aiSurfacesFound.mcpServers + s.aiSurfacesFound.tools + s.aiSurfacesFound.workflows + s.aiSurfacesFound.memorySystems} |`,
+        `| Execution Nodes | ${s.executionGraph.nodes} |`,
+        `| Execution Edges | ${s.executionGraph.edges} |`,
+        `| Reachable Sensitive Actions | ${report.reachablePaths.length} |`,
+        `| High Risk Paths | ${s.riskSummary.high} |`,
+        `| Critical Paths | ${s.riskSummary.critical} |`,
+        `| Trust Status | ${s.trustStatus} |`,
+        '',
+        `Reachable sensitive actions: ${reachableActions}`,
+        '',
+    ].join('\n');
+}
+
 function toCoreFindings(results: ScanResult[]): Finding[] {
     const findings: Finding[] = [];
     for (const r of results) {
@@ -371,6 +400,41 @@ async function run(): Promise<void> {
         const sarifPath = path.join(workspace, 'promptsonar-results.sarif');
         fs.writeFileSync(sarifPath, generateSarif(results), 'utf-8');
         core.setOutput('sarif-path', sarifPath);
+
+        const repositoryReport = analyzeRepositoryExecution(workspace, results as any);
+        const repositoryReportPath = path.join(workspace, 'repository-report.json');
+        const executionMapPath = path.join(workspace, 'execution-map.json');
+        const repositoryHtmlPath = path.join(workspace, 'repository-report.html');
+        const repositorySarifPath = path.join(workspace, 'repository-report.sarif');
+        fs.writeFileSync(repositoryReportPath, formatRepositoryReportJson(repositoryReport), 'utf-8');
+        fs.writeFileSync(executionMapPath, JSON.stringify(repositoryReport.executionMap, null, 2), 'utf-8');
+        fs.writeFileSync(repositoryHtmlPath, formatRepositoryReportHtml(repositoryReport), 'utf-8');
+        fs.writeFileSync(repositorySarifPath, formatRepositoryReportSarif(repositoryReport), 'utf-8');
+        core.setOutput('repository-report-path', repositoryReportPath);
+        core.setOutput('execution-map-path', executionMapPath);
+        core.setOutput('repository-html-report-path', repositoryHtmlPath);
+        core.setOutput('repository-sarif-path', repositorySarifPath);
+        core.setOutput('trust_status', repositoryReport.summary.trustStatus);
+        core.setOutput('reachable_sensitive_actions', String(repositoryReport.reachablePaths.length));
+        core.setOutput('high_risk_paths', String(repositoryReport.summary.riskSummary.high));
+
+        if (core.summary) {
+            await core.summary.addRaw(repositorySummaryMarkdown(repositoryReport)).write();
+        }
+
+        try {
+            const { DefaultArtifactClient } = await import('@actions/artifact');
+            const artifactClient = new DefaultArtifactClient();
+            await artifactClient.uploadArtifact('promptsonar-repository-execution-analysis', [
+                repositoryReportPath,
+                executionMapPath,
+                repositoryHtmlPath,
+                repositorySarifPath,
+            ], workspace);
+            core.info('Repository execution analysis artifacts uploaded.');
+        } catch (error: any) {
+            core.warning(`Unable to upload repository execution artifacts: ${error.message}`);
+        }
 
         if (uploadSarif && isPrContext && token) {
             const commitSha = pullRequest?.head?.sha || process.env.GITHUB_SHA || '';

@@ -381,14 +381,48 @@ const REPOSITORY_EXAMPLES = [
 ];
 
 const TEXT_FILE_PATTERN = /\.(prompt|ai|chat|md|mdx|txt|json|ya?ml|ts|tsx|js|jsx|py|toml|env|config|rules)$/i;
-const MAX_REPOSITORY_FILES_TO_READ = 80;
-const MAX_REPOSITORY_FILE_CHARS = 12_000;
+const MAX_REPOSITORY_FILE_CHARS = 24_000;
+const REPOSITORY_SCAN_CONCURRENCY = 6;
+const MAX_BROWSER_REPOSITORY_FILE_BYTES = 600_000;
+const IGNORED_REPOSITORY_PATH_PARTS = [
+  "/.git/",
+  "/node_modules/",
+  "/dist/",
+  "/build/",
+  "/out/",
+  "/coverage/",
+  "/.next/",
+  "/.turbo/",
+  "/.vercel/",
+  "/vendor/",
+  "/tmp/",
+  "/logs/",
+];
+const LOW_VALUE_REPOSITORY_SUFFIXES = [
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lockb",
+  ".min.js",
+  ".map",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".svg",
+  ".ico",
+  ".pdf",
+  ".zip",
+];
 
 const REPOSITORY_PATTERNS = {
-  prompt: /\.(prompt|ai|chat|md|mdx|txt)$/i,
-  skill: /(^|\/)(skill\.md|skills\.md|claude\.md|agents\.md|agent\.md)$/i,
-  mcp: /(^|\/)(mcp\.json|\.cursor\/mcp\.json|claude_desktop_config\.json)$/i,
-  workflow: /(langgraph|crewai|autogen|workflow|agent|router).*\.(ts|tsx|js|jsx|py|json|ya?ml)$/i,
+  prompt: /(^|\/)(prompts?\/|system-prompt|assistant-prompt|developer-prompt|instructions?\.(md|txt|prompt)|.*\.(prompt|ai|chat))|prompt template|system prompt|assistant prompt/i,
+  skill: /(^|\/)(skill\.md|skills\.md|claude\.md|agents\.md|agent\.md|skills?\/.*\.md)$/i,
+  mcp: /(^|\/)(mcp\.(json|ya?ml)|\.cursor\/mcp\.json|\.claude\/mcp\.(json|ya?ml)|claude_desktop_config\.json)$/i,
+  workflow: /(^|\/)(\.github\/workflows\/|.*(langgraph|crewai|autogen|workflow|agent|router).*\.(ts|tsx|js|jsx|py|json|ya?ml))$/i,
+  memory: /(^|\/)(memory|memories|agent-memory|\.memories)(\/|\.|$)/i,
+  tool: /(tool[_-]?router|tool[_-]?registry|tools?\s*[:=]|function[_\s-]?call|run_command|write_file|read_secret|shell_exec)/i,
   policy: /\.(ya?ml)$/i,
 };
 
@@ -414,8 +448,77 @@ function fileDisplayName(file: File): string {
 
 function isReadableRepositoryFile(file: File): boolean {
   const name = fileDisplayName(file).toLowerCase();
-  if (file.size > 250_000) return false;
+  const normalized = `/${name.replace(/\\/g, "/")}`;
+  if (IGNORED_REPOSITORY_PATH_PARTS.some((part) => normalized.includes(part))) return false;
+  if (LOW_VALUE_REPOSITORY_SUFFIXES.some((suffix) => name.endsWith(suffix))) return false;
+  if (file.size > MAX_BROWSER_REPOSITORY_FILE_BYTES) return false;
   return TEXT_FILE_PATTERN.test(name) || file.type.startsWith("text/");
+}
+
+function repositoryFilePriority(file: File): number {
+  const name = fileDisplayName(file).toLowerCase();
+  let score = 0;
+  if (REPOSITORY_PATTERNS.mcp.test(name)) score += 1000;
+  if (REPOSITORY_PATTERNS.skill.test(name)) score += 900;
+  if (REPOSITORY_PATTERNS.prompt.test(name)) score += 800;
+  if (REPOSITORY_PATTERNS.workflow.test(name)) score += 700;
+  if (REPOSITORY_PATTERNS.memory.test(name)) score += 650;
+  if (REPOSITORY_PATTERNS.tool.test(name)) score += 600;
+  if (name.includes(".cursor/") || name.includes(".claude/") || name.includes(".agents/")) score += 500;
+  if (/\.(json|ya?ml|md|prompt)$/i.test(name)) score += 80;
+  return score;
+}
+
+function isRepositoryExecutionCandidate(file: File): boolean {
+  const name = fileDisplayName(file).toLowerCase();
+  return repositoryFilePriority(file) > 0 || REPOSITORY_PATTERNS.policy.test(name);
+}
+
+function selectRepositoryFilesForScan(files: File[]): { selected: File[]; readableCount: number; candidateCount: number } {
+  const readable = files.filter(isReadableRepositoryFile);
+  const candidates = readable
+    .filter(isRepositoryExecutionCandidate)
+    .sort((a, b) => repositoryFilePriority(b) - repositoryFilePriority(a) || fileDisplayName(a).localeCompare(fileDisplayName(b)));
+  return {
+    selected: candidates,
+    readableCount: readable.length,
+    candidateCount: candidates.length,
+  };
+}
+
+function repositoryFileCharBudget(fileCount: number): number {
+  if (fileCount > 2_000) return 6_000;
+  if (fileCount > 1_000) return 8_000;
+  if (fileCount > 500) return 12_000;
+  return MAX_REPOSITORY_FILE_CHARS;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await worker(items[current], current);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+function normalizeRepositoryFinding(finding: any, file: File): Finding {
+  return {
+    ...finding,
+    explanation: finding.explanation || finding.message || finding.rule_id,
+    suggested_fix: finding.suggested_fix || finding.fix,
+    evidence: finding.evidence,
+    filePath: fileDisplayName(file),
+  };
 }
 
 function uniqueSensitiveActions(findings: Finding[]): string[] {
@@ -461,6 +564,91 @@ function repositoryRiskReasons(finding: Finding | null): string[] {
   return reasons.slice(0, 5);
 }
 
+function repositoryPathConfidenceLevel(finding: Finding | null): "Confirmed" | "Probable" | "Potential" {
+  if (!finding?.workflow?.path) return "Potential";
+  if (finding.workflow.path.privilegedSinkReached && finding.workflow.path.nodes?.length >= 3) return "Confirmed";
+  if (finding.workflow.path.nodes?.length > 0) return "Probable";
+  return "Potential";
+}
+
+function repositoryConfidenceSummary(findings: Finding[], totalPaths: number): Record<"Confirmed" | "Probable" | "Potential", number> {
+  const summary = { Confirmed: 0, Probable: 0, Potential: 0 };
+  findings.forEach((finding) => {
+    if (!finding.workflow?.path) return;
+    summary[repositoryPathConfidenceLevel(finding)] += 1;
+  });
+  const counted = summary.Confirmed + summary.Probable + summary.Potential;
+  if (totalPaths > counted) summary.Potential += totalPaths - counted;
+  return summary;
+}
+
+function repositoryFileName(file: string): string {
+  return file.split(/[\\/]/).filter(Boolean).pop() || file;
+}
+
+function displaySensitiveAction(value: string): string {
+  const lower = String(value || "").toLowerCase();
+  if (lower.includes("external")) return "External API";
+  if (lower.includes("credential") || lower.includes("secret")) return "Credential Store";
+  if (lower.includes("shell")) return "Shell Execution";
+  if (lower.includes("filesystem") || lower.includes("file")) return "Filesystem Access";
+  if (lower.includes("network")) return "Network Access";
+  return String(value || "Sensitive Action");
+}
+
+function repositoryFileGroup(file: string): string {
+  const lower = file.toLowerCase();
+  if (lower.includes("mcp") || lower.includes("/.cursor/") || lower.includes("/.claude/")) return "MCP";
+  if (lower.endsWith("skill.md") || lower.includes("/skills/")) return "Skills";
+  if (lower.includes("workflow") || lower.includes("/.github/workflows/")) return "Workflows";
+  if (lower.includes("memory")) return "Memory";
+  if (lower.includes("prompt") || lower.endsWith(".prompt") || lower.endsWith(".md")) return "Prompts";
+  return "Other";
+}
+
+function repositoryTopContributors(files: string[]): string[] {
+  return Array.from(new Set(files.map(repositoryFileName))).slice(0, 4);
+}
+
+function groupRepositoryFiles(files: string[]): Array<[string, string[]]> {
+  const groups = new Map<string, string[]>();
+  files.forEach((file) => {
+    const group = repositoryFileGroup(file);
+    groups.set(group, [...(groups.get(group) || []), file]);
+  });
+  return Array.from(groups.entries());
+}
+
+function repositoryPlaygroundPrompt(result: RepositoryScanResult): string {
+  const primary = result.primaryFinding;
+  const path = pathLabelsFromFinding(primary).join(" -> ");
+  const topFiles = repositoryTopContributors(result.scannedFileNames);
+  const reasons = repositoryRiskReasons(primary);
+  return [
+    "Repository execution analysis handoff from PromptSonar.",
+    "",
+    `Reachable execution paths: ${result.executionPathsFound}`,
+    `Confidence: ${repositoryPathConfidenceLevel(primary)}`,
+    "Source: Repository / Folder upload",
+    `Scan handoff: ${result.executionPathsFound} reachable execution paths found across ${result.filesScanned} AI-relevant files`,
+    `AI files scanned: ${result.filesScanned}`,
+    `Sensitive actions: ${result.sensitiveActionsFound.join(", ") || "None"}`,
+    "Scan mode: Browser bounded scan",
+    "CLI available for exhaustive local scan",
+    `Highest risk path: ${path}`,
+    "",
+    `Risk: ${primary?.explanation || "Prompt-controlled instructions can reach a sensitive action."}`,
+    "",
+    "Top contributing files:",
+    ...(topFiles.length ? topFiles.map((file) => `- ${file}`) : ["- None"]),
+    "",
+    "Why this matters:",
+    ...reasons.map((reason) => `- ${reason}`),
+    "",
+    "Analyze this repository execution path and show connected findings, reachable sensitive actions, and remediation guidance.",
+  ].join("\n").slice(0, 7_500);
+}
+
 export default function TryPage() {
   const [scanMode, setScanMode] = useState<ScanMode>("prompt");
   const [prompt, setPrompt] = useState("");
@@ -469,6 +657,7 @@ export default function TryPage() {
   const [repositoryFiles, setRepositoryFiles] = useState<File[]>([]);
   const [repositoryScanResult, setRepositoryScanResult] = useState<RepositoryScanResult | null>(null);
   const [repositoryNotice, setRepositoryNotice] = useState<string | null>(null);
+  const [repositoryProgress, setRepositoryProgress] = useState<string | null>(null);
   const [screen, setScreen] = useState<ScreenState>("input");
   const [loading, setLoading] = useState(false);
   const [validation, setValidation] = useState<string | null>(null);
@@ -526,10 +715,14 @@ export default function TryPage() {
     setRepositoryFiles(source === "folder" ? selected : []);
     setRepositorySummary(summarizeRepositoryFiles(selected));
     setRepositoryScanResult(null);
+    setRepositoryProgress(null);
+    const selection = source === "folder" ? selectRepositoryFilesForScan(selected) : null;
     setRepositoryNotice(
       source === "zip"
         ? "ZIP upload is accepted for future repository scanning. Browser ZIP expansion is not implemented yet; use the CLI command below for a real scan today."
-        : "Folder selected. Click Scan Repository to analyze browser-readable files locally."
+        : selection
+          ? `Total files selected: ${selected.length}. Files skipped: ${selected.length - selection.readableCount}. AI-relevant files queued: ${selection.candidateCount}. Workflow files detected: ${summarizeRepositoryFiles(selected)?.workflowFiles || 0}. Scan mode: Browser bounded scan.`
+          : "Folder selected. Click Scan Repository to analyze browser-readable files locally."
     );
   }
 
@@ -547,44 +740,49 @@ export default function TryPage() {
       return;
     }
 
-    const readableFiles = repositoryFiles
-      .filter(isReadableRepositoryFile)
-      .slice(0, MAX_REPOSITORY_FILES_TO_READ);
+    const selection = selectRepositoryFilesForScan(repositoryFiles);
+    const readableFiles = selection.selected;
 
     if (readableFiles.length === 0) {
-      setRepositoryNotice("No browser-readable repository files were selected. Use the CLI for a full local scan.");
+      setRepositoryNotice("No AI-relevant browser-readable repository files were selected. PromptSonar skipped generated, vendor, binary, lock, and oversized files.");
       return;
     }
 
     setLoading(true);
+    setRepositoryProgress(`Scanning 0/${readableFiles.length} prioritized repository files...`);
     try {
-      const chunks = await Promise.all(readableFiles.map(async (file) => {
+      let completed = 0;
+      const fileCharBudget = repositoryFileCharBudget(readableFiles.length);
+      const scanOutputs = await mapWithConcurrency(readableFiles, REPOSITORY_SCAN_CONCURRENCY, async (file) => {
         const text = await file.text();
-        return [
-          `File: ${fileDisplayName(file)}`,
+        const promptText = [
+          `Repository file: ${fileDisplayName(file)}`,
+          "Analyze this file as part of a repository execution-path scan. Treat it as prompts, skills, agent instructions, MCP configs, workflows, tools, memory, credentials, and approval rules when applicable.",
           "```",
-          text.slice(0, MAX_REPOSITORY_FILE_CHARS),
+          text.slice(0, fileCharBudget),
           "```",
         ].join("\n");
-      }));
 
-      const promptText = [
-        "Repository execution-path scan input.",
-        "Analyze these repository files together as prompts, skills, agent instructions, MCP configs, workflows, tools, memory, credentials, and approval rules.",
-        ...chunks,
-      ].join("\n\n");
-
-      const res = await fetch("/api/playground", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ promptText }),
+        const res = await fetch("/api/playground", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ promptText }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || `Repository scan failed for ${fileDisplayName(file)} (HTTP ${res.status})`);
+        }
+        completed += 1;
+        if (completed === readableFiles.length || completed % 5 === 0) {
+          setRepositoryProgress(`Scanning ${completed}/${readableFiles.length} prioritized repository files...`);
+        }
+        return {
+          file,
+          findings: (Array.isArray(data.findings) ? data.findings : []).map((finding: any) => normalizeRepositoryFinding(finding, file)),
+        };
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || `Repository scan failed (HTTP ${res.status})`);
-      }
 
-      const findings: Finding[] = Array.isArray(data.findings) ? data.findings : [];
+      const findings: Finding[] = scanOutputs.flatMap((output) => output.findings);
       const summary = summarizeRepositoryFiles(repositoryFiles) || {
         filesSelected: repositoryFiles.length,
         promptFiles: 0,
@@ -607,11 +805,16 @@ export default function TryPage() {
       };
       setRepositorySummary(summary);
       setRepositoryScanResult(result);
-      setRepositoryNotice(`PromptSonar scanned ${readableFiles.length} browser-readable file${readableFiles.length === 1 ? "" : "s"} from the selected folder.`);
+      setRepositoryNotice([
+        `${readableFiles.length} AI-relevant file${readableFiles.length === 1 ? "" : "s"} scanned. ${repositoryFiles.length - selection.readableCount} generated, vendor, binary, oversized, or lock file${repositoryFiles.length - selection.readableCount === 1 ? "" : "s"} were skipped to keep the browser responsive. For exhaustive scanning, run the local CLI below.`,
+        readableFiles.length > 500 ? `Large-repository mode used ${fileCharBudget.toLocaleString()} characters per file to keep the browser responsive.` : "",
+        "Scan mode: Browser bounded scan.",
+      ].filter(Boolean).join(" "));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Repository scan failed. Use the CLI for a full local scan.");
     } finally {
       setLoading(false);
+      setRepositoryProgress(null);
     }
   }
 
@@ -757,13 +960,13 @@ export default function TryPage() {
             </div>
           </section>
 
-          {/* BLOCK 2 — Prompt Flow */}
+          {/* BLOCK 2 — Execution Path */}
           <section className="flex flex-col gap-3">
             <div>
               <h2 className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">
-                Prompt Flow
+                Execution Path
               </h2>
-              <p className="mt-1 text-[13px] font-medium text-[#57534E]">Shows the route from user input to the final action reached.</p>
+              <p className="mt-1 text-[13px] font-medium text-[#57534E]">How scanned AI instructions can reach tools, credentials, shell, or network access.</p>
             </div>
           <div
             className={`flex min-h-[320px] flex-col items-center justify-center gap-0 rounded-3xl border p-6 sm:p-10 ${
@@ -1009,39 +1212,30 @@ export default function TryPage() {
           </>
         ) : (
           <div className="grid gap-5">
-            <section className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
-              <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-                <div>
-                  <h2 className="text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">What PromptSonar Will Analyze</h2>
-                  <p className="mt-2 text-[13px] font-semibold leading-relaxed text-[#57534E]">
-                    PromptSonar does not just scan prompts. It analyzes how prompts, skills, tools, MCP servers, and workflows connect together to discover reachable execution paths.
-                  </p>
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-[12px] font-bold text-[#44403C] sm:grid-cols-3">
-                    {REPOSITORY_DISCOVERY_ITEMS.map((item) => (
-                      <div key={item} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2">
-                        <span className="mr-1.5 text-emerald-600" aria-hidden="true">✓</span>
-                        {item}
-                      </div>
-                    ))}
+            <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">What gets analyzed?</summary>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-[12px] font-bold text-[#44403C] sm:grid-cols-3">
+                {[
+                  "Prompt Templates",
+                  "Agent Instructions",
+                  "Claude Skills",
+                  "Cursor Rules",
+                  "MCP Servers",
+                  "Tool Definitions",
+                  "Workflow Files",
+                  "Memory Configuration",
+                  "Approval Rules",
+                ].map((item) => (
+                  <div key={item} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2">
+                    <span className="mr-1.5 text-emerald-600" aria-hidden="true">✓</span>
+                    {item}
                   </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-900 bg-slate-950 p-5 text-white">
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Execution Path</p>
-                  <div className="mt-4 flex flex-col items-center gap-2 text-center text-[12px] font-black uppercase tracking-wider">
-                    {["Prompt", "Skill", "Workflow", "Tool", "Sensitive Action"].map((step, index, arr) => (
-                      <React.Fragment key={step}>
-                        <span className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2">{step}</span>
-                        {index < arr.length - 1 && <span className="text-slate-500" aria-hidden="true">↓</span>}
-                      </React.Fragment>
-                    ))}
-                  </div>
-                </div>
+                ))}
               </div>
-            </section>
+            </details>
 
-            <section className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
-              <h2 className="text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Repository Examples</h2>
+            <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Repository examples</summary>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 {REPOSITORY_EXAMPLES.map((example) => (
                   <article key={example.title} className="rounded-2xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
@@ -1064,14 +1258,14 @@ export default function TryPage() {
                   </article>
                 ))}
               </div>
-            </section>
+            </details>
 
             <section className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-4">
                 <div>
                   <h2 className="text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Supported Sources</h2>
                   <p className="mt-2 text-[13px] font-medium leading-relaxed text-[#57534E]">
-                    Folder upload runs a browser-readable local scan now. GitHub URL and ZIP expansion are routed to the local CLI until web repository ingestion is implemented.
+                    Folder upload can handle large repositories by scanning prioritized AI-relevant files in bounded chunks. Generated, vendor, binary, lock, and oversized files are skipped to keep the browser responsive.
                   </p>
                 </div>
 
@@ -1088,7 +1282,7 @@ export default function TryPage() {
 
                   <label className="flex min-h-[112px] cursor-pointer flex-col justify-center rounded-xl border border-dashed border-[#D6D3D1] bg-[#FAF9F6] px-4 py-3">
                     <span className="text-[12px] font-black text-[#1C1917]">ZIP Upload</span>
-                    <span className="mt-1 text-[11px] font-medium leading-relaxed text-[#78716C]">Accepted now; web ZIP expansion is coming soon.</span>
+                    <span className="mt-1 text-[11px] font-medium leading-relaxed text-[#78716C]">Accepted now; ZIP expansion is routed to the CLI until browser decompression is connected.</span>
                     <input
                       type="file"
                       accept=".zip"
@@ -1099,7 +1293,7 @@ export default function TryPage() {
 
                   <label className="flex min-h-[112px] cursor-pointer flex-col justify-center rounded-xl border border-dashed border-slate-900 bg-white px-4 py-3">
                     <span className="text-[12px] font-black text-[#1C1917]">Folder Upload</span>
-                    <span className="mt-1 text-[11px] font-medium leading-relaxed text-[#78716C]">Select a local repository folder for browser-readable scanning.</span>
+                    <span className="mt-1 text-[11px] font-medium leading-relaxed text-[#78716C]">Select a repository folder. PromptSonar prioritizes prompts, skills, MCP, memory, tools, and workflows.</span>
                     <input
                       type="file"
                       multiple
@@ -1112,60 +1306,117 @@ export default function TryPage() {
               </div>
             </section>
 
-            {repositoryScanResult ? (
-              <section className="grid gap-5">
+            {repositoryScanResult ? (() => {
+              const confidenceSummary = repositoryConfidenceSummary(repositoryScanResult.findings, repositoryScanResult.executionPathsFound);
+              const highestRiskFinding = repositoryScanResult.primaryFinding;
+              const highestPathLabels = pathLabelsFromFinding(highestRiskFinding);
+              const highestConfidence = repositoryPathConfidenceLevel(highestRiskFinding);
+              const fileGroups = groupRepositoryFiles(repositoryScanResult.scannedFileNames);
+              const topContributors = repositoryTopContributors(repositoryScanResult.scannedFileNames);
+              const trustStatus = repositoryScanResult.criticalFindings > 0 ? "High Risk" : repositoryScanResult.executionPathsFound > 0 ? "Review Required" : "Trusted";
+              const playgroundRepositoryHref = `/playground?source=repository&prompt=${encodeURIComponent(repositoryPlaygroundPrompt(repositoryScanResult))}`;
+              return (
+              <section className="grid gap-4">
                 <div className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
                   <div className="flex flex-col gap-2 border-b border-[#E4E3DE] pb-4">
-                    <p className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">Repository Summary</p>
+                    <p className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">Repository-wide result</p>
                     <h2 className="text-2xl font-black tracking-tight">
                       PromptSonar found {repositoryScanResult.executionPathsFound} reachable execution path{repositoryScanResult.executionPathsFound === 1 ? "" : "s"}.
                     </h2>
-                    <p className="text-[13px] font-semibold leading-relaxed text-[#57534E]">
-                      Findings support the path analysis. Execution paths are the primary result.
-                    </p>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      {[
+                        ["Confirmed", confidenceSummary.Confirmed],
+                        ["Probable", confidenceSummary.Probable],
+                        ["Potential", confidenceSummary.Potential],
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2">
+                          <span className="block font-mono text-lg font-black text-[#1C1917]">{value}</span>
+                          <span className="block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#57534E] md:grid-cols-4">
                     {[
-                      ["Files Scanned", repositoryScanResult.filesScanned],
-                      ["Prompt Files", repositoryScanResult.summary.promptFiles],
-                      ["Skills Found", repositoryScanResult.summary.skillsFound],
-                      ["MCP Servers", repositoryScanResult.summary.mcpConfigs],
-                      ["Workflows Found", repositoryScanResult.summary.workflowFiles],
-                      ["Sensitive Actions", repositoryScanResult.sensitiveActionsFound.length],
-                      ["Execution Paths", repositoryScanResult.executionPathsFound],
+                      ["AI Surfaces", repositoryScanResult.summary.promptFiles + repositoryScanResult.summary.skillsFound + repositoryScanResult.summary.mcpConfigs + repositoryScanResult.summary.workflowFiles],
+                      ["AI Files Scanned", repositoryScanResult.filesScanned],
+                      ["Sensitive Actions Reachable", repositoryScanResult.sensitiveActionsFound.length],
                       ["Critical Findings", repositoryScanResult.criticalFindings],
+                      ["Overall Risk", trustStatus === "High Risk" ? "High" : trustStatus],
                     ].map(([label, value]) => (
                       <div key={label} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-3">
                         <span className="block text-[#A8A29E]">{label}</span>
-                        <span className="mt-1 block font-mono text-[18px] text-[#1C1917]">{value}</span>
+                        <span className="mt-1 block break-words font-mono text-[18px] text-[#1C1917]">{value}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
-                  <div className="flex flex-col gap-1 border-b border-[#E4E3DE] pb-4">
-                    <h2 className="text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Execution Path Summary</h2>
-                    <p className="text-[13px] font-semibold text-[#57534E]">What this repository can reach.</p>
-                  </div>
-                  <div className="mt-5 flex flex-col items-center gap-2 rounded-2xl border border-[#E4E3DE] bg-[#FAF9F6] p-5">
-                    {pathLabelsFromFinding(repositoryScanResult.primaryFinding).map((step, index, arr) => (
-                      <React.Fragment key={`${step}-${index}`}>
-                        <span className={`w-full max-w-xs rounded-xl border px-3 py-2 text-center text-[12px] font-black uppercase tracking-wider ${
-                          index === arr.length - 1 && repositoryScanResult.executionPathsFound > 0
-                            ? "border-red-200 bg-red-50 text-red-700"
-                            : "border-[#E4E3DE] bg-white text-[#1C1917]"
-                        }`}>
-                          {step}
-                        </span>
-                        {index < arr.length - 1 && <span className="text-[#A8A29E]" aria-hidden="true">↓</span>}
-                      </React.Fragment>
-                    ))}
+                <div className="rounded-2xl border border-red-200 bg-red-50/30 p-5 shadow-sm">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <h2 className="text-[13px] font-black uppercase tracking-[0.18em] text-red-700">Selected path · Highest risk path</h2>
+                      <div className="mt-4 flex flex-col items-center gap-2 rounded-2xl border border-red-100 bg-white/70 p-4">
+                        {highestPathLabels.map((step, index, arr) => (
+                          <React.Fragment key={`${step}-${index}`}>
+                            <span className={`w-full max-w-sm rounded-xl border px-3 py-2 text-center text-[12px] font-black uppercase tracking-wider ${
+                              index === arr.length - 1 && repositoryScanResult.executionPathsFound > 0
+                                ? "border-red-200 bg-red-50 text-red-700"
+                                : "border-[#E4E3DE] bg-white text-[#1C1917]"
+                            }`}>
+                              {step}
+                            </span>
+                            {index < arr.length - 1 && <span className="text-[#A8A29E]" aria-hidden="true">↓</span>}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                      <p className="mt-4 text-[13px] font-semibold leading-relaxed text-[#44403C]">
+                        <span className="font-black">Risk:</span> Prompt-controlled or workflow-controlled instructions may reach credentials, shell execution, and outbound network access.
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider">
+                        <span className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-red-700">Confidence: {highestConfidence}</span>
+                        <span className="rounded-full border border-[#E4E3DE] bg-white px-2.5 py-1 text-[#57534E]">Files scanned: {repositoryScanResult.scannedFileNames.length}</span>
+                        <span className="rounded-full border border-[#E4E3DE] bg-white px-2.5 py-1 text-[#57534E]">Sensitive actions: {repositoryScanResult.sensitiveActionsFound.map(displaySensitiveAction).join(", ") || "No sensitive action"}</span>
+                      </div>
+                    </div>
+                    <a href={playgroundRepositoryHref} className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-[12px] font-black text-white hover:bg-slate-800">
+                      Analyze in Playground
+                    </a>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
-                  <h2 className="text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Execution Map</h2>
+                <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+                  <summary className="cursor-pointer text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Files involved</summary>
+                  <div className="mt-3 text-[12px] font-bold text-[#57534E]">
+                    {repositoryScanResult.scannedFileNames.length} file{repositoryScanResult.scannedFileNames.length === 1 ? "" : "s"} involved
+                  </div>
+                  {topContributors.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Top Contributors</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {topContributors.map((name) => (
+                          <span key={name} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-2 py-1 font-mono text-[11px] font-bold text-[#57534E]">{name}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {fileGroups.map(([group, files]) => (
+                      <div key={group} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">{group}</p>
+                        <div className="mt-2 space-y-1">
+                          {files.slice(0, 12).map((name) => (
+                            <div key={name} className="truncate font-mono text-[10px] font-semibold text-[#57534E]">{name}</div>
+                          ))}
+                          {files.length > 12 && <div className="text-[10px] font-bold text-[#A8A29E]">+{files.length - 12} more</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+
+                <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+                  <summary className="cursor-pointer text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Investigation details</summary>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {[
                       ["Prompt Files", repositoryScanResult.summary.promptFiles],
@@ -1181,33 +1432,21 @@ export default function TryPage() {
                       </div>
                     ))}
                   </div>
-                  <details className="mt-4 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
-                    <summary className="cursor-pointer text-[12px] font-black uppercase tracking-wider text-[#57534E]">Expand Path</summary>
-                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-bold text-[#57534E]">
-                      {repositoryScanResult.scannedFileNames.slice(0, 12).map((name) => (
-                        <span key={name} className="rounded-lg border border-[#E4E3DE] bg-white px-2 py-1">{name}</span>
+                  <div className="mt-4">
+                    <h3 className="text-[11px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Why this is risky</h3>
+                    <ul className="mt-3 space-y-2 text-[13px] font-semibold leading-relaxed text-[#44403C]">
+                      {repositoryRiskReasons(repositoryScanResult.primaryFinding).map((reason) => (
+                        <li key={reason} className="flex gap-2">
+                          <span className="text-red-500" aria-hidden="true">•</span>
+                          <span>{reason}</span>
+                        </li>
                       ))}
-                    </div>
-                  </details>
-                </div>
-
-                <div className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
-                  <h2 className="text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Why This Is Risky</h2>
-                  <ul className="mt-3 space-y-2 text-[13px] font-semibold leading-relaxed text-[#44403C]">
-                    {repositoryRiskReasons(repositoryScanResult.primaryFinding).map((reason) => (
-                      <li key={reason} className="flex gap-2">
-                        <span className="text-red-500" aria-hidden="true">•</span>
-                        <span>{reason}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
-                  <div className="flex flex-col gap-1 border-b border-[#E4E3DE] pb-4">
-                    <h2 className="text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">How To Fix It</h2>
-                    <p className="text-[13px] font-semibold text-[#57534E]">Only copy patterns that apply to the reachable path.</p>
+                    </ul>
                   </div>
+                </details>
+
+                <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+                  <summary className="cursor-pointer text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">How to fix it</summary>
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     {repositoryScanResult.primaryFinding && (
                       <>
@@ -1223,7 +1462,7 @@ export default function TryPage() {
                     )}
                   </div>
                   <div className="mt-4 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Risk Reduction</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Expected impact</p>
                     <p className="mt-1 text-[13px] font-bold text-[#57534E]">
                       Break the route from prompt-controlled text to the sensitive action. Require approval before tools, scope MCP permissions, and validate retrieved content as data.
                     </p>
@@ -1246,9 +1485,10 @@ export default function TryPage() {
                       Copy GitHub Action
                     </button>
                   </div>
-                </div>
+                </details>
               </section>
-            ) : repositorySummary && (
+              );
+            })() : repositorySummary && (
               <div className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
                 <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Repository Summary</h3>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#57534E] md:grid-cols-3">
@@ -1275,10 +1515,16 @@ export default function TryPage() {
               </div>
             )}
 
+            {repositoryProgress && (
+              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-[12px] font-bold leading-relaxed text-slate-700">
+                {repositoryProgress}
+              </div>
+            )}
+
             <div className="rounded-xl border border-[#E4E3DE] bg-slate-950 p-4 text-slate-100">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Run full repository scan locally</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Run exhaustive repository scan locally</p>
               <code className="mt-2 block break-words font-mono text-[12px] font-bold">
-                npx @promptsonar/cli scan .
+                npx @promptsonar/cli repo . --json --output repository-report.json
               </code>
             </div>
           </div>

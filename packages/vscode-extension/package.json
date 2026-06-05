@@ -52,6 +52,11 @@
                 "title": "PromptSonar: Open Execution Path"
             },
             {
+                "command": "promptsonar.analyzeRepositoryExecutionMap",
+                "title": "PromptSonar: Analyze Repository Execution Map",
+                "icon": "$(graph)"
+            },
+            {
                 "command": "promptsonar.exportSarif",
                 "title": "PromptSonar: Export SARIF"
             },
@@ -86,6 +91,11 @@
             "view/title": [
                 {
                     "command": "promptsonar.scanWorkspace",
+                    "when": "view == promptsonar-explorer",
+                    "group": "navigation"
+                },
+                {
+                    "command": "promptsonar.analyzeRepositoryExecutionMap",
                     "when": "view == promptsonar-explorer",
                     "group": "navigation"
                 },

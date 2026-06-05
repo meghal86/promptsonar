@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { Fragment, useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { WorkflowGraph } from '@/components/WorkflowGraph';
 import { WorkflowReplayTimeline } from '@/components/WorkflowReplayTimeline';
@@ -507,6 +507,291 @@ const sortFindings = (findings: any[]) => {
   return [...findings].sort((a, b) => getSortScore(b) - getSortScore(a));
 };
 
+const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string; skillContent: string; scanSourceLabel?: string | null }) => {
+  const findings = args.result?.findings || [];
+  const workflowFindings = findings.filter((finding: any) => finding.workflow?.path?.nodes?.length);
+  const artifacts: any[] = [];
+  const addArtifact = (type: string, name: string, description: string, evidence: string[] = [], metadata: Record<string, any> = {}) => {
+    artifacts.push({
+      id: `artifact-${type.toLowerCase()}-${artifacts.length + 1}`,
+      type,
+      name,
+      filePath: name,
+      relativePath: name,
+      description,
+      evidence,
+      signals: [type.toLowerCase()],
+      metadata,
+    });
+  };
+
+  if (args.sourceText.trim()) {
+    addArtifact('PROMPT', args.scanSourceLabel === 'SKILL.md' ? 'skill-input.prompt' : 'playground.prompt', 'Prompt or prompt template scanned in the playground.', [args.sourceText.slice(0, 180)]);
+  }
+  if (args.skillContent.trim() || args.scanSourceLabel === 'SKILL.md') {
+    addArtifact('SKILL', 'SKILL.md', 'Agent skill instructions scanned or authored in the playground.', [args.skillContent.slice(0, 180)]);
+  }
+  if (/mcpServers|autoExecute|autoApprove|permissions\s*[:=]\s*["']?\*/i.test(args.sourceText)) {
+    addArtifact('MCP_SERVER', 'playground-mcp-server', 'MCP server configuration inferred from scanned text.', ['mcpServers / permissions'], {
+      autoApprove: /autoExecute|autoApprove|skip confirmation|without approval/i.test(args.sourceText),
+      sensitiveActions: ['Shell', 'Filesystem'],
+    });
+  }
+  if (workflowFindings.some((finding: any) => finding.workflow.path.nodes.some((node: any) => node.type === 'tool_router' || node.type === 'tool_execution'))) {
+    addArtifact('TOOL', 'tool-router', 'Tool router inferred from execution-path findings.', ['tool_router']);
+  }
+  if (workflowFindings.some((finding: any) => finding.workflow.path.nodes.some((node: any) => node.type === 'agent_memory'))) {
+    addArtifact('MEMORY', 'agent-memory', 'Agent memory system inferred from execution-path findings.', ['agent_memory']);
+  }
+  if (workflowFindings.length > 0) {
+    addArtifact('WORKFLOW', 'playground-agent-flow', 'Agent workflow inferred from connected scanner findings.', ['workflow path']);
+  }
+
+  const nodes: any[] = artifacts.map((artifact) => ({
+    id: `node-${artifact.id}`,
+    type: artifact.type === 'AGENT_CONFIG' ? 'PROMPT' : artifact.type,
+    label: artifact.name,
+    artifactId: artifact.id,
+    relativePath: artifact.relativePath,
+    description: artifact.description,
+    metadata: artifact.metadata,
+  }));
+  const edges: any[] = [];
+  const nodeForType = (type: string) => nodes.find((node) => node.type === type)?.id;
+  const ensureAction = (action: string) => {
+    const id = `node-action-${action.toLowerCase().replace(/\s+/g, '-')}`;
+    if (!nodes.some((node) => node.id === id)) {
+      const actionLabel = displaySensitiveAction(action);
+      const label = actionLabel === 'External API' ? 'External API Access' : actionLabel;
+      nodes.push({ id, type: 'ACTION', label, description: `Reachable sensitive action: ${displaySensitiveAction(action)}.`, metadata: { action } });
+    }
+    return id;
+  };
+  const addEdge = (from?: string, to?: string, type = 'CAN_REACH', reason = 'Inferred from scanner workflow evidence.') => {
+    if (!from || !to || from === to) return;
+    const id = `edge-${from}-${type}-${to}`;
+    if (!edges.some((edge) => edge.id === id)) edges.push({ id, from, to, type, reason, confidence: 80 });
+  };
+
+  const promptNode = nodeForType('PROMPT');
+  const skillNode = nodeForType('SKILL');
+  const memoryNode = nodeForType('MEMORY');
+  const toolNode = nodeForType('TOOL');
+  const mcpNode = nodeForType('MCP_SERVER');
+  const workflowNode = nodeForType('WORKFLOW');
+  addEdge(promptNode, skillNode, 'INVOKES');
+  addEdge(promptNode, memoryNode, 'READS');
+  addEdge(promptNode, toolNode, 'ROUTES_TO');
+  addEdge(skillNode, toolNode, 'ROUTES_TO');
+  addEdge(toolNode, mcpNode, 'ROUTES_TO');
+  addEdge(workflowNode, promptNode, 'REFERENCES');
+
+  const actionForNode = (type: string) => {
+    if (type === 'shell_execution') return 'Shell';
+    if (type === 'filesystem_access') return 'Filesystem';
+    if (type === 'network_access') return 'Network';
+    if (type === 'credential_store' || type === 'secret') return 'Secrets';
+    if (type === 'external_api') return 'External APIs';
+    return null;
+  };
+
+  const confidenceLevelForPath = (pathItem: { confidence: number; nodeIds: any[]; edgeIds: any[]; findings: any[] }) => {
+    if (pathItem.confidence >= 85 && pathItem.findings.length > 0 && pathItem.nodeIds.length > 0 && pathItem.edgeIds.length > 0) return 'confirmed';
+    if (pathItem.confidence >= 70 && (pathItem.findings.length > 0 || pathItem.nodeIds.length > 0)) return 'probable';
+    return 'potential';
+  };
+
+  const reachablePaths = workflowFindings.map((finding: any, index: number) => {
+    const actions = Array.from(new Set(finding.workflow.path.nodes.map((node: any) => actionForNode(node.type)).filter(Boolean)));
+    const actionIds = actions.map((action: any) => ensureAction(action));
+    const source = promptNode || skillNode || workflowNode || nodes[0]?.id;
+    actionIds.forEach((actionId) => addEdge(mcpNode || toolNode || source, actionId, 'CAN_REACH', `Finding ${finding.rule_id} reaches ${nodes.find((node) => node.id === actionId)?.label}.`));
+    const pathItem = {
+      id: `reachable-${index}`,
+      risk: finding.workflow?.risk || finding.severity || 'medium',
+      nodeIds: [source, skillNode, memoryNode, toolNode, mcpNode, ...actionIds].filter(Boolean),
+      edgeIds: edges.map((edge) => edge.id),
+      sensitiveActions: actions,
+      evidence: [{ filePath: 'playground.prompt', ruleId: finding.rule_id, severity: finding.severity, message: finding.explanation || finding.message || finding.rule_id }],
+      files: ['playground.prompt'],
+      confidence: finding.workflow?.confidence_score || 80,
+      explanation: finding.workflow?.path?.riskStory || finding.workflow?.path?.summary || finding.explanation,
+      findings: [{ filePath: 'playground.prompt', ruleId: finding.rule_id, severity: finding.severity }],
+    };
+    return {
+      ...pathItem,
+      confidenceLevel: confidenceLevelForPath(pathItem),
+    };
+  });
+
+  const riskSummary = { critical: 0, high: 0, medium: 0, low: 0 };
+  reachablePaths.forEach((pathItem: any) => {
+    const risk = ['critical', 'high', 'medium', 'low'].includes(pathItem.risk) ? pathItem.risk : 'medium';
+    riskSummary[risk as keyof typeof riskSummary] += 1;
+  });
+  const actionCounts: Record<string, number> = { Shell: 0, Filesystem: 0, Network: 0, Secrets: 0, 'External APIs': 0 };
+  reachablePaths.forEach((pathItem: any) => pathItem.sensitiveActions.forEach((action: string) => { actionCounts[action] = (actionCounts[action] || 0) + 1; }));
+  const confidenceSummary = { confirmed: 0, probable: 0, potential: 0 };
+  reachablePaths.forEach((pathItem: any) => {
+    const level = pathItem.confidenceLevel || confidenceLevelForPath(pathItem);
+    confidenceSummary[level as keyof typeof confidenceSummary] += 1;
+  });
+
+  return {
+    artifacts,
+    executionMap: { nodes, edges, paths: reachablePaths.map((pathItem: any) => ({ id: pathItem.id, nodeIds: pathItem.nodeIds, edgeIds: pathItem.edgeIds, risk: pathItem.risk, explanation: pathItem.explanation })) },
+    reachablePaths,
+    summary: {
+      aiSurfacesFound: {
+        prompts: artifacts.filter((artifact) => artifact.type === 'PROMPT').length,
+        skills: artifacts.filter((artifact) => artifact.type === 'SKILL').length,
+        mcpServers: artifacts.filter((artifact) => artifact.type === 'MCP_SERVER').length,
+        tools: artifacts.filter((artifact) => artifact.type === 'TOOL').length,
+        workflows: artifacts.filter((artifact) => artifact.type === 'WORKFLOW').length,
+        memorySystems: artifacts.filter((artifact) => artifact.type === 'MEMORY').length,
+      },
+      executionGraph: { nodes: nodes.length, edges: edges.length },
+      reachableSensitiveActions: actionCounts,
+      riskSummary,
+      confidenceSummary,
+      trustStatus: riskSummary.critical > 0 ? 'High Risk' : riskSummary.high > 0 || reachablePaths.length > 0 ? 'Review Required' : 'Trusted',
+    },
+  };
+};
+
+const repositoryRiskRank = (risk: string): number => ({ low: 1, medium: 2, high: 3, critical: 4 }[risk] || 0);
+
+const repositoryRelationshipLabel = (type: string): string => {
+  const normalized = String(type || '').toUpperCase();
+  if (normalized === 'ROUTES_TO' || normalized === 'ROUTE_TO') return 'Routes to';
+  if (normalized === 'REFERENCES') return 'References';
+  if (normalized === 'CAN_REACH' || normalized === 'CAN_REACHES') return 'Can reach';
+  if (normalized === 'INVOKES') return 'Invokes';
+  if (normalized === 'READS') return 'Reads';
+  if (normalized === 'WRITES') return 'Writes';
+  return String(type || 'Can reach').replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase());
+};
+
+const displaySensitiveAction = (value: string): string => {
+  const lower = String(value || '').toLowerCase();
+  if (lower.includes('external')) return 'External API';
+  if (lower.includes('credential') || lower.includes('secret')) return 'Credential Store';
+  if (lower.includes('shell')) return 'Shell Execution';
+  if (lower.includes('filesystem') || lower.includes('file')) return 'Filesystem Access';
+  if (lower.includes('network')) return 'Network Access';
+  return String(value || 'Sensitive Action');
+};
+
+const pathConfidenceLabel = (pathItem: any): string => {
+  const level = pathItem?.confidenceLevel || (pathItem?.confidence >= 85 ? 'confirmed' : pathItem?.confidence >= 70 ? 'probable' : 'potential');
+  return String(level).charAt(0).toUpperCase() + String(level).slice(1);
+};
+
+const repositoryFileName = (file: string): string => file.split(/[\\/]/).filter(Boolean).pop() || file;
+
+const repositoryFileGroup = (file: string): string => {
+  const lower = file.toLowerCase();
+  if (lower.includes('mcp') || lower.includes('/.cursor/') || lower.includes('/.claude/')) return 'MCP';
+  if (lower.endsWith('skill.md') || lower.includes('/skills/')) return 'Skills';
+  if (lower.includes('workflow') || lower.includes('/.github/workflows/')) return 'Workflows';
+  if (lower.includes('memory')) return 'Memory';
+  if (lower.includes('prompt') || lower.endsWith('.prompt') || lower.endsWith('.md')) return 'Prompts';
+  return 'Other';
+};
+
+const repositoryTopContributors = (files: string[]): string[] => Array.from(new Set(files.map(repositoryFileName))).slice(0, 4);
+
+const groupRepositoryFiles = (files: string[]): Array<[string, string[]]> => {
+  const groups = new Map<string, string[]>();
+  files.forEach((file) => {
+    const group = repositoryFileGroup(file);
+    groups.set(group, [...(groups.get(group) || []), file]);
+  });
+  return Array.from(groups.entries());
+};
+
+const repositoryHandoffValue = (text: string, label: string): string => {
+  const match = text.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'));
+  return match?.[1]?.trim() || '';
+};
+
+const createRepositoryHandoffFinding = (text: string): any | null => {
+  const pathCount = Number(repositoryHandoffValue(text, 'Reachable execution paths')) || 0;
+  if (pathCount <= 0) return null;
+  const risk = repositoryHandoffValue(text, 'Risk') || 'Repository execution path can reach sensitive actions.';
+  const sensitiveActions = repositoryHandoffValue(text, 'Sensitive actions') || 'Sensitive Action';
+  const highestPath = repositoryHandoffValue(text, 'Highest risk path');
+  const pathLabels = highestPath
+    ? highestPath.split(/\s*->\s*/).map((item) => item.trim()).filter(Boolean)
+    : ['Repository Input', 'MCP Server', 'Sensitive Tool', 'Shell Execution'];
+  const typeForLabel = (label: string): string => {
+    const lower = label.toLowerCase();
+    if (lower.includes('mcp')) return 'mcp_server';
+    if (lower.includes('credential') || lower.includes('secret')) return 'credential_store';
+    if (lower.includes('shell')) return 'shell_execution';
+    if (lower.includes('filesystem') || lower.includes('file')) return 'filesystem_access';
+    if (lower.includes('external') || lower.includes('api')) return 'external_api';
+    if (lower.includes('network')) return 'network_access';
+    if (lower.includes('tool')) return 'tool_execution';
+    if (lower.includes('memory')) return 'agent_memory';
+    return 'tool_router';
+  };
+  const nodes = pathLabels.map((label, index) => {
+    const type = typeForLabel(label);
+    return {
+      type,
+      label,
+      trust: index === 0 ? 'untrusted' : index === pathLabels.length - 1 ? 'sensitive' : 'privileged',
+      reason: index === 0 ? 'Repository artifact is an instruction source.' : `${label} is part of the reachable repository execution path.`,
+      evidence: label,
+      confidence: 'high',
+    };
+  });
+  const edges = nodes.slice(1).map((node, index) => ({
+    from: nodes[index].type,
+    to: node.type,
+    type: 'can_reach',
+    reason: `${nodes[index].label} can reach ${node.label} in the repository execution path.`,
+    confidence: 'high',
+  }));
+  return {
+    rule_id: 'repo_execution_handoff',
+    category: 'repository-execution',
+    severity: 'critical',
+    title: 'Repository execution path reachable',
+    explanation: risk,
+    suggested_fix: 'Break the route from prompt-controlled text to sensitive actions. Require approval before tools, scope MCP permissions, and validate retrieved content as data.',
+    workflow: {
+      risk: 'critical',
+      source: 'Repository Execution',
+      sink: nodes[nodes.length - 1]?.type || 'sensitive_action',
+      confidence: 'high',
+      confidence_score: 95,
+      confidence_level: 'HIGH',
+      path: {
+        nodes,
+        edges,
+        trustBoundaryCrossed: true,
+        privilegedSinkReached: true,
+        summary: `${pathCount} reachable repository execution paths. Sensitive actions: ${sensitiveActions}.`,
+        riskStory: risk,
+        confidence_score: 95,
+        confidence_level: 'HIGH',
+      },
+      workflow_diff: {
+        riskReduction: 86,
+        before: { nodes: nodes.map((node) => ({ type: node.type })) },
+        after: { nodes: [{ type: 'user_input' }, { type: 'approval_gate' }, { type: 'scoped_tool' }, { type: 'response' }] },
+        removedNodes: nodes.slice(1).map((node) => node.type),
+        removedEdges: edges.map((edge) => `${edge.from}->${edge.to}`),
+        addedNodes: ['approval_gate', 'scoped_tool'],
+        addedEdges: ['user_input->approval_gate', 'approval_gate->scoped_tool', 'scoped_tool->response'],
+      },
+    },
+    waived: false,
+  };
+};
+
 const getSecondaryGroup = (finding: any): string => {
   const ruleId = (finding.rule_id || '').toLowerCase();
   const category = (finding.category || '').toLowerCase();
@@ -557,7 +842,7 @@ const getExecutionRisks = (findings: any[]) => {
 
 export default function PlaygroundPage() {
   const [activeLeftTab, setActiveLeftTab] = useState<'prompt' | 'contract' | 'variables' | 'optimized' | 'skills'>('prompt');
-  type ScanSource = 'Prompt Editor' | 'Prompt Rules' | 'Agent Skill';
+  type ScanSource = 'Prompt Editor' | 'Prompt Rules' | 'Agent Skill' | 'Repository';
   const [selectedSkill, setSelectedSkill] = useState<string>("");
   const [skillContent, setSkillContent] = useState<string>("");
   const [skillPreviewMode, setSkillPreviewMode] = useState<'preview' | 'edit'>('preview');
@@ -634,7 +919,7 @@ export default function PlaygroundPage() {
 
   // Active overlay modal state
   const [activeModal, setActiveModal] = useState<'attack_map' | 'timeline' | 'drift' | 'remediations' | 'dossier' | null>(null);
-  const [activeDetailsTab, setActiveDetailsTab] = useState<'findings' | 'compare' | 'history' | 'models' | 'rules' | 'report'>('findings');
+  const [activeDetailsTab, setActiveDetailsTab] = useState<'repo_overview' | 'execution_map' | 'findings' | 'skills_page' | 'mcp_page' | 'workflows_page' | 'compare' | 'history' | 'models' | 'rules' | 'report'>('repo_overview');
   const [expandedRemediations, setExpandedRemediations] = useState<Record<string, boolean>>({});
   const [expandedFindings, setExpandedFindings] = useState<Record<string, boolean>>({});
   const [showAllAdditional, setShowAllAdditional] = useState<boolean>(false);
@@ -748,7 +1033,7 @@ export default function PlaygroundPage() {
       const now = new Date();
       const timeStr = now.toTimeString().split(' ')[0];
       setScanTime(timeStr);
-      setScanSourceLabel(source === 'Agent Skill' ? 'SKILL.md' : source);
+      setScanSourceLabel(source === 'Agent Skill' ? 'SKILL.md' : source === 'Repository' ? 'Repository Execution' : source);
       setScannedInputText(pText);
       setScanJustUpdated(true);
       if (scanUpdatedTimeoutRef.current) {
@@ -767,6 +1052,10 @@ export default function PlaygroundPage() {
         workflow: f.workflow,
         waived: false
       }));
+      const repositoryHandoffFinding = source === 'Repository' ? createRepositoryHandoffFinding(pText) : null;
+      if (repositoryHandoffFinding) {
+        parsedFindings.unshift(repositoryHandoffFinding);
+      }
 
       const initialExpanded: Record<string, boolean> = {};
       parsedFindings.forEach((f: any) => {
@@ -775,9 +1064,12 @@ export default function PlaygroundPage() {
       setExpandedFindings(initialExpanded);
 
       // Map API result safely to our mockup style metrics
+      const repositoryPathCount = source === 'Repository'
+        ? Number(repositoryHandoffValue(pText, 'Reachable execution paths')) || 0
+        : 0;
       setResult({
-        score: data.score,
-        status: data.status,
+        score: repositoryPathCount > 0 ? Math.min(data.score, 39) : data.score,
+        status: repositoryPathCount > 0 ? 'fail' : data.status,
         roi: {
           originalTokens: data.roi.originalTokens,
           newTokens: data.roi.newTokens,
@@ -792,6 +1084,9 @@ export default function PlaygroundPage() {
         }
       });
       setEditorMode('audit'); // Automatically show audit preview details!
+      if (source === 'Repository') {
+        setActiveDetailsTab('repo_overview');
+      }
 
       // On the first scan, reveal and smooth-scroll to the results below the hero.
       if (!firstScanDoneRef.current) {
@@ -899,7 +1194,7 @@ export default function PlaygroundPage() {
             )}
 
             <div className="bg-white border border-slate-200 rounded-md px-2.5 py-2 text-[10px] text-slate-600">
-              <span className="font-bold uppercase tracking-wider text-slate-500 block mb-1">Prompt Flow</span>
+              <span className="font-bold uppercase tracking-wider text-slate-500 block mb-1">Execution Path</span>
               {item.workflow?.path?.nodes?.length ? (
                 <div className="font-mono leading-relaxed break-words">
                   {workflowPathText(item.workflow)}
@@ -926,12 +1221,12 @@ export default function PlaygroundPage() {
               
               <div className="p-3 space-y-2.5">
                 <div className="text-[11px] text-[#57534E] leading-relaxed">
-                  <span className="font-bold text-slate-800 block mb-0.5">Security Rationale:</span> 
+                  <span className="font-bold text-slate-800 block mb-0.5">Security rationale:</span> 
                   {remedy.rationale}
                 </div>
                 
                 <div className="text-[11px] text-[#57534E] leading-relaxed">
-                  <span className="font-bold text-slate-800 block mb-0.5">Suggested Mitigation:</span> 
+                  <span className="font-bold text-slate-800 block mb-0.5">Suggested mitigation:</span> 
                   {remedy.mitigation}
                 </div>
 
@@ -1178,10 +1473,15 @@ export default function PlaygroundPage() {
       const incomingPrompt = params.get('prompt');
       if (!incomingPrompt || !incomingPrompt.trim()) return;
       const incomingContract = params.get('contract') || '';
+      const incomingSource = params.get('source');
+      const isRepositoryHandoff = incomingSource === 'repository';
       setPromptText(incomingPrompt);
       if (incomingContract) setContractYaml(incomingContract);
       setEditorMode('audit');
-      runAnalysis(incomingPrompt, incomingContract || undefined);
+      if (isRepositoryHandoff) {
+        setActiveDetailsTab('repo_overview');
+      }
+      runAnalysis(incomingPrompt, incomingContract || undefined, undefined, isRepositoryHandoff ? 'Repository' : 'Prompt Editor');
     } catch {
       // ignore malformed query strings; user can still scan manually
     }
@@ -1724,7 +2024,7 @@ export default function PlaygroundPage() {
       evidence.push('external API request');
     }
     if (/\bcredential_store\b|\bcredential\s+store\b|\bcredential\s+passthrough\b|\bpass\s+(?:through|host)\s+credentials?\b|\b(?:api[_-]?key|secret|token|password)\b/i.test(text)) {
-      evidence.push('credential storage read');
+      evidence.push('Credential-store access is reachable');
     }
     if (/\bagent\s+memory\b|\bpersist\s+instructions?\b|\bretain\s+instructions?\b|\bfuture\s+sessions?\b|\bsave\s+instructions?\b/i.test(text)) {
       evidence.push('memory persistence enabled');
@@ -2167,6 +2467,23 @@ export default function PlaygroundPage() {
     ? appliedRuleTemplates.map(label => ({ label, passed: rulesPassed }))
     : [];
   const displayedScanText = scannedInputText || promptText;
+  const isRepositoryExecutionScan = scanSourceLabel === 'Repository Execution';
+  const repositoryReport = buildPlaygroundRepositoryReport({
+    result,
+    sourceText: displayedScanText,
+    skillContent,
+    scanSourceLabel,
+  });
+  const highestRepositoryPath = repositoryReport.reachablePaths
+    .slice()
+    .sort((a: any, b: any) => repositoryRiskRank(b.risk) - repositoryRiskRank(a.risk) || (b.confidence || 0) - (a.confidence || 0))[0];
+  const repositoryConfidenceSummary = repositoryReport.summary.confidenceSummary || { confirmed: 0, probable: 0, potential: 0 };
+  const highestRepositoryPathNodes = highestRepositoryPath
+    ? highestRepositoryPath.nodeIds
+      .map((nodeId: string) => repositoryReport.executionMap.nodes.find((node: any) => node.id === nodeId))
+      .filter(Boolean)
+      .slice(0, 6)
+    : [];
 
   const reachedAction = primaryWorkflow?.sink
     ? humanType(primaryWorkflow.sink)
@@ -2175,8 +2492,12 @@ export default function PlaygroundPage() {
       : 'None';
   const scanVerdict = hasHighRiskWorkflow ? 'HIGH RISK' : 'SAFE';
   const scanConsequence = hasHighRiskWorkflow
-    ? `This prompt can reach ${reachedAction.toLowerCase()}.`
-    : 'This prompt stays contained. No risky destinations found.';
+    ? isRepositoryExecutionScan
+      ? `A reachable execution path connects AI-controlled instructions to ${displaySensitiveAction(reachedAction)} access. The path also includes credential-store and shell-execution access.`
+      : `A reachable execution path connects AI-controlled instructions to ${displaySensitiveAction(reachedAction)} access.`
+    : isRepositoryExecutionScan
+      ? 'No additional structural issues detected outside the selected reachable path.'
+      : 'This prompt stays contained. No risky destinations found.';
   const scanTone = hasHighRiskWorkflow
     ? 'border-red-200 bg-red-50/45 text-red-800'
     : 'border-emerald-200 bg-emerald-50/30 text-emerald-800';
@@ -2195,8 +2516,17 @@ export default function PlaygroundPage() {
       else if (/approval/i.test(item)) add('Approval bypass text was detected.');
       else add(item);
     });
-    if (primaryWorkflow?.path?.trustBoundaryCrossed) add('User-controlled text reaches a more sensitive part of the workflow.');
-    if (primaryWorkflow?.path?.privilegedSinkReached) add(`${reachedAction} is reachable.`);
+    if (isRepositoryExecutionScan && hasHighRiskWorkflow) {
+      return [
+        'External API access is reachable: The scanned workflow includes a path to outbound network access.',
+        'Credential-store access is reachable: The path includes a credential or secret access step before the external API call.',
+        'Shell execution is reachable: The path includes a privileged command-execution step.',
+        'Trust boundary crossed: Prompt-controlled or user-controlled text can influence a more sensitive workflow stage.',
+        'Confirmed path: PromptSonar found a connected path, not only a loose keyword match.',
+      ];
+    }
+    if (primaryWorkflow?.path?.trustBoundaryCrossed) add('Prompt-controlled or user-controlled text can influence a more sensitive workflow stage.');
+    if (primaryWorkflow?.path?.privilegedSinkReached) add(`${displaySensitiveAction(reachedAction)} access is reachable.`);
     if (primaryWorkflowFinding?.explanation) add(primaryWorkflowFinding.explanation);
     if (reasons.length === 0) add('This prompt stays contained. No risky destinations found.');
     return reasons.slice(0, 5);
@@ -2205,12 +2535,12 @@ export default function PlaygroundPage() {
     ? `${primaryWorkflow.workflow_diff.riskReduction}%`
     : null;
   const detailTabs: Array<{ key: typeof activeDetailsTab; label: string }> = [
+    { key: 'repo_overview', label: 'Overview' },
+    { key: 'execution_map', label: 'Execution Map' },
     { key: 'findings', label: 'Findings' },
-    { key: 'compare', label: 'Compare Scans' },
-    { key: 'history', label: 'Scan History' },
-    { key: 'models', label: 'Models' },
-    { key: 'rules', label: 'Rules' },
-    { key: 'report', label: 'Full Report' },
+    { key: 'workflows_page', label: 'Evidence' },
+    { key: 'rules', label: 'Fix Plan' },
+    { key: 'report', label: 'Report' },
   ];
 
   return (
@@ -2511,7 +2841,11 @@ export default function PlaygroundPage() {
                 );
               })()
             ) : null}
-            <span>Rules:</span>
+            <span>Built-in rules:</span>
+            <span className="font-mono font-bold text-slate-800 bg-[#FAF9F6] px-2 py-0.5 rounded border border-[#E4E3DE] text-xs">
+              Active
+            </span>
+            <span>Custom rules:</span>
             <span className="font-mono font-bold text-slate-800 bg-[#FAF9F6] px-2 py-0.5 rounded border border-[#E4E3DE] text-xs">
               {appliedRuleTemplates.length > 0 ? appliedRuleTemplates.join(', ') : 'None'}
             </span>
@@ -2560,7 +2894,7 @@ export default function PlaygroundPage() {
                 {/* Visual Tab Buttons */}
                 <div className="flex border-b border-[#E4E3DE] pb-2 text-[11px] font-black uppercase tracking-wider gap-4">
                   {[
-                    { key: 'prompt', label: 'Prompt Editor' },
+                    { key: 'prompt', label: isRepositoryExecutionScan ? 'Repository Scan Input' : 'Prompt Input' },
                     { key: 'contract', label: 'Prompt Rules' },
                     { key: 'skills', label: 'Agent Skill Builder' }
                   ].map((tab) => (
@@ -2888,7 +3222,7 @@ export default function PlaygroundPage() {
                     </div>
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Source</span>
-                      <span className="mt-1 block font-bold text-slate-900">{scanSourceLabel || 'Prompt Editor'}</span>
+                      <span className="mt-1 block font-bold text-slate-900">{scanSourceLabel || 'Prompt Input'}</span>
                     </div>
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Reached</span>
@@ -2906,8 +3240,8 @@ export default function PlaygroundPage() {
               <section ref={resultsRef} className="order-2 bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0">
                 <div className="px-5 py-4 border-b border-[#E4E3DE] bg-[#FAF9F6] flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h2 className="text-[12px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Flow</h2>
-                    <p className="text-[11px] text-slate-500 italic mt-0.5">Where this prompt can go.</p>
+                    <h2 className="text-[12px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Path</h2>
+                    <p className="text-[11px] text-slate-500 italic mt-0.5">How scanned AI instructions can reach tools, credentials, shell, or network access.</p>
                   </div>
                   <div className="hidden flex-wrap gap-2">
                     <button
@@ -2934,7 +3268,7 @@ export default function PlaygroundPage() {
                     ) : (
                       <div className="flex flex-col items-center justify-center min-h-[220px] text-slate-500 gap-2">
                         <span className="text-3xl">✅</span>
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Safe Prompt Flow</span>
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Safe Execution Path</span>
                         <div className="flex items-center gap-4 py-4 text-xs font-mono font-bold text-slate-400 uppercase tracking-widest">
                           <span>USER INPUT</span>
                           <span>↓</span>
@@ -3144,7 +3478,9 @@ export default function PlaygroundPage() {
                   if (!groups) {
                     return (
                       <div className="text-xs font-medium text-slate-400 italic py-2">
-                        No structural or architectural security vulnerabilities detected.
+                        {isRepositoryExecutionScan
+                          ? 'Primary architectural issue detected: a reachable execution path connects AI-controlled instructions to sensitive actions.'
+                          : 'No additional structural issues detected outside the selected reachable path.'}
                       </div>
                     );
                   }
@@ -3265,23 +3601,27 @@ export default function PlaygroundPage() {
                   return (
                     <div className="space-y-4">
                       <div className="text-[11.5px] text-[#57534E] leading-relaxed">
-                        <span className="font-bold text-slate-800 block mb-0.5">Security Rationale:</span> 
-                        {remedy.rationale}
+                        <span className="font-bold text-slate-800 block mb-0.5">Security rationale:</span> 
+                        {isRepositoryExecutionScan
+                          ? 'This path allows prompt-controlled or workflow-controlled instructions to reach privileged actions.'
+                          : remedy.rationale}
                       </div>
                       
                       <div className="text-[11.5px] text-[#57534E] leading-relaxed">
-                        <span className="font-bold text-slate-800 block mb-0.5">Suggested Mitigation:</span> 
-                        {remedy.mitigation}
+                        <span className="font-bold text-slate-800 block mb-0.5">Suggested mitigation:</span> 
+                        {isRepositoryExecutionScan
+                          ? 'Break the path between untrusted instructions and sensitive actions by adding approval gates, scoped tool permissions, immutable system rules, and output validation.'
+                          : remedy.mitigation}
                       </div>
 
-                      {/* Prompt Flow Diff Block */}
+                      {/* Execution path diff block */}
                       <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4.5 space-y-4">
                         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E4E3DE]/40 pb-2.5">
                           <span className="text-[9.5px] font-black uppercase tracking-widest text-[#A8A29E] block">
                             How the fix changes the flow
                           </span>
                           <div className="text-[10px] font-black uppercase text-emerald-750 bg-white border border-emerald-200 px-2.5 py-0.5 rounded shadow-3xs">
-                            {primaryRiskReduction ? `Risk Reduction: ${primaryRiskReduction}` : 'Risk reduction unavailable'}
+                            {isRepositoryExecutionScan ? 'Expected impact: Removes direct path to sensitive action' : (primaryRiskReduction ? `Risk reduction: ${primaryRiskReduction}` : 'Risk reduction unavailable')}
                             <span className="mt-1 block text-[9px] font-semibold normal-case tracking-normal text-emerald-800">
                               estimated reduction after applying the safer pattern
                             </span>
@@ -3419,7 +3759,9 @@ export default function PlaygroundPage() {
                 })() : (
                   <div className="py-6 px-4 text-center text-[#57534E] text-[11.5px] border border-dashed border-emerald-200 rounded-xl bg-emerald-50/10 select-none flex flex-col items-center justify-center gap-1.5">
                     <span className="text-xl">🛡️</span>
-                    <span className="font-black uppercase tracking-wider text-emerald-750">No structural remediation required</span>
+                    <span className="font-black uppercase tracking-wider text-emerald-750">
+                      {isRepositoryExecutionScan ? 'No additional structural issues detected outside the selected reachable path.' : 'No structural remediation required'}
+                    </span>
                     <p className="text-[10px] text-slate-500 max-w-md leading-relaxed">
                       PromptSonar did not find any dynamic execution vulnerabilities or routes to sensitive actions. The current prompt layout is well-contained.
                     </p>
@@ -3453,6 +3795,235 @@ export default function PlaygroundPage() {
                     ))}
                   </div>
                 </div>
+              </section>
+
+              <section className={`${activeDetailsTab === 'repo_overview' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+                <div className="border-b border-[#E4E3DE] pb-3">
+                  <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Overview</h2>
+                  <p className="mt-1 text-[11px] font-medium text-slate-500">PromptSonar found {repositoryReport.reachablePaths.length} reachable execution path{repositoryReport.reachablePaths.length === 1 ? '' : 's'}.</p>
+                </div>
+                <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                  {[
+                    ['Repository-wide result · AI surfaces found', repositoryReport.summary.aiSurfacesFound.prompts + repositoryReport.summary.aiSurfacesFound.skills + repositoryReport.summary.aiSurfacesFound.mcpServers + repositoryReport.summary.aiSurfacesFound.tools + repositoryReport.summary.aiSurfacesFound.workflows + repositoryReport.summary.aiSurfacesFound.memorySystems],
+                    ['Selected path · Execution nodes', highestRepositoryPath?.nodeIds?.length || repositoryReport.summary.executionGraph.nodes],
+                    ['Repository-wide result · Reachable paths', repositoryReport.reachablePaths.length],
+                    ['Repository-wide result · Overall risk', repositoryReport.summary.trustStatus === 'High Risk' ? 'High' : repositoryReport.summary.trustStatus],
+                  ].map(([label, value]) => (
+                    <div key={String(label)} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+                      <div className="text-xl font-black text-slate-950">{value}</div>
+                      <div className="mt-1 text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <h3 className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Repository-wide result · Reachable execution paths</h3>
+                      <div className="mt-1 text-3xl font-black text-slate-950">{repositoryReport.reachablePaths.length}</div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      {[
+                        ['Confirmed', repositoryConfidenceSummary.confirmed],
+                        ['Probable', repositoryConfidenceSummary.probable],
+                        ['Potential', repositoryConfidenceSummary.potential],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} className="rounded-lg border border-slate-200 bg-[#FAF9F6] px-3 py-2">
+                          <div className="text-lg font-black text-slate-900">{value}</div>
+                          <div className="text-[8px] font-black uppercase tracking-widest text-slate-400">{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {highestRepositoryPath ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50/30 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-red-700">Selected path · Highest risk path</h3>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {highestRepositoryPathNodes.map((node: any, index: number) => (
+                            <Fragment key={`${highestRepositoryPath.id}-${node.id}`}>
+                              {index > 0 && <span className="text-[12px] font-black text-slate-400">↓</span>}
+                              <span className="rounded-md border border-red-100 bg-white px-2.5 py-1 text-[11px] font-black text-slate-900">{node.label}</span>
+                            </Fragment>
+                          ))}
+                        </div>
+                        <p className="mt-3 text-[12px] font-semibold leading-relaxed text-slate-800">
+                          <span className="font-black">Risk:</span> {highestRepositoryPath.explanation}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider">
+                          <span className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-red-700">Confidence: {pathConfidenceLabel(highestRepositoryPath)}</span>
+                          <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700">Files involved: {highestRepositoryPath.files.length}</span>
+                          <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700">Sensitive actions: {highestRepositoryPath.sensitiveActions.map(displaySensitiveAction).join(', ') || 'No sensitive action'}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveDetailsTab('execution_map')}
+                        className="shrink-0 rounded-lg border border-slate-900 bg-slate-900 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white hover:bg-slate-800"
+                      >
+                        Analyze in Playground
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/20 p-3 text-[11px] font-semibold text-emerald-800">No reachable sensitive actions found.</div>
+                )}
+
+                <div className="space-y-2">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Most Critical Paths</h3>
+                  {repositoryReport.reachablePaths.length > 0 ? repositoryReport.reachablePaths.slice(0, 4).map((pathItem: any) => (
+                    <div key={pathItem.id} className="rounded-lg border border-slate-200 bg-[#FAF9F6] p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className={`text-[10px] font-black uppercase tracking-wider ${pathItem.risk === 'critical' ? 'text-red-700' : pathItem.risk === 'high' ? 'text-orange-700' : 'text-slate-700'}`}>
+                            {pathItem.risk} · {pathItem.sensitiveActions.join(', ') || 'No sensitive action'} · {pathConfidenceLabel(pathItem)}
+                          </div>
+                          <p className="mt-1 text-[11px] font-medium leading-relaxed text-slate-700">{pathItem.explanation}</p>
+                          <div className="mt-2 text-[10px] font-bold text-slate-500">
+                            {pathItem.files.length} file{pathItem.files.length === 1 ? '' : 's'} involved
+                          </div>
+                          {repositoryTopContributors(pathItem.files).length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {repositoryTopContributors(pathItem.files).map((file) => (
+                                <span key={`${pathItem.id}-${file}`} className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-mono text-slate-600">{file}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-[10px] font-black text-slate-500">{pathItem.confidence}%</div>
+                      </div>
+                      {pathItem.files.length > 0 && (
+                        <details className="mt-3">
+                          <summary className="cursor-pointer text-[10px] font-black uppercase tracking-wider text-slate-500">Show file list</summary>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            {groupRepositoryFiles(pathItem.files).map(([group, files]) => (
+                              <div key={`${pathItem.id}-${group}`} className="rounded-lg border border-slate-200 bg-white p-2">
+                                <div className="text-[8px] font-black uppercase tracking-widest text-slate-400">{group}</div>
+                                <div className="mt-1 space-y-1">
+                                  {files.slice(0, 12).map((file) => (
+                                    <div key={`${pathItem.id}-${group}-${file}`} className="truncate font-mono text-[9px] text-slate-600">{file}</div>
+                                  ))}
+                                  {files.length > 12 && <div className="text-[9px] font-bold text-slate-400">+{files.length - 12} more</div>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  )) : (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50/20 p-3 text-[11px] font-semibold text-emerald-800">No reachable sensitive actions found.</div>
+                  )}
+                </div>
+                <details className="rounded-lg border border-slate-200 bg-white p-3">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">AI Surfaces Found</summary>
+                  <div className="mt-3 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+                    {[
+                      ['Prompts', repositoryReport.summary.aiSurfacesFound.prompts],
+                      ['Skills', repositoryReport.summary.aiSurfacesFound.skills],
+                      ['MCP Servers', repositoryReport.summary.aiSurfacesFound.mcpServers],
+                      ['Tools', repositoryReport.summary.aiSurfacesFound.tools],
+                      ['Workflows', repositoryReport.summary.aiSurfacesFound.workflows],
+                      ['Memory', repositoryReport.summary.aiSurfacesFound.memorySystems],
+                    ].map(([label, value]) => (
+                      <div key={String(label)} className="rounded-lg border border-slate-200 bg-[#FAF9F6] p-2.5">
+                        <div className="text-base font-black text-slate-900">{value}</div>
+                        <div className="text-[8.5px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </section>
+
+              <section className={`${activeDetailsTab === 'execution_map' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+                <div className="border-b border-[#E4E3DE] pb-3">
+                  <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Map</h2>
+                  <p className="mt-1 text-[11px] font-medium text-slate-500">Instruction sources, prompts, skills, memory, tools, MCP servers, and actions.</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {repositoryReport.executionMap.nodes.map((node: any) => (
+                    <div key={node.id} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+                      <div className="text-[8.5px] font-black uppercase tracking-widest text-slate-400">{node.type}</div>
+                      <div className="mt-1 text-[12px] font-black text-slate-900">{node.label}</div>
+                      <p className="mt-1 text-[10.5px] font-medium leading-relaxed text-slate-600">{node.description}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-slate-200 overflow-hidden">
+                  <table className="w-full border-collapse text-left text-[10.5px]">
+                    <thead className="bg-[#FAF9F6] text-[8.5px] uppercase tracking-widest text-slate-400">
+                      <tr><th className="p-2">From</th><th className="p-2">Relationship</th><th className="p-2">To</th><th className="p-2">Evidence</th><th className="p-2">Confidence</th></tr>
+                    </thead>
+                    <tbody>
+                      {repositoryReport.executionMap.edges.map((edge: any) => {
+                        const from = repositoryReport.executionMap.nodes.find((node: any) => node.id === edge.from);
+                        const to = repositoryReport.executionMap.nodes.find((node: any) => node.id === edge.to);
+                        return (
+                          <tr key={edge.id} className="border-t border-slate-200">
+                            <td className="p-2 font-bold text-slate-800">{from?.label || edge.from}</td>
+                            <td className="p-2 font-bold text-slate-600">{repositoryRelationshipLabel(edge.type)}</td>
+                            <td className="p-2 font-bold text-slate-800">{to?.label || edge.to}</td>
+                            <td className="p-2 text-slate-500">{edge.reason || edge.evidence || 'Inferred from connected scanner findings.'}</td>
+                            <td className="p-2 font-mono text-slate-600">{edge.confidence ? `${edge.confidence}%` : 'Confirmed'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section className={`${activeDetailsTab === 'skills_page' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
+                <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Skills</h2>
+                {repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'SKILL').length > 0 ? repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'SKILL').map((artifact: any) => (
+                  <div key={artifact.id} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+                    <div className="text-[12px] font-black text-slate-900">{artifact.name}</div>
+                    <p className="mt-1 text-[11px] font-medium text-slate-600">{artifact.description}</p>
+                    <div className="mt-2 text-[10px] font-mono text-slate-500">Reachable actions: {repositoryReport.reachablePaths.flatMap((pathItem: any) => pathItem.sensitiveActions).join(', ') || 'None'}</div>
+                  </div>
+                )) : <div className="text-[11px] font-medium text-slate-500">No SKILL.md content discovered in this playground scan.</div>}
+              </section>
+
+              <section className={`${activeDetailsTab === 'mcp_page' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
+                <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">MCP</h2>
+                {repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'MCP_SERVER').length > 0 ? repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'MCP_SERVER').map((artifact: any) => (
+                  <div key={artifact.id} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+                    <div className="text-[12px] font-black text-slate-900">{artifact.name}</div>
+                    <div className="mt-1 text-[10px] font-mono text-slate-600">Auto-approve: {String(Boolean(artifact.metadata?.autoApprove))}</div>
+                    <div className="mt-1 text-[10px] font-mono text-slate-600">Reachable paths: {repositoryReport.reachablePaths.length}</div>
+                  </div>
+                )) : <div className="text-[11px] font-medium text-slate-500">No MCP servers discovered in this playground scan.</div>}
+              </section>
+
+              <section className={`${activeDetailsTab === 'workflows_page' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
+                <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Evidence</h2>
+                {repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'WORKFLOW').length > 0 ? repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'WORKFLOW').map((artifact: any) => (
+                  <div key={artifact.id} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">Workflow name</div>
+                    <div className="mt-1 text-[12px] font-black text-slate-900">{artifact.name || 'playground-agent-flow'}</div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {[
+                        ['Type', 'Inferred workflow'],
+                        ['Source', 'Connected scanner findings'],
+                        ['Connected prompt', 'playground.prompt'],
+                        ['Connected tool', 'tool-router'],
+                        ['Connected MCP servers', String(repositoryReport.summary.aiSurfacesFound.mcpServers)],
+                        ['Confidence', 'Confirmed'],
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-lg border border-[#E4E3DE] bg-white p-2">
+                          <div className="text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</div>
+                          <div className="mt-1 font-mono text-[10px] font-black text-slate-800">{value}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-[11px] font-semibold leading-relaxed text-slate-700">
+                      Risk relevance: This workflow connects the scanned prompt source to a tool router that can reach secrets, shell execution, and External API access.
+                    </p>
+                  </div>
+                )) : <div className="text-[11px] font-medium text-slate-500">No workflow paths discovered in this playground scan.</div>}
               </section>
 
               {/* V2 - SECTION 6b: PROMPT COMPRESSION & OPTIMIZATION (PROMPT ENGINEERING) */}
@@ -3589,12 +4160,49 @@ export default function PlaygroundPage() {
               <section className={`${activeDetailsTab === 'findings' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4`}>
                 <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
                   <div className="flex min-w-0 items-center gap-2">
-                    <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Path Findings</h2>
+                    <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">{isRepositoryExecutionScan ? 'Repository Path Evidence' : 'Execution Path Findings'}</h2>
                     <span className="h-3 w-px bg-[#E6E4E0] mx-1"></span>
-                    <span className="text-[10.5px] text-[#A8A29E] font-medium font-sans">Line-by-line compliance & API key leak warnings</span>
+                    <span className="text-[10.5px] text-[#A8A29E] font-medium font-sans">
+                      {isRepositoryExecutionScan ? 'Reachable path summary from the repository scan' : 'Line-by-line compliance & API key leak warnings'}
+                    </span>
                   </div>
                 </div>
 
+                {isRepositoryExecutionScan ? (
+                  <div className="grid gap-3 text-[12px] font-semibold text-slate-700">
+                    <div className="rounded-xl border border-red-200 bg-red-50/30 p-4">
+                      <div className="text-[9px] font-black uppercase tracking-widest text-red-700">Repository Finding</div>
+                      <div className="mt-2 text-[14px] font-black text-slate-950">{primaryWorkflowFinding?.title || 'Repository execution path reachable'}</div>
+                      <p className="mt-2 leading-relaxed">{primaryWorkflowFinding?.explanation || 'Repository-level analysis found a reachable path to sensitive actions.'}</p>
+                    </div>
+                    <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
+                      <div className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Reachable Path</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-[11px] font-black text-slate-800">
+                        {(primaryWorkflow?.path?.nodes || []).map((node: any, idx: number) => (
+                          <React.Fragment key={`${node.type}-${idx}`}>
+                            {idx > 0 && <span className="text-slate-400">→</span>}
+                            <span className="rounded-lg border border-[#E4E3DE] bg-white px-2 py-1 uppercase">{humanType(node.type)}</span>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-[#E4E3DE] bg-white p-4">
+                      <div className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Handoff Metadata</div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                        {[
+                          ['Source', 'Repository Execution'],
+                          ['Confidence', primaryWorkflow?.confidence_level || primaryWorkflow?.confidence || 'HIGH'],
+                          ['Reached', reachedAction],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+                            <div className="text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</div>
+                            <div className="mt-1 font-mono text-[11px] font-black text-slate-900">{value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
                 <div className="flex flex-col relative min-h-[300px] overflow-y-auto select-text font-mono text-[13px] leading-7 py-1">
                   {result.contractResult && result.contractResult.passed === false && (
                     <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700 flex flex-col gap-1 shrink-0">
@@ -3672,6 +4280,7 @@ export default function PlaygroundPage() {
                     </div>
                   </div>
                 </div>
+                )}
               </section>
 
               {/* V2 - SECTION 8: DETAILED FINDINGS (Full Width card) */}

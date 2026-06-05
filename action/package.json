@@ -9,13 +9,14 @@
         "dev": "ts-node src/action.ts"
     },
     "dependencies": {
+        "@actions/artifact": "^6.2.1",
         "@actions/core": "^3.0.1",
         "@promptsonar/core": "file:../packages/core",
         "fast-glob": "^3.3.2"
     },
     "devDependencies": {
+        "ts-node": "^10.9.2",
         "tsup": "^8.0.0",
-        "typescript": "^5.9.3",
-        "ts-node": "^10.9.2"
+        "typescript": "^5.9.3"
     }
 }
