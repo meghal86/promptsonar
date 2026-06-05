@@ -75,6 +75,18 @@ const SECRET_VALUE_PATTERNS = [
     /((?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*["']?)[A-Za-z0-9._-]{12,}/gi,
 ];
 
+function confidenceLabelFromScore(confidence: number): 'Confirmed' | 'Probable' | 'Potential' {
+    if (confidence >= 85) return 'Confirmed';
+    if (confidence >= 70) return 'Probable';
+    return 'Potential';
+}
+
+function pathConfidenceLabel(level: 'confirmed' | 'probable' | 'potential'): 'Confirmed' | 'Probable' | 'Potential' {
+    if (level === 'confirmed') return 'Confirmed';
+    if (level === 'probable') return 'Probable';
+    return 'Potential';
+}
+
 function normalizePath(filePath: string): string {
     return filePath.replace(/\\/g, '/');
 }
@@ -333,7 +345,20 @@ function addEdge(edges: Map<string, RepositoryExecutionEdge>, from: string, to: 
     if (from === to) return;
     const id = edgeId(from, to, type);
     if (edges.has(id)) return;
-    edges.set(id, { id, from, to, type, reason, evidence, confidence });
+    const isInferred = /inferred|can route|can invoke|can read|can reference|can route|can reach/i.test(reason);
+    const label = isInferred ? (confidence >= 70 ? 'Probable' : 'Potential') : confidenceLabelFromScore(confidence);
+    edges.set(id, {
+        id,
+        from,
+        to,
+        type,
+        relationship: type,
+        reason,
+        evidence: evidence ? redactSecrets(evidence) : undefined,
+        evidenceRefs: evidence ? [stableId('evidence', `${from}:${to}:${type}:${evidence}`)] : [],
+        confidence,
+        confidenceLabel: label,
+    });
 }
 
 function artifactText(artifact: RepositoryArtifact): string {
@@ -361,7 +386,7 @@ function addSensitiveActionNodes(nodes: Map<string, RepositoryExecutionNode>, ed
                 metadata: { action },
             });
         }
-        addEdge(edges, sourceNodeId, actionNodeId, 'CAN_REACH', `${action} capability inferred from artifact metadata.`, evidence ? redactSecrets(evidence) : undefined, 80);
+        addEdge(edges, sourceNodeId, actionNodeId, 'CAN_REACH', evidence ? `${action} capability derived from direct artifact evidence.` : `${action} capability inferred from artifact metadata.`, evidence ? redactSecrets(evidence) : undefined, evidence ? 85 : 65);
     }
 }
 
@@ -434,7 +459,7 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
             const promptActions = prompt.metadata?.sensitiveActions || [];
             const mcpActions = mcp.metadata?.sensitiveActions || [];
             if (promptActions.some(action => mcpActions.includes(action))) {
-                addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Prompt references a sensitive action exposed by a configured MCP server.', prompt.evidence[0], 65);
+                addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Direct prompt evidence references a sensitive action exposed by a configured MCP server.', prompt.evidence[0], 85);
             }
         }
     }
@@ -552,6 +577,7 @@ function clampConfidence(value: number): number {
 
 export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, artifacts: RepositoryArtifact[], scanResults: RepositoryScanResult[] = []): ReachableExecutionPath[] {
     const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
+    const edgesById = new Map(executionMap.edges.map(edge => [edge.id, edge]));
     const paths: ReachableExecutionPath[] = [];
     const graphPathsByStartFile = new Map<string, RepositoryExecutionGraphPath[]>();
     for (const graphPath of executionMap.paths) {
@@ -588,13 +614,29 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
                 ...nodeIds.map(nodeId => nodesById.get(nodeId)?.filePath).filter(Boolean) as string[],
             ]));
             const confidenceScore = clampConfidence(confidence);
+            const edgeConfidenceLabels = edgeIds.map(edgeId => edgesById.get(edgeId)?.confidenceLabel || confidenceLabelFromScore(edgesById.get(edgeId)?.confidence || 0));
+            const confidenceLevel = pathConfidenceLevel({
+                confidence: confidenceScore,
+                nodeIds,
+                edgeIds,
+                findings: [{ filePath: result.filePath, ruleId: finding.rule_id, severity: finding.severity, line: finding.line }],
+                edgeConfidenceLabels,
+            } as any);
+            const evidenceId = stableId('evidence', `${result.filePath}:${finding.rule_id}:${finding.line || 1}`);
             paths.push({
                 id: stableId('reachable', `${result.filePath}:${finding.rule_id}:${finding.line || 1}:${workflowNodes.map(node => node.type).join('>')}`),
                 risk,
                 nodeIds,
                 edgeIds,
                 sensitiveActions,
+                sourceNodeId: sourceNodeIdForPath({ nodeIds }, executionMap),
+                sinkNodeId: sinkNodeIdForPath({ nodeIds }, executionMap),
+                sensitiveAction: sensitiveActions[0],
+                severity: risk,
+                evidenceRefs: [evidenceId],
                 evidence: [{
+                    id: evidenceId,
+                    type: 'finding',
                     filePath: result.filePath,
                     ruleId: finding.rule_id,
                     severity: finding.severity,
@@ -604,7 +646,8 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
                 }],
                 files,
                 confidence: confidenceScore,
-                confidenceLevel: pathConfidenceLevel({ confidence: confidenceScore, nodeIds, edgeIds, findings: [{ filePath: result.filePath, ruleId: finding.rule_id, severity: finding.severity, line: finding.line }] }),
+                confidenceLevel,
+                confidenceLabel: pathConfidenceLabel(confidenceLevel),
                 explanation: finding.workflow.path.riskStory || finding.workflow.path.summary || workflowNodes.map(node => node.type).join(' -> '),
                 findings: [{
                     filePath: result.filePath,
@@ -623,19 +666,30 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
         const files = Array.from(new Set(nodes.map(node => node.filePath).filter(Boolean))) as string[];
         const key = `${graphPath.nodeIds.join('>')}:${sensitiveActions.join(',')}`;
         if (paths.some(existing => existing.nodeIds.join('>') === graphPath.nodeIds.join('>'))) continue;
+        const edgeConfidenceLabels = graphPath.edgeIds.map(edgeId => edgesById.get(edgeId)?.confidenceLabel || confidenceLabelFromScore(edgesById.get(edgeId)?.confidence || 0));
+        const confidenceLevel = pathConfidenceLevel({ confidence: 70, nodeIds: graphPath.nodeIds, edgeIds: graphPath.edgeIds, findings: [], edgeConfidenceLabels } as any);
+        const evidenceId = stableId('evidence', `graph:${graphPath.id}`);
         paths.push({
             id: stableId('reachable', key),
             risk: graphPath.risk,
             nodeIds: graphPath.nodeIds,
             edgeIds: graphPath.edgeIds,
             sensitiveActions,
+            sourceNodeId: sourceNodeIdForPath({ nodeIds: graphPath.nodeIds }, executionMap),
+            sinkNodeId: sinkNodeIdForPath({ nodeIds: graphPath.nodeIds }, executionMap),
+            sensitiveAction: sensitiveActions[0],
+            severity: graphPath.risk,
+            evidenceRefs: [evidenceId],
             evidence: [{
+                id: evidenceId,
+                type: 'graph',
                 filePath: files[0] || '',
                 message: graphPath.explanation,
             }],
             files,
             confidence: 70,
-            confidenceLevel: 'potential',
+            confidenceLevel,
+            confidenceLabel: pathConfidenceLabel(confidenceLevel),
             explanation: `Repository graph can reach ${sensitiveActions.join(', ')} through ${graphPath.explanation}.`,
             findings: [],
         });
@@ -655,9 +709,22 @@ function riskRank(risk: RepositoryRisk): number {
 }
 
 function pathConfidenceLevel(pathItem: Pick<ReachableExecutionPath, 'confidence' | 'nodeIds' | 'edgeIds' | 'findings'>): 'confirmed' | 'probable' | 'potential' {
-    if (pathItem.confidence >= 85 && pathItem.findings.length > 0 && pathItem.nodeIds.length > 0 && pathItem.edgeIds.length > 0) return 'confirmed';
+    if ((pathItem as any).edgeConfidenceLabels?.length > 0 && (pathItem as any).edgeConfidenceLabels.every((label: string) => label === 'Confirmed') && pathItem.findings.length > 0) return 'confirmed';
     if (pathItem.confidence >= 70 && (pathItem.findings.length > 0 || pathItem.nodeIds.length > 0)) return 'probable';
     return 'potential';
+}
+
+function sourceNodeIdForPath(pathItem: Pick<ReachableExecutionPath, 'nodeIds'>, executionMap: RepositoryExecutionMap): string | undefined {
+    const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
+    return pathItem.nodeIds.find(nodeId => {
+        const type = nodesById.get(nodeId)?.type;
+        return type === 'PROMPT' || type === 'SKILL' || type === 'WORKFLOW';
+    }) || pathItem.nodeIds[0];
+}
+
+function sinkNodeIdForPath(pathItem: Pick<ReachableExecutionPath, 'nodeIds'>, executionMap: RepositoryExecutionMap): string | undefined {
+    const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
+    return [...pathItem.nodeIds].reverse().find(nodeId => nodesById.get(nodeId)?.type === 'ACTION') || pathItem.nodeIds[pathItem.nodeIds.length - 1];
 }
 
 export function generateRepositorySummary(artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[]): RepositorySummary {
@@ -690,15 +757,36 @@ export function generateRepositorySummary(artifacts: RepositoryArtifact[], execu
             ? 'Review Required'
             : 'Trusted';
 
+    const aiSurfacesFound = {
+        prompts: executionMap.nodes.filter(node => node.type === 'PROMPT').length,
+        skills: executionMap.nodes.filter(node => node.type === 'SKILL').length,
+        mcpServers: executionMap.nodes.filter(node => node.type === 'MCP_SERVER').length,
+        tools: executionMap.nodes.filter(node => node.type === 'TOOL').length,
+        workflows: executionMap.nodes.filter(node => node.type === 'WORKFLOW').length,
+        memorySystems: executionMap.nodes.filter(node => node.type === 'MEMORY').length,
+        agentConfigs: artifacts.filter(artifact => artifact.type === 'AGENT_CONFIG').length,
+    };
+    const aiSurfaces = aiSurfacesFound.prompts + aiSurfacesFound.skills + aiSurfacesFound.mcpServers + aiSurfacesFound.tools + aiSurfacesFound.workflows + aiSurfacesFound.memorySystems;
+    const criticalFindings = reachablePaths.reduce((count, pathItem) => count + pathItem.findings.filter(finding => finding.severity === 'critical').length, 0);
+    const overallRisk: RepositoryRisk | 'none' = riskSummary.critical > 0 ? 'critical' : riskSummary.high > 0 ? 'high' : riskSummary.medium > 0 ? 'medium' : riskSummary.low > 0 ? 'low' : 'none';
     return {
+        filesScanned: new Set(artifacts.map(artifact => normalizePath(artifact.relativePath))).size,
+        aiSurfaces,
+        instructionSources: aiSurfacesFound.prompts,
+        skills: aiSurfacesFound.skills,
+        mcpServers: aiSurfacesFound.mcpServers,
+        toolRouters: aiSurfacesFound.tools,
+        workflows: aiSurfacesFound.workflows,
+        memorySystems: aiSurfacesFound.memorySystems,
+        sensitiveActions: Object.values(sensitiveCounts).filter(count => count > 0).length,
+        reachablePaths: reachablePaths.length,
+        confirmedPaths: confidenceSummary.confirmed,
+        probablePaths: confidenceSummary.probable,
+        potentialPaths: confidenceSummary.potential,
+        criticalFindings,
+        overallRisk,
         aiSurfacesFound: {
-            prompts: artifacts.filter(artifact => artifact.type === 'PROMPT' || artifact.type === 'AGENT_CONFIG').length,
-            skills: artifacts.filter(artifact => artifact.type === 'SKILL').length,
-            mcpServers: artifacts.filter(artifact => artifact.type === 'MCP_SERVER').length,
-            tools: artifacts.filter(artifact => artifact.type === 'TOOL').length,
-            workflows: artifacts.filter(artifact => artifact.type === 'WORKFLOW' || artifact.type === 'ACTION').length,
-            memorySystems: artifacts.filter(artifact => artifact.type === 'MEMORY').length,
-            agentConfigs: artifacts.filter(artifact => artifact.type === 'AGENT_CONFIG').length,
+            ...aiSurfacesFound,
         },
         executionGraph: {
             nodes: executionMap.nodes.length,
@@ -734,31 +822,16 @@ function sanitizeScanResults(scanResults: RepositoryScanResult[]): RepositorySca
             fix: finding.fix ? redactSecrets(finding.fix) : finding.fix,
             recommendation: finding.recommendation ? redactSecrets(finding.recommendation) : finding.recommendation,
             evidence: finding.evidence ? redactSecrets(finding.evidence) : finding.evidence,
-            workflow: finding.workflow ? sanitizeWorkflow(finding.workflow) : finding.workflow,
+            workflow: undefined,
         })),
     }));
-}
-
-function sanitizeWorkflow(workflow: any): any {
-    if (!workflow || typeof workflow !== 'object') return workflow;
-    const clone = JSON.parse(JSON.stringify(workflow));
-    const visit = (value: any): any => {
-        if (typeof value === 'string') return redactSecrets(value);
-        if (Array.isArray(value)) return value.map(visit);
-        if (value && typeof value === 'object') {
-            for (const key of Object.keys(value)) {
-                value[key] = visit(value[key]);
-            }
-        }
-        return value;
-    };
-    return visit(clone);
 }
 
 function sanitizeReachablePaths(paths: ReachableExecutionPath[]): ReachableExecutionPath[] {
     return paths.map(pathItem => ({
         ...pathItem,
         confidenceLevel: pathItem.confidenceLevel || pathConfidenceLevel(pathItem),
+        confidenceLabel: pathItem.confidenceLabel || pathConfidenceLabel(pathItem.confidenceLevel || pathConfidenceLevel(pathItem)),
         explanation: redactSecrets(pathItem.explanation),
         evidence: pathItem.evidence.map(evidence => ({
             ...evidence,
@@ -768,20 +841,108 @@ function sanitizeReachablePaths(paths: ReachableExecutionPath[]): ReachableExecu
     }));
 }
 
+function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[]): RepositoryExecutionReport['evidence'] {
+    const evidence = new Map<string, NonNullable<RepositoryExecutionReport['evidence']>[number]>();
+    for (const artifact of artifacts) {
+        for (const [index, snippet] of (artifact.evidence || []).entries()) {
+            const id = stableId('evidence', `${artifact.id}:${index}:${snippet}`);
+            evidence.set(id, {
+                id,
+                type: 'artifact',
+                file: normalizePath(artifact.relativePath),
+                snippet: redactSecrets(snippet),
+                source: artifact.type,
+                confidence: 85,
+                confidenceLabel: 'Confirmed',
+            });
+        }
+    }
+    for (const edge of executionMap.edges) {
+        for (const ref of edge.evidenceRefs || []) {
+            if (!evidence.has(ref)) {
+                evidence.set(ref, {
+                    id: ref,
+                    type: 'edge',
+                    file: '',
+                    snippet: edge.evidence ? redactSecrets(edge.evidence) : edge.reason,
+                    source: edge.type,
+                    confidence: edge.confidence,
+                    confidenceLabel: edge.confidenceLabel || confidenceLabelFromScore(edge.confidence),
+                });
+            }
+        }
+    }
+    for (const pathItem of reachablePaths) {
+        for (const item of pathItem.evidence || []) {
+            const id = item.id || stableId('evidence', `${item.filePath}:${item.ruleId || 'path'}:${item.line || 1}:${item.message}`);
+            evidence.set(id, {
+                id,
+                type: item.type || 'path',
+                file: normalizePath(item.filePath),
+                lineStart: item.line,
+                snippet: item.snippet ? redactSecrets(item.snippet) : redactSecrets(item.message),
+                ruleId: item.ruleId,
+                source: item.ruleId ? 'scanner' : 'repository-graph',
+                confidence: pathItem.confidence,
+                confidenceLabel: pathItem.confidenceLabel || pathConfidenceLabel(pathItem.confidenceLevel),
+            });
+        }
+    }
+    for (const result of scanResults) {
+        for (const finding of result.findings || []) {
+            const id = stableId('evidence', `${result.filePath}:${finding.rule_id}:${finding.line || 1}`);
+            if (!evidence.has(id)) {
+                evidence.set(id, {
+                    id,
+                    type: 'finding',
+                    file: normalizePath(result.filePath),
+                    lineStart: finding.line,
+                    snippet: finding.evidence ? redactSecrets(finding.evidence) : finding.message ? redactSecrets(finding.message) : undefined,
+                    ruleId: finding.rule_id,
+                    source: 'scanner',
+                    confidence: 70,
+                    confidenceLabel: 'Probable',
+                });
+            }
+        }
+    }
+    return Array.from(evidence.values()).sort((a, b) => a.id.localeCompare(b.id));
+}
+
 export function generateRepositoryExecutionReport(rootPath: string, artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[] = []): RepositoryExecutionReport {
     const root = path.resolve(rootPath);
+    const generatedAt = new Date().toISOString();
+    const sanitizedArtifacts = sanitizeArtifacts(artifacts);
+    const sanitizedPaths = sanitizeReachablePaths(reachablePaths);
+    const summary = generateRepositorySummary(artifacts, executionMap, reachablePaths);
     return {
+        id: stableId('repo-report', `${root}:${generatedAt}`),
         version: REPORT_VERSION,
-        generated_at: new Date().toISOString(),
+        generated_at: generatedAt,
+        scannedAt: generatedAt,
         repository: {
             root,
             name: path.basename(root),
         },
-        artifacts: sanitizeArtifacts(artifacts),
+        scanMode: 'local',
+        artifacts: sanitizedArtifacts,
+        files: sanitizedArtifacts,
+        skills: sanitizedArtifacts.filter(artifact => artifact.type === 'SKILL'),
+        mcpServers: sanitizedArtifacts.filter(artifact => artifact.type === 'MCP_SERVER'),
+        workflows: sanitizedArtifacts.filter(artifact => artifact.type === 'WORKFLOW' || artifact.type === 'ACTION'),
         executionMap,
-        reachablePaths: sanitizeReachablePaths(reachablePaths),
-        summary: generateRepositorySummary(artifacts, executionMap, reachablePaths),
+        reachablePaths: sanitizedPaths,
+        summary,
         findings: sanitizeScanResults(scanResults),
+        evidence: canonicalEvidence(sanitizedArtifacts, executionMap, sanitizedPaths, scanResults),
+        fixPlan: sanitizedPaths.slice(0, 10).map((pathItem, index) => ({
+            id: stableId('fix', pathItem.id),
+            title: `Review ${pathItem.sensitiveAction || pathItem.sensitiveActions[0] || 'reachable action'} path`,
+            description: 'Break unnecessary source-to-sink reachability, require approval for sensitive tools, and scope MCP/tool permissions.',
+            pathId: pathItem.id,
+            artifactId: pathItem.sourceNodeId,
+        })),
+        exports: { json: true, sarif: true, html: true, mapJson: true },
     };
 }
 

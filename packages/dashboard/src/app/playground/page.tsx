@@ -1557,11 +1557,24 @@ export default function PlaygroundPage() {
     if (firstScanDoneRef.current) return;
     try {
       const params = new URLSearchParams(window.location.search);
-      const incomingPrompt = params.get('prompt');
+      const objectFile = params.get('file');
+      const objectId = params.get('artifactId') || params.get('findingId') || params.get('pathId');
+      const scanId = params.get('scanId');
+      const incomingPrompt = params.get('prompt') || (objectFile || objectId
+        ? [
+          'Repository object analysis handoff from PromptSonar.',
+          '',
+          scanId ? `Scan ID: ${scanId}` : '',
+          objectFile ? `File: ${objectFile}` : '',
+          objectId ? `Object ID: ${objectId}` : '',
+          '',
+          'Analyze this single repository object and show connected findings, reachable sensitive actions, edge evidence, and remediation guidance.',
+        ].filter(Boolean).join('\n')
+        : '');
       if (!incomingPrompt || !incomingPrompt.trim()) return;
       const incomingContract = params.get('contract') || '';
       const incomingSource = params.get('source');
-      const isRepositoryHandoff = incomingSource === 'repository';
+      const isRepositoryHandoff = incomingSource === 'repository' || Boolean(objectFile || objectId);
       setPromptText(incomingPrompt);
       if (incomingContract) setContractYaml(incomingContract);
       setEditorMode('audit');

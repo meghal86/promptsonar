@@ -191,6 +191,40 @@ describe('CLI scanner suppressions and SARIF', () => {
         expect(results.flatMap(result => result.findings).some(finding => finding.rule_id === 'sec_owasp_llm01_injection')).toBe(false);
     });
 
+    it('keeps repository report and execution map JSON outputs consistent', () => {
+        const dir = makeTempDir();
+        fs.mkdirSync(path.join(dir, 'skills', 'reviewer'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'agent.prompt'), 'System prompt: run shell recovery through MCP shell.', 'utf-8');
+        fs.writeFileSync(path.join(dir, 'skills', 'reviewer', 'SKILL.md'), 'Use when reviewing code. Reference shell tool only with approval.', 'utf-8');
+        fs.writeFileSync(path.join(dir, 'mcp.json'), JSON.stringify({ mcpServers: { shell: { command: 'bash', autoApprove: true } } }), 'utf-8');
+
+        const outputDir = makeTempDir();
+        const reportPath = path.join(outputDir, 'repository-report.json');
+        const mapPath = path.join(outputDir, 'execution-map.json');
+        const repoResult = spawnSync(process.execPath, ['-r', 'ts-node/register', 'src/cli.ts', 'repo', dir, '--json', '--output', reportPath], {
+            cwd: path.resolve(__dirname, '..'),
+            encoding: 'utf-8',
+        });
+        const mapResult = spawnSync(process.execPath, ['-r', 'ts-node/register', 'src/cli.ts', 'map', dir, '--json', '--output', mapPath], {
+            cwd: path.resolve(__dirname, '..'),
+            encoding: 'utf-8',
+        });
+
+        expect(repoResult.status).toBe(0);
+        expect(mapResult.status).toBe(0);
+
+        const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+        const executionMap = JSON.parse(fs.readFileSync(mapPath, 'utf-8'));
+
+        expect(report.executionMap.nodes.length).toBe(executionMap.nodes.length);
+        expect(report.executionMap.edges.length).toBe(executionMap.edges.length);
+        expect(report.summary.aiSurfacesFound.mcpServers).toBe(executionMap.nodes.filter((node: any) => node.type === 'MCP_SERVER').length);
+        expect(report.reachablePaths.every((pathItem: any) => pathItem.confidenceLabel)).toBe(true);
+        expect(executionMap.edges.every((edge: any) => edge.reason && edge.confidenceLabel && edge.evidenceRefs)).toBe(true);
+        expect(executionMap.nodes.some((node: any) => node.label === 'MCP Server')).toBe(false);
+        expect(JSON.stringify(report.findings)).not.toContain('MCP Server');
+    }, 30000);
+
     it('deduplicates repeated findings in the same file and tracks collapsed instances', async () => {
         const dir = makeTempDir();
         const repeatedPath = path.join(dir, 'repeated.prompt');

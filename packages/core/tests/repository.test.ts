@@ -24,6 +24,132 @@ function fixtureRepo(files: Record<string, string>): string {
 }
 
 describe('repository execution analysis', () => {
+    it('handles an empty repository without reachable paths', () => {
+        const root = fixtureRepo({});
+        const report = analyzeRepositoryExecution(root, []);
+
+        expect(report.summary.aiSurfaces).toBe(0);
+        expect(report.summary.reachablePaths).toBe(0);
+        expect(report.summary.trustStatus).toBe('Trusted');
+    });
+
+    it('does not classify a README-only repository as AI execution instructions', () => {
+        const root = fixtureRepo({
+            'README.md': 'This package contains utility functions and installation instructions.',
+        });
+        const report = analyzeRepositoryExecution(root, []);
+
+        expect(report.summary.aiSurfaces).toBe(0);
+        expect(report.reachablePaths).toHaveLength(0);
+    });
+
+    it('does not confirm shell reachability when a prompt mentions shell without connected tool config', () => {
+        const root = fixtureRepo({
+            'agent.prompt': 'System prompt: explain how shell commands work, but do not call tools.',
+        });
+        const report = analyzeRepositoryExecution(root, []);
+
+        expect(report.summary.aiSurfacesFound.prompts).toBe(1);
+        expect(report.reachablePaths.some(pathItem => pathItem.sensitiveActions.includes('Shell') && pathItem.confidenceLevel === 'confirmed')).toBe(false);
+    });
+
+    it('keeps MCP counts consistent with graph nodes', () => {
+        const root = fixtureRepo({
+            'agent.prompt': 'System prompt: run shell recovery through MCP shell when approved.',
+            'mcp.json': JSON.stringify({ mcpServers: { shell: { command: 'bash', autoApprove: true } } }),
+        });
+        const report = analyzeRepositoryExecution(root, []);
+        const graphMcpNodes = report.executionMap.nodes.filter(node => node.type === 'MCP_SERVER');
+
+        expect(report.summary.aiSurfacesFound.mcpServers).toBe(graphMcpNodes.length);
+        expect(report.summary.mcpServers).toBe(graphMcpNodes.length);
+        expect(graphMcpNodes.length).toBeGreaterThan(0);
+    });
+
+    it('starts reachable paths from the earliest known source', () => {
+        const root = fixtureRepo({
+            'agent.prompt': 'System prompt: run shell recovery through MCP shell.',
+            'mcp.json': JSON.stringify({ mcpServers: { shell: { command: 'bash', autoApprove: true } } }),
+        });
+        const report = analyzeRepositoryExecution(root, []);
+        const highestPath = report.reachablePaths[0];
+        const firstNode = report.executionMap.nodes.find(node => node.id === highestPath.nodeIds[0]);
+
+        expect(firstNode?.type).toBe('PROMPT');
+        expect(firstNode?.label).not.toBe('MCP Server');
+    });
+
+    it('marks scanner-workflow inferred paths as probable, not confirmed', () => {
+        const root = fixtureRepo({
+            'reviewer.prompt': 'Route user input toward shell execution.',
+        });
+        const promptPath = path.join(root, 'reviewer.prompt');
+        const report = analyzeRepositoryExecution(root, [{
+            filePath: promptPath,
+            findings: [{
+                rule_id: 'sec_workflow_escalation',
+                severity: 'critical',
+                line: 1,
+                message: 'Scanner workflow evidence inferred shell reachability.',
+                evidence: 'Route user input toward shell execution.',
+                workflow: {
+                    risk: 'critical',
+                    confidence_score: 92,
+                    path: {
+                        privilegedSinkReached: true,
+                        nodes: [{ type: 'user_input' }, { type: 'tool_router' }, { type: 'shell_execution' }],
+                    },
+                },
+            }],
+        }]);
+
+        expect(report.reachablePaths[0]?.confidenceLevel).toBe('probable');
+        expect(report.reachablePaths[0]?.confidenceLabel).toBe('Probable');
+    });
+
+    it('does not create confirmed paths from broken MCP JSON', () => {
+        const root = fixtureRepo({
+            'mcp.json': '{ "mcpServers": { "shell": { "command": "bash", ',
+        });
+        const report = analyzeRepositoryExecution(root, []);
+
+        expect(report.artifacts[0]?.metadata?.parseWarning).toBeTruthy();
+        expect(report.reachablePaths.some(pathItem => pathItem.confidenceLevel === 'confirmed')).toBe(false);
+    });
+
+    it('does not render generic MCP placeholders without actual MCP nodes', () => {
+        const root = fixtureRepo({
+            'agent.prompt': 'System prompt: summarize tickets with no tools.',
+        });
+        const report = analyzeRepositoryExecution(root, []);
+
+        expect(report.summary.aiSurfacesFound.mcpServers).toBe(0);
+        expect(report.executionMap.nodes.some(node => node.label === 'MCP Server')).toBe(false);
+        expect(report.reachablePaths.flatMap(pathItem => pathItem.nodeIds).some(nodeId => report.executionMap.nodes.find(node => node.id === nodeId)?.label === 'MCP Server')).toBe(false);
+    });
+
+    it('redacts secrets in report evidence and exports', () => {
+        const root = fixtureRepo({
+            'prompts/payment.prompt': 'System prompt with api_key="sk-proj-1234567890abcdefghijklmnop" should never expose the raw key.',
+        });
+        const report = analyzeRepositoryExecution(root, []);
+        const serialized = JSON.stringify(report);
+
+        expect(serialized).toContain('[REDACTED]');
+        expect(serialized).not.toContain('sk-proj-1234567890abcdefghijklmnop');
+    });
+
+    it('ignores generated and vendor directories during repository walking', () => {
+        const root = fixtureRepo({
+            'node_modules/pkg/bad.prompt': 'System prompt: run shell.',
+            'dist/generated.prompt': 'System prompt: run shell.',
+            'prompts/real.prompt': 'System prompt: summarize approved tickets.',
+        });
+        const artifacts = analyzeRepository(root);
+
+        expect(artifacts.map(artifact => artifact.relativePath)).toEqual(['prompts/real.prompt']);
+    });
+
     it('classifies AI repository artifacts without invoking scanner rules', () => {
         const root = fixtureRepo({
             'reviewer.prompt': 'System prompt: review code and route to the tool router.',

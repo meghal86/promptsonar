@@ -40,6 +40,9 @@ export interface RepositoryArtifact {
     relativePath: string;
     description: string;
     evidence: string[];
+    confidence?: number;
+    confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
+    evidenceRefs?: string[];
     signals: string[];
     metadata?: {
         servers?: string[];
@@ -63,6 +66,11 @@ export interface RepositoryExecutionNode {
     artifactId?: string;
     description: string;
     metadata?: Record<string, unknown>;
+    lineStart?: number;
+    lineEnd?: number;
+    confidence?: number;
+    confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
+    evidenceRefs?: string[];
 }
 
 export interface RepositoryExecutionEdge {
@@ -72,7 +80,10 @@ export interface RepositoryExecutionEdge {
     type: RepositoryExecutionEdgeType;
     reason: string;
     evidence?: string;
+    evidenceRefs?: string[];
     confidence: number;
+    confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
+    relationship?: RepositoryExecutionEdgeType;
 }
 
 export interface RepositoryExecutionGraphPath {
@@ -115,7 +126,14 @@ export interface ReachableExecutionPath {
     nodeIds: string[];
     edgeIds: string[];
     sensitiveActions: RepositorySensitiveAction[];
+    sourceNodeId?: string;
+    sinkNodeId?: string;
+    sensitiveAction?: RepositorySensitiveAction;
+    severity?: RepositoryRisk;
+    evidenceRefs?: string[];
     evidence: Array<{
+        id?: string;
+        type?: string;
         filePath: string;
         ruleId?: string;
         severity?: Severity | string;
@@ -126,6 +144,7 @@ export interface ReachableExecutionPath {
     files: string[];
     confidence: number;
     confidenceLevel: RepositoryPathConfidence;
+    confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
     explanation: string;
     findings: Array<{
         filePath: string;
@@ -136,6 +155,21 @@ export interface ReachableExecutionPath {
 }
 
 export interface RepositorySummary {
+    filesScanned?: number;
+    aiSurfaces?: number;
+    instructionSources?: number;
+    skills?: number;
+    mcpServers?: number;
+    toolRouters?: number;
+    workflows?: number;
+    memorySystems?: number;
+    sensitiveActions?: number;
+    reachablePaths?: number;
+    confirmedPaths?: number;
+    probablePaths?: number;
+    potentialPaths?: number;
+    criticalFindings?: number;
+    overallRisk?: RepositoryRisk | 'none';
     aiSurfacesFound: {
         prompts: number;
         skills: number;
@@ -156,13 +190,45 @@ export interface RepositorySummary {
 }
 
 export interface RepositoryExecutionReport {
+    id?: string;
     version: string;
     generated_at: string;
+    scannedAt?: string;
     repository: {
         root: string;
         name: string;
     };
+    scanMode?: 'local' | 'browser-bounded' | 'ci' | 'unknown';
     artifacts: RepositoryArtifact[];
+    files?: RepositoryArtifact[];
+    skills?: RepositoryArtifact[];
+    mcpServers?: RepositoryArtifact[];
+    workflows?: RepositoryArtifact[];
+    evidence?: Array<{
+        id: string;
+        type: string;
+        file: string;
+        lineStart?: number;
+        lineEnd?: number;
+        snippet?: string;
+        ruleId?: string;
+        source: string;
+        confidence: number;
+        confidenceLabel: 'Confirmed' | 'Probable' | 'Potential';
+    }>;
+    fixPlan?: Array<{
+        id: string;
+        title: string;
+        description: string;
+        pathId?: string;
+        artifactId?: string;
+    }>;
+    exports?: {
+        json: boolean;
+        sarif: boolean;
+        html: boolean;
+        mapJson: boolean;
+    };
     executionMap: RepositoryExecutionMap;
     reachablePaths: ReachableExecutionPath[];
     summary: RepositorySummary;
