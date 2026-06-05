@@ -512,6 +512,7 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
   const workflowFindings = findings.filter((finding: any) => finding.workflow?.path?.nodes?.length);
   const artifacts: any[] = [];
   const addArtifact = (type: string, name: string, description: string, evidence: string[] = [], metadata: Record<string, any> = {}) => {
+    if (artifacts.some((artifact) => artifact.type === type && artifact.name === name)) return;
     artifacts.push({
       id: `artifact-${type.toLowerCase()}-${artifacts.length + 1}`,
       type,
@@ -537,10 +538,13 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
       sensitiveActions: ['Shell', 'Filesystem'],
     });
   }
-  if (workflowFindings.some((finding: any) => finding.workflow.path.nodes.some((node: any) => node.type === 'tool_router' || node.type === 'tool_execution'))) {
+  if (!artifacts.some((artifact) => artifact.type === 'MCP_SERVER') && workflowFindings.some((finding: any) => finding.workflow.path.nodes.some((node: any) => node.type === 'mcp_server' || node.type === 'mcp_tool'))) {
+    addArtifact('MCP_SERVER', 'mcp-server', 'MCP server present in reachable execution-path evidence.', ['workflow path mcp_server']);
+  }
+  if (!artifacts.some((artifact) => artifact.type === 'TOOL') && workflowFindings.some((finding: any) => finding.workflow.path.nodes.some((node: any) => node.type === 'tool_router' || node.type === 'tool_execution'))) {
     addArtifact('TOOL', 'tool-router', 'Tool router inferred from execution-path findings.', ['tool_router']);
   }
-  if (workflowFindings.some((finding: any) => finding.workflow.path.nodes.some((node: any) => node.type === 'agent_memory'))) {
+  if (!artifacts.some((artifact) => artifact.type === 'MEMORY') && workflowFindings.some((finding: any) => finding.workflow.path.nodes.some((node: any) => node.type === 'agent_memory'))) {
     addArtifact('MEMORY', 'agent-memory', 'Agent memory system inferred from execution-path findings.', ['agent_memory']);
   }
   if (workflowFindings.length > 0) {
@@ -558,6 +562,51 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
   }));
   const edges: any[] = [];
   const nodeForType = (type: string) => nodes.find((node) => node.type === type)?.id;
+  const sourceWorkflowTypes = new Set(['prompt', 'system_prompt', 'assistant_prompt', 'skill', 'agent_rule', 'workflow', 'repository_instruction', 'system_instructions']);
+  const workflowGraphType = (type: string) => {
+    if (type === 'mcp_server' || type === 'mcp_tool') return 'MCP_SERVER';
+    if (type === 'agent_memory') return 'MEMORY';
+    if (type === 'tool_router' || type === 'tool_execution' || type === 'privileged_tool' || type === 'sensitive_tool') return 'TOOL';
+    if (type === 'workflow') return 'WORKFLOW';
+    if (sourceWorkflowTypes.has(type)) return 'PROMPT';
+    if (['shell_execution', 'filesystem_access', 'network_access', 'credential_store', 'secret', 'external_api'].includes(type)) return 'ACTION';
+    return 'ACTION';
+  };
+  const workflowNodeLabel = (node: any) => {
+    if (node.label) return node.label;
+    if (node.evidence && typeof node.evidence === 'string') return node.evidence;
+    if (node.type === 'prompt') return 'playground.prompt';
+    if (node.type === 'tool_router') return 'tool-router';
+    if (node.type === 'credential_store') return 'credential-store';
+    if (node.type === 'shell_execution') return 'shell-execution';
+    if (node.type === 'external_api') return 'external-api-access';
+    if (node.type === 'filesystem_access') return 'filesystem-access';
+    if (node.type === 'network_access') return 'network-access';
+    if (node.type === 'agent_memory') return 'agent-memory';
+    return node.type ? node.type.replace(/_/g, '-') : 'Source unknown';
+  };
+  const ensureWorkflowNode = (node: any, finding: any) => {
+    const label = workflowNodeLabel(node);
+    const id = `node-path-${String(node.type || 'unknown').toLowerCase()}-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown'}`;
+    if (!nodes.some((existing) => existing.id === id)) {
+      nodes.push({
+        id,
+        type: workflowGraphType(node.type || ''),
+        label,
+        description: node.reason || `${label} appears in reachable execution-path evidence.`,
+        relativePath: 'playground.prompt',
+        metadata: { sourceType: node.type, evidence: node.evidence || finding.rule_id },
+      });
+    }
+    return id;
+  };
+  const ensureUnknownSource = () => {
+    const id = 'node-source-unknown';
+    if (!nodes.some((node) => node.id === id)) {
+      nodes.push({ id, type: 'PROMPT', label: 'Source unknown', description: 'No prompt, skill, workflow, agent rule, or repository instruction source was present in the path evidence.', metadata: {} });
+    }
+    return id;
+  };
   const ensureAction = (action: string) => {
     const id = `node-action-${action.toLowerCase().replace(/\s+/g, '-')}`;
     if (!nodes.some((node) => node.id === id)) {
@@ -567,10 +616,11 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
     }
     return id;
   };
-  const addEdge = (from?: string, to?: string, type = 'CAN_REACH', reason = 'Inferred from scanner workflow evidence.') => {
+  const addEdge = (from?: string, to?: string, type = 'CAN_REACH', reason = 'Inferred from scanner workflow evidence.', confidence = 'Probable') => {
     if (!from || !to || from === to) return;
     const id = `edge-${from}-${type}-${to}`;
-    if (!edges.some((edge) => edge.id === id)) edges.push({ id, from, to, type, reason, confidence: 80 });
+    if (!edges.some((edge) => edge.id === id)) edges.push({ id, from, to, type, reason, confidence });
+    return id;
   };
 
   const promptNode = nodeForType('PROMPT');
@@ -579,12 +629,12 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
   const toolNode = nodeForType('TOOL');
   const mcpNode = nodeForType('MCP_SERVER');
   const workflowNode = nodeForType('WORKFLOW');
-  addEdge(promptNode, skillNode, 'INVOKES');
-  addEdge(promptNode, memoryNode, 'READS');
-  addEdge(promptNode, toolNode, 'ROUTES_TO');
-  addEdge(skillNode, toolNode, 'ROUTES_TO');
-  addEdge(toolNode, mcpNode, 'ROUTES_TO');
-  addEdge(workflowNode, promptNode, 'REFERENCES');
+  addEdge(promptNode, skillNode, 'INVOKES', 'Inferred from connected scanner workflow evidence.', 'Probable');
+  addEdge(promptNode, memoryNode, 'READS', 'Inferred from connected scanner workflow evidence.', 'Probable');
+  addEdge(promptNode, toolNode, 'ROUTES_TO', 'Inferred from connected scanner workflow evidence.', 'Probable');
+  addEdge(skillNode, toolNode, 'ROUTES_TO', 'Inferred from connected scanner workflow evidence.', 'Probable');
+  addEdge(toolNode, mcpNode, 'ROUTES_TO', 'Inferred from connected scanner workflow evidence.', 'Probable');
+  addEdge(workflowNode, promptNode, 'REFERENCES', 'Inferred from connected scanner workflow evidence.', 'Probable');
 
   const actionForNode = (type: string) => {
     if (type === 'shell_execution') return 'Shell';
@@ -596,21 +646,39 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
   };
 
   const confidenceLevelForPath = (pathItem: { confidence: number; nodeIds: any[]; edgeIds: any[]; findings: any[] }) => {
-    if (pathItem.confidence >= 85 && pathItem.findings.length > 0 && pathItem.nodeIds.length > 0 && pathItem.edgeIds.length > 0) return 'confirmed';
+    const pathEdges = edges.filter((edge) => pathItem.edgeIds.includes(edge.id));
+    if (pathEdges.length > 0 && pathEdges.every((edge) => displayConfidenceLabel(edge.confidence) === 'Confirmed')) return 'confirmed';
     if (pathItem.confidence >= 70 && (pathItem.findings.length > 0 || pathItem.nodeIds.length > 0)) return 'probable';
     return 'potential';
   };
 
   const reachablePaths = workflowFindings.map((finding: any, index: number) => {
     const actions = Array.from(new Set(finding.workflow.path.nodes.map((node: any) => actionForNode(node.type)).filter(Boolean)));
-    const actionIds = actions.map((action: any) => ensureAction(action));
-    const source = promptNode || skillNode || workflowNode || nodes[0]?.id;
-    actionIds.forEach((actionId) => addEdge(mcpNode || toolNode || source, actionId, 'CAN_REACH', `Finding ${finding.rule_id} reaches ${nodes.find((node) => node.id === actionId)?.label}.`));
+    actions.forEach((action: any) => ensureAction(action));
+    const workflowNodes = finding.workflow.path.nodes || [];
+    const firstSourceIndex = workflowNodes.findIndex((node: any) => sourceWorkflowTypes.has(node.type));
+    const orderedWorkflowNodes = firstSourceIndex >= 0 ? workflowNodes.slice(firstSourceIndex) : workflowNodes;
+    const workflowNodeIds = orderedWorkflowNodes.map((node: any) => ensureWorkflowNode(node, finding));
+    const pathNodeIds = firstSourceIndex >= 0 ? workflowNodeIds : [ensureUnknownSource(), ...workflowNodeIds];
+    const pathEdgeIds: string[] = [];
+    pathNodeIds.slice(1).forEach((toId: string, edgeIndex: number) => {
+      const fromId = pathNodeIds[edgeIndex];
+      const fromNode = nodes.find((node) => node.id === fromId);
+      const toNode = nodes.find((node) => node.id === toId);
+      const edgeId = addEdge(
+        fromId,
+        toId,
+        edgeIndex === 0 && firstSourceIndex < 0 ? 'CAN_REACH' : 'CAN_REACH',
+        `Finding ${finding.rule_id} connects ${fromNode?.label || fromId} to ${toNode?.label || toId}.`,
+        'Probable'
+      );
+      if (edgeId) pathEdgeIds.push(edgeId);
+    });
     const pathItem = {
       id: `reachable-${index}`,
       risk: finding.workflow?.risk || finding.severity || 'medium',
-      nodeIds: [source, skillNode, memoryNode, toolNode, mcpNode, ...actionIds].filter(Boolean),
-      edgeIds: edges.map((edge) => edge.id),
+      nodeIds: pathNodeIds.filter(Boolean),
+      edgeIds: pathEdgeIds,
       sensitiveActions: actions,
       evidence: [{ filePath: 'playground.prompt', ruleId: finding.rule_id, severity: finding.severity, message: finding.explanation || finding.message || finding.rule_id }],
       files: ['playground.prompt'],
@@ -740,9 +808,11 @@ const createRepositoryHandoffFinding = (text: string): any | null => {
   const highestPath = repositoryHandoffValue(text, 'Highest risk path');
   const pathLabels = highestPath
     ? highestPath.split(/\s*->\s*/).map((item) => item.trim()).filter(Boolean)
-    : ['Repository Input', 'MCP Server', 'Sensitive Tool', 'Shell Execution'];
+    : ['Source unknown', displaySensitiveAction(sensitiveActions.split(',')[0] || 'Sensitive Action')];
   const typeForLabel = (label: string): string => {
     const lower = label.toLowerCase();
+    if (lower.includes('source unknown')) return 'repository_instruction';
+    if (lower.includes('prompt') || lower.includes('instruction') || lower.includes('skill') || lower.includes('workflow')) return 'repository_instruction';
     if (lower.includes('mcp')) return 'mcp_server';
     if (lower.includes('credential') || lower.includes('secret')) return 'credential_store';
     if (lower.includes('shell')) return 'shell_execution';
@@ -759,9 +829,9 @@ const createRepositoryHandoffFinding = (text: string): any | null => {
       type,
       label,
       trust: index === 0 ? 'untrusted' : index === pathLabels.length - 1 ? 'sensitive' : 'privileged',
-      reason: index === 0 ? 'Repository artifact is an instruction source.' : `${label} is part of the reachable repository execution path.`,
+      reason: index === 0 ? `${label} is the earliest known source for this transferred repository path.` : `${label} is part of the reachable repository execution path.`,
       evidence: label,
-      confidence: 'confirmed',
+      confidence: 'probable',
     };
   });
   const edges = nodes.slice(1).map((node, index) => ({
@@ -769,7 +839,7 @@ const createRepositoryHandoffFinding = (text: string): any | null => {
     to: node.type,
     type: 'can_reach',
     reason: `${nodes[index].label} can reach ${node.label} in the repository execution path.`,
-    confidence: 'confirmed',
+    confidence: 'probable',
   }));
   return {
     rule_id: 'repo_execution_handoff',
@@ -782,9 +852,9 @@ const createRepositoryHandoffFinding = (text: string): any | null => {
       risk: 'critical',
       source: 'Repository Execution',
       sink: nodes[nodes.length - 1]?.type || 'sensitive_action',
-      confidence: 'confirmed',
+      confidence: 'probable',
       confidence_score: 95,
-      confidence_level: 'Confirmed',
+      confidence_level: 'Probable',
       path: {
         nodes,
         edges,
@@ -793,7 +863,7 @@ const createRepositoryHandoffFinding = (text: string): any | null => {
         summary: `${pathCount} reachable repository execution paths. Sensitive actions: ${sensitiveActions}.`,
         riskStory: risk,
         confidence_score: 95,
-        confidence_level: 'Confirmed',
+        confidence_level: 'Probable',
       },
       workflow_diff: {
         riskReduction: 86,
@@ -2540,12 +2610,12 @@ export default function PlaygroundPage() {
     : (highestRepositoryPath?.files?.length || 0);
   const selectedPathNodeCount = highestRepositoryPathNodes.length || 0;
   const selectedVisualPath: string[] = isRepositoryExecutionScan
-    ? ['playground.prompt', 'tool-router', 'Credential Store', 'Shell Execution', 'External API Access']
+    ? (highestRepositoryPathNodes.length ? highestRepositoryPathNodes.map((node: any) => node.label) : ['Source unknown'])
     : highestRepositoryPathNodes.length
       ? highestRepositoryPathNodes.map((node: any) => node.label)
-      : ['playground.prompt', 'tool-router', 'Credential Store', 'Shell Execution', 'External API Access'];
+      : ['Source unknown'];
   const reportBeforePath: string[] = isRepositoryExecutionScan
-    ? ['MCP Server', 'Tool Execution', 'Credential Store', 'Shell Execution', 'External API']
+    ? selectedVisualPath.map((label) => label === 'External API Access' ? 'External API' : label)
     : selectedVisualPath.map((label) => label === 'External API Access' ? 'External API' : label);
   const reportAfterPath = ['User Input', 'Approval Gate', 'Scoped Tool', 'Response Context'];
   const reportWorkflowReviewCount = Math.max(1, workflowFindings.length || repositoryReport.reachablePaths.length || 0);

@@ -25,6 +25,7 @@ interface WorkflowNode {
 
 interface WorkflowPath {
   nodes: WorkflowNode[];
+  edges?: Array<{ confidence?: string; confidence_level?: string }>;
   privilegedSinkReached?: boolean;
   trustBoundaryCrossed?: boolean;
   risk?: string;
@@ -538,8 +539,12 @@ function executionPathCount(findings: Finding[]): number {
 
 function pathLabelsFromFinding(finding: Finding | null): string[] {
   const nodes = finding?.workflow?.path?.nodes || [];
-  if (nodes.length === 0) return ["Prompt", "Skill", "Workflow", "Tool", "Sensitive Action"];
-  const compact = nodes.length > 6 ? [...nodes.slice(0, 5), nodes[nodes.length - 1]] : nodes;
+  if (nodes.length === 0) return ["Source unknown"];
+  const sourceTypes = new Set(["prompt", "system_prompt", "assistant_prompt", "skill", "agent_rule", "workflow", "repository_instruction", "system_instructions"]);
+  const firstSourceIndex = nodes.findIndex((node) => sourceTypes.has(node.type));
+  const sourceFirstNodes = firstSourceIndex >= 0 ? nodes.slice(firstSourceIndex) : nodes;
+  const compact = sourceFirstNodes.length > 6 ? [...sourceFirstNodes.slice(0, 5), sourceFirstNodes[sourceFirstNodes.length - 1]] : sourceFirstNodes;
+  if (firstSourceIndex < 0) return ["Source unknown", ...compact.map((node) => labelFor(node))];
   return compact.map((node) => labelFor(node));
 }
 
@@ -571,7 +576,11 @@ function repositoryRiskReasons(finding: Finding | null): string[] {
 
 function repositoryPathConfidenceLevel(finding: Finding | null): "Confirmed" | "Probable" | "Potential" {
   if (!finding?.workflow?.path) return "Potential";
-  if (finding.workflow.path.privilegedSinkReached && finding.workflow.path.nodes?.length >= 3) return "Confirmed";
+  const pathEdges = finding.workflow.path.edges || [];
+  if (
+    pathEdges.length > 0 &&
+    pathEdges.every((edge) => String(edge.confidence || edge.confidence_level || "").toLowerCase() === "confirmed")
+  ) return "Confirmed";
   if (finding.workflow.path.nodes?.length > 0) return "Probable";
   return "Potential";
 }
