@@ -550,17 +550,22 @@ function repositoryRiskReasons(finding: Finding | null): string[] {
       "Run the CLI scan locally to include ignored, binary, generated, or large files.",
     ];
   }
-  const types = new Set(finding.workflow?.path?.nodes?.map((node) => node.type) || []);
+  const nodes = finding.workflow?.path?.nodes || [];
+  const types = new Set(nodes.map((node) => node.type));
+  const source = nodes[0] ? labelFor(nodes[0]) : "Prompt-controlled instructions";
+  const action = nodes[nodes.length - 1] ? labelFor(nodes[nodes.length - 1]) : displaySensitiveAction(finding.workflow?.sink || "Sensitive Action");
+  const route = pathLabelsFromFinding(finding).join(" → ");
   const reasons: string[] = [];
-  if (types.has("shell_execution")) reasons.push("User-controlled text reaches shell execution.");
-  if (types.has("mcp_server") || types.has("mcp_tool")) reasons.push("MCP configuration is connected to downstream tools.");
-  if (types.has("tool_router") || types.has("privileged_tool")) reasons.push("Tool routing can forward input toward sensitive actions.");
-  if (types.has("credential_store") || types.has("secret")) reasons.push("Credentials are available to a downstream tool path.");
-  if (types.has("agent_memory")) reasons.push("Memory writes can persist across sessions.");
-  if (types.has("filesystem_access")) reasons.push("The path can reach file access.");
-  if (types.has("network_access") || types.has("external_api")) reasons.push("The path can reach network or external API access.");
-  if (finding.workflow?.path?.trustBoundaryCrossed) reasons.push("Untrusted input crosses into a more sensitive system boundary.");
-  if (reasons.length === 0) reasons.push(finding.explanation || "PromptSonar found a reachable execution path.");
+  reasons.push(`${source} can reach ${action} through ${route}.`);
+  if (types.has("shell_execution")) reasons.push(`${source} reaches shell execution, which can run commands on the developer or CI environment.`);
+  if (types.has("mcp_server") || types.has("mcp_tool")) reasons.push(`MCP permissions connect ${source} to ${action} without a clear approval boundary.`);
+  if (types.has("tool_router") || types.has("privileged_tool")) reasons.push(`Tool routing can forward repository instructions toward ${action}.`);
+  if (types.has("credential_store") || types.has("secret")) reasons.push(`Credentials in the path can be read before ${action} is invoked.`);
+  if (types.has("agent_memory")) reasons.push(`Memory in this path can persist instructions that later influence ${action}.`);
+  if (types.has("filesystem_access")) reasons.push(`${source} can reach filesystem access, including write-capable operations when permissions allow them.`);
+  if (types.has("network_access") || types.has("external_api")) reasons.push(`${source} can reach network or external API access through this path.`);
+  if (finding.workflow?.path?.trustBoundaryCrossed) reasons.push(`The path crosses from an instruction source into a privileged action boundary.`);
+  if (reasons.length === 0) reasons.push(finding.explanation || `PromptSonar found a reachable path from ${source} to ${action}.`);
   return reasons.slice(0, 5);
 }
 
@@ -619,16 +624,32 @@ function groupRepositoryFiles(files: string[]): Array<[string, string[]]> {
   return Array.from(groups.entries());
 }
 
+function repositoryArchitectureFlow(result: RepositoryScanResult): Array<[string, number]> {
+  const hasToolRouter = result.findings.some((finding) => finding.workflow?.path?.nodes?.some((node) => node.type.includes("tool") || node.type === "tool_router"));
+  return [
+    ["Instruction Sources", result.summary.promptFiles],
+    ["Skills", result.summary.skillsFound],
+    ["Tool Routers", hasToolRouter ? 1 : 0],
+    ["MCP Servers", result.summary.mcpConfigs],
+    ["Sensitive Actions", result.sensitiveActionsFound.length],
+  ];
+}
+
 function repositoryPlaygroundPrompt(result: RepositoryScanResult): string {
   const primary = result.primaryFinding;
   const path = pathLabelsFromFinding(primary).join(" -> ");
   const topFiles = repositoryTopContributors(result.scannedFileNames);
   const reasons = repositoryRiskReasons(primary);
+  const aiSurfaces = result.summary.promptFiles + result.summary.skillsFound + result.summary.mcpConfigs + result.summary.workflowFiles;
+  const confidenceSummary = repositoryConfidenceSummary(result.findings, result.executionPathsFound);
   return [
     "Repository execution analysis handoff from PromptSonar.",
     "",
     `Reachable execution paths: ${result.executionPathsFound}`,
+    `AI surfaces found: ${aiSurfaces}`,
+    `Critical findings: ${result.criticalFindings}`,
     `Confidence: ${repositoryPathConfidenceLevel(primary)}`,
+    `Confidence summary: ${confidenceSummary.Confirmed} confirmed, ${confidenceSummary.Probable} probable, ${confidenceSummary.Potential} potential`,
     "Source: Repository / Folder upload",
     `Scan handoff: ${result.executionPathsFound} reachable execution paths found across ${result.filesScanned} AI-relevant files`,
     `AI files scanned: ${result.filesScanned}`,
@@ -1133,17 +1154,14 @@ export default function TryPage() {
             <p className="text-[11.5px] font-medium text-[#A8A29E]">
               AI Execution Path Analyzer
             </p>
-            <p className="max-w-sm text-[10.5px] font-medium leading-relaxed text-[#A8A29E]">
-              MCP servers are connected tools an agent can call.
-            </p>
           </div>
 
           <h1 className="text-[34px] sm:text-[40px] font-black leading-[1.05] tracking-tight">
             See where your prompt goes.
           </h1>
           <p className="mx-auto max-w-md text-[15px] leading-relaxed text-[#57534E]">
-            See where prompts go before they reach tools, memory, MCP servers,
-            files, network access, credentials, or shell execution.
+            Find reachable paths from prompts and repositories to tools,
+            credentials, shell execution, and external APIs.
           </p>
         </div>
 
@@ -1232,6 +1250,9 @@ export default function TryPage() {
                   </div>
                 ))}
               </div>
+              <p className="mt-4 text-[11.5px] font-medium leading-relaxed text-[#78716C]">
+                MCP servers are connected tools an agent can call, so PromptSonar checks their permissions and reachable actions alongside prompts, skills, memory, and workflows.
+              </p>
             </details>
 
             <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
@@ -1313,6 +1334,9 @@ export default function TryPage() {
               const highestConfidence = repositoryPathConfidenceLevel(highestRiskFinding);
               const fileGroups = groupRepositoryFiles(repositoryScanResult.scannedFileNames);
               const topContributors = repositoryTopContributors(repositoryScanResult.scannedFileNames);
+              const architectureFlow = repositoryArchitectureFlow(repositoryScanResult);
+              const pathRiskExplanation = repositoryRiskReasons(repositoryScanResult.primaryFinding)[0];
+              const pathFilesInvolved = Math.max(1, topContributors.length);
               const trustStatus = repositoryScanResult.criticalFindings > 0 ? "High Risk" : repositoryScanResult.executionPathsFound > 0 ? "Review Required" : "Trusted";
               const playgroundRepositoryHref = `/playground?source=repository&prompt=${encodeURIComponent(repositoryPlaygroundPrompt(repositoryScanResult))}`;
               return (
@@ -1323,72 +1347,137 @@ export default function TryPage() {
                     <h2 className="text-2xl font-black tracking-tight">
                       PromptSonar found {repositoryScanResult.executionPathsFound} reachable execution path{repositoryScanResult.executionPathsFound === 1 ? "" : "s"}.
                     </h2>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      {[
-                        ["Confirmed", confidenceSummary.Confirmed],
-                        ["Probable", confidenceSummary.Probable],
-                        ["Potential", confidenceSummary.Potential],
-                      ].map(([label, value]) => (
-                        <div key={label} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2">
-                          <span className="block font-mono text-lg font-black text-[#1C1917]">{value}</span>
-                          <span className="block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-red-200 bg-red-50/30 p-4">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <h2 className="text-[13px] font-black uppercase tracking-[0.18em] text-red-700">Highest Risk Path</h2>
+                        <div className="mt-4 flex flex-col items-center gap-2 rounded-2xl border border-red-100 bg-white/75 p-4">
+                          {highestPathLabels.map((step, index, arr) => (
+                            <React.Fragment key={`${step}-${index}`}>
+                              <span className={`w-full max-w-sm rounded-xl border px-3 py-2 text-center text-[12px] font-black uppercase tracking-wider ${
+                                index === arr.length - 1 && repositoryScanResult.executionPathsFound > 0
+                                  ? "border-red-200 bg-red-50 text-red-700"
+                                  : "border-[#E4E3DE] bg-white text-[#1C1917]"
+                              }`}>
+                                {step}
+                              </span>
+                              {index < arr.length - 1 && <span className="text-[#A8A29E]" aria-hidden="true">↓</span>}
+                            </React.Fragment>
+                          ))}
                         </div>
-                      ))}
+                        <p className="mt-4 text-[13px] font-semibold leading-relaxed text-[#44403C]">
+                          <span className="font-black">Risk:</span> {pathRiskExplanation}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider">
+                          <span className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-red-700">Confidence: {highestConfidence}</span>
+                          <span className="rounded-full border border-[#E4E3DE] bg-white px-2.5 py-1 text-[#57534E]">Files: {pathFilesInvolved}</span>
+                          <span className="rounded-full border border-[#E4E3DE] bg-white px-2.5 py-1 text-[#57534E]">Action: {repositoryScanResult.sensitiveActionsFound.map(displaySensitiveAction)[0] || "Sensitive Action"}</span>
+                        </div>
+                      </div>
+                      <a href={playgroundRepositoryHref} className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-[12px] font-black text-white hover:bg-slate-800">
+                        Analyze in Playground →
+                      </a>
                     </div>
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#57534E] md:grid-cols-4">
+
+                  <div className="mt-4 rounded-2xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Reachable Execution Paths</p>
+                        <p className="mt-1 font-mono text-3xl font-black text-[#1C1917]">{repositoryScanResult.executionPathsFound}</p>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        {[
+                          ["Confirmed", confidenceSummary.Confirmed, "Path fully observed from source to action"],
+                          ["Probable", confidenceSummary.Probable, "Strong evidence with partial inference"],
+                          ["Potential", confidenceSummary.Potential, "Theoretical path based on repository structure"],
+                        ].map(([label, value, title]) => (
+                          <div key={label} title={String(title)} className="rounded-xl border border-[#E4E3DE] bg-white px-3 py-2">
+                            <span className="block font-mono text-lg font-black text-[#1C1917]">{value}</span>
+                            <span className="block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <details className="mt-3 rounded-xl border border-[#E4E3DE] bg-white px-3 py-2">
+                      <summary className="cursor-pointer text-[11px] font-black text-[#57534E]">Why confidence matters</summary>
+                      <div className="mt-2 grid gap-2 text-[11px] font-semibold leading-relaxed text-[#57534E] sm:grid-cols-3">
+                        <p><span className="font-black text-[#1C1917]">Confirmed:</span> Path fully observed from source to action.</p>
+                        <p><span className="font-black text-[#1C1917]">Probable:</span> Strong evidence but partial inference.</p>
+                        <p><span className="font-black text-[#1C1917]">Potential:</span> Theoretical path based on repository structure.</p>
+                      </div>
+                    </details>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] font-bold text-[#57534E] md:grid-cols-5">
                     {[
-                      ["AI Surfaces", repositoryScanResult.summary.promptFiles + repositoryScanResult.summary.skillsFound + repositoryScanResult.summary.mcpConfigs + repositoryScanResult.summary.workflowFiles],
-                      ["AI Files Scanned", repositoryScanResult.filesScanned],
-                      ["Sensitive Actions Reachable", repositoryScanResult.sensitiveActionsFound.length],
-                      ["Critical Findings", repositoryScanResult.criticalFindings],
-                      ["Overall Risk", trustStatus === "High Risk" ? "High" : trustStatus],
-                    ].map(([label, value]) => (
+                      ["AI Surfaces", repositoryScanResult.summary.promptFiles + repositoryScanResult.summary.skillsFound + repositoryScanResult.summary.mcpConfigs + repositoryScanResult.summary.workflowFiles, "Show files"],
+                      ["AI Files Scanned", repositoryScanResult.filesScanned, "Show files"],
+                      ["Sensitive Actions Reachable", repositoryScanResult.sensitiveActionsFound.length, "Show path"],
+                      ["Critical Findings", repositoryScanResult.criticalFindings, "Show evidence"],
+                      ["Overall Risk", trustStatus === "High Risk" ? "High" : trustStatus, "Why?"],
+                    ].map(([label, value, hint]) => (
                       <div key={label} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-3">
                         <span className="block text-[#A8A29E]">{label}</span>
                         <span className="mt-1 block break-words font-mono text-[18px] text-[#1C1917]">{value}</span>
+                        <a href={playgroundRepositoryHref} className="mt-2 inline-flex text-[10px] font-black uppercase tracking-wider text-slate-900 hover:underline">
+                          {hint} →
+                        </a>
                       </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-[#E4E3DE] bg-slate-950 p-4 text-slate-100">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Run locally</p>
+                        <code className="mt-2 block break-words font-mono text-[12px] font-bold">
+                          npx @promptsonar/cli repo . --json --output repository-report.json
+                        </code>
+                      </div>
+                      <button type="button" onClick={() => copySaferPattern("npx @promptsonar/cli repo . --json --output repository-report.json")} className="inline-flex shrink-0 items-center justify-center rounded-xl bg-white px-4 py-2 text-[12px] font-black text-slate-950 hover:bg-slate-100">
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Execution Map</p>
+                      <p className="mt-1 text-[13px] font-bold text-[#57534E]">Architecture flow from instruction sources to sensitive actions.</p>
+                    </div>
+                    <a href={playgroundRepositoryHref} className="inline-flex shrink-0 items-center justify-center rounded-xl border border-[#E4E3DE] bg-white px-4 py-2 text-[12px] font-black text-[#1C1917] hover:bg-[#FAF9F6]">
+                      Analyze in Playground →
+                    </a>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-2 md:flex-row md:items-stretch">
+                    {architectureFlow.map(([label, value], index) => (
+                      <React.Fragment key={label}>
+                        <div className="flex-1 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-3 text-center">
+                          <p className="font-mono text-xl font-black text-[#1C1917]">{value}</p>
+                          <p className="mt-1 text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</p>
+                        </div>
+                        {index < architectureFlow.length - 1 && <div className="flex items-center justify-center text-[#A8A29E] md:px-1">↓</div>}
+                      </React.Fragment>
                     ))}
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-red-200 bg-red-50/30 p-5 shadow-sm">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0">
-                      <h2 className="text-[13px] font-black uppercase tracking-[0.18em] text-red-700">Selected path · Highest risk path</h2>
-                      <div className="mt-4 flex flex-col items-center gap-2 rounded-2xl border border-red-100 bg-white/70 p-4">
-                        {highestPathLabels.map((step, index, arr) => (
-                          <React.Fragment key={`${step}-${index}`}>
-                            <span className={`w-full max-w-sm rounded-xl border px-3 py-2 text-center text-[12px] font-black uppercase tracking-wider ${
-                              index === arr.length - 1 && repositoryScanResult.executionPathsFound > 0
-                                ? "border-red-200 bg-red-50 text-red-700"
-                                : "border-[#E4E3DE] bg-white text-[#1C1917]"
-                            }`}>
-                              {step}
-                            </span>
-                            {index < arr.length - 1 && <span className="text-[#A8A29E]" aria-hidden="true">↓</span>}
-                          </React.Fragment>
-                        ))}
-                      </div>
-                      <p className="mt-4 text-[13px] font-semibold leading-relaxed text-[#44403C]">
-                        <span className="font-black">Risk:</span> Prompt-controlled or workflow-controlled instructions may reach credentials, shell execution, and outbound network access.
+                <div className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Files involved</p>
+                      <p className="mt-2 text-[18px] font-black text-[#1C1917]">
+                        {repositoryScanResult.scannedFileNames.length} file{repositoryScanResult.scannedFileNames.length === 1 ? "" : "s"} involved
                       </p>
-                      <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider">
-                        <span className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-red-700">Confidence: {highestConfidence}</span>
-                        <span className="rounded-full border border-[#E4E3DE] bg-white px-2.5 py-1 text-[#57534E]">Files scanned: {repositoryScanResult.scannedFileNames.length}</span>
-                        <span className="rounded-full border border-[#E4E3DE] bg-white px-2.5 py-1 text-[#57534E]">Sensitive actions: {repositoryScanResult.sensitiveActionsFound.map(displaySensitiveAction).join(", ") || "No sensitive action"}</span>
-                      </div>
                     </div>
-                    <a href={playgroundRepositoryHref} className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-[12px] font-black text-white hover:bg-slate-800">
-                      Analyze in Playground
+                    <a href={playgroundRepositoryHref} className="inline-flex shrink-0 items-center justify-center rounded-xl border border-[#E4E3DE] bg-white px-4 py-2 text-[12px] font-black text-[#1C1917] hover:bg-[#FAF9F6]">
+                      Analyze in Playground →
                     </a>
-                  </div>
-                </div>
-
-                <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
-                  <summary className="cursor-pointer text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Files involved</summary>
-                  <div className="mt-3 text-[12px] font-bold text-[#57534E]">
-                    {repositoryScanResult.scannedFileNames.length} file{repositoryScanResult.scannedFileNames.length === 1 ? "" : "s"} involved
                   </div>
                   {topContributors.length > 0 && (
                     <div className="mt-3">
@@ -1400,23 +1489,32 @@ export default function TryPage() {
                       </div>
                     </div>
                   )}
-                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                    {fileGroups.map(([group, files]) => (
-                      <div key={group} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">{group}</p>
-                        <div className="mt-2 space-y-1">
-                          {files.slice(0, 12).map((name) => (
-                            <div key={name} className="truncate font-mono text-[10px] font-semibold text-[#57534E]">{name}</div>
-                          ))}
-                          {files.length > 12 && <div className="text-[10px] font-bold text-[#A8A29E]">+{files.length - 12} more</div>}
+                  <details className="mt-4 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2">
+                    <summary className="cursor-pointer text-[11px] font-black uppercase tracking-wider text-[#57534E]">Show file list</summary>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {fileGroups.map(([group, files]) => (
+                        <div key={group} className="rounded-xl border border-[#E4E3DE] bg-white p-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">{group}</p>
+                          <div className="mt-2 space-y-1">
+                            {files.slice(0, 12).map((name) => (
+                              <div key={name} className="truncate font-mono text-[10px] font-semibold text-[#57534E]">{name}</div>
+                            ))}
+                            {files.length > 12 && <div className="text-[10px] font-bold text-[#A8A29E]">+{files.length - 12} more</div>}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </details>
+                      ))}
+                    </div>
+                  </details>
+                </div>
 
                 <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
                   <summary className="cursor-pointer text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Investigation details</summary>
+                  <div className="mt-4 flex flex-col gap-2 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[12px] font-bold text-[#57534E]">Use this section to trace where the counts came from.</p>
+                    <a href={playgroundRepositoryHref} className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-[12px] font-black text-white hover:bg-slate-800">
+                      Analyze in Playground →
+                    </a>
+                  </div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {[
                       ["Prompt Files", repositoryScanResult.summary.promptFiles],
@@ -1433,7 +1531,10 @@ export default function TryPage() {
                     ))}
                   </div>
                   <div className="mt-4">
-                    <h3 className="text-[11px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Why this is risky</h3>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <h3 className="text-[11px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">Why this is risky</h3>
+                      <a href={playgroundRepositoryHref} className="text-[11px] font-black uppercase tracking-wider text-slate-900 hover:underline">Show evidence →</a>
+                    </div>
                     <ul className="mt-3 space-y-2 text-[13px] font-semibold leading-relaxed text-[#44403C]">
                       {repositoryRiskReasons(repositoryScanResult.primaryFinding).map((reason) => (
                         <li key={reason} className="flex gap-2">
@@ -1447,6 +1548,12 @@ export default function TryPage() {
 
                 <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
                   <summary className="cursor-pointer text-[13px] font-black uppercase tracking-[0.18em] text-[#A8A29E]">How to fix it</summary>
+                  <div className="mt-4 flex flex-col gap-2 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[12px] font-bold text-[#57534E]">Review the selected path before applying remediation.</p>
+                    <a href={playgroundRepositoryHref} className="inline-flex shrink-0 items-center justify-center rounded-xl border border-[#E4E3DE] bg-white px-4 py-2 text-[12px] font-black text-[#1C1917] hover:bg-slate-50">
+                      Analyze in Playground →
+                    </a>
+                  </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     {repositoryScanResult.primaryFinding && (
                       <>
@@ -1521,12 +1628,14 @@ export default function TryPage() {
               </div>
             )}
 
-            <div className="rounded-xl border border-[#E4E3DE] bg-slate-950 p-4 text-slate-100">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Run exhaustive repository scan locally</p>
-              <code className="mt-2 block break-words font-mono text-[12px] font-bold">
-                npx @promptsonar/cli repo . --json --output repository-report.json
-              </code>
-            </div>
+            {!repositoryScanResult && (
+              <div className="rounded-xl border border-[#E4E3DE] bg-slate-950 p-4 text-slate-100">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Run exhaustive repository scan locally</p>
+                <code className="mt-2 block break-words font-mono text-[12px] font-bold">
+                  npx @promptsonar/cli repo . --json --output repository-report.json
+                </code>
+              </div>
+            )}
           </div>
         )}
 
