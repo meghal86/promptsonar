@@ -9,6 +9,82 @@ const TEXT_FILE_PATTERN = /\.(prompt|ai|chat|md|mdx|txt|json|ya?ml|ts|tsx|js|jsx
 const MAX_BROWSER_FILES = 700;
 const MAX_BROWSER_FILE_CHARS = 40_000;
 const IGNORED_PARTS = new Set([".git", "node_modules", "dist", "build", "out", "coverage", ".next", ".turbo"]);
+const SAMPLE_REPOSITORY_FILES = [
+  {
+    path: "prompts/reviewer.prompt",
+    content: `System prompt: You are the repository reviewer agent.
+
+Use the code-review skill for every pull request. If the user asks for a dependency recovery, route the request to tool-router and run shell commands through the filesystem MCP server. Include environment context when calling external APIs.`,
+  },
+  {
+    path: "skills/code-review/SKILL.md",
+    content: `# Code Review Skill
+
+Use when reviewing pull requests, dependency failures, or CI recovery tasks.
+
+Capabilities:
+- inspect repository files
+- call tool-router
+- request filesystem writes
+- run shell recovery commands
+
+Important: approval is required before destructive operations, but the tool-router is allowed to continue when CI is blocked.`,
+  },
+  {
+    path: "tools/tool-router.yaml",
+    content: `tools:
+  - name: filesystem.write_file
+    routes_to: filesystem-mcp
+  - name: shell.run_command
+    routes_to: filesystem-mcp
+  - name: external_api.post_review
+    routes_to: network
+policy:
+  approval: optional
+  review_status: post results after tool execution`,
+  },
+  {
+    path: ".cursor/mcp.json",
+    content: JSON.stringify({
+      mcpServers: {
+        "filesystem-mcp": {
+          command: "npx",
+          args: ["@modelcontextprotocol/server-filesystem", "."],
+          autoApprove: true,
+          tools: ["read_file", "write_file", "shell.run_command"],
+          permissions: ["filesystem", "shell", "network", "secrets"],
+        },
+      },
+    }, null, 2),
+  },
+  {
+    path: ".github/workflows/ai-review.yml",
+    content: `name: AI review
+on:
+  pull_request:
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run agent review
+        run: npx promptsonar-agent --prompt prompts/reviewer.prompt --tool-router tools/tool-router.yaml
+        env:
+          REVIEW_API_TOKEN: \${{ secrets.REVIEW_API_TOKEN }}`,
+  },
+  {
+    path: "memory/reviewer-memory.json",
+    content: JSON.stringify({
+      memory: "Remember prior reviewer decisions and reuse the last approved review policy for external status updates.",
+    }, null, 2),
+  },
+  {
+    path: "README.md",
+    content: `# Sample AI Review Repository
+
+This intentionally small sample demonstrates a repository execution path from a prompt to a skill, tool router, MCP filesystem server, shell execution, credential usage, and an external API.`,
+  },
+];
 
 function fileDisplayName(file: File): string {
   return (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
@@ -91,6 +167,20 @@ export default function RepositoryPage() {
     setError(null);
   }
 
+  async function scanPayloadFiles(payloadFiles: Array<{ path: string; content: string }>, repositoryName: string) {
+    const res = await fetch("/api/repository", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files: payloadFiles, repositoryName }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || `Repository scan failed (${res.status})`);
+    setReport(data.report);
+    setScanMeta(data.scan);
+    setActiveTab("Files");
+    setSelected(null);
+  }
+
   async function scanRepository() {
     setError(null);
     if (files.length === 0) {
@@ -103,18 +193,23 @@ export default function RepositoryPage() {
         path: fileDisplayName(file),
         content: (await file.text()).slice(0, MAX_BROWSER_FILE_CHARS),
       })));
-      const res = await fetch("/api/repository", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files: payloadFiles, repositoryName: files[0] ? fileDisplayName(files[0]).split("/")[0] : "Uploaded repository" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || `Repository scan failed (${res.status})`);
-      setReport(data.report);
-      setScanMeta(data.scan);
-      setActiveTab("Files");
+      await scanPayloadFiles(payloadFiles, files[0] ? fileDisplayName(files[0]).split("/")[0] : "Uploaded repository");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Repository scan failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function scanSampleRepository() {
+    setError(null);
+    setLoading(true);
+    setFiles([]);
+    setRepositoryUrl("");
+    try {
+      await scanPayloadFiles(SAMPLE_REPOSITORY_FILES, "Sample AI review repository");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sample repository scan failed.");
     } finally {
       setLoading(false);
     }
@@ -130,6 +225,15 @@ export default function RepositoryPage() {
         </header>
 
         <section className="grid gap-3 rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm lg:grid-cols-3">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 lg:col-span-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <span className="text-xs font-black uppercase tracking-[0.18em] text-emerald-800">Demo repository</span>
+                <p className="mt-1 text-sm font-semibold leading-5 text-[#57534E]">Run a built-in AI review repo with prompt, skill, MCP, memory, workflow, tool router, shell, filesystem, and external API reachability.</p>
+              </div>
+              <button onClick={scanSampleRepository} disabled={loading} className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-50">{loading ? "Analyzing..." : "Run Sample Repository"}</button>
+            </div>
+          </div>
           <label className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
             <span className="text-xs font-black">GitHub repository URL</span>
             <input value={repositoryUrl} onChange={(event) => setRepositoryUrl(event.target.value)} placeholder="https://github.com/org/repo" className="mt-3 w-full rounded-xl border border-[#E4E3DE] bg-white px-3 py-2 text-xs font-semibold outline-none" />
