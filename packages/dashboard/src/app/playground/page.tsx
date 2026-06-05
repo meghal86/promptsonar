@@ -1560,13 +1560,22 @@ export default function PlaygroundPage() {
       const objectFile = params.get('file');
       const objectId = params.get('artifactId') || params.get('findingId') || params.get('pathId');
       const scanId = params.get('scanId');
-      const incomingPrompt = params.get('prompt') || (objectFile || objectId
+      const handoffKey = params.get('handoffKey');
+      let handoff: { content?: string; file?: string; objectId?: string; source?: string } | null = null;
+      if (handoffKey) {
+        try {
+          handoff = JSON.parse(window.sessionStorage.getItem(handoffKey) || 'null');
+        } catch {
+          handoff = null;
+        }
+      }
+      const incomingPrompt = handoff?.content || params.get('prompt') || (objectFile || objectId
         ? [
           'Repository object analysis handoff from PromptSonar.',
           '',
           scanId ? `Scan ID: ${scanId}` : '',
-          objectFile ? `File: ${objectFile}` : '',
-          objectId ? `Object ID: ${objectId}` : '',
+          (handoff?.file || objectFile) ? `File: ${handoff?.file || objectFile}` : '',
+          (handoff?.objectId || objectId) ? `Object ID: ${handoff?.objectId || objectId}` : '',
           '',
           'Analyze this single repository object and show connected findings, reachable sensitive actions, edge evidence, and remediation guidance.',
         ].filter(Boolean).join('\n')
@@ -1574,7 +1583,7 @@ export default function PlaygroundPage() {
       if (!incomingPrompt || !incomingPrompt.trim()) return;
       const incomingContract = params.get('contract') || '';
       const incomingSource = params.get('source');
-      const isRepositoryHandoff = incomingSource === 'repository' || Boolean(objectFile || objectId);
+      const isRepositoryHandoff = incomingSource === 'repository' || handoff?.source === 'repository' || Boolean(objectFile || objectId);
       setPromptText(incomingPrompt);
       if (incomingContract) setContractYaml(incomingContract);
       setEditorMode('audit');

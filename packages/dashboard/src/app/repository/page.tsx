@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type RepoReport = any;
 type SelectedObject = { kind: string; item: any } | null;
+type RepositoryPayloadFile = { path: string; content: string };
 
 const TEXT_FILE_PATTERN = /\.(prompt|ai|chat|md|mdx|txt|json|ya?ml|ts|tsx|js|jsx|py|toml|env|config|rules)$/i;
 const MAX_BROWSER_FILES = 700;
@@ -117,11 +118,40 @@ function edgeById(report: RepoReport): Map<string, any> {
   return new Map((report?.executionMap?.edges || []).map((edge: any) => [edge.id, edge]));
 }
 
-function objectPlaygroundHref(report: RepoReport, item: any): string {
+function normalizeRepoPath(value = "", report?: RepoReport): string {
+  const normalized = value.replace(/\\/g, "/");
+  const root = report?.repository?.root ? String(report.repository.root).replace(/\\/g, "/") : "";
+  if (root && normalized.startsWith(`${root}/`)) return normalized.slice(root.length + 1);
+  return normalized.replace(/^\/+/, "");
+}
+
+function filePathForObject(report: RepoReport, item: any): string {
+  const directPath = item?.relativePath || item?.path || item?.file || item?.filePath || "";
+  if (directPath) return normalizeRepoPath(directPath, report);
+  if (Array.isArray(item?.files) && item.files.length > 0) return normalizeRepoPath(item.files[0], report);
+  return "";
+}
+
+function objectPlaygroundHref(report: RepoReport, item: any, contentByPath: Record<string, string>): string {
   const params = new URLSearchParams();
   if (report?.id) params.set("scanId", report.id);
-  if (item?.relativePath || item?.path || item?.filePath) params.set("file", item.relativePath || item.path || item.filePath);
+  const filePath = filePathForObject(report, item);
+  if (filePath) params.set("file", filePath);
+  const objectId = item?.id || item?.rule_id || "";
   if (item?.id) params.set(item.nodeIds ? "pathId" : item.rule_id ? "findingId" : "artifactId", item.id);
+  else if (item?.rule_id) params.set("findingId", item.rule_id);
+  const content = contentByPath[filePath] || contentByPath[filePath.split("/").slice(-1)[0]];
+  if (content && typeof window !== "undefined") {
+    const handoffKey = `repo-handoff:${report?.id || "scan"}:${objectId || filePath}`;
+    window.sessionStorage.setItem(handoffKey, JSON.stringify({
+      source: "repository",
+      file: filePath,
+      objectId,
+      content,
+    }));
+    params.set("source", "repository");
+    params.set("handoffKey", handoffKey);
+  }
   return `/playground?${params.toString()}`;
 }
 
@@ -135,6 +165,7 @@ export default function RepositoryPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [report, setReport] = useState<RepoReport | null>(null);
   const [scanMeta, setScanMeta] = useState<any>(null);
+  const [contentByPath, setContentByPath] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<SelectedObject>(null);
   const [activeTab, setActiveTab] = useState("Files");
   const [loading, setLoading] = useState(false);
@@ -176,7 +207,7 @@ export default function RepositoryPage() {
     setError(null);
   }
 
-  async function scanPayloadFiles(payloadFiles: Array<{ path: string; content: string }>, repositoryName: string) {
+  async function scanPayloadFiles(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
     const res = await fetch("/api/repository", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -186,6 +217,12 @@ export default function RepositoryPage() {
     if (!res.ok) throw new Error(data?.error || `Repository scan failed (${res.status})`);
     setReport(data.report);
     setScanMeta(data.scan);
+    setContentByPath(payloadFiles.reduce((acc, file) => {
+      const normalized = normalizeRepoPath(file.path);
+      acc[normalized] = file.content;
+      acc[normalized.split("/").slice(-1)[0]] = file.content;
+      return acc;
+    }, {} as Record<string, string>));
     setActiveTab("Files");
     setSelected(null);
   }
@@ -338,7 +375,7 @@ export default function RepositoryPage() {
 
               <aside className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
                 <h2 className="text-[12px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">Object Analysis</h2>
-                {selected ? <ObjectPanel report={report} selected={selected} /> : <p className="mt-3 text-sm font-semibold text-[#57534E]">Click a path, node, file, skill, MCP server, workflow, finding, or evidence item to inspect it.</p>}
+                {selected ? <ObjectPanel report={report} selected={selected} contentByPath={contentByPath} /> : <p className="mt-3 text-sm font-semibold text-[#57534E]">Click a path, node, file, skill, MCP server, workflow, finding, or evidence item to inspect it.</p>}
               </aside>
             </section>
 
@@ -365,7 +402,7 @@ export default function RepositoryPage() {
   );
 }
 
-function ObjectPanel({ report, selected }: { report: RepoReport; selected: NonNullable<SelectedObject> }) {
+function ObjectPanel({ report, selected, contentByPath }: { report: RepoReport; selected: NonNullable<SelectedObject>; contentByPath: Record<string, string> }) {
   const item = selected.item;
   const edges = report.executionMap.edges || [];
   const incoming = edges.filter((edge: any) => edge.to === item.id);
@@ -390,7 +427,7 @@ function ObjectPanel({ report, selected }: { report: RepoReport; selected: NonNu
         <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] font-semibold text-[#57534E]">{JSON.stringify({ evidence: item.evidence || item.evidenceRefs || item.snippet, metadata: item.metadata, incoming, outgoing }, null, 2)}</pre>
       </details>
       <p className="rounded-xl border border-[#E4E3DE] bg-white p-3 text-xs font-semibold leading-5 text-[#57534E]">Suggested fix: scope permissions, require explicit approval before sensitive actions, and break unnecessary source-to-sink reachability.</p>
-      <a href={objectPlaygroundHref(report, item)} className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">Open in Playground →</a>
+      <a href={objectPlaygroundHref(report, item, contentByPath)} className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">Open in Playground →</a>
     </div>
   );
 }
