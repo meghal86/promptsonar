@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type RepoReport = any;
 type SelectedObject = { kind: string; item: any } | null;
@@ -139,6 +139,7 @@ export default function RepositoryPage() {
   const [activeTab, setActiveTab] = useState("Files");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const sampleStartedRef = useRef(false);
 
   const highestPath = report?.reachablePaths?.[0];
   const nodes = useMemo(() => nodeById(report), [report]);
@@ -158,6 +159,14 @@ export default function RepositoryPage() {
       Report: report ? [report] : [],
     } as Record<string, any[]>;
   }, [report]);
+
+  useEffect(() => {
+    if (sampleStartedRef.current) return;
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("sample") !== "1") return;
+    sampleStartedRef.current = true;
+    void scanSampleRepository();
+  }, []);
 
   async function handleFiles(selectedFiles: FileList | null) {
     const nextFiles = Array.from(selectedFiles || []).filter(shouldRead).slice(0, MAX_BROWSER_FILES);

@@ -3303,7 +3303,7 @@ export default function PlaygroundPage() {
 
                 {/* Card Action footer (Load example selection & scan button) */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-[#E4E3DE]/60 pt-4 mt-2">
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex flex-col gap-2 min-w-0 sm:flex-row sm:items-center">
                     <label htmlFor="ps-hero-preset" className="text-xs font-bold uppercase tracking-wider text-[#A8A29E] shrink-0">
                       Load Example:
                     </label>
@@ -3326,6 +3326,12 @@ export default function PlaygroundPage() {
                       <option value="autonomous_agent">⚠ Autonomous Critical</option>
                       <option value="optimized">✓ Clean (Secure) Example</option>
                     </select>
+                    <Link
+                      href="/repository?sample=1"
+                      className="inline-flex shrink-0 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-black text-emerald-800 shadow-3xs hover:bg-emerald-100"
+                    >
+                      Run sample repository →
+                    </Link>
                   </div>
                   <button
                     onClick={() => runAnalysis(activeScanInput, activeScanContract, variables, activeScanSource)}
