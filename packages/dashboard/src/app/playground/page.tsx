@@ -2647,7 +2647,6 @@ export default function PlaygroundPage() {
     : primaryWorkflow?.path?.nodes?.length
       ? humanType(primaryWorkflow.path.nodes[primaryWorkflow.path.nodes.length - 1].type)
       : 'None';
-  const scanVerdict = hasHighRiskWorkflow ? 'HIGH RISK' : 'SAFE';
   const scanConsequence = hasHighRiskWorkflow
     ? isRepositoryExecutionScan
       ? `A reachable execution path connects AI-controlled instructions to ${displaySensitiveAction(reachedAction)} access. The path also includes credential-store and shell-execution access.`
@@ -2687,6 +2686,28 @@ export default function PlaygroundPage() {
     if (primaryWorkflowFinding?.explanation) add(primaryWorkflowFinding.explanation);
     if (reasons.length === 0) add('This prompt stays contained. No risky destinations found.');
     return reasons.slice(0, 5);
+  })();
+  const issueGrouping = getRootCauseGrouping(result.findings);
+  const issueConfidence = getWorkflowConfidence(displayedScanText, primaryWorkflow);
+  const issueSeverity = hasHighRiskWorkflow
+    ? String(primaryWorkflowFinding?.severity || issueGrouping?.root.severity || 'high')
+    : 'none';
+  const issueTitle = hasHighRiskWorkflow
+    ? issueGrouping?.root.label || (isRepositoryExecutionScan ? 'Reachable Sensitive Execution Path' : 'High-Risk Execution Path')
+    : 'No Reachable Sensitive Execution Path';
+  const issueImpact = scanConsequence;
+  const issueRecommendedFix = hasHighRiskWorkflow
+    ? isRepositoryExecutionScan
+      ? 'Add an approval gate before sensitive tools, scope MCP and tool permissions, and break unnecessary source-to-sink routes.'
+      : primaryWorkflowFinding
+        ? getRemediation(primaryWorkflowFinding).mitigation
+        : 'Require approval before sensitive actions and restrict tools to the minimum necessary permissions.'
+    : 'No immediate remediation is required. Keep approval boundaries and scoped tool permissions in place.';
+  const issueEvidence = (() => {
+    const evidence = getWorkflowEvidence(displayedScanText, primaryWorkflow);
+    if (evidence.length > 0) return evidence.slice(0, 6);
+    if (primaryWorkflowFinding) return [getFindingEvidence(primaryWorkflowFinding)];
+    return ['No sensitive execution evidence was detected in this scan.'];
   })();
   const primaryRiskReduction = typeof primaryWorkflow?.workflow_diff?.riskReduction === 'number'
     ? `${primaryWorkflow.workflow_diff.riskReduction}%`
@@ -3367,15 +3388,32 @@ export default function PlaygroundPage() {
               ==================================================================== */}
           {hasCompletedScan && (
             <>
-              {/* BLOCK 1: SCAN RESULT */}
-              <section className={`order-1 rounded-xl border p-5 shadow-xs ${scanTone} flex flex-col gap-4 shrink-0`}>
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="space-y-2">
-                    <span className="text-[11px] font-black uppercase tracking-[0.24em] opacity-70">Scan Result</span>
-                    <h2 className="text-3xl font-black tracking-tight">{scanVerdict}</h2>
-                    <p className="text-sm font-semibold leading-6 text-slate-800">{scanConsequence}</p>
+              {/* BLOCK 1: DOMINANT ISSUE SUMMARY */}
+              <section ref={resultsRef} className={`order-1 rounded-xl border p-5 shadow-sm ${scanTone} flex flex-col gap-5 shrink-0`}>
+                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 space-y-3">
+                    <span className="text-[11px] font-black uppercase tracking-[0.24em] opacity-70">Issue Summary</span>
+                    <h2 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{issueTitle}</h2>
+                    <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider">
+                      <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1 text-slate-900">
+                        Severity: {issueSeverity === 'none' ? 'None' : issueSeverity}
+                      </span>
+                      <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1 text-slate-900">
+                        Confidence: {displayConfidenceLabel(issueConfidence.level)}
+                      </span>
+                    </div>
+                    <div className="grid gap-3 pt-1 lg:grid-cols-2">
+                      <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                        <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Impact</span>
+                        <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{issueImpact}</p>
+                      </div>
+                      <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                        <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Recommended Fix</span>
+                        <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{issueRecommendedFix}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-4 lg:min-w-[520px]">
+                  <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 xl:min-w-[520px]">
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Score</span>
                       <span className="mt-1 block font-mono text-lg font-black text-slate-900">{result.score}/100</span>
@@ -3396,8 +3434,8 @@ export default function PlaygroundPage() {
                 </div>
               </section>
 
-              {/* V2 - SECTION 2: PROMPT FLOW */}
-              <section ref={resultsRef} className="order-2 bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0">
+              {/* ADVANCED EXECUTION PATH — revealed through the Execution Map tab */}
+              <section className={`${activeDetailsTab === 'execution_map' ? 'order-6 block' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0`}>
                 <div className="px-5 py-4 border-b border-[#E4E3DE] bg-[#FAF9F6] flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <h2 className="text-[12px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Path</h2>
@@ -3546,11 +3584,11 @@ export default function PlaygroundPage() {
                 );
               })()}
 
-              {/* V2 - SECTION 4: EVIDENCE (Source, Confidence, Boundaries) */}
-              <section className="order-3 bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+              {/* V2 - SECTION 4: WHY THIS MATTERS */}
+              <section className="order-2 bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
                 <div>
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Why This Happened</h3>
-                  <p className="text-[10px] text-slate-500 italic mt-0.5">The highest-signal reasons from this scan.</p>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Why This Matters</h3>
+                  <p className="text-[10px] text-slate-500 italic mt-0.5">Why this issue changes the security posture of the scanned AI workflow.</p>
                 </div>
 
                 <ul className="grid gap-2 text-sm font-semibold leading-6 text-slate-700">
@@ -3624,6 +3662,41 @@ export default function PlaygroundPage() {
                     </details>
                   );
                 })()}
+              </section>
+
+              {/* V2 - SECTION 4B: PRIMARY EVIDENCE */}
+              <section className="order-3 bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+                <div>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Evidence</h3>
+                  <p className="text-[10px] text-slate-500 italic mt-0.5">The strongest observable signals supporting the issue summary.</p>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
+                  <ul className="grid gap-2">
+                    {issueEvidence.map((evidence, index) => (
+                      <li key={`${evidence}-${index}`} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 font-mono text-[11px] font-bold leading-5 text-slate-700">
+                        {evidence}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg border border-[#E4E3DE] bg-white p-3">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Source</span>
+                      <span className="mt-1 block font-bold text-slate-900">{scanSourceLabel || 'Prompt Input'}</span>
+                    </div>
+                    <div className="rounded-lg border border-[#E4E3DE] bg-white p-3">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Reached</span>
+                      <span className="mt-1 block font-bold text-slate-900">{reachedAction}</span>
+                    </div>
+                    <div className="rounded-lg border border-[#E4E3DE] bg-white p-3">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Confidence</span>
+                      <span className="mt-1 block font-bold text-slate-900">{displayConfidenceLabel(issueConfidence.level)}</span>
+                    </div>
+                    <div className="rounded-lg border border-[#E4E3DE] bg-white p-3">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Severity</span>
+                      <span className="mt-1 block font-bold capitalize text-slate-900">{issueSeverity}</span>
+                    </div>
+                  </div>
+                </div>
               </section>
 
               {/* V2 - SECTION 5: ROOT CAUSE */}
