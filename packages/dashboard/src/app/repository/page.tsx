@@ -1,6 +1,10 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  buildImpactedFileViews,
+  REPOSITORY_IMPACTED_FILE_TYPES,
+} from "../../lib/repositoryImpactedFiles";
 
 type RepoReport = any;
 type SelectedObject = { kind: string; item: any } | null;
@@ -135,6 +139,13 @@ function filePathForObject(report: RepoReport, item: any): string {
 
 function findingsForFile(report: RepoReport, filePath: string): any[] {
   if (!filePath) return [];
+  const indexedFile = (report?.impactedFiles || []).find((file: any) =>
+    normalizeRepoPath(file.path, report) === filePath
+  );
+  if (indexedFile?.issueIds) {
+    const issuesById = new Map((report?.issues || []).map((issue: any) => [issue.id, issue]));
+    return indexedFile.issueIds.map((id: string) => issuesById.get(id)).filter(Boolean);
+  }
   return (report?.issues || []).filter((issue: any) =>
     (issue.impactedFiles || []).some((issueFile: string) => normalizeRepoPath(issueFile, report) === filePath)
   );
@@ -209,23 +220,13 @@ export default function RepositoryPage() {
     (right.confidence?.score || 0) - (left.confidence?.score || 0) ||
     left.id.localeCompare(right.id)
   ), [report]);
-  const impactedFiles = useMemo(() => {
-    const byFile = new Map<string, { file: string; issues: any[]; highestSeverity: string }>();
-    for (const issue of report?.issues || []) {
-      for (const rawFile of issue.impactedFiles || []) {
-        const file = normalizeRepoPath(rawFile, report);
-        const current = byFile.get(file) || { file, issues: [], highestSeverity: "low" };
-        current.issues.push(issue);
-        if (severityRank(issue.severity) > severityRank(current.highestSeverity)) current.highestSeverity = issue.severity;
-        byFile.set(file, current);
-      }
-    }
-    return Array.from(byFile.values()).sort((left, right) =>
-      severityRank(right.highestSeverity) - severityRank(left.highestSeverity) ||
-      right.issues.length - left.issues.length ||
-      left.file.localeCompare(right.file)
-    );
-  }, [report]);
+  const impactedFiles = useMemo(() => buildImpactedFileViews(report), [report]);
+  const impactedFileTypeCounts = useMemo(() => Object.fromEntries(
+    REPOSITORY_IMPACTED_FILE_TYPES.map(type => [
+      type,
+      impactedFiles.filter(file => file.type === type).length,
+    ])
+  ), [impactedFiles]);
   const inventory = useMemo(() => {
     const artifacts = report?.artifacts || [];
     return {
@@ -451,7 +452,7 @@ export default function RepositoryPage() {
                   </div>
                 </details>
               )}
-              {selected && <details open className="mt-4 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4"><summary className="cursor-pointer text-xs font-black">Selected object analysis</summary><ObjectPanel report={report} selected={selected} contentByPath={contentByPath} /></details>}
+              {selected && selected.kind !== "Impacted File" && <details open className="mt-4 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4"><summary className="cursor-pointer text-xs font-black">Selected object analysis</summary><ObjectPanel report={report} selected={selected} contentByPath={contentByPath} /></details>}
             </section>
 
             <section className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
@@ -462,16 +463,28 @@ export default function RepositoryPage() {
                 </div>
                 <span className="text-xs font-bold text-[#78716C]">{impactedFiles.length} files</span>
               </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {REPOSITORY_IMPACTED_FILE_TYPES.map(type => (
+                  <span key={type} className="rounded-full border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-1.5 text-[10px] font-black">
+                    {type} <span className="ml-1 font-mono text-[#78716C]">{impactedFileTypeCounts[type]}</span>
+                  </span>
+                ))}
+              </div>
               <div className="mt-4 grid gap-2 md:grid-cols-2">
                 {impactedFiles.slice(0, 6).map(file => (
-                  <button key={file.file} onClick={() => setSelected({ kind: "Files", item: { id: `file:${file.file}`, name: file.file, relativePath: file.file, description: `${file.issues.length} active issues in this file.` } })} className="flex items-center justify-between gap-3 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left transition hover:border-slate-400">
-                    <div className="min-w-0"><span className="block truncate font-mono text-xs font-black">{file.file}</span><span className="mt-1 block text-[10px] font-semibold text-[#78716C]">{file.issues.length} issue{file.issues.length === 1 ? "" : "s"}</span></div>
+                  <button key={file.path} onClick={() => setSelected({ kind: "Impacted File", item: file })} className="flex items-center justify-between gap-3 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left transition hover:border-slate-400">
+                    <div className="min-w-0">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{file.type}</span>
+                      <span className="mt-1 block truncate font-mono text-xs font-black">{file.path}</span>
+                      <span className="mt-1 block text-[10px] font-semibold text-[#78716C]">{file.issueCount} issue{file.issueCount === 1 ? "" : "s"} · {file.executionPaths.length} execution path{file.executionPaths.length === 1 ? "" : "s"}</span>
+                    </div>
                     <span className={`shrink-0 rounded-full border px-2 py-1 text-[8px] font-black uppercase ${severityClasses(file.highestSeverity)}`}>{file.highestSeverity}</span>
                   </button>
                 ))}
                 {impactedFiles.length === 0 && <p className="text-sm font-bold text-emerald-700">No files are impacted by active issues.</p>}
               </div>
-              {impactedFiles.length > 6 && <details className="mt-3"><summary className="cursor-pointer text-xs font-black">Show {impactedFiles.length - 6} additional files</summary><div className="mt-3 grid gap-2 md:grid-cols-2">{impactedFiles.slice(6).map(file => <button key={file.file} onClick={() => setSelected({ kind: "Files", item: { id: `file:${file.file}`, name: file.file, relativePath: file.file, description: `${file.issues.length} active issues in this file.` } })} className="rounded-lg border border-[#E4E3DE] p-3 text-left font-mono text-xs font-bold">{file.file} · {file.issues.length}</button>)}</div></details>}
+              {impactedFiles.length > 6 && <details className="mt-3"><summary className="cursor-pointer text-xs font-black">Show {impactedFiles.length - 6} additional files</summary><div className="mt-3 grid gap-2 md:grid-cols-2">{impactedFiles.slice(6).map(file => <button key={file.path} onClick={() => setSelected({ kind: "Impacted File", item: file })} className="rounded-lg border border-[#E4E3DE] p-3 text-left text-xs font-bold"><span className="block text-[9px] uppercase tracking-widest text-[#A8A29E]">{file.type}</span><span className="mt-1 block font-mono">{file.path} · {file.issueCount}</span></button>)}</div></details>}
+              {selected?.kind === "Impacted File" && <div className="mt-4 rounded-xl border border-slate-300 bg-[#FAF9F6] p-4"><ObjectPanel report={report} selected={selected} contentByPath={contentByPath} /></div>}
             </section>
 
             <section className="rounded-2xl border border-red-200 bg-red-50/30 p-5 shadow-sm">
@@ -591,28 +604,52 @@ function ObjectPanel({ report, selected, contentByPath }: { report: RepoReport; 
   const edges = report.executionMap.edges || [];
   const incoming = edges.filter((edge: any) => edge.to === item.id);
   const outgoing = edges.filter((edge: any) => edge.from === item.id);
-  const connectedPaths = (report.reachablePaths || []).filter((pathItem: any) => pathItem.nodeIds?.includes(item.id) || pathItem.edgeIds?.includes(item.id) || pathItem.id === item.id);
   const filePath = filePathForObject(report, item);
   const fileFindings = findingsForFile(report, filePath);
   const isIssue = Boolean(item?.ruleId || item?.rule_id);
+  const isImpactedFile = selected.kind === "Impacted File";
+  const connectedPathIds = new Set([
+    ...(item.pathIds || []),
+    ...fileFindings.flatMap((issue: any) => issue.pathIds || []),
+  ]);
+  const connectedPaths = isImpactedFile
+    ? item.executionPaths || []
+    : (report.reachablePaths || []).filter((pathItem: any) =>
+      (item.id && (
+        pathItem.nodeIds?.includes(item.id) ||
+        pathItem.edgeIds?.includes(item.id) ||
+        pathItem.id === item.id
+      )) ||
+      connectedPathIds.has(pathItem.id)
+    );
   const selectedFindingCount = isIssue ? 1 : fileFindings.length;
   return (
     <div className="mt-4 space-y-4">
       <div>
         <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">{selected.kind}</p>
-        <h3 className="mt-1 break-words text-lg font-black">{item.label || item.name || item.id || item.ruleId || item.rule_id || selected.kind}</h3>
-        <p className="mt-2 text-xs font-semibold leading-5 text-[#57534E]">{item.description || item.issue || item.message || item.explanation || "Repository object selected for analysis."}</p>
+        <h3 className="mt-1 break-words text-lg font-black">{item.path || item.label || item.name || item.id || item.ruleId || item.rule_id || selected.kind}</h3>
+        <p className="mt-2 text-xs font-semibold leading-5 text-[#57534E]">{isImpactedFile ? `${item.issueCount} active issue${item.issueCount === 1 ? "" : "s"} in this ${item.type || "repository file"}.` : item.description || item.issue || item.message || item.explanation || "Repository object selected for analysis."}</p>
       </div>
-      <div className="grid grid-cols-2 gap-2 text-xs font-bold">
-        <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">Incoming<br /><span className="font-mono text-lg">{incoming.length}</span></div>
-        <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">Outgoing<br /><span className="font-mono text-lg">{outgoing.length}</span></div>
-        <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">Connected paths<br /><span className="font-mono text-lg">{connectedPaths.length}</span></div>
-        <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
-          {isIssue ? "Selected issue" : "File issues"}<br />
-          <span className="font-mono text-lg">{selectedFindingCount}</span>
-          {isIssue && <span className="ml-2 text-[10px] text-[#78716C]">{fileFindings.length} in file</span>}
+      {isImpactedFile ? (
+        <div className="grid grid-cols-2 gap-2 text-xs font-bold sm:grid-cols-4">
+          <div className="rounded-xl border border-[#E4E3DE] bg-white p-3">Issues<br /><span className="font-mono text-lg">{item.issueCount}</span></div>
+          <div className="rounded-xl border border-[#E4E3DE] bg-white p-3">Evidence<br /><span className="font-mono text-lg">{item.evidence?.length || 0}</span></div>
+          <div className="rounded-xl border border-[#E4E3DE] bg-white p-3">Fixes<br /><span className="font-mono text-lg">{item.fixes?.length || 0}</span></div>
+          <div className="rounded-xl border border-[#E4E3DE] bg-white p-3">Execution paths<br /><span className="font-mono text-lg">{connectedPaths.length}</span></div>
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 text-xs font-bold">
+          <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">Incoming<br /><span className="font-mono text-lg">{incoming.length}</span></div>
+          <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">Outgoing<br /><span className="font-mono text-lg">{outgoing.length}</span></div>
+          <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">Connected paths<br /><span className="font-mono text-lg">{connectedPaths.length}</span></div>
+          <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+            {isIssue ? "Selected issue" : "File issues"}<br />
+            <span className="font-mono text-lg">{selectedFindingCount}</span>
+            {isIssue && <span className="ml-2 text-[10px] text-[#78716C]">{fileFindings.length} in file</span>}
+          </div>
+        </div>
+      )}
+      {isImpactedFile && <FileInvestigation item={item} connectedPaths={connectedPaths} />}
       {isIssue && (
         <div className="grid gap-3">
           {[
@@ -623,12 +660,75 @@ function ObjectPanel({ report, selected, contentByPath }: { report: RepoReport; 
           ].map(([label, value]) => <div key={label} className="rounded-xl border border-[#E4E3DE] bg-white p-3"><span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span><p className="mt-1 text-xs font-semibold leading-5 text-[#57534E]">{value}</p></div>)}
         </div>
       )}
-      <details open className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+      {!isImpactedFile && <details open className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
         <summary className="cursor-pointer text-xs font-black">Technical Details</summary>
         <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] font-semibold text-[#57534E]">{JSON.stringify({ executionPath: item.technicalDetails?.executionPath, evidence: item.technicalDetails?.evidence || item.evidence || item.evidenceRefs || item.snippet, confidence: item.technicalDetails?.confidence || item.confidence, metadata: item.metadata, incoming, outgoing }, null, 2)}</pre>
-      </details>
-      {!isIssue && <p className="rounded-xl border border-[#E4E3DE] bg-white p-3 text-xs font-semibold leading-5 text-[#57534E]">Suggested fix: {item.howToFix || "Scope permissions, require explicit approval before sensitive actions, and remove unnecessary access to sensitive operations."}</p>}
+      </details>}
+      {!isIssue && !isImpactedFile && <p className="rounded-xl border border-[#E4E3DE] bg-white p-3 text-xs font-semibold leading-5 text-[#57534E]">Suggested fix: {item.howToFix || "Scope permissions, require explicit approval before sensitive actions, and remove unnecessary access to sensitive operations."}</p>}
       <a href={objectPlaygroundHref(report, item, contentByPath)} className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">Open in Playground →</a>
+    </div>
+  );
+}
+
+function FileInvestigation({ item, connectedPaths }: { item: any; connectedPaths: any[] }) {
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <section className="rounded-xl border border-[#E4E3DE] bg-white p-4">
+        <h4 className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Issues</h4>
+        <div className="mt-3 space-y-3">
+          {(item.issues || []).map((issue: any) => (
+            <div key={issue.id} className="border-l-2 border-slate-300 pl-3">
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full border px-2 py-0.5 text-[8px] font-black uppercase ${severityClasses(issue.severity)}`}>{issue.severity}</span>
+                <span className="font-mono text-[9px] font-bold text-[#78716C]">{issue.id}</span>
+              </div>
+              <p className="mt-2 text-xs font-black leading-5">{issue.issue}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-[#E4E3DE] bg-white p-4">
+        <h4 className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Impact</h4>
+        <div className="mt-3 space-y-2">
+          {(item.impacts || []).map((impact: string) => <p key={impact} className="text-xs font-semibold leading-5 text-[#57534E]">{impact}</p>)}
+        </div>
+      </section>
+
+      <details open className="rounded-xl border border-[#E4E3DE] bg-white p-4">
+        <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Evidence · {item.evidence?.length || 0}</summary>
+        <div className="mt-3 space-y-2">
+          {(item.evidence || []).map((evidence: any) => (
+            <div key={evidence.id} className="rounded-lg bg-[#FAF9F6] p-3">
+              <p className="font-mono text-[9px] font-bold text-[#78716C]">{evidence.file}{evidence.line ? `:${evidence.line}` : ""}</p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-[11px] font-semibold leading-5 text-[#57534E]">{evidence.snippet}</p>
+            </div>
+          ))}
+        </div>
+      </details>
+
+      <section className="rounded-xl border border-[#E4E3DE] bg-white p-4">
+        <h4 className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Fixes</h4>
+        <ol className="mt-3 space-y-2">
+          {(item.fixes || []).map((fix: string, index: number) => <li key={fix} className="text-xs font-semibold leading-5 text-[#57534E]"><span className="mr-2 font-mono font-black text-slate-900">{index + 1}.</span>{fix}</li>)}
+        </ol>
+      </section>
+
+      <details className="rounded-xl border border-[#E4E3DE] bg-white p-4 lg:col-span-2">
+        <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Paths · {connectedPaths.length}</summary>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {connectedPaths.map((pathItem, index) => (
+            <div key={`${pathItem.id}-${index}`} className="rounded-lg bg-[#FAF9F6] p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-full border px-2 py-0.5 text-[8px] font-black uppercase ${severityClasses(pathItem.risk || pathItem.severity)}`}>{pathItem.risk || pathItem.severity || "path"}</span>
+                <span className="font-mono text-[9px] font-bold text-[#78716C]">{pathItem.id}</span>
+              </div>
+              <p className="mt-2 text-xs font-semibold leading-5 text-[#57534E]">{pathItem.explanation}</p>
+            </div>
+          ))}
+          {connectedPaths.length === 0 && <p className="text-xs font-semibold text-[#78716C]">No sensitive execution path is connected to this file.</p>}
+        </div>
+      </details>
     </div>
   );
 }

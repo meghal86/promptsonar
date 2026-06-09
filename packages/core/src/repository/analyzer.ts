@@ -10,6 +10,8 @@ import type {
     RepositoryExecutionMap,
     RepositoryExecutionNode,
     RepositoryExecutionNodeType,
+    RepositoryImpactedFile,
+    RepositoryImpactedFileType,
     RepositoryExecutionIssue,
     RepositoryExecutionReport,
     RepositoryIssueSummary,
@@ -21,7 +23,7 @@ import type {
     RepositoryTrustStatus,
 } from './types';
 
-const REPORT_VERSION = '1.2.0';
+const REPORT_VERSION = '1.3.0';
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
@@ -1064,6 +1066,66 @@ function summarizeIssues(issues: RepositoryExecutionIssue[]): RepositoryIssueSum
     return summary;
 }
 
+function impactedFileType(file: string, artifacts: RepositoryArtifact[]): RepositoryImpactedFileType {
+    const normalized = normalizePath(file);
+    const lower = normalized.toLowerCase();
+    const artifact = artifacts.find(item => normalizePath(item.relativePath) === normalized);
+
+    if (artifact?.type === 'SKILL' || path.basename(lower) === 'skill.md') return 'SKILL.md';
+    if (artifact?.type === 'MCP_SERVER' || /(?:^|\/)[^/]*mcp[^/]*\.(?:json|ya?ml|toml)$/.test(lower)) return 'MCP Config';
+    if (artifact?.type === 'WORKFLOW' || artifact?.type === 'ACTION' || lower.startsWith('.github/workflows/')) return 'Workflow';
+    if (artifact?.type === 'PROMPT' || /\.(?:prompt|ai|chat|system)$/.test(lower) || /(?:^|\/)prompts?\//.test(lower)) return 'Prompt';
+    return 'Other';
+}
+
+function issueSeverityRank(severity: string): number {
+    return ({ low: 1, medium: 2, high: 3, critical: 4 } as Record<string, number>)[severity.toLowerCase()] || 0;
+}
+
+function reportRelativeFile(root: string, file: string): string {
+    const normalized = normalizePath(file);
+    if (!path.isAbsolute(file)) return normalized.replace(/^\/+/, '');
+    const relative = normalizePath(path.relative(root, file));
+    return relative && !relative.startsWith('../') ? relative : normalized;
+}
+
+function canonicalImpactedFiles(root: string, issues: RepositoryExecutionIssue[], artifacts: RepositoryArtifact[], reachablePaths: ReachableExecutionPath[]): RepositoryImpactedFile[] {
+    const files = new Map<string, RepositoryExecutionIssue[]>();
+    for (const issue of issues) {
+        for (const rawFile of issue.impactedFiles) {
+            const file = normalizePath(rawFile);
+            const fileIssues = files.get(file) || [];
+            fileIssues.push(issue);
+            files.set(file, fileIssues);
+        }
+    }
+
+    return Array.from(files.entries()).map(([file, fileIssues]) => {
+        const sortedIssues = [...fileIssues].sort((left, right) => left.id.localeCompare(right.id));
+        const highestSeverity = [...sortedIssues]
+            .sort((left, right) => issueSeverityRank(right.severity) - issueSeverityRank(left.severity))[0]?.severity || 'low';
+        const filePathIds = reachablePaths
+            .filter(pathItem => pathItem.files.some(pathFile => reportRelativeFile(root, pathFile) === file))
+            .map(pathItem => pathItem.id);
+        return {
+            path: file,
+            name: path.basename(file),
+            type: impactedFileType(file, artifacts),
+            issueIds: sortedIssues.map(issue => issue.id),
+            issueCount: sortedIssues.length,
+            highestSeverity,
+            pathIds: Array.from(new Set([
+                ...sortedIssues.flatMap(issue => issue.pathIds),
+                ...filePathIds,
+            ])).sort(),
+        };
+    }).sort((left, right) =>
+        issueSeverityRank(right.highestSeverity) - issueSeverityRank(left.highestSeverity) ||
+        right.issueCount - left.issueCount ||
+        left.path.localeCompare(right.path)
+    );
+}
+
 function sanitizeReachablePaths(paths: ReachableExecutionPath[]): ReachableExecutionPath[] {
     return paths.map(pathItem => ({
         ...pathItem,
@@ -1152,6 +1214,7 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     const sanitizedArtifacts = sanitizeArtifacts(artifacts);
     const sanitizedPaths = sanitizeReachablePaths(reachablePaths);
     const issues = canonicalIssues(root, scanResults, sanitizedPaths, executionMap);
+    const impactedFiles = canonicalImpactedFiles(root, issues, sanitizedArtifacts, sanitizedPaths);
     const summary = generateRepositorySummary(artifacts, executionMap, reachablePaths);
     return {
         id: stableId('repo-report', `${root}:${generatedAt}`),
@@ -1173,6 +1236,7 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
         summary,
         issues,
         issueSummary: summarizeIssues(issues),
+        impactedFiles,
         findings: sanitizeScanResults(scanResults),
         evidence: canonicalEvidence(sanitizedArtifacts, executionMap, sanitizedPaths, scanResults),
         fixPlan: sanitizedPaths.slice(0, 10).map((pathItem, index) => ({

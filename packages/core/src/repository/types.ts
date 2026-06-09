@@ -235,6 +235,18 @@ export interface RepositoryIssueSummary {
     low: number;
 }
 
+export type RepositoryImpactedFileType = 'SKILL.md' | 'MCP Config' | 'Workflow' | 'Prompt' | 'Other';
+
+export interface RepositoryImpactedFile {
+    path: string;
+    name: string;
+    type: RepositoryImpactedFileType;
+    issueIds: string[];
+    issueCount: number;
+    highestSeverity: Severity | string;
+    pathIds: string[];
+}
+
 export interface RepositoryExecutionReport {
     id?: string;
     version: string;
@@ -280,6 +292,7 @@ export interface RepositoryExecutionReport {
     summary: RepositorySummary;
     issues: RepositoryExecutionIssue[];
     issueSummary: RepositoryIssueSummary;
+    impactedFiles: RepositoryImpactedFile[];
     findings: RepositoryScanResult[];
 }
 

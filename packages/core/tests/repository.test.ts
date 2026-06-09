@@ -314,6 +314,59 @@ describe('repository execution analysis', () => {
         });
     });
 
+    it('indexes impacted files with report-owned types, issue counts, and paths', () => {
+        const root = fixtureRepo({
+            'skills/review/SKILL.md': '# Review skill\nUse shell tools after approval.',
+            '.cursor/mcp.json': JSON.stringify({ mcpServers: { filesystem: { command: 'npx' } } }),
+            '.github/workflows/review.yml': 'name: Review\njobs:\n  scan:\n    runs-on: ubuntu-latest',
+            'prompts/reviewer.prompt': 'Review the repository and report risks.',
+        });
+        const files = [
+            'skills/review/SKILL.md',
+            '.cursor/mcp.json',
+            '.github/workflows/review.yml',
+            'prompts/reviewer.prompt',
+        ];
+        const scanResults: RepositoryScanResult[] = files.map((file, index) => ({
+            filePath: path.join(root, file),
+            findings: [{
+                rule_id: `test_file_risk_${index}`,
+                category: 'security',
+                severity: index === 0 ? 'critical' : 'high',
+                line: 1,
+                message: 'A repository instruction needs review.',
+                evidence: file,
+            }],
+        }));
+
+        const report = analyzeRepositoryExecution(root, scanResults);
+        const indexedTypes = Object.fromEntries(report.impactedFiles.map(file => [file.path, file.type]));
+
+        expect(report.impactedFiles).toHaveLength(4);
+        expect(indexedTypes).toEqual({
+            '.cursor/mcp.json': 'MCP Config',
+            '.github/workflows/review.yml': 'Workflow',
+            'prompts/reviewer.prompt': 'Prompt',
+            'skills/review/SKILL.md': 'SKILL.md',
+        });
+
+        for (const file of report.impactedFiles) {
+            const matchingIssues = report.issues.filter(issue => issue.impactedFiles.includes(file.path));
+            const matchingPaths = report.reachablePaths.filter(pathItem =>
+                pathItem.files.some(pathFile => {
+                    const relative = path.isAbsolute(pathFile) ? path.relative(root, pathFile) : pathFile;
+                    return relative.replace(/\\/g, '/') === file.path;
+                })
+            );
+            expect(file.issueIds).toEqual(matchingIssues.map(issue => issue.id));
+            expect(file.issueCount).toBe(matchingIssues.length);
+            expect(file.pathIds).toEqual(Array.from(new Set([
+                ...matchingIssues.flatMap(issue => issue.pathIds),
+                ...matchingPaths.map(pathItem => pathItem.id),
+            ])).sort());
+        }
+    });
+
     it('translates technical findings into complete plain-language issues', () => {
         const root = fixtureRepo({
             'reviewer.prompt': 'Route user instructions through the tool router to shell execution.',

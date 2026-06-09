@@ -757,7 +757,7 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
   return {
     ...baseReport,
     id: baseReport?.id || 'repo-report:playground',
-    version: baseReport?.version || '1.2.0',
+    version: baseReport?.version || '1.3.0',
     generated_at: baseReport?.generated_at || new Date().toISOString(),
     scannedAt: baseReport?.scannedAt || new Date().toISOString(),
     repository: baseReport?.repository || { root: '/playground', name: 'Playground' },
