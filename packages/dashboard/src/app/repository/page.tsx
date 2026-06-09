@@ -177,6 +177,18 @@ function sourceFirstNodes(report: RepoReport, pathItem: any): any[] {
   return (pathItem?.nodeIds || []).map((id: string) => nodes.get(id)).filter(Boolean);
 }
 
+function severityRank(severity = ""): number {
+  return ({ critical: 4, high: 3, medium: 2, low: 1 } as Record<string, number>)[severity.toLowerCase()] || 0;
+}
+
+function severityClasses(severity = ""): string {
+  const normalized = severity.toLowerCase();
+  if (normalized === "critical") return "border-red-200 bg-red-50 text-red-800";
+  if (normalized === "high") return "border-orange-200 bg-orange-50 text-orange-800";
+  if (normalized === "medium") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
 export default function RepositoryPage() {
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -192,6 +204,28 @@ export default function RepositoryPage() {
   const highestPath = report?.reachablePaths?.[0];
   const nodes = useMemo(() => nodeById(report), [report]);
   const edges = useMemo(() => edgeById(report), [report]);
+  const topIssues = useMemo(() => [...(report?.issues || [])].sort((left: any, right: any) =>
+    severityRank(right.severity) - severityRank(left.severity) ||
+    (right.confidence?.score || 0) - (left.confidence?.score || 0) ||
+    left.id.localeCompare(right.id)
+  ), [report]);
+  const impactedFiles = useMemo(() => {
+    const byFile = new Map<string, { file: string; issues: any[]; highestSeverity: string }>();
+    for (const issue of report?.issues || []) {
+      for (const rawFile of issue.impactedFiles || []) {
+        const file = normalizeRepoPath(rawFile, report);
+        const current = byFile.get(file) || { file, issues: [], highestSeverity: "low" };
+        current.issues.push(issue);
+        if (severityRank(issue.severity) > severityRank(current.highestSeverity)) current.highestSeverity = issue.severity;
+        byFile.set(file, current);
+      }
+    }
+    return Array.from(byFile.values()).sort((left, right) =>
+      severityRank(right.highestSeverity) - severityRank(left.highestSeverity) ||
+      right.issues.length - left.issues.length ||
+      left.file.localeCompare(right.file)
+    );
+  }, [report]);
   const inventory = useMemo(() => {
     const artifacts = report?.artifacts || [];
     return {
@@ -321,36 +355,111 @@ export default function RepositoryPage() {
 
         {report && (
           <>
-            <section className="grid gap-3 rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm md:grid-cols-3 xl:grid-cols-10">
-              {[
-                ["Overall Risk", riskLabel(report)],
-                ["Trust Status", report.summary.trustStatus],
-                ["AI Files Analyzed", report.summary.filesScanned || 0],
-                ["AI Surfaces", report.summary.aiSurfaces || 0],
-                ["Reachable Paths", report.summary.reachablePaths || report.reachablePaths.length],
-                ["Sensitive Actions", report.summary.sensitiveActions || 0],
-                ["Issues", report.issueSummary?.total || 0],
-                ["Confirmed", report.summary.confirmedPaths || 0],
-                ["Probable", report.summary.probablePaths || 0],
-                ["Potential", report.summary.potentialPaths ?? Math.max(
-                  0,
-                  (report.summary.reachablePaths || report.reachablePaths.length) -
-                    (report.summary.confirmedPaths || 0) -
-                    (report.summary.probablePaths || 0)
-                )],
-              ].map(([label, value]) => (
-                <button key={label} onClick={() => setSelected({ kind: "summary", item: { label, value } })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left">
-                  <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span>
-                  <span className="mt-1 block break-words font-mono text-lg font-black">{value}</span>
-                  <span className="mt-2 block text-[10px] font-black uppercase text-slate-800">Why?</span>
-                </button>
-              ))}
+            <section className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">1. Repository Summary</p>
+                <h2 className="mt-1 text-xl font-black tracking-tight">What needs attention in this repository</h2>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+                {[
+                  ["Overall Risk", riskLabel(report)],
+                  ["Trust Status", report.summary.trustStatus],
+                  ["Issues", report.issueSummary?.total || 0],
+                  ["Impacted Files", impactedFiles.length],
+                  ["Critical / High", `${report.issueSummary?.critical || 0} / ${report.issueSummary?.high || 0}`],
+                  ["Reachable Paths", report.summary.reachablePaths || report.reachablePaths.length],
+                ].map(([label, value]) => (
+                  <button key={label} onClick={() => setSelected({ kind: "summary", item: { label, value } })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left transition hover:border-slate-400">
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span>
+                    <span className="mt-1 block break-words font-mono text-lg font-black">{value}</span>
+                  </button>
+                ))}
+              </div>
+              <details className="mt-4 border-t border-[#E4E3DE] pt-3">
+                <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#57534E]">More repository metrics</summary>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                  {[
+                    ["AI Files Analyzed", report.summary.filesScanned || 0],
+                    ["AI Surfaces", report.summary.aiSurfaces || 0],
+                    ["Sensitive Actions", report.summary.sensitiveActions || 0],
+                    ["Confirmed", report.summary.confirmedPaths || 0],
+                    ["Probable", report.summary.probablePaths || 0],
+                    ["Potential", report.summary.potentialPaths ?? 0],
+                  ].map(([label, value]) => <div key={label} className="rounded-lg bg-[#FAF9F6] p-3"><span className="block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span><span className="mt-1 block font-mono text-base font-black">{value}</span></div>)}
+                </div>
+              </details>
+            </section>
+
+            <section className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">2. Top Issues</p>
+                  <h2 className="mt-1 text-xl font-black tracking-tight">Fix these first</h2>
+                </div>
+                <span className="text-xs font-bold text-[#78716C]">{report.issueSummary?.total || 0} active issues</span>
+              </div>
+              <div className="mt-4 divide-y divide-[#E4E3DE] border-y border-[#E4E3DE]">
+                {topIssues.slice(0, 4).map((issue: any) => (
+                  <button key={issue.id} onClick={() => setSelected({ kind: "Findings", item: issue })} className="grid w-full gap-3 py-4 text-left transition hover:bg-[#FAF9F6] sm:grid-cols-[120px_1fr_180px] sm:px-2">
+                    <div>
+                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${severityClasses(issue.severity)}`}>{issue.severity}</span>
+                      <span className="mt-2 block text-[10px] font-bold text-[#78716C]">{issue.confidence?.label} · {issue.confidence?.score}%</span>
+                    </div>
+                    <div className="min-w-0">
+                      <span className="block font-mono text-[10px] font-black text-[#78716C]">{issue.id}</span>
+                      <span className="mt-1 block text-sm font-black text-[#1C1917]">{issue.issue}</span>
+                      <span className="mt-1 block text-xs font-semibold leading-5 text-[#57534E]">{issue.impact}</span>
+                    </div>
+                    <div className="text-xs font-semibold text-[#57534E]">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Affected</span>
+                      <span className="mt-1 block truncate font-mono">{issue.impactedFiles?.[0] || "Unknown file"}</span>
+                      <span className="mt-2 block text-[10px] font-black uppercase text-slate-900">Inspect issue</span>
+                    </div>
+                  </button>
+                ))}
+                {topIssues.length === 0 && <p className="py-6 text-sm font-bold text-emerald-700">No active repository issues.</p>}
+              </div>
+              {topIssues.length > 4 && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-xs font-black text-slate-900">Show {topIssues.length - 4} additional issues</summary>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                    {topIssues.slice(4).map((issue: any) => (
+                      <button key={issue.id} onClick={() => setSelected({ kind: "Findings", item: issue })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left">
+                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-[8px] font-black uppercase ${severityClasses(issue.severity)}`}>{issue.severity}</span>
+                        <span className="mt-2 block truncate font-mono text-[10px] font-black">{issue.id}</span>
+                        <span className="mt-1 block text-xs font-semibold">{issue.issue}</span>
+                      </button>
+                    ))}
+                  </div>
+                </details>
+              )}
+              {selected && <details open className="mt-4 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4"><summary className="cursor-pointer text-xs font-black">Selected object analysis</summary><ObjectPanel report={report} selected={selected} contentByPath={contentByPath} /></details>}
+            </section>
+
+            <section className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">3. Impacted Files</p>
+                  <h2 className="mt-1 text-xl font-black tracking-tight">Where the issues live</h2>
+                </div>
+                <span className="text-xs font-bold text-[#78716C]">{impactedFiles.length} files</span>
+              </div>
+              <div className="mt-4 grid gap-2 md:grid-cols-2">
+                {impactedFiles.slice(0, 6).map(file => (
+                  <button key={file.file} onClick={() => setSelected({ kind: "Files", item: { id: `file:${file.file}`, name: file.file, relativePath: file.file, description: `${file.issues.length} active issues in this file.` } })} className="flex items-center justify-between gap-3 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left transition hover:border-slate-400">
+                    <div className="min-w-0"><span className="block truncate font-mono text-xs font-black">{file.file}</span><span className="mt-1 block text-[10px] font-semibold text-[#78716C]">{file.issues.length} issue{file.issues.length === 1 ? "" : "s"}</span></div>
+                    <span className={`shrink-0 rounded-full border px-2 py-1 text-[8px] font-black uppercase ${severityClasses(file.highestSeverity)}`}>{file.highestSeverity}</span>
+                  </button>
+                ))}
+                {impactedFiles.length === 0 && <p className="text-sm font-bold text-emerald-700">No files are impacted by active issues.</p>}
+              </div>
+              {impactedFiles.length > 6 && <details className="mt-3"><summary className="cursor-pointer text-xs font-black">Show {impactedFiles.length - 6} additional files</summary><div className="mt-3 grid gap-2 md:grid-cols-2">{impactedFiles.slice(6).map(file => <button key={file.file} onClick={() => setSelected({ kind: "Files", item: { id: `file:${file.file}`, name: file.file, relativePath: file.file, description: `${file.issues.length} active issues in this file.` } })} className="rounded-lg border border-[#E4E3DE] p-3 text-left font-mono text-xs font-bold">{file.file} · {file.issues.length}</button>)}</div></details>}
             </section>
 
             <section className="rounded-2xl border border-red-200 bg-red-50/30 p-5 shadow-sm">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-black uppercase tracking-[0.2em] text-red-700">Highest Risk Path</p>
+                  <p className="text-[11px] font-black uppercase tracking-[0.2em] text-red-700">4. Highest Risk Path</p>
                   {highestPath ? (
                     <>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -374,12 +483,31 @@ export default function RepositoryPage() {
               </div>
             </section>
 
-            <section className="grid gap-4 lg:grid-cols-[1fr_360px]">
-              <div className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+            <section className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">5. Fix Plan</p>
+                <h2 className="mt-1 text-xl font-black tracking-tight">Prioritized remediation</h2>
+              </div>
+              <ol className="mt-4 divide-y divide-[#E4E3DE] border-y border-[#E4E3DE]">
+                {topIssues.slice(0, 4).map((issue: any, index: number) => (
+                  <li key={issue.id} className="grid gap-3 py-4 sm:grid-cols-[36px_1fr_auto] sm:items-start">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 font-mono text-xs font-black text-white">{index + 1}</span>
+                    <div><span className="block text-sm font-black">{issue.howToFix}</span><span className="mt-1 block font-mono text-[10px] font-bold text-[#78716C]">{issue.id} · {(issue.impactedFiles || []).join(", ")}</span></div>
+                    <button onClick={() => setSelected({ kind: "Findings", item: issue })} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 text-[10px] font-black uppercase">Review</button>
+                  </li>
+                ))}
+              </ol>
+              {(topIssues.length > 4 || (report.fixPlan || []).length > 0) && <details className="mt-3"><summary className="cursor-pointer text-xs font-black">Show complete fix plan</summary><div className="mt-3 grid gap-2">{topIssues.slice(4).map((issue: any) => <button key={issue.id} onClick={() => setSelected({ kind: "Findings", item: issue })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left text-xs font-semibold"><span className="font-mono font-black">{issue.id}</span><span className="mt-1 block">{issue.howToFix}</span></button>)}{(report.fixPlan || []).map((fix: any, index: number) => <button key={`${fix.id}-${index}`} onClick={() => setSelected({ kind: "Fix Plan", item: fix })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left text-xs font-semibold"><span className="font-black">{fix.title}</span><span className="mt-1 block text-[#57534E]">{fix.description}</span></button>)}</div></details>}
+            </section>
+
+            <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer list-none">
                 <div className="flex items-center justify-between gap-3">
-                  <h2 className="text-[12px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">Execution Map</h2>
-                  <span className="text-xs font-bold text-[#57534E]">{report.executionMap.nodes.length} nodes · {report.executionMap.edges.length} edges</span>
+                  <div><p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">6. Execution Map</p><h2 className="mt-1 text-xl font-black tracking-tight">Trace nodes and relationships</h2></div>
+                  <span className="text-xs font-bold text-[#57534E]">{report.executionMap.nodes.length} nodes · {report.executionMap.edges.length} edges · Expand</span>
                 </div>
+              </summary>
+              <div className="mt-5">
                 <div className="mt-4 grid gap-2 md:grid-cols-3">
                   {report.executionMap.nodes.map((node: any) => (
                     <button key={node.id} onClick={() => setSelected({ kind: "node", item: node })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left">
@@ -395,16 +523,30 @@ export default function RepositoryPage() {
                     <tbody>{report.executionMap.edges.map((edge: any) => <tr key={edge.id} className="border-t border-[#E4E3DE]"><td className="p-2 font-bold">{nodes.get(edge.from)?.label || edge.from}</td><td className="p-2">{edge.relationship || edge.type}</td><td className="p-2 font-bold">{nodes.get(edge.to)?.label || edge.to}</td><td className="p-2">{edge.evidence || edge.reason}</td><td className="p-2 font-mono">{edge.confidenceLabel || confidenceLabel(edge.confidenceLabel)}</td></tr>)}</tbody>
                   </table>
                 </div>
+                {selected && <div className="mt-4 rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4"><ObjectPanel report={report} selected={selected} contentByPath={contentByPath} /></div>}
               </div>
+            </details>
 
-              <aside className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
-                <h2 className="text-[12px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">Object Analysis</h2>
-                {selected ? <ObjectPanel report={report} selected={selected} contentByPath={contentByPath} /> : <p className="mt-3 text-sm font-semibold text-[#57534E]">Click a path, node, file, skill, MCP server, workflow, finding, or evidence item to inspect it.</p>}
-              </aside>
-            </section>
+            <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer list-none"><div className="flex items-center justify-between gap-3"><div><p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">7. Evidence</p><h2 className="mt-1 text-xl font-black tracking-tight">Scanner and graph provenance</h2></div><span className="text-xs font-bold text-[#57534E]">{report.evidence?.length || 0} records · Expand</span></div></summary>
+              <div className="mt-5 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {(report.evidence || []).slice(0, 120).map((item: any) => <button key={item.id} onClick={() => setSelected({ kind: "Evidence", item })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left"><span className="block font-mono text-[10px] font-black">{item.id}</span><span className="mt-1 block truncate text-xs font-semibold">{item.file || item.source}</span><span className="mt-1 block line-clamp-2 text-[10px] text-[#78716C]">{item.snippet}</span></button>)}
+              </div>
+            </details>
 
-            <section className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
-              <div className="flex flex-wrap gap-2">
+            <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer list-none"><div className="flex items-center justify-between gap-3"><div><p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">8. Report</p><h2 className="mt-1 text-xl font-black tracking-tight">Canonical report and exports</h2></div><span className="text-xs font-bold text-[#57534E]">{report.id} · Expand</span></div></summary>
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                <div className="rounded-xl bg-[#FAF9F6] p-4"><span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Report version</span><span className="mt-1 block font-mono text-sm font-black">{report.version}</span></div>
+                <div className="rounded-xl bg-[#FAF9F6] p-4"><span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Scan mode</span><span className="mt-1 block font-mono text-sm font-black">{report.scanMode || "unknown"}</span></div>
+                <div className="rounded-xl bg-[#FAF9F6] p-4"><span className="text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Generated</span><span className="mt-1 block font-mono text-sm font-black">{report.generated_at}</span></div>
+              </div>
+              <pre className="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-950 p-4 text-[10px] text-slate-100">{JSON.stringify({ id: report.id, issueSummary: report.issueSummary, summary: report.summary, exports: report.exports }, null, 2)}</pre>
+            </details>
+
+            <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer text-[11px] font-black uppercase tracking-[0.2em] text-[#57534E]">Repository Browser · all existing tabs</summary>
+              <div className="mt-4 flex flex-wrap gap-2">
                 {Object.keys(inventory).map(tab => <button key={tab} onClick={() => setActiveTab(tab)} className={`rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider ${activeTab === tab ? "border-slate-900 bg-slate-900 text-white" : "border-[#E4E3DE] bg-[#FAF9F6]"}`}>{tab}</button>)}
               </div>
               <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -416,7 +558,7 @@ export default function RepositoryPage() {
                   </button>
                 ))}
               </div>
-            </section>
+            </details>
 
             {scanMeta && <p className="text-center text-xs font-semibold text-[#78716C]">Browser-bounded scan: {scanMeta.filesWritten} files scanned, {scanMeta.filesSkipped} skipped. Use CLI for exhaustive analysis.</p>}
           </>
