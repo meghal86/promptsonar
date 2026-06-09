@@ -6,6 +6,11 @@ import { WorkflowGraph } from '@/components/WorkflowGraph';
 import { WorkflowReplayTimeline } from '@/components/WorkflowReplayTimeline';
 import { PROMPTSONAR_VERSION } from '@/lib/version';
 import { createExecutionPathReport, createReportUrl, reportToIssueTemplate, reportToMarkdown, reportToPrComment } from '@/lib/reports/executionPathReport';
+import {
+  PLAYGROUND_ADVANCED_TABS,
+  PLAYGROUND_ISSUE_CARD_QUESTIONS,
+  PLAYGROUND_ISSUE_HIERARCHY,
+} from '@/lib/playgroundIssueHierarchy';
 
 // Pre-loaded neutral/empty initial audit result to avoid showing mock values on load
 const INITIAL_AUDIT_RESULT = {
@@ -2917,14 +2922,7 @@ export default function PlaygroundPage() {
   const primaryRiskReduction = typeof primaryIssueWorkflow?.workflow_diff?.riskReduction === 'number'
     ? `${primaryIssueWorkflow.workflow_diff.riskReduction}%`
     : null;
-  const detailTabs: Array<{ key: typeof activeDetailsTab; label: string }> = [
-    { key: 'repo_overview', label: 'Overview' },
-    { key: 'execution_map', label: 'Execution Map' },
-    { key: 'findings', label: 'Findings' },
-    { key: 'workflows_page', label: 'Evidence' },
-    { key: 'rules', label: 'Fix Plan' },
-    { key: 'report', label: 'Report' },
-  ];
+  const detailTabs = PLAYGROUND_ADVANCED_TABS as ReadonlyArray<{ key: typeof activeDetailsTab; label: string }>;
 
   return (
     <div className="h-screen w-screen bg-[#FAF9F6] text-[#1C1917] font-sans flex selection:bg-slate-200 selection:text-slate-900 antialiased overflow-hidden">
@@ -3247,11 +3245,18 @@ export default function PlaygroundPage() {
         {/* Main Dashboard Layout */}
         <main className="flex-1 flex flex-col justify-start gap-6 p-4 lg:p-6 xl:p-8 overflow-y-auto min-h-0">
 
-          {/* V2 - SECTION 1: PROMPT INPUT (Full-width tabbed card) */}
-          <section className="shrink-0 flex flex-col items-center justify-center gap-7 py-4">
-            <div className="w-full max-w-3xl flex flex-col gap-5">
-              {!hasCompletedScan && (
-                <div className="text-center space-y-3">
+          {/* V2 - SECTION 1: PROMPT INPUT (collapsed after scan so findings lead) */}
+          <details open={!hasCompletedScan} className="shrink-0">
+            <summary className={hasCompletedScan
+              ? 'cursor-pointer rounded-xl border border-[#E4E3DE] bg-white px-4 py-3 text-[11px] font-black uppercase tracking-wider text-[#57534E] shadow-xs'
+              : 'hidden'
+            }>
+              Edit scanned input
+            </summary>
+            <div className="flex flex-col items-center justify-center gap-7 py-4">
+              <div className="w-full max-w-3xl flex flex-col gap-5">
+                {!hasCompletedScan && (
+                  <div className="text-center space-y-3">
                   <div className="flex items-center justify-center gap-3">
                     <span className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center shrink-0">
                       <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -3268,7 +3273,7 @@ export default function PlaygroundPage() {
                     Find reachable paths from prompts and repositories to tools, credentials, shell execution, and external APIs.
                   </p>
                 </div>
-              )}
+                )}
 
               <div className="w-full rounded-2xl border border-[#E4E3DE] bg-white shadow-sm p-4 flex flex-col gap-4">
                 {/* Visual Tab Buttons */}
@@ -3585,8 +3590,9 @@ export default function PlaygroundPage() {
                   </p>
                 )}
               </div>
+              </div>
             </div>
-          </section>
+          </details>
 
           {/* ====================================================================
               ANALYSIS RESULTS — hidden until the first scan completes.
@@ -3594,12 +3600,13 @@ export default function PlaygroundPage() {
           {hasCompletedScan && (
             <>
               {/* BLOCK 1: DOMINANT ISSUE SUMMARY */}
-              <section ref={resultsRef} className={`order-1 rounded-xl border p-5 shadow-sm ${scanTone} flex flex-col gap-5 shrink-0`}>
-                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0 space-y-3">
-                    <span className="text-[11px] font-black uppercase tracking-[0.24em] opacity-70">Issue Summary</span>
-                    <h2 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{issueTitle}</h2>
-                    <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider">
+              <section ref={resultsRef} className={`order-1 rounded-xl border p-5 shadow-sm ${scanTone} flex flex-col gap-4 shrink-0`}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <span className="text-[11px] font-black uppercase tracking-[0.24em] opacity-70">
+                      1. {PLAYGROUND_ISSUE_HIERARCHY[0]}
+                    </span>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider">
                       <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1 text-slate-900">
                         Severity: {issueSeverity === 'none' ? 'None' : issueSeverity}
                       </span>
@@ -3607,18 +3614,36 @@ export default function PlaygroundPage() {
                         Confidence: {issueConfidenceLabel}
                       </span>
                     </div>
-                    <div className="grid gap-3 pt-1 lg:grid-cols-2">
-                      <div className="rounded-lg border border-white/70 bg-white/75 p-3">
-                        <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Impact</span>
-                        <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{issueImpact}</p>
-                      </div>
-                      <div className="rounded-lg border border-white/70 bg-white/75 p-3">
-                        <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Recommended Fix</span>
-                        <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{issueRecommendedFix}</p>
-                      </div>
-                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 xl:min-w-[520px]">
+                  <span className="rounded-lg border border-white/70 bg-white/75 px-3 py-2 font-mono text-sm font-black text-slate-900">
+                    {result.score}/100
+                  </span>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-3">
+                  <div className="rounded-lg border border-white/70 bg-white/80 p-4">
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">
+                      {PLAYGROUND_ISSUE_CARD_QUESTIONS[0]}
+                    </span>
+                    <h2 className="mt-1 text-lg font-black tracking-tight text-slate-950 sm:text-xl">{issueTitle}</h2>
+                  </div>
+                  <div className="rounded-lg border border-white/70 bg-white/80 p-4">
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">
+                      {PLAYGROUND_ISSUE_CARD_QUESTIONS[1]}
+                    </span>
+                    <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{issueImpact}</p>
+                  </div>
+                  <div className="rounded-lg border border-white/70 bg-white/80 p-4">
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">
+                      {PLAYGROUND_ISSUE_CARD_QUESTIONS[2]}
+                    </span>
+                    <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{issueRecommendedFix}</p>
+                  </div>
+                </div>
+                <details className="rounded-lg border border-white/70 bg-white/60 p-3">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-slate-700">
+                    Show scan context
+                  </summary>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Score</span>
                       <span className="mt-1 block font-mono text-lg font-black text-slate-900">{result.score}/100</span>
@@ -3636,16 +3661,23 @@ export default function PlaygroundPage() {
                       <span className="mt-1 block font-mono font-black text-slate-900">{scanTime || 'Just now'}</span>
                     </div>
                   </div>
-                </div>
+                </details>
               </section>
 
-              {/* ADVANCED EXECUTION PATH — revealed through the Execution Map tab */}
-              <section className={`${activeDetailsTab === 'execution_map' ? 'order-6 block' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0`}>
-                <div className="px-5 py-4 border-b border-[#E4E3DE] bg-[#FAF9F6] flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <h2 className="text-[12px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Path</h2>
-                    <p className="text-[11px] text-slate-500 italic mt-0.5">How scanned AI instructions can reach tools, credentials, shell, or network access.</p>
+              {/* EXECUTION PATH — available without displacing issue triage */}
+              <details className="order-5 bg-white border border-[#E4E3DE] rounded-xl shadow-xs overflow-hidden shrink-0">
+                <summary className="cursor-pointer list-none px-5 py-4 bg-[#FAF9F6]">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-[12px] font-black uppercase tracking-widest text-[#A8A29E]">
+                        5. {PLAYGROUND_ISSUE_HIERARCHY[4]}
+                      </h2>
+                      <p className="text-[11px] text-slate-500 italic mt-0.5">How scanned AI instructions can reach tools, credentials, shell, or network access.</p>
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">Expand path</span>
                   </div>
+                </summary>
+                <div className="border-t border-[#E4E3DE] p-5 flex flex-col gap-6">
                   <div className="hidden flex-wrap gap-2">
                     <button
                       onClick={() => copyText('npx @promptsonar/cli scan ./prompts --format json', 'CLI command copied.')}
@@ -3662,8 +3694,6 @@ export default function PlaygroundPage() {
                       Copy finding
                     </button>
                   </div>
-                </div>
-                <div className="p-5 flex flex-col gap-6">
                   {/* Visual Workflow Graph */}
                   <div className="min-h-[280px] bg-slate-50/50 rounded-2xl border border-slate-100 p-4">
                     {primaryWorkflow ? (
@@ -3768,7 +3798,7 @@ export default function PlaygroundPage() {
                     </details>
                   )}
                 </div>
-              </section>
+              </details>
 
               {/* V2 - SECTION 3: EXECUTIVE VERDICT */}
               {(() => {
@@ -3792,7 +3822,9 @@ export default function PlaygroundPage() {
               {/* V2 - SECTION 4: WHY THIS MATTERS */}
               <section className="order-2 bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
                 <div>
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Why This Matters</h3>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">
+                    2. {PLAYGROUND_ISSUE_HIERARCHY[1]}
+                  </h3>
                   <p className="text-[10px] text-slate-500 italic mt-0.5">Why this issue changes the security posture of the scanned AI workflow.</p>
                 </div>
 
@@ -3870,9 +3902,11 @@ export default function PlaygroundPage() {
               </section>
 
               {/* V2 - SECTION 4B: PRIMARY EVIDENCE */}
-              <section className="order-3 bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+              <section className="order-4 bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
                 <div>
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Evidence</h3>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">
+                    4. {PLAYGROUND_ISSUE_HIERARCHY[3]}
+                  </h3>
                   <p className="text-[10px] text-slate-500 italic mt-0.5">The strongest observable signals supporting the issue summary.</p>
                 </div>
                 <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
@@ -3905,7 +3939,7 @@ export default function PlaygroundPage() {
               </section>
 
               {/* V2 - SECTION 5: ROOT CAUSE */}
-              <section className={`${activeDetailsTab === 'findings' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4`}>
+              <section className={`${activeDetailsTab === 'findings' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4`}>
                 <div className="border-b border-[#E4E3DE] pb-2 shrink-0">
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Main Issue Details</h3>
                   <p className="text-[10px] text-slate-500 italic mt-0.5">Structured failure-mode mappings mapped strictly to security response rules</p>
@@ -4017,10 +4051,12 @@ export default function PlaygroundPage() {
               </section>
 
               {/* V2 - SECTION 6: ACTIONABLE REMEDIATION (FIX) */}
-              <section className="order-4 bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+              <section className="order-3 bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex flex-col gap-4">
                 <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
                   <div>
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Fix</h3>
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">
+                      3. {PLAYGROUND_ISSUE_HIERARCHY[2]}
+                    </h3>
                     <p className="text-[10px] text-slate-500 italic mt-0.5">Before and after safer prompt structure.</p>
                   </div>
                   {primaryIssueFinding && (() => {
@@ -4210,10 +4246,12 @@ export default function PlaygroundPage() {
               </section>
 
               {/* BLOCK 5: DETAILS */}
-              <section className="order-5 rounded-xl border border-[#E4E3DE] bg-white p-4 shadow-xs shrink-0">
+              <section className="order-6 rounded-xl border border-[#E4E3DE] bg-white p-4 shadow-xs shrink-0">
                 <div className="flex flex-col gap-3">
                   <div>
-                    <h2 className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">Details</h2>
+                    <h2 className="text-[11px] font-black uppercase tracking-[0.24em] text-[#A8A29E]">
+                      6. {PLAYGROUND_ISSUE_HIERARCHY[5]}
+                    </h2>
                     <p className="mt-1 text-[11px] font-medium text-slate-500">
                       Advanced scan evidence, comparisons, rules, model checks, and exports.
                     </p>
@@ -4237,7 +4275,7 @@ export default function PlaygroundPage() {
                 </div>
               </section>
 
-              <section className={`${activeDetailsTab === 'repo_overview' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+              <section className={`${activeDetailsTab === 'repo_overview' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
                 <div className="border-b border-[#E4E3DE] pb-3">
                   <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Overview</h2>
                   <p className="mt-1 text-[11px] font-medium text-slate-500">
@@ -4395,7 +4433,7 @@ export default function PlaygroundPage() {
                 </details>
               </section>
 
-              <section className={`${activeDetailsTab === 'execution_map' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+              <section className={`${activeDetailsTab === 'execution_map' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
                 <div className="border-b border-[#E4E3DE] pb-3">
                   <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Map</h2>
                   <p className="mt-1 text-[11px] font-medium text-slate-500">Instruction sources, prompts, skills, memory, tools, MCP servers, and actions.</p>
@@ -4473,7 +4511,7 @@ export default function PlaygroundPage() {
                 )}
               </section>
 
-              <section className={`${activeDetailsTab === 'skills_page' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
+              <section className={`${activeDetailsTab === 'skills_page' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
                 <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Skills</h2>
                 {repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'SKILL').length > 0 ? repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'SKILL').map((artifact: any) => (
                   <div key={artifact.id} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
@@ -4484,7 +4522,7 @@ export default function PlaygroundPage() {
                 )) : <div className="text-[11px] font-medium text-slate-500">No SKILL.md content discovered in this playground scan.</div>}
               </section>
 
-              <section className={`${activeDetailsTab === 'mcp_page' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
+              <section className={`${activeDetailsTab === 'mcp_page' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
                 <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">MCP</h2>
                 {repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'MCP_SERVER').length > 0 ? repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'MCP_SERVER').map((artifact: any) => (
                   <div key={artifact.id} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
@@ -4495,7 +4533,7 @@ export default function PlaygroundPage() {
                 )) : <div className="text-[11px] font-medium text-slate-500">No MCP servers discovered in this playground scan.</div>}
               </section>
 
-              <section className={`${activeDetailsTab === 'workflows_page' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
+              <section className={`${activeDetailsTab === 'workflows_page' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
                 <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Evidence</h2>
                 {isRepositoryObjectScan ? (
                   <>
@@ -4547,7 +4585,7 @@ export default function PlaygroundPage() {
               </section>
 
               {/* V2 - SECTION 6b: PROMPT COMPRESSION & OPTIMIZATION (PROMPT ENGINEERING) */}
-              <section className={`${activeDetailsTab === 'compare' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+              <section className={`${activeDetailsTab === 'compare' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
                 <div className="flex items-center justify-between border-b border-[#E4E3DE] pb-3">
                   <div>
                     <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Optimization</h3>
@@ -4677,7 +4715,7 @@ export default function PlaygroundPage() {
               </section>
 
               {/* V2 - SECTION 7: PROMPT AUDIT (Line-by-line dangerous highlight viewer) */}
-              <section className={`${activeDetailsTab === 'findings' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4`}>
+              <section className={`${activeDetailsTab === 'findings' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4`}>
                 <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
                   <div className="flex min-w-0 items-center gap-2">
                     <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">{isRepositoryExecutionScan ? 'Repository Path Evidence' : 'Execution Path Findings'}</h2>
@@ -4804,7 +4842,7 @@ export default function PlaygroundPage() {
               </section>
 
               {/* V2 - SECTION 8: DETAILED FINDINGS (Full Width card) */}
-              <section className={`${activeDetailsTab === 'findings' ? 'order-6 flex' : 'hidden'} print-findings-list bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 overflow-hidden`}>
+              <section className={`${activeDetailsTab === 'findings' ? 'order-7 flex' : 'hidden'} print-findings-list bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 overflow-hidden`}>
                 <div className="flex justify-between items-center border-b border-[#E4E3DE] pb-2 shrink-0">
                   <div className="flex items-center gap-1 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
                     <span>Anomalies / Findings</span>
@@ -5108,7 +5146,7 @@ export default function PlaygroundPage() {
               </section>
 
               {/* V2 - SECTION 9: SCORE BREAKDOWN (Full Width card) */}
-              <section className={`${activeDetailsTab === 'findings' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 overflow-hidden shrink-0`}>
+              <section className={`${activeDetailsTab === 'findings' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 overflow-hidden shrink-0`}>
                 <div className="flex flex-col gap-2 pb-2 border-b border-[#E4E3DE] shrink-0">
                   <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
                     <span>Score Breakdown</span>
@@ -5177,7 +5215,7 @@ export default function PlaygroundPage() {
                 </div>
               </section>
 
-              <section className={`${activeDetailsTab === 'history' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+              <section className={`${activeDetailsTab === 'history' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
                 <div className="border-b border-[#E4E3DE] pb-3">
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Scan History</h3>
                   <p className="mt-1 text-[11px] font-medium text-slate-500">Current scan and replay timeline details.</p>
@@ -5212,7 +5250,7 @@ export default function PlaygroundPage() {
                 </details>
               </section>
 
-              <section className={`${activeDetailsTab === 'models' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+              <section className={`${activeDetailsTab === 'models' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
                 <div className="border-b border-[#E4E3DE] pb-3">
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Models</h3>
                   <p className="mt-1 text-[11px] font-medium text-slate-500">Compare user-provided model outputs for this prompt.</p>
@@ -5229,7 +5267,7 @@ export default function PlaygroundPage() {
                 </Link>
               </section>
 
-              <section className={`${activeDetailsTab === 'rules' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
+              <section className={`${activeDetailsTab === 'rules' ? 'order-7 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
                 <div className="border-b border-[#E4E3DE] pb-3">
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">{isRepositoryObjectScan ? 'Fix Plan' : 'Prompt Rules'}</h3>
                   <p className="mt-1 text-[11px] font-medium text-slate-500">
@@ -5372,7 +5410,7 @@ export default function PlaygroundPage() {
               </section>
 
               {/* V2 - SECTION 10: SHARE REPORT (VIRAL REPORT CARD) */}
-              <section ref={reportCardRef} className={`${activeDetailsTab === 'report' ? 'order-6 block' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl shadow-xs shrink-0 overflow-hidden`}>
+              <section ref={reportCardRef} className={`${activeDetailsTab === 'report' ? 'order-7 block' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl shadow-xs shrink-0 overflow-hidden`}>
                 <div className="border-b border-[#E4E3DE] bg-[#FAF9F6] px-5 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex items-center gap-2 text-[11px] font-bold text-[#A8A29E] uppercase tracking-wider">
                     <span className={`h-2 w-2 rounded-full ${
