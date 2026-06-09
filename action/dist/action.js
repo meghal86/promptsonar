@@ -654,9 +654,11 @@ function repositorySummaryMarkdown(report) {
       `- **Issue:** ${issue.issue}`,
       `- **Impact:** ${issue.impact}`,
       `- **Why this matters:** ${issue.whyThisMatters}`,
-      `- **How to fix:** ${issue.howToFix}`,
-      `- **Evidence:** ${issue.evidence.map((item) => `${item.file}:${item.line || 1}`).join(", ")}`,
-      `- **Confidence:** ${issue.confidence.label} (${issue.confidence.score}%)`,
+      `- **Fix:** ${issue.howToFix}`,
+      `- **Technical Details:**`,
+      `  - Execution path: ${issue.technicalDetails.executionPath}`,
+      `  - Evidence: ${issue.technicalDetails.evidence.map((item) => `${item.file}:${item.line || 1}`).join(", ")}`,
+      `  - Confidence: ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%)`,
       ""
     ])
   ].join("\n");
@@ -871,9 +873,17 @@ async function run() {
 
 **Why this matters:** ${issue.whyThisMatters}
 
+**Fix:** ${issue.howToFix}
+
+<details><summary>Technical Details</summary>
+
+**Execution path:** ${issue.technicalDetails.executionPath}
+
 **Evidence:** \`${evidence?.snippet || issue.issue}\`
 
-**How to fix:** ${issue.howToFix}`
+**Confidence:** ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%)
+
+</details>`
           });
         }
       }

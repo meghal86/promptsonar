@@ -400,19 +400,28 @@ export default function RepositoryPage() {
               </div>
               <div className="mt-4 divide-y divide-[#E4E3DE] border-y border-[#E4E3DE]">
                 {topIssues.slice(0, 4).map((issue: any) => (
-                  <button key={issue.id} onClick={() => setSelected({ kind: "Findings", item: issue })} className="grid w-full gap-3 py-4 text-left transition hover:bg-[#FAF9F6] sm:grid-cols-[120px_1fr_180px] sm:px-2">
+                  <button key={issue.id} onClick={() => setSelected({ kind: "Findings", item: issue })} className="grid w-full gap-3 py-4 text-left transition hover:bg-[#FAF9F6] sm:grid-cols-[120px_1fr_220px] sm:px-2">
                     <div>
                       <span className={`inline-flex rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${severityClasses(issue.severity)}`}>{issue.severity}</span>
                       <span className="mt-2 block text-[10px] font-bold text-[#78716C]">{issue.confidence?.label} · {issue.confidence?.score}%</span>
                     </div>
                     <div className="min-w-0">
                       <span className="block font-mono text-[10px] font-black text-[#78716C]">{issue.id}</span>
+                      <span className="mt-1 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Issue</span>
                       <span className="mt-1 block text-sm font-black text-[#1C1917]">{issue.issue}</span>
+                      <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Impact</span>
                       <span className="mt-1 block text-xs font-semibold leading-5 text-[#57534E]">{issue.impact}</span>
+                      <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Why this matters</span>
+                      <span className="mt-1 block text-xs font-semibold leading-5 text-[#57534E]">{issue.whyThisMatters}</span>
+                      <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Fix</span>
+                      <span className="mt-1 block text-xs font-semibold leading-5 text-[#57534E]">{issue.howToFix}</span>
                     </div>
                     <div className="text-xs font-semibold text-[#57534E]">
-                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Affected</span>
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Technical Details</span>
+                      <span className="mt-1 block leading-5">{issue.technicalDetails?.executionPath || "No connected sensitive action confirmed."}</span>
+                      <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Affected</span>
                       <span className="mt-1 block truncate font-mono">{issue.impactedFiles?.[0] || "Unknown file"}</span>
+                      <span className="mt-2 block">{issue.evidence?.length || 0} evidence item{issue.evidence?.length === 1 ? "" : "s"} · {issue.confidence?.label} {issue.confidence?.score}%</span>
                       <span className="mt-2 block text-[10px] font-black uppercase text-slate-900">Inspect issue</span>
                     </div>
                   </button>
@@ -427,7 +436,16 @@ export default function RepositoryPage() {
                       <button key={issue.id} onClick={() => setSelected({ kind: "Findings", item: issue })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left">
                         <span className={`inline-flex rounded-full border px-2 py-0.5 text-[8px] font-black uppercase ${severityClasses(issue.severity)}`}>{issue.severity}</span>
                         <span className="mt-2 block truncate font-mono text-[10px] font-black">{issue.id}</span>
+                        <span className="mt-2 block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">Issue</span>
                         <span className="mt-1 block text-xs font-semibold">{issue.issue}</span>
+                        <span className="mt-2 block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">Impact</span>
+                        <span className="mt-1 block text-[11px] font-semibold text-[#57534E]">{issue.impact}</span>
+                        <span className="mt-2 block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">Why this matters</span>
+                        <span className="mt-1 block text-[11px] font-semibold text-[#57534E]">{issue.whyThisMatters}</span>
+                        <span className="mt-2 block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">Fix</span>
+                        <span className="mt-1 block text-[11px] font-semibold text-[#57534E]">{issue.howToFix}</span>
+                        <span className="mt-2 block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">Technical Details</span>
+                        <span className="mt-1 block text-[10px] font-semibold text-[#78716C]">{issue.technicalDetails?.executionPath || "No connected sensitive action confirmed."} · {issue.confidence?.label} {issue.confidence?.score}%</span>
                       </button>
                     ))}
                   </div>
@@ -595,11 +613,21 @@ function ObjectPanel({ report, selected, contentByPath }: { report: RepoReport; 
           {isIssue && <span className="ml-2 text-[10px] text-[#78716C]">{fileFindings.length} in file</span>}
         </div>
       </div>
+      {isIssue && (
+        <div className="grid gap-3">
+          {[
+            ["Issue", item.issue],
+            ["Impact", item.impact],
+            ["Why this matters", item.whyThisMatters],
+            ["Fix", item.howToFix],
+          ].map(([label, value]) => <div key={label} className="rounded-xl border border-[#E4E3DE] bg-white p-3"><span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span><p className="mt-1 text-xs font-semibold leading-5 text-[#57534E]">{value}</p></div>)}
+        </div>
+      )}
       <details open className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
-        <summary className="cursor-pointer text-xs font-black">Evidence and reason</summary>
-        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] font-semibold text-[#57534E]">{JSON.stringify({ impact: item.impact, whyThisMatters: item.whyThisMatters, evidence: item.evidence || item.evidenceRefs || item.snippet, confidence: item.confidence, metadata: item.metadata, incoming, outgoing }, null, 2)}</pre>
+        <summary className="cursor-pointer text-xs font-black">Technical Details</summary>
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] font-semibold text-[#57534E]">{JSON.stringify({ executionPath: item.technicalDetails?.executionPath, evidence: item.technicalDetails?.evidence || item.evidence || item.evidenceRefs || item.snippet, confidence: item.technicalDetails?.confidence || item.confidence, metadata: item.metadata, incoming, outgoing }, null, 2)}</pre>
       </details>
-      <p className="rounded-xl border border-[#E4E3DE] bg-white p-3 text-xs font-semibold leading-5 text-[#57534E]">Suggested fix: {item.howToFix || "Scope permissions, require explicit approval before sensitive actions, and break unnecessary source-to-sink reachability."}</p>
+      {!isIssue && <p className="rounded-xl border border-[#E4E3DE] bg-white p-3 text-xs font-semibold leading-5 text-[#57534E]">Suggested fix: {item.howToFix || "Scope permissions, require explicit approval before sensitive actions, and remove unnecessary access to sensitive operations."}</p>}
       <a href={objectPlaygroundHref(report, item, contentByPath)} className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">Open in Playground →</a>
     </div>
   );

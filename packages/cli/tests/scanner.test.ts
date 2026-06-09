@@ -227,7 +227,10 @@ describe('CLI scanner suppressions and SARIF', () => {
             issue.whyThisMatters &&
             issue.howToFix &&
             issue.evidence.length > 0 &&
-            issue.confidence?.label
+            issue.confidence?.label &&
+            issue.technicalDetails?.executionPath &&
+            issue.technicalDetails?.evidence?.length > 0 &&
+            issue.technicalDetails?.confidence?.label
         )).toBe(true);
         expect(report.summary.aiSurfacesFound.mcpServers).toBe(executionMap.nodes.filter((node: any) => node.type === 'MCP_SERVER').length);
         expect(report.reachablePaths.every((pathItem: any) => pathItem.confidenceLabel)).toBe(true);

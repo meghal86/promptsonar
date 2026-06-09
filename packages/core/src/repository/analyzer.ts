@@ -21,7 +21,7 @@ import type {
     RepositoryTrustStatus,
 } from './types';
 
-const REPORT_VERSION = '1.1.0';
+const REPORT_VERSION = '1.2.0';
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
@@ -830,10 +830,10 @@ function sanitizeScanResults(scanResults: RepositoryScanResult[]): RepositorySca
 }
 
 function issueImpact(severity: string): string {
-    if (severity === 'critical') return 'May enable unauthorized execution, sensitive data exposure, or control-flow compromise.';
-    if (severity === 'high') return 'May expose a privileged execution path or materially weaken repository security controls.';
-    if (severity === 'medium') return 'May create an exploitable condition when combined with untrusted input or broader permissions.';
-    return 'May reduce prompt reliability, policy clarity, or defense in depth.';
+    if (severity === 'critical') return 'Could allow unauthorized commands, expose sensitive data, or change how the application behaves.';
+    if (severity === 'high') return 'Could give the AI system more access than intended or weaken an important security control.';
+    if (severity === 'medium') return 'Could become exploitable when combined with untrusted input or broader permissions.';
+    return 'Could make the AI system less reliable or make its safety expectations unclear.';
 }
 
 function issueFixFallback(severity: string): string {
@@ -841,6 +841,135 @@ function issueFixFallback(severity: string): string {
         return 'Constrain untrusted input, require explicit approval before privileged actions, and reduce tool or MCP permissions.';
     }
     return 'Add explicit boundaries, validation, and least-privilege constraints for the affected instruction or configuration.';
+}
+
+const INTERNAL_TERMINOLOGY = /\b(?:heuristic|source-to-sink|privileged sink|trust boundary|execution graph|internal engine|scanner|rule[_ -]?id|workflow node|execution edge|sink node|source node|node|edge)\b/i;
+
+function plainFixCandidate(finding: RepositoryScanFinding, fallback: string): string {
+    const candidate = [finding.fix, finding.recommendation].find(value => value && !INTERNAL_TERMINOLOGY.test(value));
+    if (!candidate || INTERNAL_TERMINOLOGY.test(candidate)) return fallback;
+    return redactSecrets(candidate).trim();
+}
+
+function plainLanguageIssue(finding: RepositoryScanFinding): Pick<RepositoryExecutionIssue, 'issue' | 'impact' | 'whyThisMatters' | 'howToFix'> {
+    const signal = `${finding.rule_id} ${finding.category || ''} ${finding.message || ''}`.toLowerCase();
+
+    if (/injection|jailbreak|override|evasion|rag/.test(signal)) {
+        const fallback = 'Separate untrusted content from trusted instructions, reject attempts to replace system rules, and validate the resulting action before it runs.';
+        return {
+            issue: 'Untrusted content can change how the AI system follows instructions.',
+            impact: 'An attacker could bypass the intended behavior, trigger actions the developer did not approve, or expose protected information.',
+            whyThisMatters: 'Applications often combine developer instructions with user or retrieved content. Without a clear separation, outside content can take control of the workflow.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
+
+    if (/secret|credential|api.?key|password|token|pii|sensitive.?data/.test(signal)) {
+        const fallback = 'Remove secrets from prompts and configuration, use a managed secret store, limit access to approved operations, and redact sensitive values from outputs and logs.';
+        return {
+            issue: 'Sensitive information may be exposed or used more broadly than intended.',
+            impact: 'Credentials, personal data, or private repository information could be disclosed, logged, or sent to an unintended destination.',
+            whyThisMatters: 'A single exposed secret can grant access beyond this workflow and may require credential rotation or incident response.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
+
+    if (/memory|persist|remember|session/.test(signal)) {
+        const fallback = 'Restrict what can be stored, validate content before saving it, separate users and sessions, and require review before stored instructions affect future runs.';
+        return {
+            issue: 'Untrusted instructions or sensitive information may be saved for later use.',
+            impact: 'Unsafe behavior or private data could persist across sessions and influence future requests.',
+            whyThisMatters: 'Stored agent memory can turn a one-time input into a repeated security or privacy problem.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
+
+    if (/mcp|permission|wildcard|auto.?approve|auto.?execute|tool.?poison/.test(signal)) {
+        const fallback = 'Grant only the permissions this tool needs, disable automatic approval for sensitive operations, and require a developer or user confirmation before high-impact actions.';
+        return {
+            issue: 'A connected tool has broader access or automation than the workflow needs.',
+            impact: 'The AI system could read files, run commands, access network services, or use credentials without sufficient review.',
+            whyThisMatters: 'Connected tools act with the permissions of the local environment. Broad or automatic access makes an unsafe instruction much more damaging.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
+
+    if (/shell|privileged|sink|escalation|workflow|autonomous|tool.?routing/.test(signal)) {
+        const fallback = 'Require approval before sensitive actions, limit tool access to the minimum required operations, and validate inputs before they are passed to commands or external services.';
+        return {
+            issue: 'AI-controlled instructions can reach a sensitive action.',
+            impact: 'The workflow could run commands, change files, contact external services, or access protected data in ways the developer did not intend.',
+            whyThisMatters: 'The risk is not limited to generated text. The affected workflow can turn model output into a real action with security or operational consequences.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
+
+    if (/output|format|structure|clarity|consistency|best.?practice|efficiency|token/.test(signal)) {
+        const fallback = 'Make the expected input, output, validation, and failure behavior explicit, then add a test that verifies the required behavior.';
+        return {
+            issue: 'The instruction does not clearly define an important behavior or safety constraint.',
+            impact: 'The AI system may produce inconsistent output, ignore an expected restriction, or fail in ways that are difficult to detect.',
+            whyThisMatters: 'Clear and testable instructions reduce unexpected behavior and make changes safer to review.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
+
+    const fallback = issueFixFallback(finding.severity);
+    return {
+        issue: 'The affected AI instruction or configuration needs a security review.',
+        impact: issueImpact(finding.severity),
+        whyThisMatters: 'The current configuration leaves behavior open to misuse or unexpected results, especially when it handles untrusted input or connected tools.',
+        howToFix: plainFixCandidate(finding, fallback),
+    };
+}
+
+function executionStepLabel(node: RepositoryExecutionNode): string {
+    if (node.type === 'PROMPT') return node.relativePath ? `Instructions in ${node.relativePath}` : 'AI instructions';
+    if (node.type === 'SKILL') return `Agent skill ${node.label}`;
+    if (node.type === 'MEMORY') return `Stored agent memory ${node.label}`;
+    if (node.type === 'TOOL') return `Connected tool ${node.label}`;
+    if (node.type === 'MCP_SERVER') return `MCP server ${node.label}`;
+    if (node.type === 'WORKFLOW') return `Automation workflow ${node.label}`;
+    if (node.type === 'ACTION') {
+        const action = node.metadata?.action as RepositorySensitiveAction | undefined;
+        return action ? SENSITIVE_ACTION_LABELS[action] : node.label.replace(/[_-]+/g, ' ');
+    }
+    return node.label.replace(/[_-]+/g, ' ');
+}
+
+function technicalExecutionPath(
+    finding: RepositoryScanFinding,
+    pathIds: string[],
+    reachablePaths: ReachableExecutionPath[],
+    executionMap: RepositoryExecutionMap,
+): string {
+    const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
+    const pathItem = pathIds.map(pathId => reachablePaths.find(item => item.id === pathId)).find(Boolean);
+    if (pathItem) {
+        const labels = pathItem.nodeIds
+            .map(nodeId => nodesById.get(nodeId))
+            .filter(Boolean)
+            .map(node => executionStepLabel(node!));
+        if (labels.length > 0) return labels.join(' → ');
+    }
+
+    const workflowLabels = (finding.workflow?.path?.nodes || [])
+        .map((node: { type?: string; label?: string }) => {
+            if (node.type === 'user_input') return 'User-provided instructions';
+            if (node.type === 'prompt' || node.type === 'prompt_template') return 'AI instructions';
+            if (node.type === 'tool_router' || node.type === 'mcp_tool') return 'Connected tool';
+            if (node.type === 'mcp_server') return 'MCP server';
+            if (node.type === 'agent_memory') return 'Stored agent memory';
+            if (node.type === 'shell_execution') return 'Shell execution';
+            if (node.type === 'filesystem_access') return 'Filesystem access';
+            if (node.type === 'network_access') return 'Network access';
+            if (node.type === 'credential_store' || node.type === 'secret') return 'Credential access';
+            if (node.type === 'external_api') return 'External API call';
+            return node.label && !INTERNAL_TERMINOLOGY.test(node.label) ? node.label.replace(/[_-]+/g, ' ') : 'Workflow step';
+        })
+        .filter(Boolean);
+    if (workflowLabels.length > 0) return workflowLabels.join(' → ');
+    return 'No connected sensitive action was confirmed for this finding.';
 }
 
 function issueConfidence(finding: RepositoryScanFinding): RepositoryExecutionIssue['confidence'] {
@@ -862,7 +991,7 @@ function issueConfidence(finding: RepositoryScanFinding): RepositoryExecutionIss
     };
 }
 
-function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], reachablePaths: ReachableExecutionPath[]): RepositoryExecutionIssue[] {
+function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], reachablePaths: ReachableExecutionPath[], executionMap: RepositoryExecutionMap): RepositoryExecutionIssue[] {
     const root = path.resolve(rootPath);
     const issues = new Map<string, RepositoryExecutionIssue>();
 
@@ -875,13 +1004,11 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
             if (finding.waived) continue;
 
             const id = stableId('issue', `${displayFile}:${finding.rule_id}:${finding.line || 1}:${finding.column || 1}`);
-            const message = redactSecrets(finding.message || finding.rule_id);
             const evidenceSnippet = redactSecrets(finding.evidence || finding.message || finding.rule_id);
-            const fixSuggestions = Array.from(new Set([
+            const detectedFixSuggestions = Array.from(new Set([
                 finding.fix ? redactSecrets(finding.fix) : '',
                 finding.recommendation ? redactSecrets(finding.recommendation) : '',
-            ].filter(Boolean)));
-            if (fixSuggestions.length === 0) fixSuggestions.push(issueFixFallback(finding.severity));
+            ].filter(candidate => candidate && !INTERNAL_TERMINOLOGY.test(candidate))));
 
             const pathIds = reachablePaths
                 .filter(pathItem => pathItem.findings.some(pathFinding =>
@@ -891,25 +1018,31 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 .map(pathItem => pathItem.id)
                 .sort();
             const workflowReason = finding.workflow?.path?.riskStory || finding.workflow?.path?.summary;
+            const copy = plainLanguageIssue(finding);
+            const fixSuggestions = Array.from(new Set([copy.howToFix, ...detectedFixSuggestions]));
+            const evidence = [{
+                id: stableId('evidence', `${displayFile}:${finding.rule_id}:${finding.line || 1}:${finding.column || 1}`),
+                file: displayFile,
+                line: finding.line,
+                column: finding.column,
+                snippet: evidenceSnippet,
+                source: workflowReason ? 'workflow' as const : 'scanner' as const,
+            }];
+            const confidence = issueConfidence(finding);
 
             issues.set(id, {
                 id,
                 ruleId: finding.rule_id,
                 severity: finding.severity,
                 category: finding.category || 'security',
-                issue: message,
-                impact: redactSecrets(finding.risk || issueImpact(finding.severity)),
-                whyThisMatters: redactSecrets(finding.why || workflowReason || message),
-                howToFix: fixSuggestions[0],
-                evidence: [{
-                    id: stableId('evidence', `${displayFile}:${finding.rule_id}:${finding.line || 1}:${finding.column || 1}`),
-                    file: displayFile,
-                    line: finding.line,
-                    column: finding.column,
-                    snippet: evidenceSnippet,
-                    source: workflowReason ? 'workflow' : 'scanner',
-                }],
-                confidence: issueConfidence(finding),
+                ...copy,
+                evidence,
+                confidence,
+                technicalDetails: {
+                    executionPath: technicalExecutionPath(finding, pathIds, reachablePaths, executionMap),
+                    evidence,
+                    confidence,
+                },
                 impactedFiles: [displayFile],
                 fixSuggestions,
                 pathIds,
@@ -1018,7 +1151,7 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     const generatedAt = new Date().toISOString();
     const sanitizedArtifacts = sanitizeArtifacts(artifacts);
     const sanitizedPaths = sanitizeReachablePaths(reachablePaths);
-    const issues = canonicalIssues(root, scanResults, sanitizedPaths);
+    const issues = canonicalIssues(root, scanResults, sanitizedPaths, executionMap);
     const summary = generateRepositorySummary(artifacts, executionMap, reachablePaths);
     return {
         id: stableId('repo-report', `${root}:${generatedAt}`),
@@ -1045,7 +1178,7 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
         fixPlan: sanitizedPaths.slice(0, 10).map((pathItem, index) => ({
             id: stableId('fix', pathItem.id),
             title: `Review ${pathItem.sensitiveAction || pathItem.sensitiveActions[0] || 'reachable action'} path`,
-            description: 'Break unnecessary source-to-sink reachability, require approval for sensitive tools, and scope MCP/tool permissions.',
+            description: 'Remove unnecessary routes from AI-controlled instructions to sensitive actions, require approval for sensitive tools, and limit MCP/tool permissions.',
             pathId: pathItem.id,
             artifactId: pathItem.sourceNodeId,
         })),

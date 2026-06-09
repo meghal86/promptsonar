@@ -222,9 +222,11 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
         lines.push(`    Issue: ${issue.issue}`);
         lines.push(`    Impact: ${issue.impact}`);
         lines.push(`    Why this matters: ${issue.whyThisMatters}`);
-        lines.push(`    How to fix: ${issue.howToFix}`);
-        lines.push(`    Evidence: ${issue.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`);
-        lines.push(`    Confidence: ${issue.confidence.label} (${issue.confidence.score}%)`);
+        lines.push(`    Fix: ${issue.howToFix}`);
+        lines.push('    Technical Details:');
+        lines.push(`      Execution path: ${issue.technicalDetails.executionPath}`);
+        lines.push(`      Evidence: ${issue.technicalDetails.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`);
+        lines.push(`      Confidence: ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%)`);
     }
     if (report.issues.length > 20) {
         lines.push(`  ... ${report.issues.length - 20} more issues in JSON, SARIF, or HTML output`);

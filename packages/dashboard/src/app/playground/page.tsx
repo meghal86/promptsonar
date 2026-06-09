@@ -8,7 +8,7 @@ import { PROMPTSONAR_VERSION } from '@/lib/version';
 import { createExecutionPathReport, createReportUrl, reportToIssueTemplate, reportToMarkdown, reportToPrComment } from '@/lib/reports/executionPathReport';
 import {
   PLAYGROUND_ADVANCED_TABS,
-  PLAYGROUND_ISSUE_CARD_QUESTIONS,
+  PLAYGROUND_ISSUE_CARD_SECTIONS,
   PLAYGROUND_ISSUE_HIERARCHY,
 } from '@/lib/playgroundIssueHierarchy';
 
@@ -535,6 +535,7 @@ const uiFindingFromRepositoryIssue = (issue: any) => ({
   suggested_fix: issue.howToFix,
   evidence: issue.evidence,
   confidence: issue.confidence,
+  technicalDetails: issue.technicalDetails,
   impactedFiles: issue.impactedFiles,
   fixSuggestions: issue.fixSuggestions,
   pathIds: issue.pathIds,
@@ -756,7 +757,7 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
   return {
     ...baseReport,
     id: baseReport?.id || 'repo-report:playground',
-    version: baseReport?.version || '1.1.0',
+    version: baseReport?.version || '1.2.0',
     generated_at: baseReport?.generated_at || new Date().toISOString(),
     scannedAt: baseReport?.scannedAt || new Date().toISOString(),
     repository: baseReport?.repository || { root: '/playground', name: 'Playground' },
@@ -2834,15 +2835,16 @@ export default function PlaygroundPage() {
     primaryIssueWorkflow?.risk === 'critical' ||
     primaryIssueWorkflow?.risk === 'high'
   );
-  const scanConsequence = hasPrimaryHighRiskWorkflow
+  const primaryCanonicalIssue = primaryIssueFinding?.canonicalIssue;
+  const scanConsequence = primaryCanonicalIssue?.impact || (hasPrimaryHighRiskWorkflow
     ? isRepositoryExecutionScan
-      ? `A reachable execution path connects AI-controlled instructions to ${displaySensitiveAction(issueReachedAction)} access. The path also includes credential-store and shell-execution access.`
+      ? `AI-controlled instructions can reach ${displaySensitiveAction(issueReachedAction)} access. The same workflow can also access credentials and run shell commands.`
       : `A reachable execution path connects AI-controlled instructions to ${displaySensitiveAction(issueReachedAction)} access.`
     : primaryIssueFinding
       ? primaryIssueFinding.explanation || primaryIssueFinding.message || 'PromptSonar found an issue that requires review.'
     : isRepositoryExecutionScan
       ? 'No additional structural issues detected outside the selected reachable path.'
-      : 'This prompt stays contained. No risky destinations found.';
+      : 'This prompt stays contained. No risky destinations found.');
   const scanTone = hasPrimaryHighRiskWorkflow
     ? 'border-red-200 bg-red-50/45 text-red-800'
     : hasActionableFindings
@@ -2855,6 +2857,9 @@ export default function PlaygroundPage() {
       const text = value?.trim();
       if (text && !reasons.includes(text)) reasons.push(text);
     };
+    if (primaryCanonicalIssue?.whyThisMatters) {
+      return [primaryCanonicalIssue.whyThisMatters];
+    }
     if (!primaryIssueWorkflow && primaryIssueFinding) {
       [primaryIssueFinding].forEach((finding: any) => {
         add(finding.explanation || finding.message || finding.title);
@@ -2872,10 +2877,10 @@ export default function PlaygroundPage() {
     if (isRepositoryExecutionScan && hasHighRiskWorkflow) {
       return [
         'External API access is reachable: The scanned workflow includes a path to outbound network access.',
-        'Credential-store access is reachable: The path includes a credential or secret access step before the external API call.',
-        'Shell execution is reachable: The path includes a privileged command-execution step.',
-        'Trust boundary crossed: Prompt-controlled or user-controlled text can influence a more sensitive workflow stage.',
-        'Confirmed path: PromptSonar found a connected path, not only a loose keyword match.',
+        'Credential access is reachable: The workflow can use a credential or secret before making the external API call.',
+        'Shell execution is reachable: The workflow can run a system command.',
+        'User-controlled text can influence a more sensitive stage of the workflow.',
+        'PromptSonar found a connected route from instructions to the sensitive action.',
       ];
     }
     if (primaryIssueWorkflow?.path?.trustBoundaryCrossed) add('Prompt-controlled or user-controlled text can influence a more sensitive workflow stage.');
@@ -2890,26 +2895,29 @@ export default function PlaygroundPage() {
     : primaryIssueFinding
       ? getFindingConfidence(primaryIssueFinding)
       : 'Potential';
+  const issueConfidenceScore = primaryCanonicalIssue?.technicalDetails?.confidence?.score
+    ?? primaryCanonicalIssue?.confidence?.score
+    ?? (primaryIssueWorkflow ? getWorkflowConfidence(displayedScanText, primaryIssueWorkflow).score : null);
   const issueSeverity = hasPrimaryHighRiskWorkflow
     ? String(primaryIssueFinding?.severity || issueGrouping?.root.severity || 'high')
     : primaryIssueFinding?.severity || 'none';
-  const issueTitle = hasPrimaryHighRiskWorkflow
+  const issueTitle = primaryCanonicalIssue?.issue || (hasPrimaryHighRiskWorkflow
     ? issueGrouping?.root.label || (isRepositoryExecutionScan ? 'Reachable Sensitive Execution Path' : 'High-Risk Execution Path')
     : primaryIssueFinding
       ? String(primaryIssueFinding.title || primaryIssueFinding.rule_id || 'Finding requires review')
           .replace(/_/g, ' ')
           .replace(/\b\w/g, (letter) => letter.toUpperCase())
-      : 'No Reachable Sensitive Execution Path';
+      : 'No Reachable Sensitive Execution Path');
   const issueImpact = scanConsequence;
-  const issueRecommendedFix = hasPrimaryHighRiskWorkflow
+  const issueRecommendedFix = primaryCanonicalIssue?.howToFix || (hasPrimaryHighRiskWorkflow
     ? isRepositoryExecutionScan
-      ? 'Add an approval gate before sensitive tools, scope MCP and tool permissions, and break unnecessary source-to-sink routes.'
+      ? 'Add an approval step before sensitive tools, limit MCP and tool permissions, and remove unnecessary access to sensitive actions.'
       : primaryWorkflowFinding
         ? getRemediation(primaryWorkflowFinding).mitigation
         : 'Require approval before sensitive actions and restrict tools to the minimum necessary permissions.'
     : primaryIssueFinding
       ? primaryIssueFinding.suggested_fix || getRemediation(primaryIssueFinding).mitigation
-      : 'No immediate remediation is required. Keep approval boundaries and scoped tool permissions in place.';
+      : 'No immediate remediation is required. Keep approval boundaries and scoped tool permissions in place.');
   const issueEvidence = (() => {
     if (!primaryIssueWorkflow && primaryIssueFinding) {
       return [getFindingEvidence(primaryIssueFinding)];
@@ -2919,6 +2927,9 @@ export default function PlaygroundPage() {
     if (primaryIssueFinding) return [getFindingEvidence(primaryIssueFinding)];
     return ['No sensitive execution evidence was detected in this scan.'];
   })();
+  const issueTechnicalPath = primaryCanonicalIssue?.technicalDetails?.executionPath
+    || (primaryIssueWorkflow?.path?.nodes || []).map((node: any) => humanType(node.type)).join(' → ')
+    || 'No connected sensitive action was confirmed for this finding.';
   const primaryRiskReduction = typeof primaryIssueWorkflow?.workflow_diff?.riskReduction === 'number'
     ? `${primaryIssueWorkflow.workflow_diff.riskReduction}%`
     : null;
@@ -3619,34 +3630,46 @@ export default function PlaygroundPage() {
                     {result.score}/100
                   </span>
                 </div>
-                <div className="grid gap-3 lg:grid-cols-3">
+                <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
                   <div className="rounded-lg border border-white/70 bg-white/80 p-4">
                     <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">
-                      {PLAYGROUND_ISSUE_CARD_QUESTIONS[0]}
+                      {PLAYGROUND_ISSUE_CARD_SECTIONS[0]}
                     </span>
                     <h2 className="mt-1 text-lg font-black tracking-tight text-slate-950 sm:text-xl">{issueTitle}</h2>
                   </div>
                   <div className="rounded-lg border border-white/70 bg-white/80 p-4">
                     <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">
-                      {PLAYGROUND_ISSUE_CARD_QUESTIONS[1]}
+                      {PLAYGROUND_ISSUE_CARD_SECTIONS[1]}
                     </span>
                     <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{issueImpact}</p>
                   </div>
                   <div className="rounded-lg border border-white/70 bg-white/80 p-4">
                     <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">
-                      {PLAYGROUND_ISSUE_CARD_QUESTIONS[2]}
+                      {PLAYGROUND_ISSUE_CARD_SECTIONS[2]}
+                    </span>
+                    <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{whyReasons[0] || issueImpact}</p>
+                  </div>
+                  <div className="rounded-lg border border-white/70 bg-white/80 p-4">
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">
+                      {PLAYGROUND_ISSUE_CARD_SECTIONS[3]}
                     </span>
                     <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{issueRecommendedFix}</p>
                   </div>
                 </div>
                 <details className="rounded-lg border border-white/70 bg-white/60 p-3">
                   <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-slate-700">
-                    Show scan context
+                    {PLAYGROUND_ISSUE_CARD_SECTIONS[4]}
                   </summary>
+                  <div className="mt-3 rounded-lg border border-white/70 bg-white/75 px-3 py-2 text-xs">
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Execution path</span>
+                    <span className="mt-1 block font-semibold leading-5 text-slate-800">{issueTechnicalPath}</span>
+                    <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Evidence</span>
+                    <span className="mt-1 block font-mono text-[10px] font-semibold leading-5 text-slate-700">{issueEvidence.join(' · ')}</span>
+                  </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
-                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Score</span>
-                      <span className="mt-1 block font-mono text-lg font-black text-slate-900">{result.score}/100</span>
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Confidence</span>
+                      <span className="mt-1 block font-mono text-lg font-black text-slate-900">{issueConfidenceLabel}{issueConfidenceScore !== null ? ` (${issueConfidenceScore}%)` : ''}</span>
                     </div>
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Source</span>
@@ -3953,7 +3976,7 @@ export default function PlaygroundPage() {
                         {isRepositoryExecutionScan
                           ? 'Primary architectural issue detected: a reachable execution path connects AI-controlled instructions to sensitive actions.'
                           : primaryIssueFinding
-                            ? 'This is an isolated file-level finding. No evidence-backed source-to-sink execution path is attached to it.'
+                            ? 'This is an isolated file-level finding. No connected route from the affected instructions to a sensitive action is attached to it.'
                             : 'No structural issue was detected.'}
                       </div>
                     );
@@ -4442,7 +4465,7 @@ export default function PlaygroundPage() {
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50/20 p-5">
                     <div className="text-[10px] font-black uppercase tracking-widest text-emerald-800">No evidence-backed execution path</div>
                     <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
-                      The selected file has {result.findings.length} finding{result.findings.length === 1 ? '' : 's'}, but PromptSonar did not observe a connected source-to-sink path.
+                      The selected file has {result.findings.length} finding{result.findings.length === 1 ? '' : 's'}, but PromptSonar did not observe a connected route from the affected instructions to a sensitive action.
                     </p>
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       {[

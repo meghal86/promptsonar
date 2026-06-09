@@ -288,6 +288,7 @@ describe('repository execution analysis', () => {
         expect(report.issueSummary.total).toBe(report.issues.length);
         expect(sarif.runs[0].results).toHaveLength(report.issueSummary.total);
         expect(html).toContain(`<div class="metric">${report.issueSummary.total}</div><div class="label">Canonical Issues</div>`);
+        expect(html).toContain('Technical Details');
         reportIds.forEach(id => expect(html).toContain(id));
 
         for (const issue of report.issues) {
@@ -298,11 +299,61 @@ describe('repository execution analysis', () => {
             expect(issue.evidence.length).toBeGreaterThan(0);
             expect(issue.confidence.score).toBeGreaterThanOrEqual(0);
             expect(issue.confidence.label).toBeTruthy();
+            expect(issue.technicalDetails.executionPath).toBeTruthy();
+            expect(issue.technicalDetails.evidence).toEqual(issue.evidence);
+            expect(issue.technicalDetails.confidence).toEqual(issue.confidence);
 
             if (issue.severity === 'critical' || issue.severity === 'high') {
                 expect(issue.impactedFiles.length).toBeGreaterThan(0);
                 expect(issue.fixSuggestions.length).toBeGreaterThan(0);
             }
         }
+
+        sarif.runs[0].results.forEach((result: any) => {
+            expect(result.properties.technical_details.executionPath).toBeTruthy();
+        });
+    });
+
+    it('translates technical findings into complete plain-language issues', () => {
+        const root = fixtureRepo({
+            'reviewer.prompt': 'Route user instructions through the tool router to shell execution.',
+        });
+        const filePath = path.join(root, 'reviewer.prompt');
+        const report = analyzeRepositoryExecution(root, [{
+            filePath,
+            findings: [{
+                rule_id: 'sec_privileged_sink_access',
+                category: 'security',
+                severity: 'critical',
+                line: 1,
+                message: 'Heuristic found source-to-sink reachability through a privileged sink and trust boundary node.',
+                risk: 'The execution graph edge may cross a trust boundary.',
+                why: 'The internal engine confirmed a privileged sink.',
+                fix: 'Break the source-to-sink edge before the privileged sink.',
+                evidence: 'tool_router -> shell_execution',
+                confidence: 'VERY_HIGH',
+                workflow: {
+                    confidence_score: 94,
+                    path: {
+                        privilegedSinkReached: true,
+                        nodes: [{ type: 'user_input' }, { type: 'tool_router' }, { type: 'shell_execution' }],
+                    },
+                },
+            }],
+        }]);
+
+        const issue = report.issues[0];
+        const narrative = [issue.issue, issue.impact, issue.whyThisMatters, issue.howToFix].join(' ');
+        const technicalNarrative = issue.technicalDetails.executionPath;
+
+        expect(issue.issue).toBeTruthy();
+        expect(issue.impact).toBeTruthy();
+        expect(issue.whyThisMatters).toBeTruthy();
+        expect(issue.howToFix).toBeTruthy();
+        expect(narrative).not.toMatch(/\b(?:heuristic|source-to-sink|privileged sink|trust boundary|execution graph|node|edge|internal engine|scanner|rule[_ -]?id)\b/i);
+        expect(technicalNarrative).not.toMatch(/\b(?:heuristic|source-to-sink|privileged sink|trust boundary|execution graph|node|edge|internal engine|scanner|rule[_ -]?id)\b/i);
+        expect(issue.technicalDetails.evidence).toEqual(issue.evidence);
+        expect(issue.technicalDetails.confidence).toEqual(issue.confidence);
+        expect(issue.technicalDetails.executionPath).toContain('Shell execution');
     });
 });

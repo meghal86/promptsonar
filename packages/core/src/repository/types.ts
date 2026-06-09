@@ -200,6 +200,12 @@ export interface RepositoryExecutionIssueEvidence {
     source: 'scanner' | 'workflow' | 'repository-graph';
 }
 
+export interface RepositoryExecutionIssueConfidence {
+    score: number;
+    level: RepositoryPathConfidence;
+    label: 'Confirmed' | 'Probable' | 'Potential';
+}
+
 export interface RepositoryExecutionIssue {
     id: string;
     ruleId: string;
@@ -210,10 +216,11 @@ export interface RepositoryExecutionIssue {
     whyThisMatters: string;
     howToFix: string;
     evidence: RepositoryExecutionIssueEvidence[];
-    confidence: {
-        score: number;
-        level: RepositoryPathConfidence;
-        label: 'Confirmed' | 'Probable' | 'Potential';
+    confidence: RepositoryExecutionIssueConfidence;
+    technicalDetails: {
+        executionPath: string;
+        evidence: RepositoryExecutionIssueEvidence[];
+        confidence: RepositoryExecutionIssueConfidence;
     };
     impactedFiles: string[];
     fixSuggestions: string[];

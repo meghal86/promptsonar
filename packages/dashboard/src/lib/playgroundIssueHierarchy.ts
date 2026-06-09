@@ -7,10 +7,12 @@ export const PLAYGROUND_ISSUE_HIERARCHY = [
   'Advanced Details',
 ] as const;
 
-export const PLAYGROUND_ISSUE_CARD_QUESTIONS = [
-  'What is wrong?',
-  'Why should I care?',
-  'How do I fix it?',
+export const PLAYGROUND_ISSUE_CARD_SECTIONS = [
+  'Issue',
+  'Impact',
+  'Why this matters',
+  'Fix',
+  'Technical Details',
 ] as const;
 
 export const PLAYGROUND_ADVANCED_TABS = [

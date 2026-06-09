@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PLAYGROUND_ADVANCED_TABS,
-  PLAYGROUND_ISSUE_CARD_QUESTIONS,
+  PLAYGROUND_ISSUE_CARD_SECTIONS,
   PLAYGROUND_ISSUE_HIERARCHY,
 } from '../src/lib/playgroundIssueHierarchy';
 
@@ -17,11 +17,13 @@ describe('Playground issue-first hierarchy', () => {
     ]);
   });
 
-  it('requires every primary issue card to answer the triage questions', () => {
-    expect(PLAYGROUND_ISSUE_CARD_QUESTIONS).toEqual([
-      'What is wrong?',
-      'Why should I care?',
-      'How do I fix it?',
+  it('requires every primary issue card to show plain-language and technical sections', () => {
+    expect(PLAYGROUND_ISSUE_CARD_SECTIONS).toEqual([
+      'Issue',
+      'Impact',
+      'Why this matters',
+      'Fix',
+      'Technical Details',
     ]);
   });
 
