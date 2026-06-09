@@ -20,7 +20,7 @@ import {
     type WorkflowDiff,
     workflowPathSummary,
 } from '@promptsonar/core';
-import { generateSarif, ScanResult, scanFileContent, scanFiles } from './scanner-bridge';
+import { ScanResult, scanFileContent, scanFiles } from './scanner-bridge';
 
 type GitHubPullRequestEvent = {
     pull_request?: {
@@ -169,21 +169,6 @@ async function uploadSarifToGitHub(args: { owner: string; repo: string; token: s
     });
 }
 
-function severityCounts(results: ScanResult[]): { critical: number; high: number; medium: number } {
-    let critical = 0;
-    let high = 0;
-    let medium = 0;
-    for (const r of results) {
-        for (const f of r.findings) {
-            if (f.waived) continue;
-            if (f.severity === 'critical') critical += 1;
-            else if (f.severity === 'high') high += 1;
-            else if (f.severity === 'medium') medium += 1;
-        }
-    }
-    return { critical, high, medium };
-}
-
 function collectExecutionPaths(results: ScanResult[]): string[] {
     const sinks = new Set<string>();
     for (const r of results) {
@@ -237,12 +222,24 @@ function repositorySummaryMarkdown(report: ReturnType<typeof analyzeRepositoryEx
         `| Execution Nodes | ${s.executionGraph.nodes} |`,
         `| Execution Edges | ${s.executionGraph.edges} |`,
         `| Reachable Sensitive Actions | ${report.reachablePaths.length} |`,
+        `| Canonical Issues | ${report.issueSummary.total} |`,
         `| High Risk Paths | ${s.riskSummary.high} |`,
         `| Critical Paths | ${s.riskSummary.critical} |`,
         `| Trust Status | ${s.trustStatus} |`,
         '',
         `Reachable sensitive actions: ${reachableActions}`,
         '',
+        ...report.issues.slice(0, 10).flatMap(issue => [
+            `### ${issue.id}`,
+            '',
+            `- **Issue:** ${issue.issue}`,
+            `- **Impact:** ${issue.impact}`,
+            `- **Why this matters:** ${issue.whyThisMatters}`,
+            `- **How to fix:** ${issue.howToFix}`,
+            `- **Evidence:** ${issue.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`,
+            `- **Confidence:** ${issue.confidence.label} (${issue.confidence.score}%)`,
+            '',
+        ]),
     ].join('\n');
 }
 
@@ -381,7 +378,12 @@ async function run(): Promise<void> {
 
         let worstScore = 100;
         for (const r of results) worstScore = Math.min(worstScore, r.overall_score);
-        const counts = severityCounts(results);
+        const repositoryReport = analyzeRepositoryExecution(workspace, results as any);
+        const counts = {
+            critical: repositoryReport.issueSummary.critical,
+            high: repositoryReport.issueSummary.high,
+            medium: repositoryReport.issueSummary.medium,
+        };
 
         core.setOutput('score', worstScore.toString());
         core.setOutput('criticals', counts.critical.toString());
@@ -396,12 +398,13 @@ async function run(): Promise<void> {
         const confidenceOut = computeConfidenceSummary(results);
         core.setOutput('confidence_score', confidenceOut ? String(confidenceOut.score) : '');
         core.setOutput('confidence_level', confidenceOut ? confidenceOut.level : '');
+        core.setOutput('issue_count', String(repositoryReport.issueSummary.total));
+        core.setOutput('issue_ids', JSON.stringify(repositoryReport.issues.map(issue => issue.id)));
 
         const sarifPath = path.join(workspace, 'promptsonar-results.sarif');
-        fs.writeFileSync(sarifPath, generateSarif(results), 'utf-8');
+        fs.writeFileSync(sarifPath, formatRepositoryReportSarif(repositoryReport), 'utf-8');
         core.setOutput('sarif-path', sarifPath);
 
-        const repositoryReport = analyzeRepositoryExecution(workspace, results as any);
         const repositoryReportPath = path.join(workspace, 'repository-report.json');
         const executionMapPath = path.join(workspace, 'execution-map.json');
         const repositoryHtmlPath = path.join(workspace, 'repository-report.html');
@@ -479,17 +482,17 @@ async function run(): Promise<void> {
                 });
 
                 const patchLines = file.patch ? extractChangedLinesFromGitHubPatch(file.patch) : new Set<number>();
-                for (const r of afterResults) {
-                    for (const finding of r.findings) {
-                        if (finding.waived) continue;
-                        if (!(finding.severity === 'critical' || finding.severity === 'high')) continue;
-                        if (!patchLines.has(finding.line)) continue;
-                        inlineComments.push({
-                            path: file.filename,
-                            line: finding.line,
-                            body: `**${finding.rule_id}** (${finding.severity})\n\n${finding.message}\n\nEvidence: \`${finding.evidence}\`\n\nRecommendation: ${finding.fix}`,
-                        });
-                    }
+                for (const issue of repositoryReport.issues) {
+                    if (!(issue.severity === 'critical' || issue.severity === 'high')) continue;
+                    if (!issue.impactedFiles.includes(file.filename.replace(/\\/g, '/'))) continue;
+                    const evidence = issue.evidence[0];
+                    const line = evidence?.line || 1;
+                    if (!patchLines.has(line)) continue;
+                    inlineComments.push({
+                        path: file.filename,
+                        line,
+                        body: `**${issue.id}** (${issue.severity})\n\n**Issue:** ${issue.issue}\n\n**Impact:** ${issue.impact}\n\n**Why this matters:** ${issue.whyThisMatters}\n\n**Evidence:** \`${evidence?.snippet || issue.issue}\`\n\n**How to fix:** ${issue.howToFix}`,
+                    });
                 }
             }
 

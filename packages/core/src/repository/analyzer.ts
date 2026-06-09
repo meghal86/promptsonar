@@ -10,7 +10,9 @@ import type {
     RepositoryExecutionMap,
     RepositoryExecutionNode,
     RepositoryExecutionNodeType,
+    RepositoryExecutionIssue,
     RepositoryExecutionReport,
+    RepositoryIssueSummary,
     RepositoryRisk,
     RepositoryScanFinding,
     RepositoryScanResult,
@@ -19,7 +21,7 @@ import type {
     RepositoryTrustStatus,
 } from './types';
 
-const REPORT_VERSION = '1.0.0';
+const REPORT_VERSION = '1.1.0';
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
@@ -827,6 +829,108 @@ function sanitizeScanResults(scanResults: RepositoryScanResult[]): RepositorySca
     }));
 }
 
+function issueImpact(severity: string): string {
+    if (severity === 'critical') return 'May enable unauthorized execution, sensitive data exposure, or control-flow compromise.';
+    if (severity === 'high') return 'May expose a privileged execution path or materially weaken repository security controls.';
+    if (severity === 'medium') return 'May create an exploitable condition when combined with untrusted input or broader permissions.';
+    return 'May reduce prompt reliability, policy clarity, or defense in depth.';
+}
+
+function issueFixFallback(severity: string): string {
+    if (severity === 'critical' || severity === 'high') {
+        return 'Constrain untrusted input, require explicit approval before privileged actions, and reduce tool or MCP permissions.';
+    }
+    return 'Add explicit boundaries, validation, and least-privilege constraints for the affected instruction or configuration.';
+}
+
+function issueConfidence(finding: RepositoryScanFinding): RepositoryExecutionIssue['confidence'] {
+    const workflowScore = finding.workflow?.confidence_score ?? finding.workflow?.path?.confidence_score;
+    const fallbackScores: Record<string, number> = {
+        VERY_HIGH: 95,
+        HIGH: 85,
+        MEDIUM: 70,
+        LOW: 50,
+    };
+    const score = clampConfidence(typeof workflowScore === 'number'
+        ? workflowScore
+        : fallbackScores[String(finding.confidence || '').toUpperCase()] ?? 70);
+    const level: RepositoryExecutionIssue['confidence']['level'] = score >= 85 ? 'confirmed' : score >= 70 ? 'probable' : 'potential';
+    return {
+        score,
+        level,
+        label: pathConfidenceLabel(level),
+    };
+}
+
+function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], reachablePaths: ReachableExecutionPath[]): RepositoryExecutionIssue[] {
+    const root = path.resolve(rootPath);
+    const issues = new Map<string, RepositoryExecutionIssue>();
+
+    for (const result of scanResults) {
+        const absoluteFile = path.isAbsolute(result.filePath) ? path.resolve(result.filePath) : path.resolve(root, result.filePath);
+        const relativeFile = normalizePath(path.relative(root, absoluteFile));
+        const displayFile = relativeFile && !relativeFile.startsWith('../') ? relativeFile : normalizePath(result.filePath);
+
+        for (const finding of result.findings || []) {
+            if (finding.waived) continue;
+
+            const id = stableId('issue', `${displayFile}:${finding.rule_id}:${finding.line || 1}:${finding.column || 1}`);
+            const message = redactSecrets(finding.message || finding.rule_id);
+            const evidenceSnippet = redactSecrets(finding.evidence || finding.message || finding.rule_id);
+            const fixSuggestions = Array.from(new Set([
+                finding.fix ? redactSecrets(finding.fix) : '',
+                finding.recommendation ? redactSecrets(finding.recommendation) : '',
+            ].filter(Boolean)));
+            if (fixSuggestions.length === 0) fixSuggestions.push(issueFixFallback(finding.severity));
+
+            const pathIds = reachablePaths
+                .filter(pathItem => pathItem.findings.some(pathFinding =>
+                    pathFinding.ruleId === finding.rule_id &&
+                    (path.isAbsolute(pathFinding.filePath) ? path.resolve(pathFinding.filePath) : path.resolve(root, pathFinding.filePath)) === absoluteFile
+                ))
+                .map(pathItem => pathItem.id)
+                .sort();
+            const workflowReason = finding.workflow?.path?.riskStory || finding.workflow?.path?.summary;
+
+            issues.set(id, {
+                id,
+                ruleId: finding.rule_id,
+                severity: finding.severity,
+                category: finding.category || 'security',
+                issue: message,
+                impact: redactSecrets(finding.risk || issueImpact(finding.severity)),
+                whyThisMatters: redactSecrets(finding.why || workflowReason || message),
+                howToFix: fixSuggestions[0],
+                evidence: [{
+                    id: stableId('evidence', `${displayFile}:${finding.rule_id}:${finding.line || 1}:${finding.column || 1}`),
+                    file: displayFile,
+                    line: finding.line,
+                    column: finding.column,
+                    snippet: evidenceSnippet,
+                    source: workflowReason ? 'workflow' : 'scanner',
+                }],
+                confidence: issueConfidence(finding),
+                impactedFiles: [displayFile],
+                fixSuggestions,
+                pathIds,
+            });
+        }
+    }
+
+    return Array.from(issues.values()).sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function summarizeIssues(issues: RepositoryExecutionIssue[]): RepositoryIssueSummary {
+    const summary: RepositoryIssueSummary = { total: issues.length, critical: 0, high: 0, medium: 0, low: 0 };
+    for (const issue of issues) {
+        if (issue.severity === 'critical') summary.critical += 1;
+        else if (issue.severity === 'high') summary.high += 1;
+        else if (issue.severity === 'medium') summary.medium += 1;
+        else summary.low += 1;
+    }
+    return summary;
+}
+
 function sanitizeReachablePaths(paths: ReachableExecutionPath[]): ReachableExecutionPath[] {
     return paths.map(pathItem => ({
         ...pathItem,
@@ -914,6 +1018,7 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     const generatedAt = new Date().toISOString();
     const sanitizedArtifacts = sanitizeArtifacts(artifacts);
     const sanitizedPaths = sanitizeReachablePaths(reachablePaths);
+    const issues = canonicalIssues(root, scanResults, sanitizedPaths);
     const summary = generateRepositorySummary(artifacts, executionMap, reachablePaths);
     return {
         id: stableId('repo-report', `${root}:${generatedAt}`),
@@ -933,6 +1038,8 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
         executionMap,
         reachablePaths: sanitizedPaths,
         summary,
+        issues,
+        issueSummary: summarizeIssues(issues),
         findings: sanitizeScanResults(scanResults),
         evidence: canonicalEvidence(sanitizedArtifacts, executionMap, sanitizedPaths, scanResults),
         fixPlan: sanitizedPaths.slice(0, 10).map((pathItem, index) => ({

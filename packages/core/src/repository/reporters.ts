@@ -20,43 +20,46 @@ export function formatRepositoryReportJson(report: RepositoryExecutionReport): s
 
 export function formatRepositoryReportSarif(report: RepositoryExecutionReport): string {
     const rules = new Map<string, any>();
-    const results = report.reachablePaths.map(pathItem => {
-        const ruleId = `PROMPTSONAR-REPO-${pathItem.risk.toUpperCase()}`;
+    const results = report.issues.map(issue => {
+        const ruleId = issue.ruleId;
         rules.set(ruleId, {
             id: ruleId,
-            shortDescription: { text: `Repository reachable ${pathItem.risk} execution path` },
-            fullDescription: { text: 'Repository-level AI execution path analysis connects scanner findings and AI artifacts into reachable paths.' },
-            help: { text: 'Review the connected artifacts and remove unnecessary tool, MCP, filesystem, network, shell, or secret reachability.' },
+            shortDescription: { text: issue.issue },
+            fullDescription: { text: issue.whyThisMatters },
+            help: { text: issue.howToFix },
             properties: {
-                category: 'repository-execution',
-                precision: pathItem.confidence >= 85 ? 'high' : pathItem.confidence >= 70 ? 'medium' : 'low',
+                category: issue.category,
+                precision: issue.confidence.score >= 85 ? 'high' : issue.confidence.score >= 70 ? 'medium' : 'low',
             },
         });
-        const firstEvidence = pathItem.evidence[0];
+        const firstEvidence = issue.evidence[0];
         return {
             ruleId,
-            level: sarifLevel(pathItem.risk),
+            level: sarifLevel(issue.severity as RepositoryRisk),
             message: {
-                text: `${pathItem.explanation} Sensitive actions: ${pathItem.sensitiveActions.join(', ') || 'none'}.`,
+                text: issue.issue,
             },
             properties: {
-                repository_risk: pathItem.risk,
-                confidence: pathItem.confidence,
-                confidence_level: pathItem.confidenceLevel,
-                sensitive_actions: pathItem.sensitiveActions,
-                files: pathItem.files,
-                node_ids: pathItem.nodeIds,
-                edge_ids: pathItem.edgeIds,
-                evidence: pathItem.evidence,
-                findings: pathItem.findings,
+                issue_id: issue.id,
+                impact: issue.impact,
+                why_this_matters: issue.whyThisMatters,
+                how_to_fix: issue.howToFix,
+                evidence: issue.evidence,
+                confidence: issue.confidence,
+                impacted_files: issue.impactedFiles,
+                fix_suggestions: issue.fixSuggestions,
+                path_ids: issue.pathIds,
+            },
+            partialFingerprints: {
+                promptsonarIssue: issue.id,
             },
             locations: [{
                 physicalLocation: {
-                    artifactLocation: { uri: firstEvidence?.filePath || pathItem.files[0] || report.repository.root },
+                    artifactLocation: { uri: firstEvidence?.file || issue.impactedFiles[0] || report.repository.root },
                     region: {
                         startLine: Math.max(1, firstEvidence?.line || 1),
-                        startColumn: 1,
-                        snippet: firstEvidence?.snippet ? { text: firstEvidence.snippet } : undefined,
+                        startColumn: Math.max(1, firstEvidence?.column || 1),
+                        snippet: { text: firstEvidence?.snippet || issue.issue },
                     },
                 },
             }],
@@ -78,8 +81,11 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport): 
             results,
             properties: {
                 repository_summary: report.summary,
+                issue_summary: report.issueSummary,
+                issue_ids: report.issues.map(issue => issue.id),
                 execution_nodes: report.executionMap.nodes.length,
                 execution_edges: report.executionMap.edges.length,
+                reachable_paths: report.reachablePaths,
                 trust_status: report.summary.trustStatus,
             },
         }],
@@ -149,7 +155,15 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
       <div class="card"><div class="metric">${summary.executionGraph.nodes}</div><div class="label">Execution Nodes</div></div>
       <div class="card"><div class="metric">${summary.executionGraph.edges}</div><div class="label">Execution Edges</div></div>
       <div class="card"><div class="metric">${report.reachablePaths.length}</div><div class="label">Reachable Paths</div></div>
+      <div class="card"><div class="metric">${report.issueSummary.total}</div><div class="label">Canonical Issues</div></div>
     </div>
+    <section>
+      <h2>Canonical Issues</h2>
+      <table>
+        <tr><th>ID</th><th>Severity</th><th>Issue</th><th>Impact</th><th>How to Fix</th><th>Confidence</th></tr>
+        ${report.issues.map(issue => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td class="risk-${escapeHtml(issue.severity)}">${escapeHtml(String(issue.severity).toUpperCase())}</td><td>${escapeHtml(issue.issue)}<details><summary>Why this matters</summary>${escapeHtml(issue.whyThisMatters)}<br><strong>Evidence:</strong> ${issue.evidence.map(item => `<code>${escapeHtml(item.file)}:${item.line || 1}</code> ${escapeHtml(item.snippet)}`).join('<br>')}</details></td><td>${escapeHtml(issue.impact)}</td><td>${escapeHtml(issue.howToFix)}</td><td>${escapeHtml(issue.confidence.label)}<br>${issue.confidence.score}%</td></tr>`).join('') || '<tr><td colspan="6">No active issues.</td></tr>'}
+      </table>
+    </section>
     <section>
       <h2>Reachable Execution Paths</h2>
       <div class="metric">${report.reachablePaths.length}</div>

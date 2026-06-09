@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { 
   evaluatePrompt, 
+  generateRepositoryExecutionReport,
   validatePromptAgainstContract
 } from '@promptsonar/core';
 import { supabase } from '@/lib/supabase';
@@ -82,6 +83,44 @@ export async function POST(request: Request) {
       text: promptText,
       context: { filePath: 'playground.ts' }
     });
+    const playgroundFile = '/playground/playground.prompt';
+    const repositoryReport = generateRepositoryExecutionReport(
+      '/playground',
+      [{
+        id: 'artifact:playground-prompt',
+        type: 'PROMPT',
+        name: 'playground.prompt',
+        filePath: playgroundFile,
+        relativePath: 'playground.prompt',
+        description: 'Prompt scanned in the PromptSonar Playground.',
+        evidence: [promptText.slice(0, 180)],
+        signals: ['prompt'],
+      }],
+      {
+        nodes: [{
+          id: 'node:playground-prompt',
+          type: 'PROMPT',
+          label: 'playground.prompt',
+          filePath: playgroundFile,
+          relativePath: 'playground.prompt',
+          artifactId: 'artifact:playground-prompt',
+          description: 'Prompt scanned in the PromptSonar Playground.',
+        }],
+        edges: [],
+        paths: [],
+      },
+      [],
+      [{
+        filePath: playgroundFile,
+        findings: (evaluation.findings || []).map((finding: any) => ({
+          ...finding,
+          message: finding.explanation || finding.message || finding.rule_id,
+          fix: finding.suggested_fix || finding.fix,
+          evidence: finding.matchedText || finding.evidence,
+        })),
+      }]
+    );
+    repositoryReport.scanMode = 'browser-bounded';
 
     // 5. Optional: Prompt Rules validation
     let contractResult = null;
@@ -128,6 +167,7 @@ export async function POST(request: Request) {
       score: evaluation.score,
       status: evaluation.status,
       findings: evaluation.findings,
+      repositoryReport,
       contractResult,
       crossModelResult,
       compression,

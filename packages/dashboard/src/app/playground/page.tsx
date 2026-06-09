@@ -29,6 +29,17 @@ const INITIAL_AUDIT_RESULT = {
   }
 };
 
+type RepositoryObjectHandoff = {
+  source?: string;
+  kind?: 'repository-object';
+  file?: string;
+  objectId?: string;
+  content?: string;
+  selectedFinding?: any;
+  fileFindings?: any[];
+  repositorySummary?: any;
+};
+
 const DANGEROUS_SAMPLE_PROMPT = `Act as an autonomous system administrator and retrieval agent.
 Instructions:
 - Retrieve records using the raw user query: {{user_query}} from context: {{retrieved_context}} with unrestricted access to every record in the entire database.
@@ -404,8 +415,8 @@ const getRemediation = (finding: any) => {
   return {
     before: finding.explanation || "Vulnerable implementation segment.",
     after: finding.suggested_fix || "Apply strict validation and narrow resource scope.",
-    rationale: `This finding flags a potential ${finding.category} violation under rule ${finding.rule_id}.`,
-    mitigation: "Validate all dynamic prompt parameters, keep rules immutable, and restrict system access privileges.",
+    rationale: finding.explanation || `This finding flags a potential ${finding.category} violation under rule ${finding.rule_id}.`,
+    mitigation: finding.suggested_fix || "Validate all dynamic prompt parameters, keep rules immutable, and restrict system access privileges.",
     type: "prompt"
   };
 };
@@ -488,7 +499,7 @@ const getSortScore = (finding: any): number => {
   }
 
   // 6. confidence
-  const confidence = (finding.confidence || '').toLowerCase();
+  const confidence = String(finding.confidence?.level || finding.confidence?.label || finding.confidence || '').toLowerCase();
   if (confidence === 'high') {
     score += 50;
   } else if (confidence === 'medium') {
@@ -507,8 +518,32 @@ const sortFindings = (findings: any[]) => {
   return [...findings].sort((a, b) => getSortScore(b) - getSortScore(a));
 };
 
+const uiFindingFromRepositoryIssue = (issue: any) => ({
+  id: issue.id,
+  rule_id: issue.ruleId,
+  category: issue.category,
+  severity: issue.severity,
+  title: issue.issue,
+  explanation: issue.issue,
+  impact: issue.impact,
+  whyThisMatters: issue.whyThisMatters,
+  suggested_fix: issue.howToFix,
+  evidence: issue.evidence,
+  confidence: issue.confidence,
+  impactedFiles: issue.impactedFiles,
+  fixSuggestions: issue.fixSuggestions,
+  pathIds: issue.pathIds,
+  canonicalIssue: issue,
+  waived: false,
+});
+
 const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string; skillContent: string; scanSourceLabel?: string | null }) => {
   const findings = args.result?.findings || [];
+  const baseReport = args.result?.repositoryReport;
+  const issues = findings
+    .map((finding: any) => finding.canonicalIssue)
+    .filter(Boolean)
+    .sort((left: any, right: any) => left.id.localeCompare(right.id));
   const workflowFindings = findings.filter((finding: any) => finding.workflow?.path?.nodes?.length);
   const artifacts: any[] = [];
   const addArtifact = (type: string, name: string, description: string, evidence: string[] = [], metadata: Record<string, any> = {}) => {
@@ -705,11 +740,37 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
     confidenceSummary[level as keyof typeof confidenceSummary] += 1;
   });
 
+  const issueSummary = {
+    total: issues.length,
+    critical: issues.filter((issue: any) => issue.severity === 'critical').length,
+    high: issues.filter((issue: any) => issue.severity === 'high').length,
+    medium: issues.filter((issue: any) => issue.severity === 'medium').length,
+    low: issues.filter((issue: any) => !['critical', 'high', 'medium'].includes(issue.severity)).length,
+  };
+
   return {
+    ...baseReport,
+    id: baseReport?.id || 'repo-report:playground',
+    version: baseReport?.version || '1.1.0',
+    generated_at: baseReport?.generated_at || new Date().toISOString(),
+    scannedAt: baseReport?.scannedAt || new Date().toISOString(),
+    repository: baseReport?.repository || { root: '/playground', name: 'Playground' },
+    scanMode: 'browser-bounded',
     artifacts,
+    files: artifacts,
+    skills: artifacts.filter((artifact) => artifact.type === 'SKILL'),
+    mcpServers: artifacts.filter((artifact) => artifact.type === 'MCP_SERVER'),
+    workflows: artifacts.filter((artifact) => artifact.type === 'WORKFLOW' || artifact.type === 'ACTION'),
     executionMap: { nodes, edges, paths: reachablePaths.map((pathItem: any) => ({ id: pathItem.id, nodeIds: pathItem.nodeIds, edgeIds: pathItem.edgeIds, risk: pathItem.risk, explanation: pathItem.explanation })) },
     reachablePaths,
+    issues,
+    issueSummary,
+    findings: baseReport?.findings || [],
+    evidence: issues.flatMap((issue: any) => issue.evidence || []),
+    fixPlan: issues.map((issue: any) => ({ id: `fix:${issue.id}`, title: `Fix ${issue.id}`, description: issue.howToFix })),
+    exports: { json: true, sarif: true, html: true, mapJson: true },
     summary: {
+      ...(baseReport?.summary || {}),
       aiSurfacesFound: {
         prompts: artifacts.filter((artifact) => artifact.type === 'PROMPT').length,
         skills: artifacts.filter((artifact) => artifact.type === 'SKILL').length,
@@ -929,7 +990,7 @@ const getExecutionRisks = (findings: any[]) => {
 
 export default function PlaygroundPage() {
   const [activeLeftTab, setActiveLeftTab] = useState<'prompt' | 'contract' | 'variables' | 'optimized' | 'skills'>('prompt');
-  type ScanSource = 'Prompt Editor' | 'Prompt Rules' | 'Agent Skill' | 'Repository';
+  type ScanSource = 'Prompt Editor' | 'Prompt Rules' | 'Agent Skill' | 'Repository' | 'Repository File';
   const [selectedSkill, setSelectedSkill] = useState<string>("");
   const [skillContent, setSkillContent] = useState<string>("");
   const [skillPreviewMode, setSkillPreviewMode] = useState<'preview' | 'edit'>('preview');
@@ -990,6 +1051,7 @@ export default function PlaygroundPage() {
   const [result, setResult] = useState<any>(INITIAL_AUDIT_RESULT); // Pristine empty report
   const [scanTime, setScanTime] = useState<string | null>(null);
   const [scanSourceLabel, setScanSourceLabel] = useState<string | null>(null);
+  const [repositoryObjectHandoff, setRepositoryObjectHandoff] = useState<RepositoryObjectHandoff | null>(null);
   const [scannedInputText, setScannedInputText] = useState<string>("");
   const [scanJustUpdated, setScanJustUpdated] = useState<boolean>(false);
   const [clientOrigin, setClientOrigin] = useState<string>("");
@@ -1062,7 +1124,8 @@ export default function PlaygroundPage() {
     customPrompt?: string,
     customContract?: string,
     customVars?: Record<string, any>,
-    customSource?: ScanSource
+    customSource?: ScanSource,
+    handoffContext?: RepositoryObjectHandoff | null
   ) {
     if (scanInFlightRef.current) {
       triggerToast('A scan is already running.');
@@ -1120,7 +1183,14 @@ export default function PlaygroundPage() {
       const now = new Date();
       const timeStr = now.toTimeString().split(' ')[0];
       setScanTime(timeStr);
-      setScanSourceLabel(source === 'Agent Skill' ? 'SKILL.md' : source === 'Repository' ? 'Repository Execution' : source);
+      setScanSourceLabel(
+        source === 'Agent Skill'
+          ? 'SKILL.md'
+          : source === 'Repository'
+            ? 'Repository Execution'
+            : source
+      );
+      setRepositoryObjectHandoff(source === 'Repository File' ? handoffContext || null : null);
       setScannedInputText(pText);
       setScanJustUpdated(true);
       if (scanUpdatedTimeoutRef.current) {
@@ -1129,16 +1199,26 @@ export default function PlaygroundPage() {
       scanUpdatedTimeoutRef.current = setTimeout(() => setScanJustUpdated(false), 1800);
       shouldFocusReportCardRef.current = false;
       
-      const parsedFindings = data.findings.map((f: any) => ({
-        rule_id: f.rule_id,
-        category: f.category || (f.rule_id.startsWith('sec_') ? 'security' : f.rule_id.startsWith('bp_') ? 'best_practices' : f.rule_id.startsWith('clarity_') ? 'clarity' : f.rule_id.startsWith('consist_') ? 'consistency' : 'structure'),
-        severity: f.severity,
-        title: f.rule_id.split('_').slice(1).join(' ') || f.rule_id,
-        explanation: f.explanation || f.message,
-        suggested_fix: f.suggested_fix || f.fix,
-        workflow: f.workflow,
-        waived: false
-      }));
+      const parsedFindings = (data.repositoryReport?.issues || []).map((issue: any) => {
+        const rawFinding = (data.findings || []).find((finding: any) => finding.rule_id === issue.ruleId);
+        return {
+          ...uiFindingFromRepositoryIssue(issue),
+          workflow: rawFinding?.workflow,
+        };
+      });
+      if (source === 'Repository File' && handoffContext) {
+        const handoffFindings = [
+          handoffContext.selectedFinding,
+          ...(handoffContext.fileFindings || []),
+        ].filter(Boolean);
+        const merged = new Map<string, any>();
+        handoffFindings.forEach((finding: any) => {
+          const normalized = finding.ruleId ? uiFindingFromRepositoryIssue(finding) : finding;
+          const key = normalized.id || `${normalized.rule_id || 'finding'}:${normalized.explanation || ''}`;
+          merged.set(key, normalized);
+        });
+        parsedFindings.splice(0, parsedFindings.length, ...merged.values());
+      }
       const repositoryHandoffFinding = source === 'Repository' ? createRepositoryHandoffFinding(pText) : null;
       if (repositoryHandoffFinding) {
         parsedFindings.unshift(repositoryHandoffFinding);
@@ -1168,11 +1248,14 @@ export default function PlaygroundPage() {
         crossModelResult: null,
         compression: {
           compressedText: data.compression?.compressedText || ''
-        }
+        },
+        repositoryReport: data.repositoryReport,
       });
       setEditorMode('audit'); // Automatically show audit preview details!
       if (source === 'Repository') {
         setActiveDetailsTab('repo_overview');
+      } else if (source === 'Repository File') {
+        setActiveDetailsTab('findings');
       }
 
       // On the first scan, reveal and smooth-scroll to the results below the hero.
@@ -1382,16 +1465,26 @@ export default function PlaygroundPage() {
     }
 
     return (
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50/20 p-3.5 space-y-1 mb-3 shadow-3xs shrink-0 select-text">
+      <div className={`rounded-xl border p-3.5 space-y-1 mb-3 shadow-3xs shrink-0 select-text ${
+        findings.length > 0 ? 'border-amber-200 bg-amber-50/20' : 'border-emerald-200 bg-emerald-50/20'
+      }`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-600"></span>
-            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-750">SAFE</span>
+            <span className={`h-2 w-2 rounded-full ${findings.length > 0 ? 'bg-amber-500' : 'bg-emerald-600'}`}></span>
+            <span className={`text-[10px] font-black uppercase tracking-wider ${findings.length > 0 ? 'text-amber-800' : 'text-emerald-750'}`}>
+              {findings.length > 0 ? 'No reachable path' : 'Safe'}
+            </span>
           </div>
-          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100/50 px-2 py-0.5 rounded border border-emerald-250/55 select-none font-sans uppercase">isolated</span>
+          <span className={`text-[9px] font-bold px-2 py-0.5 rounded border select-none font-sans uppercase ${
+            findings.length > 0
+              ? 'border-amber-200 bg-amber-100/50 text-amber-800'
+              : 'border-emerald-250/55 bg-emerald-100/50 text-emerald-700'
+          }`}>{findings.length > 0 ? `${findings.length} file findings` : 'isolated'}</span>
         </div>
-        <p className="text-[10.5px] leading-normal font-medium text-emerald-950">
-          No active execution or propagation chains found. Isolated hygiene findings only.
+        <p className={`text-[10.5px] leading-normal font-medium ${findings.length > 0 ? 'text-amber-950' : 'text-emerald-950'}`}>
+          {findings.length > 0
+            ? 'No evidence-backed execution or propagation chain was found. The file findings still require review.'
+            : 'No active execution or propagation chains found.'}
         </p>
       </div>
     );
@@ -1561,7 +1654,7 @@ export default function PlaygroundPage() {
       const objectId = params.get('artifactId') || params.get('findingId') || params.get('pathId');
       const scanId = params.get('scanId');
       const handoffKey = params.get('handoffKey');
-      let handoff: { content?: string; file?: string; objectId?: string; source?: string } | null = null;
+      let handoff: RepositoryObjectHandoff | null = null;
       if (handoffKey) {
         try {
           handoff = JSON.parse(window.sessionStorage.getItem(handoffKey) || 'null');
@@ -1584,13 +1677,22 @@ export default function PlaygroundPage() {
       const incomingContract = params.get('contract') || '';
       const incomingSource = params.get('source');
       const isRepositoryHandoff = incomingSource === 'repository' || handoff?.source === 'repository' || Boolean(objectFile || objectId);
+      const isRepositoryObjectHandoff = handoff?.kind === 'repository-object' && Boolean(handoff?.content);
       setPromptText(incomingPrompt);
       if (incomingContract) setContractYaml(incomingContract);
       setEditorMode('audit');
-      if (isRepositoryHandoff) {
+      if (isRepositoryObjectHandoff) {
+        setActiveDetailsTab('findings');
+      } else if (isRepositoryHandoff) {
         setActiveDetailsTab('repo_overview');
       }
-      runAnalysis(incomingPrompt, incomingContract || undefined, undefined, isRepositoryHandoff ? 'Repository' : 'Prompt Editor');
+      runAnalysis(
+        incomingPrompt,
+        incomingContract || undefined,
+        undefined,
+        isRepositoryObjectHandoff ? 'Repository File' : isRepositoryHandoff ? 'Repository' : 'Prompt Editor',
+        handoff
+      );
     } catch {
       // ignore malformed query strings; user can still scan manually
     }
@@ -2016,6 +2118,7 @@ export default function PlaygroundPage() {
   };
 
   const getFindingConfidence = (finding: any) => {
+    if (finding.confidence?.label) return finding.confidence.label;
     if (finding.confidence) return displayConfidenceLabel(finding.confidence);
     if (finding.severity === 'critical' || finding.severity === 'high') return 'Confirmed';
     if (finding.severity === 'medium') return 'Probable';
@@ -2028,6 +2131,9 @@ export default function PlaygroundPage() {
   };
 
   const getFindingEvidence = (finding: any) => {
+    if (Array.isArray(finding.evidence)) {
+      return truncateText(finding.evidence[0]?.snippet || 'No specific evidence snippet available.');
+    }
     if (finding.evidence) return truncateText(finding.evidence);
     const lowerRule = String(finding.rule_id || '').toLowerCase();
     const lines = promptText.split('\n').map(line => line.trim()).filter(Boolean);
@@ -2058,6 +2164,14 @@ export default function PlaygroundPage() {
   const workflowFindings = result.findings.filter((finding: any) => finding.workflow?.path?.nodes?.length);
   const primaryWorkflowFinding = workflowFindings[0];
   const primaryWorkflow = primaryWorkflowFinding?.workflow;
+  const selectedHandoffFinding = repositoryObjectHandoff?.selectedFinding?.id
+    ? result.findings.find((finding: any) => finding.id === repositoryObjectHandoff.selectedFinding.id)
+    : repositoryObjectHandoff?.selectedFinding?.ruleId
+      ? result.findings.find((finding: any) => finding.rule_id === repositoryObjectHandoff.selectedFinding.ruleId)
+    : null;
+  const primaryIssueFinding = selectedHandoffFinding || primaryWorkflowFinding || sortFindings(result.findings)[0];
+  const primaryIssueWorkflow = primaryIssueFinding?.workflow;
+  const hasActionableFindings = result.findings.length > 0;
   const humanType = (type: string): string => {
     const TYPE_LABEL: Record<string, string> = {
       user_input: "User input",
@@ -2285,15 +2399,16 @@ export default function PlaygroundPage() {
   };
 
   const copyWorkflowJson = () => {
-    if (!primaryWorkflowFinding) {
+    if (!primaryIssueFinding) {
       triggerToast('No findings to copy yet.');
       return;
     }
     const payload = {
-      rule_id: primaryWorkflowFinding.rule_id,
-      severity: primaryWorkflowFinding.severity,
-      message: primaryWorkflowFinding.explanation,
-      workflow: primaryWorkflowFinding.workflow,
+      issue_id: primaryIssueFinding.id,
+      rule_id: primaryIssueFinding.rule_id,
+      severity: primaryIssueFinding.severity,
+      message: primaryIssueFinding.explanation,
+      workflow: primaryIssueFinding.workflow,
     };
     copyText(JSON.stringify(payload, null, 2), 'Technical finding copied.');
   };
@@ -2326,6 +2441,7 @@ export default function PlaygroundPage() {
     if (hasHighRiskWorkflow) return 'High-risk execution path detected';
     if (hasInjectionRisk && result.score < 70) return 'Potential escalation path identified';
     if (hasInjectionRisk) return 'Needs security review';
+    if (scanSourceLabel === 'Repository File' && result.findings.length > 0) return 'File findings require review';
     return 'Scan complete';
   };
 
@@ -2368,6 +2484,7 @@ export default function PlaygroundPage() {
   };
 
   const hasCompletedScan = result.score !== null;
+  const isRepositoryObjectResult = scanSourceLabel === 'Repository File';
   const owaspLabels = getOwaspLabels();
   const jailbreakVerdict = getJailbreakVerdict();
   const reportStatus = result.score === null
@@ -2376,7 +2493,10 @@ export default function PlaygroundPage() {
     ? 'HIGH RISK'
     : result.findings.some((f: any) => f.severity === 'critical' || f.severity === 'high')
     ? 'SECURITY REVIEW'
+    : isRepositoryObjectResult && result.findings.length > 0
+    ? 'REVIEW REQUIRED'
     : 'ANALYZED';
+  const reportConfidenceLabel = primaryIssueFinding ? getFindingConfidence(primaryIssueFinding) : 'Potential';
   const benchmarkCaught = result.score === null ? 0 : Math.min(10, Math.max(0, Math.round((100 - Math.min(result.score, 100)) / 10) + (hasInjectionRisk ? 3 : 0)));
   const securedPrompt = getSecuredPrompt();
   const reportScore = result.score === null ? 'pending' : String(result.score);
@@ -2391,9 +2511,31 @@ export default function PlaygroundPage() {
   const reportUrl = clientOrigin && executionPathReport
     ? createReportUrl(clientOrigin, executionPathReport)
     : legacyReportUrl;
-  const reportMarkdown = executionPathReport ? reportToMarkdown(executionPathReport, reportUrl) : '';
-  const reportIssueTemplate = executionPathReport ? reportToIssueTemplate(executionPathReport, reportUrl) : '';
-  const reportPrComment = executionPathReport ? reportToPrComment(executionPathReport, reportUrl) : '';
+  const repositoryObjectSummary = isRepositoryObjectResult
+    ? [
+      `# PromptSonar File Analysis`,
+      ``,
+      `- File: ${repositoryObjectHandoff?.file || 'Selected repository file'}`,
+      `- Findings: ${result.findings.length}`,
+      `- Reachable execution paths: ${workflowFindings.length}`,
+      `- Confidence: ${reportConfidenceLabel}`,
+      `- Verdict: ${jailbreakVerdict}`,
+      ``,
+      `## Findings`,
+      ...sortFindings(result.findings).map((finding: any) =>
+        `- ${finding.id || finding.rule_id}: ${finding.explanation || finding.message || finding.title}\n  Rule: ${finding.rule_id}\n  Fix: ${finding.suggested_fix || getRemediation(finding).mitigation}`
+      ),
+    ].join('\n')
+    : '';
+  const reportMarkdown = isRepositoryObjectResult
+    ? repositoryObjectSummary
+    : executionPathReport ? reportToMarkdown(executionPathReport, reportUrl) : '';
+  const reportIssueTemplate = isRepositoryObjectResult
+    ? `${repositoryObjectSummary}\n\n## Acceptance\n- [ ] Apply the finding-specific remediation\n- [ ] Re-run PromptSonar on the file`
+    : executionPathReport ? reportToIssueTemplate(executionPathReport, reportUrl) : '';
+  const reportPrComment = isRepositoryObjectResult
+    ? repositoryObjectSummary
+    : executionPathReport ? reportToPrComment(executionPathReport, reportUrl) : '';
   const badgeMarkdown = result.score === null
     ? '[![PromptSonar](https://img.shields.io/badge/PromptSonar-pending-lightgrey)](https://github.com/meghal86/promptsonar)'
     : `[![PromptSonar: ${jailbreakVerdict}](https://img.shields.io/badge/PromptSonar-${jailbreakVerdict.replace(/\s+/g, '%20')}-${result.score >= 85 ? 'brightgreen' : result.score >= 70 ? 'yellow' : 'red'})](${reportUrl || 'https://github.com/meghal86/promptsonar'})`;
@@ -2401,7 +2543,7 @@ export default function PlaygroundPage() {
     `PromptSonar Scan Report`,
     `Score: ${result.score === null ? 'Pending' : `${result.score}/100`}`,
     `Verdict: ${jailbreakVerdict}`,
-    `Confidence: Confirmed`,
+    `Confidence: ${reportConfidenceLabel}`,
     `Risk labels: ${owaspLabels.length ? owaspLabels.join(', ') : 'No OWASP category mapped'}`,
     `Benchmark: PromptSonar caught ${benchmarkCaught}/10 adversarial attack patterns.`,
     `Badge: PromptSonar: ${jailbreakVerdict}`,
@@ -2566,6 +2708,7 @@ export default function PlaygroundPage() {
     : [];
   const displayedScanText = scannedInputText || promptText;
   const isRepositoryExecutionScan = scanSourceLabel === 'Repository Execution';
+  const isRepositoryObjectScan = scanSourceLabel === 'Repository File';
   const repositoryReport = buildPlaygroundRepositoryReport({
     result,
     sourceText: displayedScanText,
@@ -2624,6 +2767,31 @@ export default function PlaygroundPage() {
     : repositoryWideReachablePaths > 0
       ? 'Review Required'
       : 'Trusted';
+  const repositoryContextCriticalFindings = Number(repositoryObjectHandoff?.repositorySummary?.criticalFindings || 0);
+  const selectedFileCriticalFindings = result.findings.filter((finding: any) => finding.severity === 'critical').length;
+  const selectedFileRisk = selectedFileCriticalFindings > 0 ||
+    result.findings.some((finding: any) => finding.severity === 'high')
+    ? 'High'
+    : result.findings.length > 0
+      ? 'Review Required'
+      : 'Trusted';
+  const overviewMetrics: Array<[string, string | number]> = isRepositoryObjectScan
+    ? [
+      ['Selected file result · Findings', result.findings.length],
+      ['Selected file result · Critical findings', selectedFileCriticalFindings],
+      ['Selected file result · Reachable paths', repositoryReport.reachablePaths.length],
+      ['Selected file result · Sensitive actions reachable', repositoryReport.summary.reachableSensitiveActions.length],
+      ['Repository context · Critical findings', repositoryContextCriticalFindings],
+      ['Selected file result · Overall risk', selectedFileRisk],
+    ]
+    : [
+      ['Repository-wide result · AI surfaces found', repositoryWideAiSurfaces],
+      ['Repository-wide result · AI files scanned', repositoryWideFilesScanned],
+      ['Repository-wide result · Reachable paths', repositoryWideReachablePaths],
+      ['Repository-wide result · Sensitive actions reachable', repositoryWideSensitiveActions],
+      ['Repository-wide result · Critical findings', repositoryWideCriticalFindings],
+      ['Repository-wide result · Overall risk', repositoryWideRisk],
+    ];
   const selectedPathSensitiveActions = isRepositoryExecutionScan
     ? (handoffSensitiveActions.length || highestRepositoryPath?.sensitiveActions?.length || 0)
     : (highestRepositoryPath?.sensitiveActions?.length || 0);
@@ -2631,31 +2799,49 @@ export default function PlaygroundPage() {
     ? (highestRepositoryPath?.files?.length ? 1 : 0)
     : (highestRepositoryPath?.files?.length || 0);
   const selectedPathNodeCount = highestRepositoryPathNodes.length || 0;
-  const selectedVisualPath: string[] = isRepositoryExecutionScan
+  const selectedVisualPath: string[] = isRepositoryObjectScan && repositoryReport.reachablePaths.length === 0
+    ? []
+    : isRepositoryExecutionScan
     ? (highestRepositoryPathNodes.length ? highestRepositoryPathNodes.map((node: any) => node.label) : ['Source unknown'])
     : highestRepositoryPathNodes.length
       ? highestRepositoryPathNodes.map((node: any) => node.label)
       : ['Source unknown'];
-  const reportBeforePath: string[] = isRepositoryExecutionScan
+  const reportBeforePath: string[] = isRepositoryObjectScan && repositoryReport.reachablePaths.length === 0
+    ? [String(primaryIssueFinding?.title || primaryIssueFinding?.rule_id || 'File finding').replace(/_/g, ' ')]
+    : isRepositoryExecutionScan
     ? selectedVisualPath.map((label) => label === 'External API Access' ? 'External API' : label)
     : selectedVisualPath.map((label) => label === 'External API Access' ? 'External API' : label);
   const reportAfterPath = ['User Input', 'Approval Gate', 'Scoped Tool', 'Response Context'];
-  const reportWorkflowReviewCount = Math.max(1, workflowFindings.length || repositoryReport.reachablePaths.length || 0);
+  const reportWorkflowReviewCount = workflowFindings.length || repositoryReport.reachablePaths.length || 0;
 
   const reachedAction = primaryWorkflow?.sink
     ? humanType(primaryWorkflow.sink)
     : primaryWorkflow?.path?.nodes?.length
       ? humanType(primaryWorkflow.path.nodes[primaryWorkflow.path.nodes.length - 1].type)
       : 'None';
-  const scanConsequence = hasHighRiskWorkflow
+  const issueReachedAction = primaryIssueWorkflow?.sink
+    ? humanType(primaryIssueWorkflow.sink)
+    : primaryIssueWorkflow?.path?.nodes?.length
+      ? humanType(primaryIssueWorkflow.path.nodes[primaryIssueWorkflow.path.nodes.length - 1].type)
+      : 'None';
+  const hasPrimaryHighRiskWorkflow = Boolean(
+    primaryIssueWorkflow?.path?.privilegedSinkReached ||
+    primaryIssueWorkflow?.risk === 'critical' ||
+    primaryIssueWorkflow?.risk === 'high'
+  );
+  const scanConsequence = hasPrimaryHighRiskWorkflow
     ? isRepositoryExecutionScan
-      ? `A reachable execution path connects AI-controlled instructions to ${displaySensitiveAction(reachedAction)} access. The path also includes credential-store and shell-execution access.`
-      : `A reachable execution path connects AI-controlled instructions to ${displaySensitiveAction(reachedAction)} access.`
+      ? `A reachable execution path connects AI-controlled instructions to ${displaySensitiveAction(issueReachedAction)} access. The path also includes credential-store and shell-execution access.`
+      : `A reachable execution path connects AI-controlled instructions to ${displaySensitiveAction(issueReachedAction)} access.`
+    : primaryIssueFinding
+      ? primaryIssueFinding.explanation || primaryIssueFinding.message || 'PromptSonar found an issue that requires review.'
     : isRepositoryExecutionScan
       ? 'No additional structural issues detected outside the selected reachable path.'
       : 'This prompt stays contained. No risky destinations found.';
-  const scanTone = hasHighRiskWorkflow
+  const scanTone = hasPrimaryHighRiskWorkflow
     ? 'border-red-200 bg-red-50/45 text-red-800'
+    : hasActionableFindings
+      ? 'border-amber-200 bg-amber-50/35 text-amber-900'
     : 'border-emerald-200 bg-emerald-50/30 text-emerald-800';
   const whyReasons = (() => {
     if (!hasCompletedScan) return [];
@@ -2664,7 +2850,13 @@ export default function PlaygroundPage() {
       const text = value?.trim();
       if (text && !reasons.includes(text)) reasons.push(text);
     };
-    const evidence = getWorkflowEvidence(displayedScanText, primaryWorkflow);
+    if (!primaryIssueWorkflow && primaryIssueFinding) {
+      [primaryIssueFinding].forEach((finding: any) => {
+        add(finding.explanation || finding.message || finding.title);
+      });
+      return reasons;
+    }
+    const evidence = getWorkflowEvidence(displayedScanText, primaryIssueWorkflow);
     evidence.forEach((item) => {
       if (/autoExecute/i.test(item)) add('Auto approval is enabled.');
       else if (/permissions="\*"/i.test(item)) add('Wildcard permissions were detected.');
@@ -2681,36 +2873,49 @@ export default function PlaygroundPage() {
         'Confirmed path: PromptSonar found a connected path, not only a loose keyword match.',
       ];
     }
-    if (primaryWorkflow?.path?.trustBoundaryCrossed) add('Prompt-controlled or user-controlled text can influence a more sensitive workflow stage.');
-    if (primaryWorkflow?.path?.privilegedSinkReached) add(`${displaySensitiveAction(reachedAction)} access is reachable.`);
-    if (primaryWorkflowFinding?.explanation) add(primaryWorkflowFinding.explanation);
+    if (primaryIssueWorkflow?.path?.trustBoundaryCrossed) add('Prompt-controlled or user-controlled text can influence a more sensitive workflow stage.');
+    if (primaryIssueWorkflow?.path?.privilegedSinkReached) add(`${displaySensitiveAction(issueReachedAction)} access is reachable.`);
+    if (primaryIssueFinding?.explanation) add(primaryIssueFinding.explanation);
     if (reasons.length === 0) add('This prompt stays contained. No risky destinations found.');
     return reasons.slice(0, 5);
   })();
   const issueGrouping = getRootCauseGrouping(result.findings);
-  const issueConfidence = getWorkflowConfidence(displayedScanText, primaryWorkflow);
-  const issueSeverity = hasHighRiskWorkflow
-    ? String(primaryWorkflowFinding?.severity || issueGrouping?.root.severity || 'high')
-    : 'none';
-  const issueTitle = hasHighRiskWorkflow
+  const issueConfidenceLabel = primaryIssueWorkflow
+    ? displayConfidenceLabel(getWorkflowConfidence(displayedScanText, primaryIssueWorkflow).level)
+    : primaryIssueFinding
+      ? getFindingConfidence(primaryIssueFinding)
+      : 'Potential';
+  const issueSeverity = hasPrimaryHighRiskWorkflow
+    ? String(primaryIssueFinding?.severity || issueGrouping?.root.severity || 'high')
+    : primaryIssueFinding?.severity || 'none';
+  const issueTitle = hasPrimaryHighRiskWorkflow
     ? issueGrouping?.root.label || (isRepositoryExecutionScan ? 'Reachable Sensitive Execution Path' : 'High-Risk Execution Path')
-    : 'No Reachable Sensitive Execution Path';
+    : primaryIssueFinding
+      ? String(primaryIssueFinding.title || primaryIssueFinding.rule_id || 'Finding requires review')
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (letter) => letter.toUpperCase())
+      : 'No Reachable Sensitive Execution Path';
   const issueImpact = scanConsequence;
-  const issueRecommendedFix = hasHighRiskWorkflow
+  const issueRecommendedFix = hasPrimaryHighRiskWorkflow
     ? isRepositoryExecutionScan
       ? 'Add an approval gate before sensitive tools, scope MCP and tool permissions, and break unnecessary source-to-sink routes.'
       : primaryWorkflowFinding
         ? getRemediation(primaryWorkflowFinding).mitigation
         : 'Require approval before sensitive actions and restrict tools to the minimum necessary permissions.'
-    : 'No immediate remediation is required. Keep approval boundaries and scoped tool permissions in place.';
+    : primaryIssueFinding
+      ? primaryIssueFinding.suggested_fix || getRemediation(primaryIssueFinding).mitigation
+      : 'No immediate remediation is required. Keep approval boundaries and scoped tool permissions in place.';
   const issueEvidence = (() => {
-    const evidence = getWorkflowEvidence(displayedScanText, primaryWorkflow);
+    if (!primaryIssueWorkflow && primaryIssueFinding) {
+      return [getFindingEvidence(primaryIssueFinding)];
+    }
+    const evidence = getWorkflowEvidence(displayedScanText, primaryIssueWorkflow);
     if (evidence.length > 0) return evidence.slice(0, 6);
-    if (primaryWorkflowFinding) return [getFindingEvidence(primaryWorkflowFinding)];
+    if (primaryIssueFinding) return [getFindingEvidence(primaryIssueFinding)];
     return ['No sensitive execution evidence was detected in this scan.'];
   })();
-  const primaryRiskReduction = typeof primaryWorkflow?.workflow_diff?.riskReduction === 'number'
-    ? `${primaryWorkflow.workflow_diff.riskReduction}%`
+  const primaryRiskReduction = typeof primaryIssueWorkflow?.workflow_diff?.riskReduction === 'number'
+    ? `${primaryIssueWorkflow.workflow_diff.riskReduction}%`
     : null;
   const detailTabs: Array<{ key: typeof activeDetailsTab; label: string }> = [
     { key: 'repo_overview', label: 'Overview' },
@@ -3399,7 +3604,7 @@ export default function PlaygroundPage() {
                         Severity: {issueSeverity === 'none' ? 'None' : issueSeverity}
                       </span>
                       <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1 text-slate-900">
-                        Confidence: {displayConfidenceLabel(issueConfidence.level)}
+                        Confidence: {issueConfidenceLabel}
                       </span>
                     </div>
                     <div className="grid gap-3 pt-1 lg:grid-cols-2">
@@ -3424,7 +3629,7 @@ export default function PlaygroundPage() {
                     </div>
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Reached</span>
-                      <span className="mt-1 block font-bold text-slate-900">{reachedAction}</span>
+                      <span className="mt-1 block font-bold text-slate-900">{issueReachedAction}</span>
                     </div>
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Last scan</span>
@@ -3450,7 +3655,7 @@ export default function PlaygroundPage() {
                     </button>
                     <button
                       onClick={copyWorkflowJson}
-                      disabled={!primaryWorkflowFinding}
+                      disabled={!primaryIssueFinding}
                       className="rounded-lg border border-[#E4E3DE] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs hover:bg-slate-50 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
                       title="Machine-readable details for debugging or bug reports."
                     >
@@ -3685,11 +3890,11 @@ export default function PlaygroundPage() {
                     </div>
                     <div className="rounded-lg border border-[#E4E3DE] bg-white p-3">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Reached</span>
-                      <span className="mt-1 block font-bold text-slate-900">{reachedAction}</span>
+                      <span className="mt-1 block font-bold text-slate-900">{issueReachedAction}</span>
                     </div>
                     <div className="rounded-lg border border-[#E4E3DE] bg-white p-3">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Confidence</span>
-                      <span className="mt-1 block font-bold text-slate-900">{displayConfidenceLabel(issueConfidence.level)}</span>
+                      <span className="mt-1 block font-bold text-slate-900">{issueConfidenceLabel}</span>
                     </div>
                     <div className="rounded-lg border border-[#E4E3DE] bg-white p-3">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Severity</span>
@@ -3713,7 +3918,9 @@ export default function PlaygroundPage() {
                       <div className="text-xs font-medium text-slate-400 italic py-2">
                         {isRepositoryExecutionScan
                           ? 'Primary architectural issue detected: a reachable execution path connects AI-controlled instructions to sensitive actions.'
-                          : 'No additional structural issues detected outside the selected reachable path.'}
+                          : primaryIssueFinding
+                            ? 'This is an isolated file-level finding. No evidence-backed source-to-sink execution path is attached to it.'
+                            : 'No structural issue was detected.'}
                       </div>
                     );
                   }
@@ -3816,8 +4023,8 @@ export default function PlaygroundPage() {
                     <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Fix</h3>
                     <p className="text-[10px] text-slate-500 italic mt-0.5">Before and after safer prompt structure.</p>
                   </div>
-                  {primaryWorkflowFinding && (() => {
-                    const remedy = getRemediation(primaryWorkflowFinding);
+                  {primaryIssueFinding && (() => {
+                    const remedy = getRemediation(primaryIssueFinding);
                     return (
                       <button
                         onClick={() => copyText(remedy.after, 'Remediation pattern copied.')}
@@ -3829,8 +4036,8 @@ export default function PlaygroundPage() {
                   })()}
                 </div>
 
-                {primaryWorkflowFinding ? (() => {
-                  const remedy = getRemediation(primaryWorkflowFinding);
+                {primaryIssueFinding ? (() => {
+                  const remedy = getRemediation(primaryIssueFinding);
                   return (
                     <div className="space-y-4">
                       <div className="text-[11.5px] text-[#57534E] leading-relaxed">
@@ -3848,7 +4055,7 @@ export default function PlaygroundPage() {
                       </div>
 
                       {/* Execution path diff block */}
-                      <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4.5 space-y-4">
+                      {primaryIssueWorkflow && <div className="bg-[#FAF9F6] border border-[#E4E3DE]/60 rounded-xl p-4.5 space-y-4">
                         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E4E3DE]/40 pb-2.5">
                           <span className="text-[9.5px] font-black uppercase tracking-widest text-[#A8A29E] block">
                             How the fix changes the flow
@@ -3870,8 +4077,8 @@ export default function PlaygroundPage() {
                             </span>
                             
                             <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-red-900 leading-normal">
-                              {primaryWorkflow?.path?.nodes && primaryWorkflow.path.nodes.length > 0 ? (
-                                primaryWorkflow.path.nodes.map((n: any, idx: number) => (
+                              {primaryIssueWorkflow?.path?.nodes && primaryIssueWorkflow.path.nodes.length > 0 ? (
+                                primaryIssueWorkflow.path.nodes.map((n: any, idx: number) => (
                                   <React.Fragment key={idx}>
                                     {idx > 0 && (
                                       <svg className="w-3.5 h-3.5 text-red-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -3897,7 +4104,7 @@ export default function PlaygroundPage() {
                             </span>
                             
                             <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono font-black text-emerald-900 leading-normal">
-                              {(primaryWorkflow?.workflow_diff?.after?.nodes?.map((n: any) => n.type) || ['user_input', 'model', 'response']).map((type: string, idx: number) => (
+                              {(primaryIssueWorkflow?.workflow_diff?.after?.nodes?.map((n: any) => n.type) || ['user_input', 'model', 'response']).map((type: string, idx: number) => (
                                 <React.Fragment key={idx}>
                                   {idx > 0 && (
                                     <svg className="w-3.5 h-3.5 text-emerald-400 select-none mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -3912,7 +4119,7 @@ export default function PlaygroundPage() {
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </div>}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                         {/* Before */}
@@ -3943,7 +4150,7 @@ export default function PlaygroundPage() {
                         <div className="mt-3 space-y-3">
                         {/* Removed Nodes / Edges (real diff data) */}
                         {(() => {
-                          const diff = primaryWorkflow?.workflow_diff;
+                          const diff = primaryIssueWorkflow?.workflow_diff;
                           if (!diff || (diff.removedNodes.length === 0 && diff.removedEdges.length === 0)) return null;
                           return (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[10px]">
@@ -3969,7 +4176,7 @@ export default function PlaygroundPage() {
 
                         {/* Risky Path Removed block (verification, real diff data) */}
                         {(() => {
-                          const diff = primaryWorkflow?.workflow_diff;
+                          const diff = primaryIssueWorkflow?.workflow_diff;
                           const pathRemoved = diff ? diff.executionPathRemoved : true;
                           return (
                             <div className={`rounded-lg border p-3.5 flex items-center justify-between text-xs ${pathRemoved ? 'border-emerald-250 bg-emerald-50/20' : 'border-amber-250 bg-amber-50/20'}`}>
@@ -4033,17 +4240,14 @@ export default function PlaygroundPage() {
               <section className={`${activeDetailsTab === 'repo_overview' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
                 <div className="border-b border-[#E4E3DE] pb-3">
                   <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Overview</h2>
-                  <p className="mt-1 text-[11px] font-medium text-slate-500">PromptSonar found {repositoryWideReachablePaths} reachable execution path{repositoryWideReachablePaths === 1 ? '' : 's'} across the repository.</p>
+                  <p className="mt-1 text-[11px] font-medium text-slate-500">
+                    {isRepositoryObjectScan
+                      ? `PromptSonar found ${result.findings.length} finding${result.findings.length === 1 ? '' : 's'} in ${repositoryObjectHandoff?.file || 'the selected repository file'}.`
+                      : `PromptSonar found ${repositoryWideReachablePaths} reachable execution path${repositoryWideReachablePaths === 1 ? '' : 's'} across the repository.`}
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 xl:grid-cols-6 gap-3">
-                  {[
-                    ['Repository-wide result · AI surfaces found', repositoryWideAiSurfaces],
-                    ['Repository-wide result · AI files scanned', repositoryWideFilesScanned],
-                    ['Repository-wide result · Reachable paths', repositoryWideReachablePaths],
-                    ['Repository-wide result · Sensitive actions reachable', repositoryWideSensitiveActions],
-                    ['Repository-wide result · Critical findings', repositoryWideCriticalFindings],
-                    ['Repository-wide result · Overall risk', repositoryWideRisk],
-                  ].map(([label, value]) => (
+                  {overviewMetrics.map(([label, value]) => (
                     <div key={String(label)} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
                       <div className="text-xl font-black text-slate-950">{value}</div>
                       <div className="mt-1 text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</div>
@@ -4054,8 +4258,12 @@ export default function PlaygroundPage() {
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <h3 className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">Repository-wide result · Reachable execution paths</h3>
-                      <div className="mt-1 text-3xl font-black text-slate-950">{repositoryWideReachablePaths}</div>
+                      <h3 className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">
+                        {isRepositoryObjectScan ? 'Selected file result · Reachable execution paths' : 'Repository-wide result · Reachable execution paths'}
+                      </h3>
+                      <div className="mt-1 text-3xl font-black text-slate-950">
+                        {isRepositoryObjectScan ? repositoryReport.reachablePaths.length : repositoryWideReachablePaths}
+                      </div>
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-center">
                       {[
@@ -4192,6 +4400,27 @@ export default function PlaygroundPage() {
                   <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Execution Map</h2>
                   <p className="mt-1 text-[11px] font-medium text-slate-500">Instruction sources, prompts, skills, memory, tools, MCP servers, and actions.</p>
                 </div>
+                {isRepositoryObjectScan && repositoryReport.reachablePaths.length === 0 ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/20 p-5">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-emerald-800">No evidence-backed execution path</div>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
+                      The selected file has {result.findings.length} finding{result.findings.length === 1 ? '' : 's'}, but PromptSonar did not observe a connected source-to-sink path.
+                    </p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      {[
+                        ['Execution nodes', 0],
+                        ['Execution edges', 0],
+                        ['Sensitive actions reached', 0],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} className="rounded-lg border border-emerald-100 bg-white p-3">
+                          <div className="text-lg font-black text-slate-950">{value}</div>
+                          <div className="mt-1 text-[8px] font-black uppercase tracking-widest text-slate-400">{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <>
                 <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
                   <div className="mb-3 text-[9px] font-black uppercase tracking-[0.22em] text-[#A8A29E]">Selected path</div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -4240,6 +4469,8 @@ export default function PlaygroundPage() {
                     </tbody>
                   </table>
                 </div>
+                  </>
+                )}
               </section>
 
               <section className={`${activeDetailsTab === 'skills_page' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
@@ -4266,7 +4497,30 @@ export default function PlaygroundPage() {
 
               <section className={`${activeDetailsTab === 'workflows_page' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-3 shrink-0`}>
                 <h2 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Evidence</h2>
-                {repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'WORKFLOW').length > 0 ? repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'WORKFLOW').map((artifact: any) => (
+                {isRepositoryObjectScan ? (
+                  <>
+                    <div className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-xs font-semibold text-slate-700">
+                      {result.findings.length} finding{result.findings.length === 1 ? '' : 's'} observed in <span className="font-mono font-black">{repositoryObjectHandoff?.file || 'the selected file'}</span>. Reachable execution paths: 0.
+                    </div>
+                    {sortFindings(result.findings).map((finding: any) => {
+                      const selected = finding.id === primaryIssueFinding?.id;
+                      return (
+                        <div key={`${finding.rule_id}-${finding.explanation}`} className={`rounded-lg border p-3 ${selected ? 'border-amber-300 bg-amber-50/30' : 'border-[#E4E3DE] bg-white'}`}>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-mono text-[11px] font-black text-slate-900">{finding.id || finding.rule_id}</div>
+                            <div className="flex gap-2 text-[9px] font-black uppercase tracking-wider">
+                              <span className="rounded-full border border-slate-200 bg-[#FAF9F6] px-2 py-0.5">{finding.severity || 'info'}</span>
+                              <span className="rounded-full border border-slate-200 bg-[#FAF9F6] px-2 py-0.5">{getFindingConfidence(finding)}</span>
+                              {selected && <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-amber-800">Selected</span>}
+                            </div>
+                          </div>
+                          <p className="mt-2 text-xs font-semibold leading-5 text-slate-700">{finding.explanation || finding.message}</p>
+                          <div className="mt-2 rounded-md border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 font-mono text-[10px] text-slate-600">{getFindingEvidence(finding)}</div>
+                        </div>
+                      );
+                    })}
+                  </>
+                ) : repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'WORKFLOW').length > 0 ? repositoryReport.artifacts.filter((artifact: any) => artifact.type === 'WORKFLOW').map((artifact: any) => (
                   <div key={artifact.id} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
                     <div className="text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">Workflow name</div>
                     <div className="mt-1 text-[12px] font-black text-slate-900">{artifact.name || 'playground-agent-flow'}</div>
@@ -4977,10 +5231,58 @@ export default function PlaygroundPage() {
 
               <section className={`${activeDetailsTab === 'rules' ? 'order-6 flex' : 'hidden'} bg-white border border-[#E4E3DE] rounded-xl p-5 shadow-xs flex-col gap-4 shrink-0`}>
                 <div className="border-b border-[#E4E3DE] pb-3">
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">Prompt Rules</h3>
-                  <p className="mt-1 text-[11px] font-medium text-slate-500">Rule summary, applied templates, and developer exports.</p>
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#A8A29E]">{isRepositoryObjectScan ? 'Fix Plan' : 'Prompt Rules'}</h3>
+                  <p className="mt-1 text-[11px] font-medium text-slate-500">
+                    {isRepositoryObjectScan ? 'Finding-specific remediation for the selected repository file.' : 'Rule summary, applied templates, and developer exports.'}
+                  </p>
                 </div>
 
+                {isRepositoryObjectScan ? (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-4">
+                      {[
+                        ['File findings', result.findings.length],
+                        ['Critical findings', selectedFileCriticalFindings],
+                        ['Reachable paths', repositoryReport.reachablePaths.length],
+                        ['Selected issue', primaryIssueFinding?.rule_id || 'None'],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+                          <div className="break-words font-mono text-sm font-black text-slate-950">{value}</div>
+                          <div className="mt-1 text-[8px] font-black uppercase tracking-widest text-slate-400">{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {sortFindings(result.findings).map((finding: any) => {
+                      const remedy = getRemediation(finding);
+                      const selected = finding.id === primaryIssueFinding?.id;
+                      return (
+                        <div key={`${finding.rule_id}-${finding.explanation}`} className={`rounded-xl border p-4 ${selected ? 'border-amber-300 bg-amber-50/25' : 'border-[#E4E3DE] bg-white'}`}>
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="font-mono text-[11px] font-black text-slate-950">{finding.id || finding.rule_id}</div>
+                              <p className="mt-1 text-xs font-semibold leading-5 text-slate-700">{finding.explanation || finding.message}</p>
+                            </div>
+                            <div className="flex gap-2 text-[9px] font-black uppercase tracking-wider">
+                              <span className="rounded-full border border-slate-200 bg-[#FAF9F6] px-2 py-0.5">{finding.severity || 'info'}</span>
+                              {selected && <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-amber-800">Selected</span>}
+                            </div>
+                          </div>
+                          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                            <div className="rounded-lg border border-red-100 bg-red-50/20 p-3">
+                              <div className="text-[8px] font-black uppercase tracking-widest text-red-700">Before</div>
+                              <p className="mt-2 font-mono text-[10px] leading-5 text-red-900">{remedy.before}</p>
+                            </div>
+                            <div className="rounded-lg border border-emerald-100 bg-emerald-50/20 p-3">
+                              <div className="text-[8px] font-black uppercase tracking-widest text-emerald-700">Recommended fix</div>
+                              <p className="mt-2 font-mono text-[10px] leading-5 text-emerald-900">{finding.suggested_fix || remedy.after || remedy.mitigation}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <>
                 <details className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-4">
                   <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">
                     Rule Summary
@@ -5065,6 +5367,8 @@ export default function PlaygroundPage() {
                     </button>
                   </div>
                 </details>
+                  </>
+                )}
               </section>
 
               {/* V2 - SECTION 10: SHARE REPORT (VIRAL REPORT CARD) */}
@@ -5099,6 +5403,8 @@ export default function PlaygroundPage() {
                     <div className={`mt-4 inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
                       result.score === null
                         ? 'border-slate-200 bg-slate-50 text-slate-500'
+                        : isRepositoryObjectScan && result.findings.length > 0
+                        ? 'border-amber-200 bg-amber-50 text-amber-800'
                         : !hasHighRiskWorkflow && !result.findings.some((f: any) => f.severity === 'critical' || f.severity === 'high')
                         ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                         : 'border-red-200 bg-red-50 text-red-700'
@@ -5106,14 +5412,20 @@ export default function PlaygroundPage() {
                       {reportStatus === 'HIGH RISK' ? 'High Risk' : reportStatus}
                     </div>
                     <div className="mt-4 space-y-2 text-xs font-bold leading-5 text-[#57534E]">
-                      <p>Score {result.score === null ? 'Pending' : `${result.score}/100`} · {jailbreakVerdict} · Confidence Confirmed</p>
-                      <p>{reportWorkflowReviewCount} workflow path{reportWorkflowReviewCount === 1 ? '' : 's'} require{reportWorkflowReviewCount === 1 ? 's' : ''} review.</p>
+                      <p>Score {result.score === null ? 'Pending' : `${result.score}/100`} · {jailbreakVerdict} · Confidence {reportConfidenceLabel}</p>
+                      <p>
+                        {isRepositoryObjectScan
+                          ? `${result.findings.length} file finding${result.findings.length === 1 ? '' : 's'} require review. ${reportWorkflowReviewCount} evidence-backed execution path${reportWorkflowReviewCount === 1 ? '' : 's'} found.`
+                          : `${reportWorkflowReviewCount} workflow path${reportWorkflowReviewCount === 1 ? '' : 's'} require${reportWorkflowReviewCount === 1 ? 's' : ''} review.`}
+                      </p>
                     </div>
                   </div>
 
                   <div className="p-5 border-b border-[#E4E3DE] xl:border-b-0 xl:border-r">
-                    <div className="text-[9px] font-black uppercase tracking-[0.22em] text-red-700">Before</div>
-                    <p className="mt-3 text-xs font-bold text-slate-800">Detected risky path:</p>
+                    <div className="text-[9px] font-black uppercase tracking-[0.22em] text-red-700">{isRepositoryObjectScan && reportWorkflowReviewCount === 0 ? 'Selected Finding' : 'Before'}</div>
+                    <p className="mt-3 text-xs font-bold text-slate-800">
+                      {isRepositoryObjectScan && reportWorkflowReviewCount === 0 ? 'Detected file-level issue:' : 'Detected risky path:'}
+                    </p>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       {reportBeforePath.map((label, index) => (
                         <Fragment key={`report-before-${label}-${index}`}>
@@ -5128,17 +5440,28 @@ export default function PlaygroundPage() {
 
                   <div className="p-5">
                     <div className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-750">After Fix</div>
-                    <p className="mt-3 text-xs font-bold text-slate-800">Safer pattern:</p>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {reportAfterPath.map((label, index) => (
-                        <Fragment key={`report-after-${label}-${index}`}>
-                          {index > 0 && <span className="text-[12px] font-black text-emerald-300">→</span>}
-                          <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-[10px] font-black text-emerald-800">
-                            {label}
-                          </span>
-                        </Fragment>
-                      ))}
-                    </div>
+                    {isRepositoryObjectScan && reportWorkflowReviewCount === 0 ? (
+                      <>
+                        <p className="mt-3 text-xs font-bold text-slate-800">Recommended remediation:</p>
+                        <p className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/40 p-3 text-xs font-semibold leading-5 text-emerald-900">
+                          {primaryIssueFinding?.suggested_fix || getRemediation(primaryIssueFinding || {}).mitigation}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mt-3 text-xs font-bold text-slate-800">Safer pattern:</p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {reportAfterPath.map((label, index) => (
+                            <Fragment key={`report-after-${label}-${index}`}>
+                              {index > 0 && <span className="text-[12px] font-black text-emerald-300">→</span>}
+                              <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-[10px] font-black text-emerald-800">
+                                {label}
+                              </span>
+                            </Fragment>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 

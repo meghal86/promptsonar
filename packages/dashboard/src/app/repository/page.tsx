@@ -128,8 +128,16 @@ function normalizeRepoPath(value = "", report?: RepoReport): string {
 function filePathForObject(report: RepoReport, item: any): string {
   const directPath = item?.relativePath || item?.path || item?.file || item?.filePath || "";
   if (directPath) return normalizeRepoPath(directPath, report);
+  if (Array.isArray(item?.impactedFiles) && item.impactedFiles.length > 0) return normalizeRepoPath(item.impactedFiles[0], report);
   if (Array.isArray(item?.files) && item.files.length > 0) return normalizeRepoPath(item.files[0], report);
   return "";
+}
+
+function findingsForFile(report: RepoReport, filePath: string): any[] {
+  if (!filePath) return [];
+  return (report?.issues || []).filter((issue: any) =>
+    (issue.impactedFiles || []).some((issueFile: string) => normalizeRepoPath(issueFile, report) === filePath)
+  );
 }
 
 function objectPlaygroundHref(report: RepoReport, item: any, contentByPath: Record<string, string>): string {
@@ -137,17 +145,26 @@ function objectPlaygroundHref(report: RepoReport, item: any, contentByPath: Reco
   if (report?.id) params.set("scanId", report.id);
   const filePath = filePathForObject(report, item);
   if (filePath) params.set("file", filePath);
-  const objectId = item?.id || item?.rule_id || "";
-  if (item?.id) params.set(item.nodeIds ? "pathId" : item.rule_id ? "findingId" : "artifactId", item.id);
-  else if (item?.rule_id) params.set("findingId", item.rule_id);
+  const objectId = item?.id || item?.ruleId || item?.rule_id || "";
+  const isIssue = Boolean(item?.ruleId || item?.rule_id);
+  if (item?.id) params.set(item.nodeIds ? "pathId" : isIssue ? "findingId" : "artifactId", item.id);
+  else if (isIssue) params.set("findingId", item.ruleId || item.rule_id);
   const content = contentByPath[filePath] || contentByPath[filePath.split("/").slice(-1)[0]];
   if (content && typeof window !== "undefined") {
+    const fileFindings = findingsForFile(report, filePath);
+    const selectedFinding = isIssue
+      ? fileFindings.find((finding: any) => finding.id === item.id) || { ...item }
+      : undefined;
     const handoffKey = `repo-handoff:${report?.id || "scan"}:${objectId || filePath}`;
     window.sessionStorage.setItem(handoffKey, JSON.stringify({
       source: "repository",
+      kind: "repository-object",
       file: filePath,
       objectId,
       content,
+      selectedFinding,
+      fileFindings,
+      repositorySummary: report?.summary,
     }));
     params.set("source", "repository");
     params.set("handoffKey", handoffKey);
@@ -184,7 +201,7 @@ export default function RepositoryPage() {
       Workflows: report?.workflows || artifacts.filter((artifact: any) => artifact.type === "WORKFLOW" || artifact.type === "ACTION"),
       Memory: artifacts.filter((artifact: any) => artifact.type === "MEMORY"),
       Tools: artifacts.filter((artifact: any) => artifact.type === "TOOL"),
-      Findings: (report?.findings || []).flatMap((result: any) => (result.findings || []).map((finding: any) => ({ ...finding, filePath: result.filePath }))),
+      Findings: report?.issues || [],
       Evidence: report?.evidence || [],
       "Fix Plan": report?.fixPlan || [],
       Report: report ? [report] : [],
@@ -304,16 +321,23 @@ export default function RepositoryPage() {
 
         {report && (
           <>
-            <section className="grid gap-3 rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm md:grid-cols-4 xl:grid-cols-8">
+            <section className="grid gap-3 rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm md:grid-cols-3 xl:grid-cols-10">
               {[
                 ["Overall Risk", riskLabel(report)],
                 ["Trust Status", report.summary.trustStatus],
-                ["Files Scanned", report.summary.filesScanned || 0],
+                ["AI Files Analyzed", report.summary.filesScanned || 0],
                 ["AI Surfaces", report.summary.aiSurfaces || 0],
                 ["Reachable Paths", report.summary.reachablePaths || report.reachablePaths.length],
                 ["Sensitive Actions", report.summary.sensitiveActions || 0],
+                ["Issues", report.issueSummary?.total || 0],
                 ["Confirmed", report.summary.confirmedPaths || 0],
                 ["Probable", report.summary.probablePaths || 0],
+                ["Potential", report.summary.potentialPaths ?? Math.max(
+                  0,
+                  (report.summary.reachablePaths || report.reachablePaths.length) -
+                    (report.summary.confirmedPaths || 0) -
+                    (report.summary.probablePaths || 0)
+                )],
               ].map(([label, value]) => (
                 <button key={label} onClick={() => setSelected({ kind: "summary", item: { label, value } })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left">
                   <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span>
@@ -386,8 +410,8 @@ export default function RepositoryPage() {
               <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {(inventory[activeTab] || []).slice(0, 120).map((item: any, index: number) => (
                   <button key={item.id || `${activeTab}-${index}`} onClick={() => setSelected({ kind: activeTab, item })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left">
-                    <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{item.type || item.severity || item.rule_id || activeTab}</span>
-                    <span className="mt-1 block truncate text-xs font-black">{item.label || item.name || item.rule_id || item.id || activeTab}</span>
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{item.type || item.severity || item.ruleId || item.rule_id || activeTab}</span>
+                    <span className="mt-1 block truncate text-xs font-black">{item.label || item.name || item.id || item.ruleId || item.rule_id || activeTab}</span>
                     <span className="mt-1 block truncate text-[10px] font-semibold text-[#78716C]">{item.relativePath || item.file || item.filePath || item.description || item.message || item.title}</span>
                   </button>
                 ))}
@@ -408,25 +432,32 @@ function ObjectPanel({ report, selected, contentByPath }: { report: RepoReport; 
   const incoming = edges.filter((edge: any) => edge.to === item.id);
   const outgoing = edges.filter((edge: any) => edge.from === item.id);
   const connectedPaths = (report.reachablePaths || []).filter((pathItem: any) => pathItem.nodeIds?.includes(item.id) || pathItem.edgeIds?.includes(item.id) || pathItem.id === item.id);
-  const findings = (report.findings || []).flatMap((result: any) => (result.findings || []).filter((finding: any) => finding.rule_id === item.rule_id || result.filePath === item.filePath || result.filePath === item.path));
+  const filePath = filePathForObject(report, item);
+  const fileFindings = findingsForFile(report, filePath);
+  const isIssue = Boolean(item?.ruleId || item?.rule_id);
+  const selectedFindingCount = isIssue ? 1 : fileFindings.length;
   return (
     <div className="mt-4 space-y-4">
       <div>
         <p className="text-[10px] font-black uppercase tracking-widest text-[#A8A29E]">{selected.kind}</p>
-        <h3 className="mt-1 break-words text-lg font-black">{item.label || item.name || item.rule_id || item.id || selected.kind}</h3>
-        <p className="mt-2 text-xs font-semibold leading-5 text-[#57534E]">{item.description || item.message || item.explanation || "Repository object selected for analysis."}</p>
+        <h3 className="mt-1 break-words text-lg font-black">{item.label || item.name || item.id || item.ruleId || item.rule_id || selected.kind}</h3>
+        <p className="mt-2 text-xs font-semibold leading-5 text-[#57534E]">{item.description || item.issue || item.message || item.explanation || "Repository object selected for analysis."}</p>
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs font-bold">
         <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">Incoming<br /><span className="font-mono text-lg">{incoming.length}</span></div>
         <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">Outgoing<br /><span className="font-mono text-lg">{outgoing.length}</span></div>
         <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">Connected paths<br /><span className="font-mono text-lg">{connectedPaths.length}</span></div>
-        <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">Findings<br /><span className="font-mono text-lg">{findings.length}</span></div>
+        <div className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
+          {isIssue ? "Selected issue" : "File issues"}<br />
+          <span className="font-mono text-lg">{selectedFindingCount}</span>
+          {isIssue && <span className="ml-2 text-[10px] text-[#78716C]">{fileFindings.length} in file</span>}
+        </div>
       </div>
       <details open className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
         <summary className="cursor-pointer text-xs font-black">Evidence and reason</summary>
-        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] font-semibold text-[#57534E]">{JSON.stringify({ evidence: item.evidence || item.evidenceRefs || item.snippet, metadata: item.metadata, incoming, outgoing }, null, 2)}</pre>
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] font-semibold text-[#57534E]">{JSON.stringify({ impact: item.impact, whyThisMatters: item.whyThisMatters, evidence: item.evidence || item.evidenceRefs || item.snippet, confidence: item.confidence, metadata: item.metadata, incoming, outgoing }, null, 2)}</pre>
       </details>
-      <p className="rounded-xl border border-[#E4E3DE] bg-white p-3 text-xs font-semibold leading-5 text-[#57534E]">Suggested fix: scope permissions, require explicit approval before sensitive actions, and break unnecessary source-to-sink reachability.</p>
+      <p className="rounded-xl border border-[#E4E3DE] bg-white p-3 text-xs font-semibold leading-5 text-[#57534E]">Suggested fix: {item.howToFix || "Scope permissions, require explicit approval before sensitive actions, and break unnecessary source-to-sink reachability."}</p>
       <a href={objectPlaygroundHref(report, item, contentByPath)} className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">Open in Playground →</a>
     </div>
   );

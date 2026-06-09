@@ -111,6 +111,8 @@ export interface RepositoryScanFinding {
     recommendation?: string;
     evidence?: string;
     confidence?: string;
+    why?: string;
+    risk?: string;
     waived?: boolean;
     workflow?: any;
 }
@@ -189,6 +191,43 @@ export interface RepositorySummary {
     trustStatus: RepositoryTrustStatus;
 }
 
+export interface RepositoryExecutionIssueEvidence {
+    id: string;
+    file: string;
+    line?: number;
+    column?: number;
+    snippet: string;
+    source: 'scanner' | 'workflow' | 'repository-graph';
+}
+
+export interface RepositoryExecutionIssue {
+    id: string;
+    ruleId: string;
+    severity: Severity | string;
+    category: string;
+    issue: string;
+    impact: string;
+    whyThisMatters: string;
+    howToFix: string;
+    evidence: RepositoryExecutionIssueEvidence[];
+    confidence: {
+        score: number;
+        level: RepositoryPathConfidence;
+        label: 'Confirmed' | 'Probable' | 'Potential';
+    };
+    impactedFiles: string[];
+    fixSuggestions: string[];
+    pathIds: string[];
+}
+
+export interface RepositoryIssueSummary {
+    total: number;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+}
+
 export interface RepositoryExecutionReport {
     id?: string;
     version: string;
@@ -232,6 +271,8 @@ export interface RepositoryExecutionReport {
     executionMap: RepositoryExecutionMap;
     reachablePaths: ReachableExecutionPath[];
     summary: RepositorySummary;
+    issues: RepositoryExecutionIssue[];
+    issueSummary: RepositoryIssueSummary;
     findings: RepositoryScanResult[];
 }
 

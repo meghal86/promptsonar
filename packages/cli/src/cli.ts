@@ -213,6 +213,23 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
     lines.push(`  Medium: ${summary.riskSummary.medium}`);
     lines.push(`  Low: ${summary.riskSummary.low}`);
     lines.push('');
+    lines.push(chalk.bold(`Canonical Issues (${report.issueSummary.total})`));
+    for (const issue of report.issues.slice(0, 20)) {
+        const severity = issue.severity === 'critical' ? chalk.red(String(issue.severity).toUpperCase())
+            : issue.severity === 'high' ? chalk.hex('#FF8C00')(String(issue.severity).toUpperCase())
+                : String(issue.severity).toUpperCase();
+        lines.push(`  ${severity} · ${issue.id}`);
+        lines.push(`    Issue: ${issue.issue}`);
+        lines.push(`    Impact: ${issue.impact}`);
+        lines.push(`    Why this matters: ${issue.whyThisMatters}`);
+        lines.push(`    How to fix: ${issue.howToFix}`);
+        lines.push(`    Evidence: ${issue.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`);
+        lines.push(`    Confidence: ${issue.confidence.label} (${issue.confidence.score}%)`);
+    }
+    if (report.issues.length > 20) {
+        lines.push(`  ... ${report.issues.length - 20} more issues in JSON, SARIF, or HTML output`);
+    }
+    lines.push('');
     lines.push(chalk.bold('Reachable Execution Paths'));
     lines.push(`  Total: ${report.reachablePaths.length}`);
     lines.push(`  Confirmed: ${summary.confidenceSummary.confirmed}`);

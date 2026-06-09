@@ -60,6 +60,10 @@ outputs:
     description: 'Count of repository-level reachable sensitive action paths'
   high_risk_paths:
     description: 'Count of high-risk reachable repository paths'
+  issue_count:
+    description: 'Canonical RepositoryExecutionReport issue count'
+  issue_ids:
+    description: 'JSON array of canonical RepositoryExecutionReport issue IDs'
 
 runs:
   using: 'node20'

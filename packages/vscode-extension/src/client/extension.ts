@@ -694,10 +694,11 @@ export function activate(context: ExtensionContext) {
             ['AI Surfaces', summary.aiSurfacesFound.prompts + summary.aiSurfacesFound.skills + summary.aiSurfacesFound.mcpServers + summary.aiSurfacesFound.tools + summary.aiSurfacesFound.workflows + summary.aiSurfacesFound.memorySystems],
             ['Execution Nodes', summary.executionGraph.nodes],
             ['Reachable Actions', report.reachablePaths.length],
+            ['Issues', report.issueSummary.total],
             ['Trust Status', summary.trustStatus],
         ];
         const artifactsByType = (type: string) => report.artifacts.filter((artifact: any) => artifact.type === type);
-        const findingRows = report.findings.flatMap((result: any) => (result.findings || []).map((finding: any) => ({ ...finding, filePath: result.filePath })));
+        const issues = report.issues || [];
 
         return `<!doctype html>
 <html lang="en">
@@ -760,10 +761,10 @@ export function activate(context: ExtensionContext) {
         <table>${report.executionMap.edges.slice(0, 120).map((edge: any) => `<tr><td>${escapeHtml((nodesById.get(edge.from) as any)?.label || edge.from)}</td><td>${escapeHtml(edge.type)}</td><td>${escapeHtml((nodesById.get(edge.to) as any)?.label || edge.to)}</td></tr>`).join('')}</table>
       </section>
       <section id="findings">
-        <h2>Findings</h2>
+        <h2>Canonical Issues (${report.issueSummary.total})</h2>
         <table>
-          <tr><th>Severity</th><th>Rule</th><th>File</th><th>Part of Execution Path</th></tr>
-          ${findingRows.map((finding: any) => `<tr><td class="risk-${finding.severity}">${escapeHtml(finding.severity)}</td><td>${escapeHtml(finding.rule_id)}</td><td><button class="link" data-file="${escapeHtml(finding.filePath)}">${escapeHtml(finding.filePath)}</button></td><td>${escapeHtml(finding.workflow?.path?.summary || '')}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No scanner findings connected to repository paths.</td></tr>'}
+          <tr><th>ID</th><th>Severity</th><th>Issue</th><th>Evidence</th><th>How to Fix</th><th>Confidence</th></tr>
+          ${issues.map((issue: any) => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td class="risk-${issue.severity}">${escapeHtml(issue.severity)}</td><td>${escapeHtml(issue.issue)}<div class="muted">${escapeHtml(issue.impact)} ${escapeHtml(issue.whyThisMatters)}</div></td><td><button class="link" data-file="${escapeHtml(issue.impactedFiles[0] || '')}">${escapeHtml(issue.evidence.map((item: any) => `${item.file}:${item.line || 1}`).join(', '))}</button></td><td>${escapeHtml(issue.howToFix)}</td><td>${escapeHtml(issue.confidence.label)} ${escapeHtml(issue.confidence.score)}%</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No active issues.</td></tr>'}
         </table>
       </section>
       <section id="skills"><h2>Skills</h2>${artifactsByType('SKILL').map((artifact: any) => `<div class="path"><button class="link" data-file="${escapeHtml(artifact.filePath)}">${escapeHtml(artifact.relativePath)}</button><div>${escapeHtml(artifact.description)}</div><div class="muted">${escapeHtml((artifact.metadata?.capabilities || []).join(' · '))}</div></div>`).join('') || '<div class="muted">No SKILL.md files discovered.</div>'}</section>
