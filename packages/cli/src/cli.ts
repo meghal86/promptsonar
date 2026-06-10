@@ -182,87 +182,57 @@ function formatModelComparisonMarkdown(result: ModelComparisonResult): string {
 
 function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
     const summary = report.summary;
-    const reachableActions = Object.entries(summary.reachableSensitiveActions)
-        .filter(([, count]) => count > 0)
-        .map(([action, count]) => `${action}: ${count}`)
-        .join(', ') || 'None';
+    const severityRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+    const topIssues = [...report.issues]
+        .sort((left, right) =>
+            (severityRank[String(right.severity)] || 0) - (severityRank[String(left.severity)] || 0) ||
+            left.id.localeCompare(right.id)
+        )
+        .slice(0, 10);
     const lines: string[] = [];
 
-    lines.push(chalk.bold(`PromptSonar Repository Execution Analysis v${VERSION}`));
+    lines.push(chalk.bold(`PromptSonar Repository Analysis v${VERSION}`));
     lines.push(`Repository: ${report.repository.name}`);
-    lines.push(`Trust Status: ${summary.trustStatus === 'High Risk' ? chalk.red(summary.trustStatus) : summary.trustStatus === 'Review Required' ? chalk.yellow(summary.trustStatus) : chalk.green(summary.trustStatus)}`);
     lines.push('');
-    lines.push(chalk.bold('AI Surfaces Found'));
-    lines.push(`  Prompts: ${summary.aiSurfacesFound.prompts}`);
-    lines.push(`  Skills: ${summary.aiSurfacesFound.skills}`);
-    lines.push(`  MCP Servers: ${summary.aiSurfacesFound.mcpServers}`);
-    lines.push(`  Tools: ${summary.aiSurfacesFound.tools}`);
-    lines.push(`  Workflows: ${summary.aiSurfacesFound.workflows}`);
-    lines.push(`  Memory Systems: ${summary.aiSurfacesFound.memorySystems}`);
+    lines.push(chalk.bold('1. Trust Status'));
+    lines.push(`  ${summary.trustStatus === 'High Risk' ? chalk.red(summary.trustStatus) : summary.trustStatus === 'Review Required' ? chalk.yellow(summary.trustStatus) : chalk.green(summary.trustStatus)}`);
+    lines.push(`  ${report.issueSummary.critical} critical · ${report.issueSummary.high} high · ${report.issueSummary.medium} medium · ${report.issueSummary.low} low`);
+    lines.push(`  ${report.impactedFiles.length} impacted files · ${report.reachablePaths.length} reachable paths`);
     lines.push('');
-    lines.push(chalk.bold('Execution Graph'));
-    lines.push(`  Nodes: ${summary.executionGraph.nodes}`);
-    lines.push(`  Edges: ${summary.executionGraph.edges}`);
-    lines.push('');
-    lines.push(chalk.bold('Reachable Sensitive Actions'));
-    lines.push(`  ${reachableActions}`);
-    lines.push('');
-    lines.push(chalk.bold('Risk Summary'));
-    lines.push(`  Critical: ${summary.riskSummary.critical}`);
-    lines.push(`  High: ${summary.riskSummary.high}`);
-    lines.push(`  Medium: ${summary.riskSummary.medium}`);
-    lines.push(`  Low: ${summary.riskSummary.low}`);
-    lines.push('');
-    lines.push(chalk.bold(`Canonical Issues (${report.issueSummary.total})`));
-    for (const issue of report.issues.slice(0, 20)) {
+    lines.push(chalk.bold(`2. Top Issues (${report.issueSummary.total})`));
+    for (const issue of topIssues) {
         const severity = issue.severity === 'critical' ? chalk.red(String(issue.severity).toUpperCase())
             : issue.severity === 'high' ? chalk.hex('#FF8C00')(String(issue.severity).toUpperCase())
                 : String(issue.severity).toUpperCase();
         lines.push(`  ${severity} · ${issue.id}`);
         lines.push(`    Issue: ${issue.issue}`);
         lines.push(`    Impact: ${issue.impact}`);
-        lines.push(`    Why this matters: ${issue.whyThisMatters}`);
+        lines.push(`    Files: ${issue.impactedFiles.join(', ')}`);
+        lines.push(`    Evidence: ${issue.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`);
+    }
+    if (report.issues.length > topIssues.length) {
+        lines.push(`  ... ${report.issues.length - topIssues.length} more issues in JSON, SARIF, or HTML output`);
+    }
+    lines.push('');
+    lines.push(chalk.bold(`3. Impacted Files (${report.impactedFiles.length})`));
+    for (const file of report.impactedFiles.slice(0, 15)) {
+        lines.push(`  ${String(file.highestSeverity).toUpperCase()} · ${file.path}`);
+        lines.push(`    ${file.issueCount} issue${file.issueCount === 1 ? '' : 's'} · ${file.pathIds.length} execution path${file.pathIds.length === 1 ? '' : 's'}`);
+    }
+    if (report.impactedFiles.length > 15) {
+        lines.push(`  ... ${report.impactedFiles.length - 15} more impacted files in JSON, SARIF, or HTML output`);
+    }
+    lines.push('');
+    lines.push(chalk.bold('4. Fix Suggestions'));
+    for (const issue of topIssues) {
+        lines.push(`  ${issue.id} · ${issue.fix.effort}`);
         lines.push(`    Quick Fix: ${issue.fix.quickFix}`);
         lines.push(`    Recommended Fix: ${issue.fix.recommendedFix}`);
         lines.push(`    Safe Pattern: ${issue.fix.safePattern}`);
-        lines.push(`    Effort: ${issue.fix.effort}`);
-        lines.push('    Technical Details:');
-        lines.push(`      Execution path: ${issue.technicalDetails.executionPath}`);
-        lines.push(`      Evidence: ${issue.technicalDetails.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`);
-        lines.push(`      Confidence: ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%)`);
-        lines.push(`      Meaning: ${issue.technicalDetails.confidence.definition}`);
     }
-    if (report.issues.length > 20) {
-        lines.push(`  ... ${report.issues.length - 20} more issues in JSON, SARIF, or HTML output`);
-    }
+    if (topIssues.length === 0) lines.push('  No fixes required.');
     lines.push('');
-    lines.push(chalk.bold('Reachable Execution Paths'));
-    lines.push(`  Total: ${report.reachablePaths.length}`);
-    lines.push(`  Confirmed: ${summary.confidenceSummary.confirmed}`);
-    lines.push(`  Probable: ${summary.confidenceSummary.probable}`);
-    lines.push(`  Potential: ${summary.confidenceSummary.potential}`);
-    lines.push(`    Confirmed means: ${report.confidenceDefinitions.confirmed}`);
-    lines.push(`    Probable means: ${report.confidenceDefinitions.probable}`);
-    lines.push(`    Potential means: ${report.confidenceDefinitions.potential}`);
-
-    if (report.reachablePaths.length > 0) {
-        lines.push('');
-        lines.push(chalk.bold('Highest Risk Path'));
-        const highestPath = report.reachablePaths[0];
-        lines.push(`  ${highestPath.sensitiveActions.join(', ') || 'No sensitive action'} · ${highestPath.confidenceLevel} · ${highestPath.confidence}%`);
-        lines.push(`    ${highestPath.explanation}`);
-        lines.push(`    Files: ${highestPath.files.length}`);
-        lines.push('');
-        lines.push(chalk.bold('Most Critical Paths'));
-        for (const pathItem of report.reachablePaths.slice(0, 5)) {
-            const risk = pathItem.risk === 'critical' ? chalk.red(pathItem.risk.toUpperCase()) : pathItem.risk === 'high' ? chalk.hex('#FF8C00')(pathItem.risk.toUpperCase()) : pathItem.risk.toUpperCase();
-            lines.push(`  ${risk} · ${pathItem.sensitiveActions.join(', ') || 'No sensitive action'} · ${pathItem.confidenceLevel} · ${pathItem.confidence}%`);
-            lines.push(`    ${pathItem.explanation}`);
-            if (pathItem.files.length > 0) {
-                lines.push(`    Files involved: ${pathItem.files.length}`);
-            }
-        }
-    }
+    lines.push('Use --json for the canonical report and execution map details.');
 
     return lines.join('\n');
 }
