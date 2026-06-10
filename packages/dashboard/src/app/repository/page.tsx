@@ -365,6 +365,16 @@ export default function RepositoryPage() {
                 <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#A8A29E]">1. Repository Summary</p>
                 <h2 className="mt-1 text-xl font-black tracking-tight">What needs attention in this repository</h2>
               </div>
+              {report.pathValidation && !report.pathValidation.valid && (
+                <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                  Path validation failed: {report.pathValidation.errors?.length || 0} error{(report.pathValidation.errors?.length || 0) === 1 ? "" : "s"} across {report.pathValidation.checkedPaths} checked paths. Treat path-derived results with caution.
+                </p>
+              )}
+              {report.summary?.scanStats?.truncated && (
+                <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+                  Scan truncated at the file limit — results may be incomplete ({report.summary.scanStats.filesSkipped} files skipped).
+                </p>
+              )}
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
                 {[
                   ["Overall Risk", riskLabel(report)],
@@ -384,7 +394,9 @@ export default function RepositoryPage() {
                 <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#57534E]">More repository metrics</summary>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
                   {[
-                    ["AI Files Analyzed", report.summary.filesScanned || 0],
+                    ["AI Files Analyzed", report.summary.artifactFiles ?? report.summary.filesScanned ?? 0],
+                    ["Files Scanned", report.summary.scanStats?.filesScanned ?? report.summary.filesScanned ?? 0],
+                    ["Files Skipped", report.summary.scanStats?.filesSkipped ?? 0],
                     ["AI Surfaces", report.summary.aiSurfaces || 0],
                     ["Sensitive Actions", report.summary.sensitiveActions || 0],
                     ["Confirmed", report.summary.confirmedPaths || 0],

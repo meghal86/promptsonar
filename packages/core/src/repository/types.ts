@@ -158,8 +158,20 @@ export interface ReachableExecutionPath {
     }>;
 }
 
+export interface RepositoryScanStats {
+    filesConsidered: number;
+    filesScanned: number;
+    filesSkipped: number;
+    skipReasons: Record<string, number>;
+    truncated: boolean;
+}
+
 export interface RepositorySummary {
     filesScanned?: number;
+    artifactFiles?: number;
+    scanStats?: RepositoryScanStats;
+    pathValidationStatus?: 'passed' | 'failed';
+    pathValidationErrors?: number;
     aiSurfaces?: number;
     instructionSources?: number;
     skills?: number;
@@ -335,4 +347,5 @@ export interface RepositoryExecutionReport {
 export interface AnalyzeRepositoryOptions {
     maxFiles?: number;
     maxFileSizeBytes?: number;
+    ignorePatterns?: string[];
 }

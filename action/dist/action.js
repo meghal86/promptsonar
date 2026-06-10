@@ -498,12 +498,17 @@ function repositorySummaryMarkdown(report) {
     (left, right) => (severityRank[String(right.severity)] || 0) - (severityRank[String(left.severity)] || 0) || left.id.localeCompare(right.id)
   ).slice(0, 5);
   const topPaths = report.reachablePaths.slice(0, 5);
+  const validation = report.pathValidation;
+  const scanStats = report.summary.scanStats;
   return [
     "# PromptSonar Repository Analysis",
     "",
     "## Trust Status",
     "",
     `**${report.summary.trustStatus}** \xB7 ${report.issueSummary.total} issues \xB7 ${report.reachablePaths.length} reachable paths`,
+    "",
+    validation && !validation.valid ? `> \u26A0\uFE0F **Path validation failed** \u2014 ${validation.errors.length} error${validation.errors.length === 1 ? "" : "s"} across ${validation.checkedPaths} checked paths. Treat path-derived results with caution (details in \`repository-report.json\`).` : `Path validation: passed (${validation ? validation.checkedPaths : 0} paths checked).`,
+    ...scanStats ? [`Files: ${scanStats.filesConsidered} considered \xB7 ${scanStats.filesScanned} scanned \xB7 ${scanStats.filesSkipped} skipped${scanStats.truncated ? " \xB7 **\u26A0\uFE0F scan truncated at file limit**" : ""}`] : [],
     "",
     "## Top Issues",
     "",

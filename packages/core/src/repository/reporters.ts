@@ -98,7 +98,9 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport): 
 export function formatRepositoryReportHtml(report: RepositoryExecutionReport): string {
     const summary = report.summary;
     const topPaths = report.reachablePaths.slice(0, 10);
-    const highestPath = report.reachablePaths[0];
+    const highestPath = report.reachablePaths.find(pathItem => pathItem.nodeIds.length > 0);
+    const validation = report.pathValidation;
+    const scanStats = summary.scanStats;
     const fileName = (file: string) => file.split(/[\\/]/).filter(Boolean).pop() || file;
     const fileType = (file: string): string => {
         const lower = file.toLowerCase();
@@ -153,6 +155,12 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
     <div>${escapeHtml(report.repository.name)} · ${escapeHtml(report.generated_at)} · Trust Status: ${escapeHtml(summary.trustStatus)}</div>
   </header>
   <main>
+    ${validation && !validation.valid ? `<section style="border-color:#b42318;background:#fef3f2;margin-bottom:18px">
+      <h2 class="risk-critical">Path Validation Failed</h2>
+      <p>${validation.errors.length} validation error${validation.errors.length === 1 ? '' : 's'} across ${validation.checkedPaths} checked paths. Treat path-derived results below with caution.</p>
+      <details><summary>Show validation errors</summary>${validation.errors.slice(0, 25).map(error => `<p><code>${escapeHtml(error.code)}</code> ${escapeHtml(error.message)}</p>`).join('')}</details>
+    </section>` : `<p class="label">Path validation: passed (${validation ? validation.checkedPaths : 0} paths checked)</p>`}
+    ${scanStats ? `<p class="label">Files: ${scanStats.filesConsidered} considered · ${scanStats.filesScanned} scanned · ${scanStats.filesSkipped} skipped${scanStats.truncated ? ' · <strong class="risk-high">scan truncated at file limit — results may be incomplete</strong>' : ''}</p>` : ''}
     <div class="grid">
       <div class="card"><div class="metric">${summary.aiSurfacesFound.prompts + summary.aiSurfacesFound.skills + summary.aiSurfacesFound.mcpServers + summary.aiSurfacesFound.tools + summary.aiSurfacesFound.workflows + summary.aiSurfacesFound.memorySystems}</div><div class="label">AI Surfaces</div></div>
       <div class="card"><div class="metric">${summary.executionGraph.nodes}</div><div class="label">Execution Nodes</div></div>
@@ -186,8 +194,24 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
       <p><strong>Risk:</strong> ${escapeHtml(highestPath.explanation)}</p>
       <p><strong>Confidence:</strong> ${escapeHtml(highestPath.confidenceLevel)} (${highestPath.confidence}%)</p>
       <p><strong>Files:</strong> ${highestPath.files.length}</p>
-      <p><a href="#path-${escapeHtml(highestPath.id)}">Analyze in Playground →</a></p>
+      <p><a href="#path-${escapeHtml(highestPath.id)}">View path details →</a></p>
     </section>` : ''}
+    <section style="margin-top:18px">
+      <h2>Impacted Files (${report.impactedFiles.length})</h2>
+      <table>
+        <tr><th>File</th><th>Type</th><th>Highest Severity</th><th>Issues</th><th>Execution Paths</th></tr>
+        ${report.impactedFiles.slice(0, 50).map(file => `<tr><td><code>${escapeHtml(file.path)}</code></td><td>${escapeHtml(file.type)}</td><td class="risk-${escapeHtml(file.highestSeverity)}">${escapeHtml(String(file.highestSeverity).toUpperCase())}</td><td>${file.issueCount}</td><td>${file.pathIds.length}</td></tr>`).join('') || '<tr><td colspan="5">No files are impacted by active issues.</td></tr>'}
+      </table>
+      ${report.impactedFiles.length > 50 ? `<p class="label">${report.impactedFiles.length - 50} additional impacted files in the JSON report.</p>` : ''}
+    </section>
+    <section style="margin-top:18px">
+      <h2>Fix Plan</h2>
+      ${(report.issues.length > 0 ? `<table>
+        <tr><th>Issue</th><th>Quick Fix</th><th>Recommended Fix</th><th>Safe Pattern</th><th>Effort</th></tr>
+        ${report.issues.slice(0, 25).map(issue => `<tr><td><code>${escapeHtml(issue.id)}</code><br>${escapeHtml((issue.impactedFiles || []).join(', '))}</td><td>${escapeHtml(issue.fix.quickFix)}</td><td>${escapeHtml(issue.fix.recommendedFix)}</td><td><code>${escapeHtml(issue.fix.safePattern)}</code></td><td>${escapeHtml(issue.fix.effort)}</td></tr>`).join('')}
+      </table>` : '<p>No fixes required.</p>')}
+      ${(report.fixPlan || []).length > 0 ? `<details><summary>Path review plan</summary>${(report.fixPlan || []).map(item => `<p><strong>${escapeHtml(item.title)}</strong><br>${escapeHtml(item.description)}</p>`).join('')}</details>` : ''}
+    </section>
     <section>
       <h2>AI Surfaces</h2>
       <table>

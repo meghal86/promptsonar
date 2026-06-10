@@ -4,7 +4,7 @@ import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
-import { scanFiles, generateSarif, ScanResult, scoreFromFindings } from './scanner';
+import { scanFiles, generateSarif, ScanResult, scoreFromFindings, loadRepositoryIgnorePatterns } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport } from '@promptsonar/core';
 import { runPromptTests } from './tester';
@@ -198,6 +198,17 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
     lines.push(`  ${summary.trustStatus === 'High Risk' ? chalk.red(summary.trustStatus) : summary.trustStatus === 'Review Required' ? chalk.yellow(summary.trustStatus) : chalk.green(summary.trustStatus)}`);
     lines.push(`  ${report.issueSummary.critical} critical · ${report.issueSummary.high} high · ${report.issueSummary.medium} medium · ${report.issueSummary.low} low`);
     lines.push(`  ${report.impactedFiles.length} impacted files · ${report.reachablePaths.length} reachable paths`);
+    if (summary.scanStats) {
+        const stats = summary.scanStats;
+        const skipDetail = Object.entries(stats.skipReasons).map(([reason, count]) => `${reason}: ${count}`).join(', ');
+        lines.push(`  Files: ${stats.filesConsidered} considered · ${stats.filesScanned} scanned · ${stats.filesSkipped} skipped${skipDetail ? ` (${skipDetail})` : ''}`);
+        if (stats.truncated) {
+            lines.push(`  ${chalk.yellow('⚠ Scan truncated at the file limit — results may be incomplete.')}`);
+        }
+    }
+    lines.push(report.pathValidation.valid
+        ? `  ${chalk.green(`✓ Path validation passed (${report.pathValidation.checkedPaths} paths checked)`)}`
+        : `  ${chalk.red(`✗ Path validation failed (${report.pathValidation.errors.length} errors across ${report.pathValidation.checkedPaths} paths) — see pathValidation in --json`)}`);
     lines.push('');
     lines.push(chalk.bold(`2. Top Issues (${report.issueSummary.total})`));
     for (const issue of topIssues) {
@@ -269,7 +280,13 @@ async function buildRepositoryReport(targetPath: string, options: CliOptions): P
         verbose: options.verbose,
         waiverFile: options.waiver
     });
-    return analyzeRepositoryExecution(targetPath, results as any);
+    const resolvedPath = path.resolve(targetPath);
+    const scanRoot = fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory()
+        ? resolvedPath
+        : path.dirname(resolvedPath);
+    return analyzeRepositoryExecution(targetPath, results as any, {
+        ignorePatterns: loadRepositoryIgnorePatterns(scanRoot),
+    });
 }
 
 function writeOrPrint(output: string, outputPath?: string): void {

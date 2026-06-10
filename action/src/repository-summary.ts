@@ -21,12 +21,22 @@ export function repositorySummaryMarkdown(report: RepositoryExecutionReport): st
         .slice(0, 5);
     const topPaths = report.reachablePaths.slice(0, 5);
 
+    const validation = report.pathValidation;
+    const scanStats = report.summary.scanStats;
+
     return [
         '# PromptSonar Repository Analysis',
         '',
         '## Trust Status',
         '',
         `**${report.summary.trustStatus}** · ${report.issueSummary.total} issues · ${report.reachablePaths.length} reachable paths`,
+        '',
+        validation && !validation.valid
+            ? `> ⚠️ **Path validation failed** — ${validation.errors.length} error${validation.errors.length === 1 ? '' : 's'} across ${validation.checkedPaths} checked paths. Treat path-derived results with caution (details in \`repository-report.json\`).`
+            : `Path validation: passed (${validation ? validation.checkedPaths : 0} paths checked).`,
+        ...(scanStats
+            ? [`Files: ${scanStats.filesConsidered} considered · ${scanStats.filesScanned} scanned · ${scanStats.filesSkipped} skipped${scanStats.truncated ? ' · **⚠️ scan truncated at file limit**' : ''}`]
+            : []),
         '',
         '## Top Issues',
         '',

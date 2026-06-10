@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { minimatch } from 'minimatch';
+import { stripNegatedClauses } from '../workflow/analyzer';
 import {
     REPOSITORY_CONFIDENCE_DEFINITIONS,
     repositoryConfidenceDefinition,
@@ -25,6 +27,7 @@ import type {
     RepositoryRisk,
     RepositoryScanFinding,
     RepositoryScanResult,
+    RepositoryScanStats,
     RepositorySensitiveAction,
     RepositorySummary,
     RepositoryTrustStatus,
@@ -47,6 +50,20 @@ const IGNORED_DIRECTORIES = new Set([
     '.cache',
     'tmp',
     'logs',
+    'venv',
+    '.venv',
+    'env',
+    '.env',
+    'site-packages',
+    'dist-packages',
+    'vendor',
+    'target',
+    '__pycache__',
+    '.pytest_cache',
+    '.mypy_cache',
+    '.tox',
+    '.idea',
+    '.vscode-test',
 ]);
 
 const TEXT_EXTENSIONS = new Set([
@@ -97,7 +114,15 @@ function normalizePath(filePath: string): string {
 }
 
 function stableId(prefix: string, value: string): string {
-    return `${prefix}:${normalizePath(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 120)}`;
+    const slug = normalizePath(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    if (slug.length <= 120) return `${prefix}:${slug}`;
+    // Long values keep a readable prefix plus a hash of the full slug so two
+    // deep paths can never silently collide into one node or edge id.
+    let hash = 5381;
+    for (let index = 0; index < slug.length; index++) {
+        hash = ((hash << 5) + hash + slug.charCodeAt(index)) >>> 0;
+    }
+    return `${prefix}:${slug.slice(0, 96)}-${hash.toString(36)}`;
 }
 
 function redactSecrets(value: string): string {
@@ -125,10 +150,35 @@ function safeRead(filePath: string, maxFileSizeBytes: number): string | undefine
     }
 }
 
-function walkRepository(root: string, options: Required<AnalyzeRepositoryOptions>): string[] {
+function emptyScanStats(): RepositoryScanStats {
+    return {
+        filesConsidered: 0,
+        filesScanned: 0,
+        filesSkipped: 0,
+        skipReasons: {},
+        truncated: false,
+    };
+}
+
+function noteSkip(stats: RepositoryScanStats, reason: string, count = 1): void {
+    stats.filesSkipped += count;
+    stats.skipReasons[reason] = (stats.skipReasons[reason] || 0) + count;
+}
+
+function walkRepository(
+    root: string,
+    options: { maxFiles: number; maxFileSizeBytes: number; ignorePatterns: string[] },
+    stats: RepositoryScanStats,
+): string[] {
     const files: string[] = [];
+    const ignorePatterns = options.ignorePatterns;
+    const isIgnored = (relativePath: string): boolean =>
+        ignorePatterns.some(pattern =>
+            minimatch(relativePath, pattern, { dot: true }) ||
+            minimatch(relativePath, pattern.replace(/\/\*?\*?$/, ''), { dot: true })
+        );
+
     const visit = (dir: string) => {
-        if (files.length >= options.maxFiles) return;
         let entries: fs.Dirent[] = [];
         try {
             entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -137,11 +187,29 @@ function walkRepository(root: string, options: Required<AnalyzeRepositoryOptions
         }
 
         for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-            if (files.length >= options.maxFiles) break;
             const fullPath = path.join(dir, entry.name);
+            const relativePath = normalizePath(path.relative(root, fullPath));
             if (entry.isDirectory()) {
-                if (!IGNORED_DIRECTORIES.has(entry.name)) visit(fullPath);
+                if (IGNORED_DIRECTORIES.has(entry.name)) {
+                    noteSkip(stats, 'ignored_directory_subtree');
+                    continue;
+                }
+                if (ignorePatterns.length > 0 && isIgnored(relativePath)) {
+                    noteSkip(stats, 'ignore_pattern_directory');
+                    continue;
+                }
+                visit(fullPath);
             } else if (entry.isFile()) {
+                stats.filesConsidered += 1;
+                if (ignorePatterns.length > 0 && isIgnored(relativePath)) {
+                    noteSkip(stats, 'ignore_pattern');
+                    continue;
+                }
+                if (files.length >= options.maxFiles) {
+                    stats.truncated = true;
+                    noteSkip(stats, 'max_files_exceeded');
+                    continue;
+                }
                 files.push(fullPath);
             }
         }
@@ -172,7 +240,7 @@ function extractReferences(content: string): string[] {
 }
 
 function detectSensitiveActions(text: string): RepositorySensitiveAction[] {
-    const normalized = text.replace(/[_-]/g, ' ');
+    const normalized = stripNegatedClauses(text).replace(/[_-]/g, ' ');
     const actions = new Set<RepositorySensitiveAction>();
     if (/\b(shell|bash|terminal|exec|spawn|subprocess|command|run\s+command)\b/i.test(normalized)) actions.add('Shell');
     if (/\b(filesystem|file\s*(read|write)|read\s+file|write\s+file|read\s+all\s+files|write\s+all\s+files|workspace|directory)\b/i.test(normalized)) actions.add('Filesystem');
@@ -321,20 +389,40 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     return artifacts;
 }
 
-export function analyzeRepository(rootPath: string, options: AnalyzeRepositoryOptions = {}): RepositoryArtifact[] {
+export function analyzeRepositoryArtifacts(rootPath: string, options: AnalyzeRepositoryOptions = {}): { artifacts: RepositoryArtifact[]; scanStats: RepositoryScanStats } {
     const root = path.resolve(rootPath);
     const resolvedOptions = {
         maxFiles: options.maxFiles || DEFAULT_MAX_FILES,
         maxFileSizeBytes: options.maxFileSizeBytes || DEFAULT_MAX_FILE_SIZE_BYTES,
+        ignorePatterns: options.ignorePatterns || [],
     };
-    const files = fs.statSync(root).isDirectory() ? walkRepository(root, resolvedOptions) : [root];
+    const scanStats = emptyScanStats();
+    const isDirectory = fs.statSync(root).isDirectory();
+    let files: string[];
+    if (isDirectory) {
+        files = walkRepository(root, resolvedOptions, scanStats);
+    } else {
+        files = [root];
+        scanStats.filesConsidered = 1;
+    }
     const artifacts: RepositoryArtifact[] = [];
     for (const filePath of files) {
         const content = safeRead(filePath, resolvedOptions.maxFileSizeBytes);
-        if (content === undefined) continue;
-        artifacts.push(...classifyFile(fs.statSync(root).isDirectory() ? root : path.dirname(root), filePath, content));
+        if (content === undefined) {
+            noteSkip(scanStats, 'unsupported_or_unreadable');
+            continue;
+        }
+        scanStats.filesScanned += 1;
+        artifacts.push(...classifyFile(isDirectory ? root : path.dirname(root), filePath, content));
     }
-    return artifacts.sort((a, b) => `${a.relativePath}:${a.type}:${a.name}`.localeCompare(`${b.relativePath}:${b.type}:${b.name}`));
+    return {
+        artifacts: artifacts.sort((a, b) => `${a.relativePath}:${a.type}:${a.name}`.localeCompare(`${b.relativePath}:${b.type}:${b.name}`)),
+        scanStats,
+    };
+}
+
+export function analyzeRepository(rootPath: string, options: AnalyzeRepositoryOptions = {}): RepositoryArtifact[] {
+    return analyzeRepositoryArtifacts(rootPath, options).artifacts;
 }
 
 function nodeTypeForArtifact(type: RepositoryArtifactType): RepositoryExecutionNodeType {
@@ -406,7 +494,7 @@ function riskForActions(actions: RepositorySensitiveAction[], findings: Reposito
     return 'low';
 }
 
-export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], scanResults: RepositoryScanResult[] = []): RepositoryExecutionMap {
+export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], scanResults: RepositoryScanResult[] = [], rootPath?: string): RepositoryExecutionMap {
     const nodes = new Map<string, RepositoryExecutionNode>();
     const edges = new Map<string, RepositoryExecutionEdge>();
     const nodeIdByArtifact = new Map<string, string>();
@@ -430,7 +518,10 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
         });
         const directActionTypes = new Set<RepositoryArtifactType>(['MCP_SERVER', 'TOOL', 'MEMORY']);
         if (directActionTypes.has(artifact.type)) {
-            addSensitiveActionNodes(nodes, edges, nodeId, artifact.metadata?.sensitiveActions || [], artifact.evidence[0]);
+            // A config that failed to parse cannot provide direct evidence, so
+            // its action edges stay structural inference instead of Confirmed.
+            const directEvidence = artifact.metadata?.parseWarning ? undefined : artifact.evidence[0];
+            addSensitiveActionNodes(nodes, edges, nodeId, artifact.metadata?.sensitiveActions || [], directEvidence);
         }
     }
 
@@ -496,8 +587,7 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
 
     for (const result of scanResults) {
         const related = artifacts.find(artifact => path.resolve(artifact.filePath) === path.resolve(result.filePath));
-        const sourceNode = related ? nodeIdByArtifact.get(related.id) : undefined;
-        if (!related || !sourceNode) continue;
+        let sourceNode = related ? nodeIdByArtifact.get(related.id) : undefined;
         const actions = new Set<RepositorySensitiveAction>();
         for (const finding of result.findings || []) {
             if (finding.waived) continue;
@@ -509,9 +599,30 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
                 if (workflowNode.type === 'credential_store' || workflowNode.type === 'secret') actions.add('Secrets');
                 if (workflowNode.type === 'external_api') actions.add('External APIs');
             }
-            if (!['PROMPT', 'SKILL', 'AGENT_CONFIG'].includes(related.type)) {
+            if (related && !['PROMPT', 'SKILL', 'AGENT_CONFIG'].includes(related.type)) {
                 detectSensitiveActions(`${finding.message || ''}\n${finding.evidence || ''}\n${finding.fix || ''}`).forEach(action => actions.add(action));
             }
+        }
+        if (!sourceNode) {
+            // The scanner extracted AI instructions from a file the artifact
+            // classifier did not recognize. Give the findings a real source node
+            // so their execution paths stay graph-backed instead of node-less.
+            if (actions.size === 0) continue;
+            const syntheticNodeId = stableId('node', `SCAN:${normalizePath(result.filePath)}`);
+            if (!nodes.has(syntheticNodeId)) {
+                nodes.set(syntheticNodeId, {
+                    id: syntheticNodeId,
+                    type: 'PROMPT',
+                    label: path.basename(result.filePath),
+                    filePath: result.filePath,
+                    relativePath: rootPath
+                        ? normalizePath(path.relative(path.resolve(rootPath), path.resolve(result.filePath)))
+                        : normalizePath(result.filePath),
+                    description: 'AI instructions detected by the scanner in this file.',
+                    metadata: { artifactType: 'PROMPT', scannerDetected: true },
+                });
+            }
+            sourceNode = syntheticNodeId;
         }
         addSensitiveActionNodes(nodes, edges, sourceNode, Array.from(actions), result.findings?.[0]?.evidence);
     }
@@ -533,7 +644,7 @@ function inferGraphPaths(graph: RepositoryExecutionMap, scanResults: RepositoryS
         adjacency.set(edge.from, existing);
     }
     const actionNodes = new Set(graph.nodes.filter(node => node.type === 'ACTION' && node.metadata?.action).map(node => node.id));
-    const startNodes = graph.nodes.filter(node => ['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW'].includes(node.type)).map(node => node.id);
+    const startNodes = graph.nodes.filter(node => isPathSourceNode(node, graph)).map(node => node.id);
     const paths: RepositoryExecutionGraphPath[] = [];
     const findingsByFile = new Map(scanResults.map(result => [path.resolve(result.filePath), result.findings || []]));
     const nodeById = new Map(graph.nodes.map(node => [node.id, node]));
@@ -590,6 +701,7 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
     const edgesById = new Map(executionMap.edges.map(edge => [edge.id, edge]));
     const paths: ReachableExecutionPath[] = [];
     const graphPathsByStartFile = new Map<string, RepositoryExecutionGraphPath[]>();
+    const graphPathsByAnyFile = new Map<string, RepositoryExecutionGraphPath[]>();
     for (const graphPath of executionMap.paths) {
         const first = nodesById.get(graphPath.nodeIds[0]);
         if (first?.filePath) {
@@ -597,6 +709,14 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
             const existing = graphPathsByStartFile.get(key) || [];
             existing.push(graphPath);
             graphPathsByStartFile.set(key, existing);
+        }
+        for (const nodeId of graphPath.nodeIds) {
+            const node = nodesById.get(nodeId);
+            if (!node?.filePath) continue;
+            const key = path.resolve(node.filePath);
+            const existing = graphPathsByAnyFile.get(key) || [];
+            existing.push(graphPath);
+            graphPathsByAnyFile.set(key, existing);
         }
     }
 
@@ -607,14 +727,26 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
             const sensitiveActions = Array.from(new Set(workflowNodes.map(node => actionFromWorkflowNode(node.type)).filter(Boolean))) as RepositorySensitiveAction[];
             if (sensitiveActions.length === 0 && !finding.workflow.path.privilegedSinkReached) continue;
 
-            const matchingGraphPath = (graphPathsByStartFile.get(path.resolve(result.filePath)) || []).find(candidate => {
+            const actionsOverlap = (candidate: RepositoryExecutionGraphPath): boolean => {
                 const candidateActions = candidate.nodeIds
                     .map(nodeId => nodesById.get(nodeId)?.metadata?.action)
                     .filter(Boolean) as RepositorySensitiveAction[];
                 return sensitiveActions.some(action => candidateActions.includes(action));
-            });
-            const nodeIds = matchingGraphPath?.nodeIds || [];
-            const edgeIds = matchingGraphPath?.edgeIds || [];
+            };
+            // Prefer a graph path starting at the finding's file; fall back to
+            // any graph path passing through it (e.g. an MCP config that a
+            // prompt routes into), then to the direct file->action edge so the
+            // finding stays graph-backed even when path enumeration was capped.
+            const matchingGraphPath = (graphPathsByStartFile.get(path.resolve(result.filePath)) || []).find(actionsOverlap)
+                || (graphPathsByAnyFile.get(path.resolve(result.filePath)) || []).find(actionsOverlap)
+                || directGraphPath(result.filePath, sensitiveActions, executionMap);
+            // A reachable path is a graph-backed claim. Findings whose workflow
+            // never connects to a graph sensitive action stay visible as issues
+            // (with their workflow story in technical details) but are not
+            // presented as repository execution paths.
+            if (!matchingGraphPath) continue;
+            const nodeIds = matchingGraphPath.nodeIds;
+            const edgeIds = matchingGraphPath.edgeIds;
             const confidence = typeof finding.workflow.confidence_score === 'number'
                 ? finding.workflow.confidence_score
                 : sensitiveActions.length > 0 ? 85 : 70;
@@ -623,8 +755,10 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
                 result.filePath,
                 ...nodeIds.map(nodeId => nodesById.get(nodeId)?.filePath).filter(Boolean) as string[],
             ]));
-            const confidenceScore = clampConfidence(confidence);
-            const confidenceLevel: RepositoryPathConfidence = 'probable';
+            // A path without graph nodes is structural inference only — it must
+            // not outrank or outscore graph-backed paths.
+            const confidenceLevel: RepositoryPathConfidence = nodeIds.length > 0 ? 'probable' : 'potential';
+            const confidenceScore = alignConfidenceScore(confidenceLevel, clampConfidence(confidence));
             const evidenceId = stableId('evidence', `${result.filePath}:${finding.rule_id}:${finding.line || 1}`);
             paths.push({
                 id: stableId('reachable', `${result.filePath}:${finding.rule_id}:${finding.line || 1}:${workflowNodes.map(node => node.type).join('>')}`),
@@ -675,6 +809,7 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
             return edge?.confidenceLabel || (edge?.evidenceRefs?.length ? 'Probable' : 'Potential');
         });
         const confidenceLevel = pathConfidenceLevel({ confidence: 70, nodeIds: graphPath.nodeIds, edgeIds: graphPath.edgeIds, findings: [], edgeConfidenceLabels } as any);
+        const graphConfidence = alignConfidenceScore(confidenceLevel, 70);
         const evidenceId = stableId('evidence', `graph:${graphPath.id}`);
         paths.push({
             id: stableId('reachable', key),
@@ -694,7 +829,7 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
                 message: graphPath.explanation,
             }],
             files,
-            confidence: 70,
+            confidence: graphConfidence,
             confidenceLevel,
             confidenceLabel: pathConfidenceLabel(confidenceLevel),
             confidenceDefinition: repositoryConfidenceDefinition(confidenceLevel),
@@ -709,7 +844,43 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
-    }).sort((a, b) => riskRank(b.risk) - riskRank(a.risk) || b.confidence - a.confidence);
+    }).sort((a, b) =>
+        // Graph-backed paths always rank above node-less inference.
+        (b.nodeIds.length > 0 ? 1 : 0) - (a.nodeIds.length > 0 ? 1 : 0) ||
+        riskRank(b.risk) - riskRank(a.risk) ||
+        b.confidence - a.confidence
+    );
+}
+
+function directGraphPath(
+    filePath: string,
+    sensitiveActions: RepositorySensitiveAction[],
+    executionMap: RepositoryExecutionMap,
+): Pick<RepositoryExecutionGraphPath, 'nodeIds' | 'edgeIds' | 'risk'> | undefined {
+    const resolved = path.resolve(filePath);
+    const sourceNode = executionMap.nodes.find(node =>
+        node.filePath && path.resolve(node.filePath) === resolved && isPathSourceNode(node, executionMap));
+    if (!sourceNode) return undefined;
+    for (const action of sensitiveActions) {
+        const actionNode = executionMap.nodes.find(node => node.type === 'ACTION' && node.metadata?.action === action);
+        if (!actionNode) continue;
+        const edge = executionMap.edges.find(candidate => candidate.from === sourceNode.id && candidate.to === actionNode.id);
+        if (edge) {
+            return {
+                nodeIds: [sourceNode.id, actionNode.id],
+                edgeIds: [edge.id],
+                risk: riskForActions([action]),
+            };
+        }
+    }
+    return undefined;
+}
+
+function alignConfidenceScore(level: RepositoryPathConfidence, score: number): number {
+    // Numeric scores must not contradict labels: Confirmed >= 85, Probable 60-84, Potential <= 59.
+    if (level === 'confirmed') return Math.max(85, score);
+    if (level === 'probable') return Math.min(84, Math.max(60, score));
+    return Math.min(59, score);
 }
 
 function riskRank(risk: RepositoryRisk): number {
@@ -723,11 +894,21 @@ function pathConfidenceLevel(pathItem: Pick<ReachableExecutionPath, 'confidence'
     return 'potential';
 }
 
+function isPathSourceNode(node: RepositoryExecutionNode, executionMap: RepositoryExecutionMap): boolean {
+    if (['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW'].includes(node.type)) return true;
+    // A configured MCP server or tool with no upstream source is itself the
+    // earliest known source (e.g. an MCP-only repository).
+    if (node.type === 'MCP_SERVER' || node.type === 'TOOL') {
+        return !executionMap.edges.some(edge => edge.to === node.id);
+    }
+    return false;
+}
+
 function sourceNodeIdForPath(pathItem: Pick<ReachableExecutionPath, 'nodeIds'>, executionMap: RepositoryExecutionMap): string | undefined {
     const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
     const firstNodeId = pathItem.nodeIds[0];
-    const firstType = nodesById.get(firstNodeId)?.type;
-    return firstType && ['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW'].includes(firstType)
+    const firstNode = nodesById.get(firstNodeId);
+    return firstNode && isPathSourceNode(firstNode, executionMap)
         ? firstNodeId
         : undefined;
 }
@@ -780,8 +961,10 @@ export function generateRepositorySummary(artifacts: RepositoryArtifact[], execu
     const aiSurfaces = aiSurfacesFound.prompts + aiSurfacesFound.skills + aiSurfacesFound.mcpServers + aiSurfacesFound.tools + aiSurfacesFound.workflows + aiSurfacesFound.memorySystems;
     const criticalFindings = reachablePaths.reduce((count, pathItem) => count + pathItem.findings.filter(finding => finding.severity === 'critical').length, 0);
     const overallRisk: RepositoryRisk | 'none' = riskSummary.critical > 0 ? 'critical' : riskSummary.high > 0 ? 'high' : riskSummary.medium > 0 ? 'medium' : riskSummary.low > 0 ? 'low' : 'none';
+    const artifactFiles = new Set(artifacts.map(artifact => normalizePath(artifact.relativePath))).size;
     return {
-        filesScanned: new Set(artifacts.map(artifact => normalizePath(artifact.relativePath))).size,
+        filesScanned: artifactFiles,
+        artifactFiles,
         aiSurfaces,
         instructionSources: aiSurfacesFound.prompts,
         skills: aiSurfacesFound.skills,
@@ -1055,9 +1238,37 @@ function issueConfidence(finding: RepositoryScanFinding): RepositoryExecutionIss
     };
 }
 
+function refineFindingLocation(
+    absoluteFile: string,
+    finding: RepositoryScanFinding,
+    contentCache: Map<string, string | null>,
+): { line?: number; column?: number } {
+    const reported = { line: finding.line, column: finding.column };
+    // Trust the scanner when it reported a real position; only refine the
+    // line-1 default by locating the evidence text in the source file.
+    if (finding.line && finding.line > 1) return reported;
+    const needle = (finding.evidence || '').split(/\r?\n/)[0].trim().replace(/…$/, '').slice(0, 160);
+    if (!needle) return reported;
+    let content = contentCache.get(absoluteFile);
+    if (content === undefined) {
+        try {
+            content = fs.readFileSync(absoluteFile, 'utf-8');
+        } catch {
+            content = null;
+        }
+        contentCache.set(absoluteFile, content);
+    }
+    if (!content) return reported;
+    const lines = content.split(/\r?\n/);
+    const index = lines.findIndex(line => line.includes(needle));
+    if (index === -1) return reported;
+    return { line: index + 1, column: Math.max(1, lines[index].indexOf(needle) + 1) };
+}
+
 function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], reachablePaths: ReachableExecutionPath[], executionMap: RepositoryExecutionMap): RepositoryExecutionIssue[] {
     const root = path.resolve(rootPath);
     const issues = new Map<string, RepositoryExecutionIssue>();
+    const contentCache = new Map<string, string | null>();
 
     for (const result of scanResults) {
         const absoluteFile = path.isAbsolute(result.filePath) ? path.resolve(result.filePath) : path.resolve(root, result.filePath);
@@ -1067,7 +1278,8 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
         for (const finding of result.findings || []) {
             if (finding.waived) continue;
 
-            const id = stableId('issue', `${displayFile}:${finding.rule_id}:${finding.line || 1}:${finding.column || 1}`);
+            const location = refineFindingLocation(absoluteFile, finding, contentCache);
+            const id = stableId('issue', `${displayFile}:${finding.rule_id}:${location.line || 1}:${location.column || 1}`);
             const evidenceSnippet = redactSecrets(finding.evidence || finding.message || finding.rule_id);
             const detectedFixSuggestions = Array.from(new Set([
                 finding.fix ? redactSecrets(finding.fix) : '',
@@ -1091,10 +1303,10 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 ...detectedFixSuggestions,
             ]));
             const evidence = [{
-                id: stableId('evidence', `${displayFile}:${finding.rule_id}:${finding.line || 1}:${finding.column || 1}`),
+                id: stableId('evidence', `${displayFile}:${finding.rule_id}:${location.line || 1}:${location.column || 1}`),
                 file: displayFile,
-                line: finding.line,
-                column: finding.column,
+                line: location.line,
+                column: location.column,
                 snippet: evidenceSnippet,
                 source: workflowReason ? 'workflow' as const : 'scanner' as const,
             }];
@@ -1319,7 +1531,7 @@ export function validateRepositoryExecutionPaths(
         if (!chainIsConnected) {
             errors.push({ pathId: pathItem.id, code: 'broken-chain', message: 'Path nodes and edges do not form one connected route.' });
         }
-        if (!firstNode || !['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW'].includes(firstNode.type) || pathItem.sourceNodeId !== firstNode.id) {
+        if (!firstNode || !isPathSourceNode(firstNode, executionMap) || pathItem.sourceNodeId !== firstNode.id) {
             errors.push({ pathId: pathItem.id, code: 'invalid-source', message: 'Path does not start from its earliest known repository source.' });
         }
         const finalAction = lastNode?.type === 'ACTION' ? lastNode.metadata?.action as RepositorySensitiveAction | undefined : undefined;
@@ -1338,14 +1550,31 @@ export function validateRepositoryExecutionPaths(
     };
 }
 
-export function generateRepositoryExecutionReport(rootPath: string, artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[] = []): RepositoryExecutionReport {
+export function generateRepositoryExecutionReport(rootPath: string, artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[] = [], scanStats?: RepositoryScanStats): RepositoryExecutionReport {
     const root = path.resolve(rootPath);
     const generatedAt = new Date().toISOString();
     const sanitizedArtifacts = sanitizeArtifacts(artifacts);
     const sanitizedPaths = sanitizeReachablePaths(reachablePaths);
     const issues = canonicalIssues(root, scanResults, sanitizedPaths, executionMap);
+    const issueSummary = summarizeIssues(issues);
     const impactedFiles = canonicalImpactedFiles(root, issues, sanitizedArtifacts, sanitizedPaths);
     const summary = generateRepositorySummary(artifacts, executionMap, reachablePaths);
+    const pathValidation = validateRepositoryExecutionPaths(executionMap, sanitizedPaths, summary);
+
+    if (scanStats) {
+        summary.scanStats = scanStats;
+        summary.filesScanned = scanStats.filesScanned;
+    }
+    summary.pathValidationStatus = pathValidation.valid ? 'passed' : 'failed';
+    summary.pathValidationErrors = pathValidation.errors.length;
+    // Trust status must reflect issue severity, not only path risk, and a repo
+    // whose own path validation failed cannot present as fully trusted.
+    if (issueSummary.critical > 0 || issueSummary.high > 0) {
+        summary.trustStatus = 'High Risk';
+    } else if (summary.trustStatus === 'Trusted' && (issueSummary.total > 0 || !pathValidation.valid)) {
+        summary.trustStatus = 'Review Required';
+    }
+
     return {
         id: stableId('repo-report', `${root}:${generatedAt}`),
         version: REPORT_VERSION,
@@ -1365,9 +1594,9 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
         reachablePaths: sanitizedPaths,
         summary,
         issues,
-        issueSummary: summarizeIssues(issues),
+        issueSummary,
         impactedFiles,
-        pathValidation: validateRepositoryExecutionPaths(executionMap, sanitizedPaths, summary),
+        pathValidation,
         confidenceDefinitions: REPOSITORY_CONFIDENCE_DEFINITIONS,
         findings: sanitizeScanResults(scanResults),
         evidence: canonicalEvidence(sanitizedArtifacts, executionMap, sanitizedPaths, scanResults),
@@ -1383,8 +1612,8 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
 }
 
 export function analyzeRepositoryExecution(rootPath: string, scanResults: RepositoryScanResult[] = [], options: AnalyzeRepositoryOptions = {}): RepositoryExecutionReport {
-    const artifacts = analyzeRepository(rootPath, options);
-    const executionMap = buildRepositoryExecutionMap(artifacts, scanResults);
+    const { artifacts, scanStats } = analyzeRepositoryArtifacts(rootPath, options);
+    const executionMap = buildRepositoryExecutionMap(artifacts, scanResults, rootPath);
     const reachablePaths = analyzeReachablePaths(executionMap, artifacts, scanResults);
-    return generateRepositoryExecutionReport(rootPath, artifacts, executionMap, reachablePaths, scanResults);
+    return generateRepositoryExecutionReport(rootPath, artifacts, executionMap, reachablePaths, scanResults, scanStats);
 }

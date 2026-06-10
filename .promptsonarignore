@@ -1,9 +1,20 @@
 # PromptSonar repository self-scan ignores.
 # These paths contain intentional vulnerable prompts, attack fixtures, or demo
 # copy used to test and demonstrate the scanner itself.
+# Repo-specific exclusions live here (not in the shipped scanner defaults).
 examples/cases/**
 examples/vulnerable-prompts/**
 examples/**
+tests/fixtures/**
+tests/golden/**
+tests/sample-repos/**
+benchmarks/**
+evidence/**
+scratch/**
+results/**
+Agentsabha-angigravity/**
+custom-writer-skill/**
+my-writer-agent/**
 README.md
 PromptSonar_*.md
 packages/cli/src/cli.ts
