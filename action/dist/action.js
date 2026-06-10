@@ -482,6 +482,53 @@ async function scanFileContent(filePath, content, options) {
   return results;
 }
 
+// src/repository-summary.ts
+var REPOSITORY_ARTIFACT_FILES = [
+  "repository-report.json",
+  "execution-map.json",
+  "repository-report.html",
+  "repository-report.sarif"
+];
+function markdownCell(value) {
+  return String(value ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+function repositorySummaryMarkdown(report) {
+  const severityRank = { critical: 4, high: 3, medium: 2, low: 1 };
+  const topIssues = [...report.issues].sort(
+    (left, right) => (severityRank[String(right.severity)] || 0) - (severityRank[String(left.severity)] || 0) || left.id.localeCompare(right.id)
+  ).slice(0, 5);
+  const topPaths = report.reachablePaths.slice(0, 5);
+  return [
+    "# PromptSonar Repository Analysis",
+    "",
+    "## Trust Status",
+    "",
+    `**${report.summary.trustStatus}** \xB7 ${report.issueSummary.total} issues \xB7 ${report.reachablePaths.length} reachable paths`,
+    "",
+    "## Top Issues",
+    "",
+    "| Severity | Issue | Impacted Files | Quick Fix |",
+    "| --- | --- | --- | --- |",
+    ...topIssues.length > 0 ? topIssues.map((issue) => `| ${markdownCell(String(issue.severity).toUpperCase())} | ${markdownCell(issue.issue)} | ${markdownCell(issue.impactedFiles.join(", "))} | ${markdownCell(issue.fix.quickFix)} |`) : ["| None | No active issues | - | - |"],
+    "",
+    `## Impacted Files (${report.impactedFiles.length})`,
+    "",
+    ...report.impactedFiles.length > 0 ? report.impactedFiles.slice(0, 15).map((file) => `- **${markdownCell(file.path)}** \xB7 ${file.issueCount} issue${file.issueCount === 1 ? "" : "s"} \xB7 highest severity: ${markdownCell(file.highestSeverity)}`) : ["No files are impacted by active issues."],
+    ...report.impactedFiles.length > 15 ? [`- ${report.impactedFiles.length - 15} additional impacted files are available in the generated report.`] : [],
+    "",
+    `## Reachable Paths (${report.reachablePaths.length})`,
+    "",
+    ...topPaths.length > 0 ? topPaths.map((pathItem) => `- **${markdownCell(pathItem.risk.toUpperCase())} \xB7 ${markdownCell(pathItem.sensitiveActions.join(", "))}**: ${markdownCell(pathItem.explanation)}`) : ["No graph-backed sensitive-action paths were found."],
+    ...report.reachablePaths.length > 5 ? [`- ${report.reachablePaths.length - 5} additional paths are available in the generated report.`] : [],
+    "",
+    "## Artifacts Generated",
+    "",
+    ...REPOSITORY_ARTIFACT_FILES.map((file) => `- \`${file}\``),
+    "",
+    "Artifact bundle: `promptsonar-repository-execution-analysis`"
+  ].join("\n");
+}
+
 // src/action.ts
 var PR_REVIEW_MARKER = "<!-- PROMPTSONAR_PR_REVIEW -->";
 function readGitHubEvent() {
@@ -629,43 +676,6 @@ function computeConfidenceSummary(results) {
   if (bestScore < 0) return void 0;
   return { score: Math.round(bestScore), level: bestLevel };
 }
-function repositorySummaryMarkdown(report) {
-  const s = report.summary;
-  const reachableActions = Object.entries(s.reachableSensitiveActions).filter(([, count]) => count > 0).map(([name, count]) => `${name}: ${count}`).join(", ") || "None";
-  return [
-    "## PromptSonar Repository Execution Analysis",
-    "",
-    "| Metric | Value |",
-    "| --- | ---: |",
-    `| AI Surfaces | ${s.aiSurfacesFound.prompts + s.aiSurfacesFound.skills + s.aiSurfacesFound.mcpServers + s.aiSurfacesFound.tools + s.aiSurfacesFound.workflows + s.aiSurfacesFound.memorySystems} |`,
-    `| Execution Nodes | ${s.executionGraph.nodes} |`,
-    `| Execution Edges | ${s.executionGraph.edges} |`,
-    `| Reachable Sensitive Actions | ${report.reachablePaths.length} |`,
-    `| Canonical Issues | ${report.issueSummary.total} |`,
-    `| High Risk Paths | ${s.riskSummary.high} |`,
-    `| Critical Paths | ${s.riskSummary.critical} |`,
-    `| Trust Status | ${s.trustStatus} |`,
-    "",
-    `Reachable sensitive actions: ${reachableActions}`,
-    "",
-    ...report.issues.slice(0, 10).flatMap((issue) => [
-      `### ${issue.id}`,
-      "",
-      `- **Issue:** ${issue.issue}`,
-      `- **Impact:** ${issue.impact}`,
-      `- **Why this matters:** ${issue.whyThisMatters}`,
-      `- **Quick Fix:** ${issue.fix.quickFix}`,
-      `- **Recommended Fix:** ${issue.fix.recommendedFix}`,
-      `- **Safe Pattern:** \`${issue.fix.safePattern}\``,
-      `- **Effort:** ${issue.fix.effort}`,
-      `- **Technical Details:**`,
-      `  - Execution path: ${issue.technicalDetails.executionPath}`,
-      `  - Evidence: ${issue.technicalDetails.evidence.map((item) => `${item.file}:${item.line || 1}`).join(", ")}`,
-      `  - Confidence: ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%) \u2014 ${issue.technicalDetails.confidence.definition}`,
-      ""
-    ])
-  ].join("\n");
-}
 function toCoreFindings(results) {
   const findings = [];
   for (const r of results) {
@@ -792,10 +802,10 @@ async function run() {
     const sarifPath = path2.join(workspace, "promptsonar-results.sarif");
     fs2.writeFileSync(sarifPath, (0, import_core2.formatRepositoryReportSarif)(repositoryReport), "utf-8");
     core.setOutput("sarif-path", sarifPath);
-    const repositoryReportPath = path2.join(workspace, "repository-report.json");
-    const executionMapPath = path2.join(workspace, "execution-map.json");
-    const repositoryHtmlPath = path2.join(workspace, "repository-report.html");
-    const repositorySarifPath = path2.join(workspace, "repository-report.sarif");
+    const repositoryReportPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[0]);
+    const executionMapPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[1]);
+    const repositoryHtmlPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[2]);
+    const repositorySarifPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[3]);
     fs2.writeFileSync(repositoryReportPath, (0, import_core2.formatRepositoryReportJson)(repositoryReport), "utf-8");
     fs2.writeFileSync(executionMapPath, JSON.stringify(repositoryReport.executionMap, null, 2), "utf-8");
     fs2.writeFileSync(repositoryHtmlPath, (0, import_core2.formatRepositoryReportHtml)(repositoryReport), "utf-8");

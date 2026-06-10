@@ -21,6 +21,10 @@ import {
     workflowPathSummary,
 } from '@promptsonar/core';
 import { ScanResult, scanFileContent, scanFiles } from './scanner-bridge';
+import {
+    REPOSITORY_ARTIFACT_FILES,
+    repositorySummaryMarkdown,
+} from './repository-summary';
 
 type GitHubPullRequestEvent = {
     pull_request?: {
@@ -206,48 +210,6 @@ function computeConfidenceSummary(results: ScanResult[]): { score: number; level
     return { score: Math.round(bestScore), level: bestLevel };
 }
 
-function repositorySummaryMarkdown(report: ReturnType<typeof analyzeRepositoryExecution>): string {
-    const s = report.summary;
-    const reachableActions = Object.entries(s.reachableSensitiveActions)
-        .filter(([, count]) => count > 0)
-        .map(([name, count]) => `${name}: ${count}`)
-        .join(', ') || 'None';
-
-    return [
-        '## PromptSonar Repository Execution Analysis',
-        '',
-        '| Metric | Value |',
-        '| --- | ---: |',
-        `| AI Surfaces | ${s.aiSurfacesFound.prompts + s.aiSurfacesFound.skills + s.aiSurfacesFound.mcpServers + s.aiSurfacesFound.tools + s.aiSurfacesFound.workflows + s.aiSurfacesFound.memorySystems} |`,
-        `| Execution Nodes | ${s.executionGraph.nodes} |`,
-        `| Execution Edges | ${s.executionGraph.edges} |`,
-        `| Reachable Sensitive Actions | ${report.reachablePaths.length} |`,
-        `| Canonical Issues | ${report.issueSummary.total} |`,
-        `| High Risk Paths | ${s.riskSummary.high} |`,
-        `| Critical Paths | ${s.riskSummary.critical} |`,
-        `| Trust Status | ${s.trustStatus} |`,
-        '',
-        `Reachable sensitive actions: ${reachableActions}`,
-        '',
-        ...report.issues.slice(0, 10).flatMap(issue => [
-            `### ${issue.id}`,
-            '',
-            `- **Issue:** ${issue.issue}`,
-            `- **Impact:** ${issue.impact}`,
-            `- **Why this matters:** ${issue.whyThisMatters}`,
-            `- **Quick Fix:** ${issue.fix.quickFix}`,
-            `- **Recommended Fix:** ${issue.fix.recommendedFix}`,
-            `- **Safe Pattern:** \`${issue.fix.safePattern}\``,
-            `- **Effort:** ${issue.fix.effort}`,
-            `- **Technical Details:**`,
-            `  - Execution path: ${issue.technicalDetails.executionPath}`,
-            `  - Evidence: ${issue.technicalDetails.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`,
-            `  - Confidence: ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%) — ${issue.technicalDetails.confidence.definition}`,
-            '',
-        ]),
-    ].join('\n');
-}
-
 function toCoreFindings(results: ScanResult[]): Finding[] {
     const findings: Finding[] = [];
     for (const r of results) {
@@ -410,10 +372,10 @@ async function run(): Promise<void> {
         fs.writeFileSync(sarifPath, formatRepositoryReportSarif(repositoryReport), 'utf-8');
         core.setOutput('sarif-path', sarifPath);
 
-        const repositoryReportPath = path.join(workspace, 'repository-report.json');
-        const executionMapPath = path.join(workspace, 'execution-map.json');
-        const repositoryHtmlPath = path.join(workspace, 'repository-report.html');
-        const repositorySarifPath = path.join(workspace, 'repository-report.sarif');
+        const repositoryReportPath = path.join(workspace, REPOSITORY_ARTIFACT_FILES[0]);
+        const executionMapPath = path.join(workspace, REPOSITORY_ARTIFACT_FILES[1]);
+        const repositoryHtmlPath = path.join(workspace, REPOSITORY_ARTIFACT_FILES[2]);
+        const repositorySarifPath = path.join(workspace, REPOSITORY_ARTIFACT_FILES[3]);
         fs.writeFileSync(repositoryReportPath, formatRepositoryReportJson(repositoryReport), 'utf-8');
         fs.writeFileSync(executionMapPath, JSON.stringify(repositoryReport.executionMap, null, 2), 'utf-8');
         fs.writeFileSync(repositoryHtmlPath, formatRepositoryReportHtml(repositoryReport), 'utf-8');

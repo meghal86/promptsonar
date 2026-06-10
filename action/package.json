@@ -6,7 +6,8 @@
     "main": "dist/action.js",
     "scripts": {
         "build": "tsup src/action.ts --format cjs --clean",
-        "dev": "ts-node src/action.ts"
+        "dev": "ts-node src/action.ts",
+        "test": "vitest run tests"
     },
     "dependencies": {
         "@actions/artifact": "^6.2.1",
@@ -17,6 +18,7 @@
     "devDependencies": {
         "ts-node": "^10.9.2",
         "tsup": "^8.0.0",
-        "typescript": "^5.9.3"
+        "typescript": "^5.9.3",
+        "vitest": "^4.0.18"
     }
 }
