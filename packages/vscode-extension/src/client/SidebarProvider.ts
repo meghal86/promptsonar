@@ -40,6 +40,16 @@ export class PromptSonarSidebarProvider implements vscode.TreeDataProvider<Sideb
                         arguments: []
                     },
                     new vscode.ThemeIcon('shield')
+                ),
+                new SidebarItem(
+                    'Repository Overview',
+                    vscode.TreeItemCollapsibleState.None,
+                    {
+                        command: 'promptsonar.analyzeRepositoryExecutionMap',
+                        title: 'Analyze Repository Execution Map',
+                        arguments: []
+                    },
+                    new vscode.ThemeIcon('graph')
                 )
             ]);
         }

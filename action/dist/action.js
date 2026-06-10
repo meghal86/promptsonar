@@ -481,30 +481,52 @@ async function scanFileContent(filePath, content, options) {
   }
   return results;
 }
-function generateSarif(results) {
-  const allFindings = [];
-  const primaryFile = results.length > 0 ? results[0].filePath : "unknown";
-  for (const result of results) {
-    for (const f of result.findings) {
-      allFindings.push({
-        rule_id: f.rule_id,
-        category: getCategoryForRule(f.rule_id),
-        severity: f.severity,
-        explanation: f.message,
-        suggested_fix: f.fix,
-        filePath: result.filePath,
-        line: f.line,
-        column: f.column,
-        evidence: f.evidence,
-        recommendation: f.recommendation,
-        owasp: f.owasp,
-        confidence: f.confidence,
-        docs_url: f.docs_url,
-        workflow: f.workflow
-      });
-    }
-  }
-  return (0, import_sarif.formatToSarif)(allFindings, primaryFile);
+
+// src/repository-summary.ts
+var REPOSITORY_ARTIFACT_FILES = [
+  "repository-report.json",
+  "execution-map.json",
+  "repository-report.html",
+  "repository-report.sarif"
+];
+function markdownCell(value) {
+  return String(value ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+function repositorySummaryMarkdown(report) {
+  const severityRank = { critical: 4, high: 3, medium: 2, low: 1 };
+  const topIssues = [...report.issues].sort(
+    (left, right) => (severityRank[String(right.severity)] || 0) - (severityRank[String(left.severity)] || 0) || left.id.localeCompare(right.id)
+  ).slice(0, 5);
+  const topPaths = report.reachablePaths.slice(0, 5);
+  return [
+    "# PromptSonar Repository Analysis",
+    "",
+    "## Trust Status",
+    "",
+    `**${report.summary.trustStatus}** \xB7 ${report.issueSummary.total} issues \xB7 ${report.reachablePaths.length} reachable paths`,
+    "",
+    "## Top Issues",
+    "",
+    "| Severity | Issue | Impacted Files | Quick Fix |",
+    "| --- | --- | --- | --- |",
+    ...topIssues.length > 0 ? topIssues.map((issue) => `| ${markdownCell(String(issue.severity).toUpperCase())} | ${markdownCell(issue.issue)} | ${markdownCell(issue.impactedFiles.join(", "))} | ${markdownCell(issue.fix.quickFix)} |`) : ["| None | No active issues | - | - |"],
+    "",
+    `## Impacted Files (${report.impactedFiles.length})`,
+    "",
+    ...report.impactedFiles.length > 0 ? report.impactedFiles.slice(0, 15).map((file) => `- **${markdownCell(file.path)}** \xB7 ${file.issueCount} issue${file.issueCount === 1 ? "" : "s"} \xB7 highest severity: ${markdownCell(file.highestSeverity)}`) : ["No files are impacted by active issues."],
+    ...report.impactedFiles.length > 15 ? [`- ${report.impactedFiles.length - 15} additional impacted files are available in the generated report.`] : [],
+    "",
+    `## Reachable Paths (${report.reachablePaths.length})`,
+    "",
+    ...topPaths.length > 0 ? topPaths.map((pathItem) => `- **${markdownCell(pathItem.risk.toUpperCase())} \xB7 ${markdownCell(pathItem.sensitiveActions.join(", "))}**: ${markdownCell(pathItem.explanation)}`) : ["No graph-backed sensitive-action paths were found."],
+    ...report.reachablePaths.length > 5 ? [`- ${report.reachablePaths.length - 5} additional paths are available in the generated report.`] : [],
+    "",
+    "## Artifacts Generated",
+    "",
+    ...REPOSITORY_ARTIFACT_FILES.map((file) => `- \`${file}\``),
+    "",
+    "Artifact bundle: `promptsonar-repository-execution-analysis`"
+  ].join("\n");
 }
 
 // src/action.ts
@@ -618,20 +640,6 @@ async function uploadSarifToGitHub(args) {
       tool_name: "PromptSonar"
     }
   });
-}
-function severityCounts(results) {
-  let critical = 0;
-  let high = 0;
-  let medium = 0;
-  for (const r of results) {
-    for (const f of r.findings) {
-      if (f.waived) continue;
-      if (f.severity === "critical") critical += 1;
-      else if (f.severity === "high") high += 1;
-      else if (f.severity === "medium") medium += 1;
-    }
-  }
-  return { critical, high, medium };
 }
 function collectExecutionPaths(results) {
   const sinks = /* @__PURE__ */ new Set();
@@ -771,7 +779,12 @@ async function run() {
     }
     let worstScore = 100;
     for (const r of results) worstScore = Math.min(worstScore, r.overall_score);
-    const counts = severityCounts(results);
+    const repositoryReport = (0, import_core2.analyzeRepositoryExecution)(workspace, results);
+    const counts = {
+      critical: repositoryReport.issueSummary.critical,
+      high: repositoryReport.issueSummary.high,
+      medium: repositoryReport.issueSummary.medium
+    };
     core.setOutput("score", worstScore.toString());
     core.setOutput("criticals", counts.critical.toString());
     core.setOutput("highs", counts.high.toString());
@@ -784,9 +797,42 @@ async function run() {
     const confidenceOut = computeConfidenceSummary(results);
     core.setOutput("confidence_score", confidenceOut ? String(confidenceOut.score) : "");
     core.setOutput("confidence_level", confidenceOut ? confidenceOut.level : "");
+    core.setOutput("issue_count", String(repositoryReport.issueSummary.total));
+    core.setOutput("issue_ids", JSON.stringify(repositoryReport.issues.map((issue) => issue.id)));
     const sarifPath = path2.join(workspace, "promptsonar-results.sarif");
-    fs2.writeFileSync(sarifPath, generateSarif(results), "utf-8");
+    fs2.writeFileSync(sarifPath, (0, import_core2.formatRepositoryReportSarif)(repositoryReport), "utf-8");
     core.setOutput("sarif-path", sarifPath);
+    const repositoryReportPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[0]);
+    const executionMapPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[1]);
+    const repositoryHtmlPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[2]);
+    const repositorySarifPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[3]);
+    fs2.writeFileSync(repositoryReportPath, (0, import_core2.formatRepositoryReportJson)(repositoryReport), "utf-8");
+    fs2.writeFileSync(executionMapPath, JSON.stringify(repositoryReport.executionMap, null, 2), "utf-8");
+    fs2.writeFileSync(repositoryHtmlPath, (0, import_core2.formatRepositoryReportHtml)(repositoryReport), "utf-8");
+    fs2.writeFileSync(repositorySarifPath, (0, import_core2.formatRepositoryReportSarif)(repositoryReport), "utf-8");
+    core.setOutput("repository-report-path", repositoryReportPath);
+    core.setOutput("execution-map-path", executionMapPath);
+    core.setOutput("repository-html-report-path", repositoryHtmlPath);
+    core.setOutput("repository-sarif-path", repositorySarifPath);
+    core.setOutput("trust_status", repositoryReport.summary.trustStatus);
+    core.setOutput("reachable_sensitive_actions", String(repositoryReport.reachablePaths.length));
+    core.setOutput("high_risk_paths", String(repositoryReport.summary.riskSummary.high));
+    if (core.summary) {
+      await core.summary.addRaw(repositorySummaryMarkdown(repositoryReport)).write();
+    }
+    try {
+      const { DefaultArtifactClient } = await import("@actions/artifact");
+      const artifactClient = new DefaultArtifactClient();
+      await artifactClient.uploadArtifact("promptsonar-repository-execution-analysis", [
+        repositoryReportPath,
+        executionMapPath,
+        repositoryHtmlPath,
+        repositorySarifPath
+      ], workspace);
+      core.info("Repository execution analysis artifacts uploaded.");
+    } catch (error) {
+      core.warning(`Unable to upload repository execution artifacts: ${error.message}`);
+    }
     if (uploadSarif && isPrContext && token) {
       const commitSha = pullRequest?.head?.sha || process.env.GITHUB_SHA || "";
       const branch = pullRequest?.head?.ref || process.env.GITHUB_REF_NAME || "";
@@ -823,23 +869,41 @@ async function run() {
           riskReduction: diff.riskReduction
         });
         const patchLines = file.patch ? (0, import_core2.extractChangedLinesFromGitHubPatch)(file.patch) : /* @__PURE__ */ new Set();
-        for (const r of afterResults) {
-          for (const finding of r.findings) {
-            if (finding.waived) continue;
-            if (!(finding.severity === "critical" || finding.severity === "high")) continue;
-            if (!patchLines.has(finding.line)) continue;
-            inlineComments.push({
-              path: file.filename,
-              line: finding.line,
-              body: `**${finding.rule_id}** (${finding.severity})
+        for (const issue of repositoryReport.issues) {
+          if (!(issue.severity === "critical" || issue.severity === "high")) continue;
+          if (!issue.impactedFiles.includes(file.filename.replace(/\\/g, "/"))) continue;
+          const evidence = issue.evidence[0];
+          const line = evidence?.line || 1;
+          if (!patchLines.has(line)) continue;
+          inlineComments.push({
+            path: file.filename,
+            line,
+            body: `**${issue.id}** (${issue.severity})
 
-${finding.message}
+**Issue:** ${issue.issue}
 
-Evidence: \`${finding.evidence}\`
+**Impact:** ${issue.impact}
 
-Recommendation: ${finding.fix}`
-            });
-          }
+**Why this matters:** ${issue.whyThisMatters}
+
+**Quick Fix:** ${issue.fix.quickFix}
+
+**Recommended Fix:** ${issue.fix.recommendedFix}
+
+**Safe Pattern:** \`${issue.fix.safePattern}\`
+
+**Effort:** ${issue.fix.effort}
+
+<details><summary>Technical Details</summary>
+
+**Execution path:** ${issue.technicalDetails.executionPath}
+
+**Evidence:** \`${evidence?.snippet || issue.issue}\`
+
+**Confidence:** ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%) \u2014 ${issue.technicalDetails.confidence.definition}
+
+</details>`
+          });
         }
       }
       const coreFindings = toCoreFindings(results);

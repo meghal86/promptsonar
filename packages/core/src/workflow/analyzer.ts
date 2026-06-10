@@ -374,13 +374,13 @@ function severityReason(risk: WorkflowRisk, sink: WorkflowNodeType, text: string
     if (risk === 'critical') {
         const modifier = matchPattern(text, CRITICAL_MODIFIER_PATTERNS);
         return modifier
-            ? `Severity increased to CRITICAL: privileged sink "${sink}" is combined with ${modifier.evidence}.`
-            : `Severity increased to CRITICAL because the workflow reaches privileged sink "${sink}".`;
+            ? `Severity increased to CRITICAL: sensitive action "${sink}" is combined with ${modifier.evidence}.`
+            : `Severity increased to CRITICAL because the workflow reaches sensitive action "${sink}".`;
     }
     if (risk === 'high') {
-        return `Severity is at least HIGH because the workflow reaches privileged sink "${sink}".`;
+        return `Severity is at least HIGH because the workflow reaches sensitive action "${sink}".`;
     }
-    return `Severity follows the contributing rule because no privileged execution sink was reached.`;
+    return `Severity follows the contributing rule because no sensitive execution action was reached.`;
 }
 
 function edgeTypesFor(nodeSpecs: NodeSpec[]): WorkflowEdge['type'][] {

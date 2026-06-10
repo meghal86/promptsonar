@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { compareModelOutputs } from '@promptsonar/core';
+import { compareModels } from '@promptsonar/core';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const result = compareModelOutputs({
+    const result = compareModels({
       prompt: body.prompt,
       expectedFormat: body.expectedFormat,
       outputs: body.outputs,

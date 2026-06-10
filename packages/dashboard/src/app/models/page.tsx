@@ -90,7 +90,7 @@ function workflowSummary(model: ComparisonModel): string {
     .filter(Boolean);
 
   if (workflows.some(path => path?.privilegedSinkReached)) {
-    return 'Privileged path signal';
+    return 'Sensitive action signal';
   }
   if (workflows.some(path => path?.trustBoundaryCrossed)) {
     return 'Trust boundary signal';
@@ -257,10 +257,16 @@ export default function ModelsPage() {
             </div>
             <h2 className="mt-3 text-2xl font-black">Bring Your Own API Keys</h2>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              Run GPT, Claude, Gemini, and local models directly from PromptSonar using your own API keys.
+              Run OpenAI, Anthropic, Google, OpenRouter, Ollama, and Azure OpenAI models directly from PromptSonar using your own API keys.
             </p>
             <ul className="mt-4 grid gap-2 text-sm font-semibold text-slate-600 sm:grid-cols-2">
               {[
+                'OpenAI',
+                'Anthropic',
+                'Google',
+                'OpenRouter',
+                'Ollama',
+                'Azure OpenAI',
                 'real model execution',
                 'side-by-side outputs',
                 'behavior variance',
@@ -285,6 +291,15 @@ export default function ModelsPage() {
           </div>
 
           <div className="grid gap-5">
+            {!result && (
+              <div className="rounded-xl border border-dashed border-[#D6D3D1] bg-[#FAF9F6] px-4 py-3">
+                <h3 className="text-sm font-black text-slate-950">No model comparison available.</h3>
+                <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-600">
+                  Run a manual comparison with pasted outputs today. BYOK live model execution is coming soon.
+                </p>
+              </div>
+            )}
+
             <div>
               <label className="text-xs font-black uppercase tracking-widest text-slate-400">Original prompt</label>
               <textarea

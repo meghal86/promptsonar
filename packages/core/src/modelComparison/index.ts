@@ -235,3 +235,7 @@ export function compareModelOutputs(input: ModelComparisonInput): ModelCompariso
     },
   };
 }
+
+export function compareModels(input: ModelComparisonInput): ModelComparisonResult {
+  return compareModelOutputs(input);
+}

@@ -13,12 +13,17 @@ import { PromptSonarCodeLensProvider } from './CodeLensProvider';
 import { PromptSonarSidebarProvider } from './SidebarProvider';
 import { ExecutionPathProvider } from './ExecutionPathProvider';
 import { PromptSonarQuickFixProvider } from './QuickFixProvider';
+import {
+    buildRepositoryFileInvestigations,
+    editorLineForEvidence,
+    renderRepositoryFileInvestigations,
+} from './repositoryInvestigation';
 import { isScannable, isMcpConfigFile } from '../shared/detection';
 import { isPromptSonarIgnoredPath, parsePromptSonarIgnore, PromptSonarIgnoreMatcher } from '../shared/ignore';
 import { executionPathText, pickWorstWorkflowFinding, reportText } from '../shared/model';
 import { applyAllFixes, workflowDiffReport, workflowDiffReportBetween } from '../shared/quickfix';
 // @ts-ignore
-import { parseFile, evaluatePrompt, compressPromptLLMLingua, auditMcpConfig, formatToSarif } from '@promptsonar/core';
+import { parseFile, evaluatePrompt, compressPromptLLMLingua, auditMcpConfig, formatToSarif, analyzeRepositoryExecution } from '@promptsonar/core';
 
 let client: LanguageClient;
 
@@ -678,6 +683,241 @@ export function activate(context: ExtensionContext) {
             return true;
         });
     }
+
+    function escapeHtml(value: unknown): string {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function repositoryPanelHtml(report: any): string {
+        const summary = report.summary;
+        const nodesById = new Map(report.executionMap.nodes.map((node: any) => [node.id, node]));
+        const fileInvestigations = buildRepositoryFileInvestigations(report);
+        const surfaces = [
+            ['AI Surfaces', summary.aiSurfacesFound.prompts + summary.aiSurfacesFound.skills + summary.aiSurfacesFound.mcpServers + summary.aiSurfacesFound.tools + summary.aiSurfacesFound.workflows + summary.aiSurfacesFound.memorySystems],
+            ['Execution Nodes', summary.executionGraph.nodes],
+            ['Reachable Actions', report.reachablePaths.length],
+            ['Issues', report.issueSummary.total],
+            ['Trust Status', summary.trustStatus],
+        ];
+        const artifactsByType = (type: string) => report.artifacts.filter((artifact: any) => artifact.type === type);
+        const issues = report.issues || [];
+        const reportFilePath = (file: string) => path.isAbsolute(file) ? file : path.join(report.repository.root, file);
+
+        return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { margin: 0; font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+    .shell { display: grid; grid-template-columns: 190px 1fr; min-height: 100vh; }
+    aside { border-right: 1px solid var(--vscode-panel-border); padding: 14px 10px; background: var(--vscode-sideBar-background); }
+    aside a { display: block; padding: 7px 8px; color: var(--vscode-sideBar-foreground); text-decoration: none; border-radius: 4px; }
+    aside a:hover { background: var(--vscode-list-hoverBackground); }
+    main { padding: 18px 22px 42px; overflow: auto; }
+    h1 { font-size: 22px; margin: 0 0 14px; }
+    h2 { font-size: 16px; margin: 24px 0 10px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    .card, section, .node, .path { border: 1px solid var(--vscode-panel-border); border-radius: 6px; background: var(--vscode-editorWidget-background); padding: 12px; }
+    .metric { font-size: 24px; font-weight: 700; }
+    .label, .muted { color: var(--vscode-descriptionForeground); font-size: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .file-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+    .file-card { display: grid; gap: 6px; text-align: left; color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); border-radius: 6px; background: var(--vscode-editorWidget-background); padding: 12px; cursor: pointer; }
+    .file-card:hover, .file-card:focus { outline: 1px solid var(--vscode-focusBorder); }
+    .file-priority { margin-top: -4px; color: var(--vscode-descriptionForeground); }
+    .investigation-empty, .file-investigation { margin-top: 12px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 14px; background: var(--vscode-editor-background); }
+    .file-investigation[hidden] { display: none; }
+    .file-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .file-heading h3 { margin: 8px 0 0; overflow-wrap: anywhere; }
+    .file-investigation h4 { margin: 18px 0 7px; font-size: 13px; }
+    .investigation-item { border-left: 2px solid var(--vscode-panel-border); padding: 7px 10px; margin-top: 6px; }
+    .evidence-item { display: grid; gap: 5px; width: 100%; margin-top: 6px; padding: 9px; text-align: left; color: var(--vscode-foreground); background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-panel-border); border-radius: 4px; cursor: pointer; }
+    .evidence-item:hover { border-color: var(--vscode-focusBorder); }
+    .source-button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; border-radius: 3px; padding: 6px 10px; cursor: pointer; }
+    .safe-pattern { margin-top: 4px; font-family: var(--vscode-editor-font-family); white-space: pre-wrap; }
+    .node { cursor: pointer; text-align: left; color: var(--vscode-foreground); }
+    .node:hover { outline: 1px solid var(--vscode-focusBorder); }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 999px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 11px; }
+    .risk-critical { color: #ff6b6b; font-weight: 700; }
+    .risk-high { color: #f59e0b; font-weight: 700; }
+    .risk-medium { color: #eab308; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid var(--vscode-panel-border); padding: 7px; text-align: left; vertical-align: top; }
+    button.link { color: var(--vscode-textLink-foreground); background: transparent; border: 0; padding: 0; cursor: pointer; font: inherit; }
+    code { color: var(--vscode-textPreformat-foreground); }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <a href="#overview">Repository</a>
+      <a href="#impacted-files">Impacted Files</a>
+      <a href="#overview">Overview</a>
+      <a href="#findings">Findings</a>
+      <a href="#map">Execution Map</a>
+      <a href="#skills">Skills</a>
+      <a href="#mcp">MCP</a>
+      <a href="#workflows">Workflows</a>
+    </aside>
+    <main>
+      <h1>Files to Fix</h1>
+      <div class="cards">${surfaces.map(([label, value]) => `<div class="card"><div class="metric">${escapeHtml(value)}</div><div class="label">${escapeHtml(label)}</div></div>`).join('')}</div>
+      ${renderRepositoryFileInvestigations(fileInvestigations)}
+      <section id="overview">
+        <h2>Repository Summary</h2>
+        <table>
+          <tr><th>Prompts</th><th>Skills</th><th>MCP Servers</th><th>Tools</th><th>Workflows</th><th>Memory</th></tr>
+          <tr><td>${summary.aiSurfacesFound.prompts}</td><td>${summary.aiSurfacesFound.skills}</td><td>${summary.aiSurfacesFound.mcpServers}</td><td>${summary.aiSurfacesFound.tools}</td><td>${summary.aiSurfacesFound.workflows}</td><td>${summary.aiSurfacesFound.memorySystems}</td></tr>
+        </table>
+        <h2>Most Critical Paths</h2>
+        ${report.reachablePaths.slice(0, 6).map((pathItem: any) => `<div class="path"><div class="risk-${pathItem.risk}">${escapeHtml(pathItem.risk.toUpperCase())} · ${escapeHtml(pathItem.sensitiveActions.join(', ') || 'No sensitive action')}</div><div>${escapeHtml(pathItem.explanation)}</div><div class="muted">Confidence ${pathItem.confidence}%</div></div>`).join('') || '<div class="muted">No reachable sensitive actions found.</div>'}
+      </section>
+      <section id="findings">
+        <h2>Canonical Issues (${report.issueSummary.total})</h2>
+        <table>
+          <tr><th>ID</th><th>Severity</th><th>Issue</th><th>Evidence</th><th>How to Fix</th><th>Confidence</th></tr>
+          ${issues.map((issue: any) => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td class="risk-${issue.severity}">${escapeHtml(issue.severity)}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Quick Fix:</strong> ${escapeHtml(issue.fix?.quickFix || issue.howToFix)}<br><br><strong>Recommended Fix:</strong> ${escapeHtml(issue.fix?.recommendedFix || issue.howToFix)}<br><br><strong>Safe Pattern:</strong> <code>${escapeHtml(issue.fix?.safePattern || '')}</code><br><br><strong>Effort:</strong> ${escapeHtml(issue.fix?.effort || 'Moderate')}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails?.executionPath || 'No connected sensitive action was confirmed for this finding.')}<br><strong>Evidence:</strong> ${escapeHtml((issue.technicalDetails?.evidence || issue.evidence).map((item: any) => `${item.file}:${item.line || 1}`).join(', '))}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails?.confidence?.label || issue.confidence.label)} ${escapeHtml(issue.technicalDetails?.confidence?.score ?? issue.confidence.score)}% · ${escapeHtml(issue.technicalDetails?.confidence?.definition || issue.confidence.definition)}</details></td><td><button class="link" data-open-file="${escapeHtml(reportFilePath(issue.impactedFiles[0] || ''))}">${escapeHtml(issue.impactedFiles.join(', '))}</button></td><td>${escapeHtml(issue.fix?.recommendedFix || issue.howToFix)}</td><td>${escapeHtml(issue.confidence.label)} ${escapeHtml(issue.confidence.score)}%<br>${escapeHtml(issue.confidence.definition)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No active issues.</td></tr>'}
+        </table>
+      </section>
+      <section id="map">
+        <h2>Execution Map</h2>
+        <div class="grid">${report.executionMap.nodes.map((node: any) => `<button class="node" data-open-file="${escapeHtml(node.filePath || '')}"><span class="badge">${escapeHtml(node.type)}</span><br><strong>${escapeHtml(node.label)}</strong><br><span class="muted">${escapeHtml(node.relativePath || node.description)}</span></button>`).join('')}</div>
+        <h2>Edges</h2>
+        <table>${report.executionMap.edges.slice(0, 120).map((edge: any) => `<tr><td>${escapeHtml((nodesById.get(edge.from) as any)?.label || edge.from)}</td><td>${escapeHtml(edge.type)}</td><td>${escapeHtml((nodesById.get(edge.to) as any)?.label || edge.to)}</td></tr>`).join('')}</table>
+      </section>
+      <section id="skills"><h2>Skills</h2>${artifactsByType('SKILL').map((artifact: any) => `<div class="path"><button class="link" data-open-file="${escapeHtml(artifact.filePath)}">${escapeHtml(artifact.relativePath)}</button><div>${escapeHtml(artifact.description)}</div><div class="muted">${escapeHtml((artifact.metadata?.capabilities || []).join(' · '))}</div></div>`).join('') || '<div class="muted">No SKILL.md files discovered.</div>'}</section>
+      <section id="mcp"><h2>MCP Servers</h2>${artifactsByType('MCP_SERVER').map((artifact: any) => `<div class="path"><button class="link" data-open-file="${escapeHtml(artifact.filePath)}">${escapeHtml(artifact.name)}</button><div>${escapeHtml(artifact.relativePath)}</div><div class="muted">Auto-approve: ${escapeHtml(Boolean(artifact.metadata?.autoApprove))} · Actions: ${escapeHtml((artifact.metadata?.sensitiveActions || []).join(', '))}</div></div>`).join('') || '<div class="muted">No MCP servers discovered.</div>'}</section>
+      <section id="workflows"><h2>Workflows</h2>${artifactsByType('WORKFLOW').concat(artifactsByType('ACTION')).map((artifact: any) => `<div class="path"><button class="link" data-open-file="${escapeHtml(artifact.filePath)}">${escapeHtml(artifact.relativePath)}</button><div>${escapeHtml(artifact.description)}</div></div>`).join('') || '<div class="muted">No workflow artifacts discovered.</div>'}</section>
+    </main>
+  </div>
+  <script>
+    const vscode = acquireVsCodeApi();
+    document.addEventListener('click', (event) => {
+      const openTarget = event.target.closest('[data-open-file]');
+      if (openTarget && openTarget.dataset.openFile) {
+        vscode.postMessage({
+          command: 'openFile',
+          filePath: openTarget.dataset.openFile,
+          line: Number(openTarget.dataset.line || 1),
+        });
+        return;
+      }
+      const investigateTarget = event.target.closest('[data-investigate-file]');
+      if (!investigateTarget) return;
+      const selectedPath = investigateTarget.dataset.investigateFile;
+      let selectedPanel;
+      document.querySelectorAll('[data-file-panel]').forEach(panel => {
+        panel.hidden = panel.dataset.filePanel !== selectedPath;
+        if (!panel.hidden) selectedPanel = panel;
+      });
+      const empty = document.getElementById('file-investigation-empty');
+      if (empty) empty.hidden = true;
+      if (selectedPanel) selectedPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  </script>
+</body>
+</html>`;
+    }
+
+    async function buildRepositoryExecutionReportFromWorkspace(progress?: vscode.Progress<{ message?: string; increment?: number }>): Promise<any | undefined> {
+        const workspaceFolders = workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            window.showErrorMessage('No workspace open to analyze.');
+            return undefined;
+        }
+
+        const root = workspaceFolders[0].uri.fsPath;
+        const workspaceIgnoreMatchers = await loadWorkspaceIgnoreMatchers(workspaceFolders);
+        const sourceFiles = await workspace.findFiles(WORKSPACE_SCAN_GLOB, WORKSPACE_SCAN_EXCLUDE_GLOB);
+        const markdownInstructionFiles = await workspace.findFiles('**/{SKILL.md,skills.md,AGENT.md,AGENTS.md,agent.md,agents.md}', WORKSPACE_SCAN_EXCLUDE_GLOB);
+        const files = [...sourceFiles, ...markdownInstructionFiles]
+            .filter(file =>
+                !isIgnoredWorkspaceFile(file.fsPath) &&
+                !isPromptSonarIgnoredPath(file.fsPath, workspaceIgnoreMatchers)
+            )
+            .sort((a, b) => a.fsPath.localeCompare(b.fsPath))
+            .slice(0, Math.max(1, workspace.getConfiguration('promptsonar').get<number>('maxWorkspaceScanFiles', 2000)));
+        const maxFileSizeBytes = workspace.getConfiguration('promptsonar').get<number>('maxFileSizeBytes', 1048576);
+        const scanResults: any[] = [];
+
+        for (let index = 0; index < files.length; index++) {
+            const file = files[index];
+            progress?.report({ message: path.basename(file.fsPath), increment: 100 / Math.max(files.length, 1) });
+            const stat = await workspace.fs.stat(file);
+            if (stat.size > maxFileSizeBytes) continue;
+            const text = Buffer.from(await workspace.fs.readFile(file)).toString('utf8');
+            const findings: any[] = [];
+
+            if (isMcpConfigFile(file.fsPath)) {
+                const audit = auditMcpConfig(file.fsPath, text);
+                findings.push(...audit.findings.map((finding: any) => ({
+                    rule_id: finding.rule_id,
+                    category: 'security',
+                    severity: finding.severity,
+                    line: 1,
+                    message: finding.message,
+                    fix: finding.fix,
+                    evidence: finding.evidence || finding.path,
+                    workflow: finding.workflow,
+                    waived: false,
+                })));
+            } else {
+                for (const prompt of fastExtractPrompts(file.fsPath, text)) {
+                    const result = evaluatePrompt({ text: prompt.text, context: { filePath: file.fsPath } });
+                    findings.push(...result.findings.map((finding: any) => ({
+                        ...finding,
+                        message: finding.explanation,
+                        fix: finding.suggested_fix,
+                        line: prompt.startLine,
+                        waived: false,
+                    })));
+                }
+            }
+
+            if (findings.length > 0) {
+                scanResults.push({ filePath: file.fsPath, findings });
+            }
+        }
+
+        return analyzeRepositoryExecution(root, scanResults);
+    }
+
+    context.subscriptions.push(
+        commands.registerCommand('promptsonar.analyzeRepositoryExecutionMap', async () => {
+            await window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'PromptSonar: Analyzing Repository Execution Map...',
+                cancellable: false,
+            }, async (progress) => {
+                const report = await buildRepositoryExecutionReportFromWorkspace(progress);
+                if (!report) return;
+
+                const panel = window.createWebviewPanel(
+                    'promptsonarRepositoryOverview',
+                    'Repository Overview',
+                    vscode.ViewColumn.Active,
+                    { enableScripts: true }
+                );
+                panel.webview.onDidReceiveMessage(async message => {
+                    if (message.command === 'openFile' && message.filePath) {
+                        const doc = await workspace.openTextDocument(Uri.file(message.filePath));
+                        const line = editorLineForEvidence(message.line);
+                        await window.showTextDocument(doc, {
+                            viewColumn: vscode.ViewColumn.Active,
+                            selection: new Range(line, 0, line, 0),
+                            preserveFocus: false,
+                        });
+                    }
+                });
+                panel.webview.html = repositoryPanelHtml(report);
+            });
+        })
+    );
 
     context.subscriptions.push(
         commands.registerCommand('promptsonar.scanWorkspace', async () => {

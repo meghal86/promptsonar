@@ -3,11 +3,10 @@ import { supabase } from '@/lib/supabase';
 
 export async function GET() {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    // Return mock data if unconfigured so dashboard doesn't crash
     return NextResponse.json({ 
-      incidents: [
-        { id: "e3b0c44298fc", project: "Payment Service", score: 42, rule: "sec_owasp_llm01_injection", status: "blocked", ts: new Date().toISOString() }
-      ] 
+      incidents: [],
+      storageConfigured: false,
+      message: 'No risk list is available because persistent storage is not configured.'
     });
   }
 

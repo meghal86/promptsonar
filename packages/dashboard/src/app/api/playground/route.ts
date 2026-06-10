@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { 
   evaluatePrompt, 
-  compressPromptLLMLingua, 
-  calculateROI,
+  generateRepositoryExecutionReport,
   validatePromptAgainstContract
 } from '@promptsonar/core';
 import { supabase } from '@/lib/supabase';
@@ -84,6 +83,44 @@ export async function POST(request: Request) {
       text: promptText,
       context: { filePath: 'playground.ts' }
     });
+    const playgroundFile = '/playground/playground.prompt';
+    const repositoryReport = generateRepositoryExecutionReport(
+      '/playground',
+      [{
+        id: 'artifact:playground-prompt',
+        type: 'PROMPT',
+        name: 'playground.prompt',
+        filePath: playgroundFile,
+        relativePath: 'playground.prompt',
+        description: 'Prompt scanned in the PromptSonar Playground.',
+        evidence: [promptText.slice(0, 180)],
+        signals: ['prompt'],
+      }],
+      {
+        nodes: [{
+          id: 'node:playground-prompt',
+          type: 'PROMPT',
+          label: 'playground.prompt',
+          filePath: playgroundFile,
+          relativePath: 'playground.prompt',
+          artifactId: 'artifact:playground-prompt',
+          description: 'Prompt scanned in the PromptSonar Playground.',
+        }],
+        edges: [],
+        paths: [],
+      },
+      [],
+      [{
+        filePath: playgroundFile,
+        findings: (evaluation.findings || []).map((finding: any) => ({
+          ...finding,
+          message: finding.explanation || finding.message || finding.rule_id,
+          fix: finding.suggested_fix || finding.fix,
+          evidence: finding.matchedText || finding.evidence,
+        })),
+      }]
+    );
+    repositoryReport.scanMode = 'browser-bounded';
 
     // 5. Optional: Prompt Rules validation
     let contractResult = null;
@@ -102,16 +139,24 @@ export async function POST(request: Request) {
     // 6. Model comparison is manual-only. No provider calls or synthetic results are run here.
     const crossModelResult = null;
 
-    // 7. Enforce Rule QF-4: Token estimate only, compression pending license
+    // 7. Prompt optimization is not executed in this API. Do not return a fake rewrite.
     const estimatedTokens = Math.ceil(promptText.length / 4);
     const compression = {
+      available: false,
+      status: 'coming_soon',
       originalText: promptText,
-      compressedText: `Token estimate: ~${estimatedTokens} tokens (compression pending license)`,
+      compressedText: '',
       originalTokens: estimatedTokens,
-      compressedTokens: estimatedTokens,
-      compressionRatio: "0%"
+      compressedTokens: null,
+      compressionRatio: null,
+      message: 'Prompt Optimization is coming soon.'
     };
-    const roi = calculateROI(compression.originalTokens, compression.compressedTokens);
+    const roi = {
+      originalTokens: estimatedTokens,
+      newTokens: estimatedTokens,
+      compressionRatio: '0%',
+      dollarsSavedPer10kCalls: 0
+    };
 
     // 8. Increment monthly scan usage count in DB
     if (!localSandbox) {
@@ -122,6 +167,7 @@ export async function POST(request: Request) {
       score: evaluation.score,
       status: evaluation.status,
       findings: evaluation.findings,
+      repositoryReport,
       contractResult,
       crossModelResult,
       compression,

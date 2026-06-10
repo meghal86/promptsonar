@@ -46,6 +46,24 @@ outputs:
     description: 'Best confidence level (LOW|MEDIUM|HIGH)'
   workflow_diff:
     description: 'JSON workflow diff summary per file'
+  repository-report-path:
+    description: 'Path to repository-report.json'
+  execution-map-path:
+    description: 'Path to execution-map.json'
+  repository-html-report-path:
+    description: 'Path to repository-report.html'
+  repository-sarif-path:
+    description: 'Path to repository-report.sarif'
+  trust_status:
+    description: 'Repository trust status based on reachable critical/high paths'
+  reachable_sensitive_actions:
+    description: 'Count of repository-level reachable sensitive action paths'
+  high_risk_paths:
+    description: 'Count of high-risk reachable repository paths'
+  issue_count:
+    description: 'Canonical RepositoryExecutionReport issue count'
+  issue_ids:
+    description: 'JSON array of canonical RepositoryExecutionReport issue IDs'
 
 runs:
   using: 'node20'

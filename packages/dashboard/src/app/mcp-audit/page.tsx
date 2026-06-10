@@ -142,7 +142,7 @@ export default function McpAuditPage() {
       } else if (serverName === 'external-github-linter') {
         fuzzerFindings = [
           '⚠️ External command executed shell bypass with zero auth.',
-          '⚠️ Intercepted tool-poisoning redirection payload.'
+          '⚠️ Intercepted tool-poisoning redirection data.'
         ];
       } else {
         fuzzerFindings = [

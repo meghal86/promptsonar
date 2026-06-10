@@ -558,7 +558,7 @@ Define your custom agent skill instructions and guidelines.
         findings: parsedFindings,
         crossModelResult: data.crossModelResult || null,
         compression: {
-          compressedText: data.compression?.compressedText || pText
+          compressedText: data.compression?.compressedText || ''
         }
       });
       setEditorMode('audit'); // Automatically show audit preview details!
@@ -2556,13 +2556,13 @@ Define your custom agent skill instructions and guidelines.
                 {activeLeftTab === 'optimized' && (
                   <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
                     <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
-                      Token compression via LLMLingua-2 is available in Pro. Current estimate: ~{result.roi?.originalTokens || Math.max(1, Math.ceil(promptText.length / 4))} tokens.
+                      Prompt Optimization is coming soon. PromptSonar will not show fabricated token reduction or cost savings.
                     </div>
                     <div className="flex justify-between items-center text-[10px] text-[#A8A29E] font-mono tracking-wider font-semibold mb-2">
                       <span>SECURITY-HARDENED RECOMMENDED PROMPT</span>
                       {result.score !== null && (
                         <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-100 font-bold font-sans">
-                          License pending · Pro feature
+                          Coming Soon
                         </span>
                       )}
                     </div>
@@ -2585,7 +2585,7 @@ Define your custom agent skill instructions and guidelines.
                         </div>
 
                         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
-                          License pending · Pro feature. Compression is estimated locally; LLMLingua-2 execution remains deferred.
+                          This panel shows a deterministic safer rewrite only. Token compression, cost savings, and before/after optimization metrics are coming soon.
                         </div>
                         
                         {/* Token stats strip */}

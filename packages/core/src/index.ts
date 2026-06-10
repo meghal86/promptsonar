@@ -17,4 +17,5 @@ export * from './workflow';
 export * from './runtime';
 export * from './formatter/sarif';
 export * from './pr-review';
+export * from './repository';
 // export * from './security'; // Phase 2
