@@ -239,7 +239,7 @@ function repositorySummaryMarkdown(report: ReturnType<typeof analyzeRepositoryEx
             `- **Technical Details:**`,
             `  - Execution path: ${issue.technicalDetails.executionPath}`,
             `  - Evidence: ${issue.technicalDetails.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`,
-            `  - Confidence: ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%)`,
+            `  - Confidence: ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%) — ${issue.technicalDetails.confidence.definition}`,
             '',
         ]),
     ].join('\n');
@@ -493,7 +493,7 @@ async function run(): Promise<void> {
                     inlineComments.push({
                         path: file.filename,
                         line,
-                        body: `**${issue.id}** (${issue.severity})\n\n**Issue:** ${issue.issue}\n\n**Impact:** ${issue.impact}\n\n**Why this matters:** ${issue.whyThisMatters}\n\n**Fix:** ${issue.howToFix}\n\n<details><summary>Technical Details</summary>\n\n**Execution path:** ${issue.technicalDetails.executionPath}\n\n**Evidence:** \`${evidence?.snippet || issue.issue}\`\n\n**Confidence:** ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%)\n\n</details>`,
+                        body: `**${issue.id}** (${issue.severity})\n\n**Issue:** ${issue.issue}\n\n**Impact:** ${issue.impact}\n\n**Why this matters:** ${issue.whyThisMatters}\n\n**Fix:** ${issue.howToFix}\n\n<details><summary>Technical Details</summary>\n\n**Execution path:** ${issue.technicalDetails.executionPath}\n\n**Evidence:** \`${evidence?.snippet || issue.issue}\`\n\n**Confidence:** ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%) — ${issue.technicalDetails.confidence.definition}\n\n</details>`,
                     });
                 }
             }

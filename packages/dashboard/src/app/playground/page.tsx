@@ -11,6 +11,10 @@ import {
   PLAYGROUND_ISSUE_CARD_SECTIONS,
   PLAYGROUND_ISSUE_HIERARCHY,
 } from '@/lib/playgroundIssueHierarchy';
+import {
+  confidenceDefinition,
+  confidenceDefinitionRows,
+} from '@/lib/repositoryConfidence';
 
 // Pre-loaded neutral/empty initial audit result to avoid showing mock values on load
 const INITIAL_AUDIT_RESULT = {
@@ -727,9 +731,12 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
       explanation: finding.workflow?.path?.riskStory || finding.workflow?.path?.summary || finding.explanation,
       findings: [{ filePath: 'playground.prompt', ruleId: finding.rule_id, severity: finding.severity }],
     };
+    const confidenceLevel = confidenceLevelForPath(pathItem);
     return {
       ...pathItem,
-      confidenceLevel: confidenceLevelForPath(pathItem),
+      confidenceLevel,
+      confidenceLabel: confidenceLevel === 'confirmed' ? 'Confirmed' : confidenceLevel === 'probable' ? 'Probable' : 'Potential',
+      confidenceDefinition: confidenceDefinition(confidenceLevel),
     };
   });
 
@@ -757,7 +764,7 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
   return {
     ...baseReport,
     id: baseReport?.id || 'repo-report:playground',
-    version: baseReport?.version || '1.3.0',
+    version: baseReport?.version || '1.4.0',
     generated_at: baseReport?.generated_at || new Date().toISOString(),
     scannedAt: baseReport?.scannedAt || new Date().toISOString(),
     repository: baseReport?.repository || { root: '/playground', name: 'Playground' },
@@ -771,6 +778,11 @@ const buildPlaygroundRepositoryReport = (args: { result: any; sourceText: string
     reachablePaths,
     issues,
     issueSummary,
+    confidenceDefinitions: baseReport?.confidenceDefinitions || {
+      confirmed: 'Direct evidence exists.',
+      probable: 'Evidence inferred from connected relationships.',
+      potential: 'Structural inference only.',
+    },
     findings: baseReport?.findings || [],
     evidence: issues.flatMap((issue: any) => issue.evidence || []),
     fixPlan: issues.map((issue: any) => ({ id: `fix:${issue.id}`, title: `Fix ${issue.id}`, description: issue.howToFix })),
@@ -818,20 +830,20 @@ const displaySensitiveAction = (value: string): string => {
 };
 
 const pathConfidenceLabel = (pathItem: any): string => {
-  const level = pathItem?.confidenceLevel || (pathItem?.confidence >= 85 ? 'confirmed' : pathItem?.confidence >= 70 ? 'probable' : 'potential');
+  const level = pathItem?.confidenceLevel || pathItem?.confidenceLabel || 'potential';
   const normalized = String(level || '').toLowerCase();
-  if (normalized === 'high' || normalized === 'confirmed') return 'Confirmed';
-  if (normalized === 'medium' || normalized === 'probable') return 'Probable';
+  if (normalized === 'confirmed') return 'Confirmed';
+  if (normalized === 'high' || normalized === 'medium' || normalized === 'probable') return 'Probable';
   if (normalized === 'low' || normalized === 'potential') return 'Potential';
-  return String(level).charAt(0).toUpperCase() + String(level).slice(1);
+  return 'Potential';
 };
 
 const displayConfidenceLabel = (value: unknown): string => {
   const normalized = String(value || '').toLowerCase();
-  if (normalized === 'high' || normalized === 'confirmed' || normalized === '95') return 'Confirmed';
-  if (normalized === 'medium' || normalized === 'probable') return 'Probable';
+  if (normalized === 'confirmed') return 'Confirmed';
+  if (normalized === 'high' || normalized === 'medium' || normalized === 'probable') return 'Probable';
   if (normalized === 'low' || normalized === 'potential') return 'Potential';
-  return String(value || 'Confirmed');
+  return 'Potential';
 };
 
 const repositoryFileName = (file: string): string => file.split(/[\\/]/).filter(Boolean).pop() || file;
@@ -2124,10 +2136,9 @@ export default function PlaygroundPage() {
   };
 
   const getFindingConfidence = (finding: any) => {
-    if (finding.confidence?.label) return finding.confidence.label;
-    if (finding.confidence) return displayConfidenceLabel(finding.confidence);
-    if (finding.severity === 'critical' || finding.severity === 'high') return 'Confirmed';
-    if (finding.severity === 'medium') return 'Probable';
+    if (finding.canonicalIssue?.confidence?.label) return finding.canonicalIssue.confidence.label;
+    if (finding.workflow?.path) return 'Probable';
+    if (finding.evidence || finding.matchedText) return 'Confirmed';
     return 'Potential';
   };
 
@@ -2890,11 +2901,12 @@ export default function PlaygroundPage() {
     return reasons.slice(0, 5);
   })();
   const issueGrouping = getRootCauseGrouping(result.findings);
-  const issueConfidenceLabel = primaryIssueWorkflow
-    ? displayConfidenceLabel(getWorkflowConfidence(displayedScanText, primaryIssueWorkflow).level)
+  const issueConfidenceLabel = primaryCanonicalIssue?.confidence?.label
+    || (primaryIssueWorkflow
+    ? 'Probable'
     : primaryIssueFinding
       ? getFindingConfidence(primaryIssueFinding)
-      : 'Potential';
+      : 'Potential');
   const issueConfidenceScore = primaryCanonicalIssue?.technicalDetails?.confidence?.score
     ?? primaryCanonicalIssue?.confidence?.score
     ?? (primaryIssueWorkflow ? getWorkflowConfidence(displayedScanText, primaryIssueWorkflow).score : null);
@@ -3670,6 +3682,7 @@ export default function PlaygroundPage() {
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Confidence</span>
                       <span className="mt-1 block font-mono text-lg font-black text-slate-900">{issueConfidenceLabel}{issueConfidenceScore !== null ? ` (${issueConfidenceScore}%)` : ''}</span>
+                      <span className="mt-1 block text-[10px] font-semibold leading-4 text-slate-600">{confidenceDefinition(issueConfidenceLabel, repositoryReport)}</span>
                     </div>
                     <div className="rounded-lg border border-white/70 bg-white/75 px-3 py-2">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Source</span>
@@ -4328,9 +4341,9 @@ export default function PlaygroundPage() {
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-center">
                       {[
-                        ['Confirmed', isRepositoryExecutionScan ? repositoryWideReachablePaths : repositoryConfidenceSummary.confirmed],
-                        ['Probable', isRepositoryExecutionScan ? 0 : repositoryConfidenceSummary.probable],
-                        ['Potential', isRepositoryExecutionScan ? 0 : repositoryConfidenceSummary.potential],
+                        ['Confirmed', repositoryConfidenceSummary.confirmed],
+                        ['Probable', repositoryConfidenceSummary.probable],
+                        ['Potential', repositoryConfidenceSummary.potential],
                       ].map(([label, value]) => (
                         <div key={String(label)} className="rounded-lg border border-slate-200 bg-[#FAF9F6] px-3 py-2">
                           <div className="text-lg font-black text-slate-900">{value}</div>
@@ -4339,6 +4352,14 @@ export default function PlaygroundPage() {
                       ))}
                     </div>
                   </div>
+                </div>
+                <div className="grid gap-2 md:grid-cols-3">
+                  {confidenceDefinitionRows(repositoryReport).map(([label, definition]) => (
+                    <div key={label} className="rounded-lg border border-slate-200 bg-[#FAF9F6] p-3">
+                      <div className="text-[9px] font-black uppercase tracking-widest text-slate-500">{label}</div>
+                      <div className="mt-1 text-[11px] font-semibold leading-5 text-slate-700">{definition}</div>
+                    </div>
+                  ))}
                 </div>
 
                 {highestRepositoryPath ? (
@@ -4592,7 +4613,7 @@ export default function PlaygroundPage() {
                         ['Connected prompt', 'playground.prompt'],
                         ['Connected tool', 'tool-router'],
                         ['Connected MCP servers', String(repositoryReport.summary.aiSurfacesFound.mcpServers)],
-                        ['Confidence', 'Confirmed'],
+                        ['Confidence', 'Probable'],
                       ].map(([label, value]) => (
                         <div key={label} className="rounded-lg border border-[#E4E3DE] bg-white p-2">
                           <div className="text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</div>

@@ -83,6 +83,7 @@ export interface RepositoryExecutionEdge {
     evidenceRefs?: string[];
     confidence: number;
     confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
+    confidenceDefinition?: string;
     relationship?: RepositoryExecutionEdgeType;
 }
 
@@ -147,6 +148,7 @@ export interface ReachableExecutionPath {
     confidence: number;
     confidenceLevel: RepositoryPathConfidence;
     confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
+    confidenceDefinition?: string;
     explanation: string;
     findings: Array<{
         filePath: string;
@@ -204,6 +206,7 @@ export interface RepositoryExecutionIssueConfidence {
     score: number;
     level: RepositoryPathConfidence;
     label: 'Confirmed' | 'Probable' | 'Potential';
+    definition: string;
 }
 
 export interface RepositoryExecutionIssue {
@@ -293,6 +296,7 @@ export interface RepositoryExecutionReport {
     issues: RepositoryExecutionIssue[];
     issueSummary: RepositoryIssueSummary;
     impactedFiles: RepositoryImpactedFile[];
+    confidenceDefinitions: Record<RepositoryPathConfidence, string>;
     findings: RepositoryScanResult[];
 }
 

@@ -1,5 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+    REPOSITORY_CONFIDENCE_DEFINITIONS,
+    repositoryConfidenceDefinition,
+} from './confidence';
 import type {
     AnalyzeRepositoryOptions,
     ReachableExecutionPath,
@@ -15,6 +19,7 @@ import type {
     RepositoryExecutionIssue,
     RepositoryExecutionReport,
     RepositoryIssueSummary,
+    RepositoryPathConfidence,
     RepositoryRisk,
     RepositoryScanFinding,
     RepositoryScanResult,
@@ -23,7 +28,7 @@ import type {
     RepositoryTrustStatus,
 } from './types';
 
-const REPORT_VERSION = '1.3.0';
+const REPORT_VERSION = '1.4.0';
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
@@ -78,12 +83,6 @@ const SECRET_VALUE_PATTERNS = [
     /Bearer\s+[A-Za-z0-9._-]{16,}/g,
     /((?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*["']?)[A-Za-z0-9._-]{12,}/gi,
 ];
-
-function confidenceLabelFromScore(confidence: number): 'Confirmed' | 'Probable' | 'Potential' {
-    if (confidence >= 85) return 'Confirmed';
-    if (confidence >= 70) return 'Probable';
-    return 'Potential';
-}
 
 function pathConfidenceLabel(level: 'confirmed' | 'probable' | 'potential'): 'Confirmed' | 'Probable' | 'Potential' {
     if (level === 'confirmed') return 'Confirmed';
@@ -349,8 +348,11 @@ function addEdge(edges: Map<string, RepositoryExecutionEdge>, from: string, to: 
     if (from === to) return;
     const id = edgeId(from, to, type);
     if (edges.has(id)) return;
-    const isInferred = /inferred|can route|can invoke|can read|can reference|can route|can reach/i.test(reason);
-    const label = isInferred ? (confidence >= 70 ? 'Probable' : 'Potential') : confidenceLabelFromScore(confidence);
+    const hasEvidence = Boolean(evidence?.trim());
+    const hasDirectEvidence = hasEvidence && /direct artifact evidence|direct prompt evidence|\breferences\b/i.test(reason);
+    const hasConnectedEvidence = hasEvidence && !/\binferred from artifact metadata\b|\bcan (?:read|invoke|route|reference|reach)\b/i.test(reason);
+    const level: RepositoryPathConfidence = hasDirectEvidence ? 'confirmed' : hasConnectedEvidence ? 'probable' : 'potential';
+    const label = pathConfidenceLabel(level);
     edges.set(id, {
         id,
         from,
@@ -362,6 +364,7 @@ function addEdge(edges: Map<string, RepositoryExecutionEdge>, from: string, to: 
         evidenceRefs: evidence ? [stableId('evidence', `${from}:${to}:${type}:${evidence}`)] : [],
         confidence,
         confidenceLabel: label,
+        confidenceDefinition: repositoryConfidenceDefinition(level),
     });
 }
 
@@ -618,14 +621,7 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
                 ...nodeIds.map(nodeId => nodesById.get(nodeId)?.filePath).filter(Boolean) as string[],
             ]));
             const confidenceScore = clampConfidence(confidence);
-            const edgeConfidenceLabels = edgeIds.map(edgeId => edgesById.get(edgeId)?.confidenceLabel || confidenceLabelFromScore(edgesById.get(edgeId)?.confidence || 0));
-            const confidenceLevel = pathConfidenceLevel({
-                confidence: confidenceScore,
-                nodeIds,
-                edgeIds,
-                findings: [{ filePath: result.filePath, ruleId: finding.rule_id, severity: finding.severity, line: finding.line }],
-                edgeConfidenceLabels,
-            } as any);
+            const confidenceLevel: RepositoryPathConfidence = 'probable';
             const evidenceId = stableId('evidence', `${result.filePath}:${finding.rule_id}:${finding.line || 1}`);
             paths.push({
                 id: stableId('reachable', `${result.filePath}:${finding.rule_id}:${finding.line || 1}:${workflowNodes.map(node => node.type).join('>')}`),
@@ -652,6 +648,7 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
                 confidence: confidenceScore,
                 confidenceLevel,
                 confidenceLabel: pathConfidenceLabel(confidenceLevel),
+                confidenceDefinition: repositoryConfidenceDefinition(confidenceLevel),
                 explanation: finding.workflow.path.riskStory || finding.workflow.path.summary || workflowNodes.map(node => node.type).join(' -> '),
                 findings: [{
                     filePath: result.filePath,
@@ -670,7 +667,10 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
         const files = Array.from(new Set(nodes.map(node => node.filePath).filter(Boolean))) as string[];
         const key = `${graphPath.nodeIds.join('>')}:${sensitiveActions.join(',')}`;
         if (paths.some(existing => existing.nodeIds.join('>') === graphPath.nodeIds.join('>'))) continue;
-        const edgeConfidenceLabels = graphPath.edgeIds.map(edgeId => edgesById.get(edgeId)?.confidenceLabel || confidenceLabelFromScore(edgesById.get(edgeId)?.confidence || 0));
+        const edgeConfidenceLabels = graphPath.edgeIds.map(edgeId => {
+            const edge = edgesById.get(edgeId);
+            return edge?.confidenceLabel || (edge?.evidenceRefs?.length ? 'Probable' : 'Potential');
+        });
         const confidenceLevel = pathConfidenceLevel({ confidence: 70, nodeIds: graphPath.nodeIds, edgeIds: graphPath.edgeIds, findings: [], edgeConfidenceLabels } as any);
         const evidenceId = stableId('evidence', `graph:${graphPath.id}`);
         paths.push({
@@ -694,6 +694,7 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
             confidence: 70,
             confidenceLevel,
             confidenceLabel: pathConfidenceLabel(confidenceLevel),
+            confidenceDefinition: repositoryConfidenceDefinition(confidenceLevel),
             explanation: `Repository graph can reach ${sensitiveActions.join(', ')} through ${graphPath.explanation}.`,
             findings: [],
         });
@@ -713,8 +714,9 @@ function riskRank(risk: RepositoryRisk): number {
 }
 
 function pathConfidenceLevel(pathItem: Pick<ReachableExecutionPath, 'confidence' | 'nodeIds' | 'edgeIds' | 'findings'>): 'confirmed' | 'probable' | 'potential' {
-    if ((pathItem as any).edgeConfidenceLabels?.length > 0 && (pathItem as any).edgeConfidenceLabels.every((label: string) => label === 'Confirmed') && pathItem.findings.length > 0) return 'confirmed';
-    if (pathItem.confidence >= 70 && (pathItem.findings.length > 0 || pathItem.nodeIds.length > 0)) return 'probable';
+    const labels = (pathItem as any).edgeConfidenceLabels || [];
+    if (labels.length > 0 && labels.every((label: string) => label === 'Confirmed')) return 'confirmed';
+    if (pathItem.findings.length > 0 || labels.some((label: string) => label === 'Confirmed' || label === 'Probable')) return 'probable';
     return 'potential';
 }
 
@@ -985,11 +987,18 @@ function issueConfidence(finding: RepositoryScanFinding): RepositoryExecutionIss
     const score = clampConfidence(typeof workflowScore === 'number'
         ? workflowScore
         : fallbackScores[String(finding.confidence || '').toUpperCase()] ?? 70);
-    const level: RepositoryExecutionIssue['confidence']['level'] = score >= 85 ? 'confirmed' : score >= 70 ? 'probable' : 'potential';
+    const hasDirectEvidence = Boolean(finding.evidence?.trim());
+    const hasInferredRelationships = Boolean(finding.workflow?.path);
+    const level: RepositoryExecutionIssue['confidence']['level'] = hasInferredRelationships
+        ? 'probable'
+        : hasDirectEvidence
+            ? 'confirmed'
+            : 'potential';
     return {
         score,
         level,
         label: pathConfidenceLabel(level),
+        definition: repositoryConfidenceDefinition(level),
     };
 }
 
@@ -1127,17 +1136,21 @@ function canonicalImpactedFiles(root: string, issues: RepositoryExecutionIssue[]
 }
 
 function sanitizeReachablePaths(paths: ReachableExecutionPath[]): ReachableExecutionPath[] {
-    return paths.map(pathItem => ({
-        ...pathItem,
-        confidenceLevel: pathItem.confidenceLevel || pathConfidenceLevel(pathItem),
-        confidenceLabel: pathItem.confidenceLabel || pathConfidenceLabel(pathItem.confidenceLevel || pathConfidenceLevel(pathItem)),
-        explanation: redactSecrets(pathItem.explanation),
-        evidence: pathItem.evidence.map(evidence => ({
-            ...evidence,
-            message: redactSecrets(evidence.message),
-            snippet: evidence.snippet ? redactSecrets(evidence.snippet) : evidence.snippet,
-        })),
-    }));
+    return paths.map(pathItem => {
+        const confidenceLevel = pathItem.confidenceLevel || pathConfidenceLevel(pathItem);
+        return {
+            ...pathItem,
+            confidenceLevel,
+            confidenceLabel: pathItem.confidenceLabel || pathConfidenceLabel(confidenceLevel),
+            confidenceDefinition: pathItem.confidenceDefinition || repositoryConfidenceDefinition(confidenceLevel),
+            explanation: redactSecrets(pathItem.explanation),
+            evidence: pathItem.evidence.map(evidence => ({
+                ...evidence,
+                message: redactSecrets(evidence.message),
+                snippet: evidence.snippet ? redactSecrets(evidence.snippet) : evidence.snippet,
+            })),
+        };
+    });
 }
 
 function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[]): RepositoryExecutionReport['evidence'] {
@@ -1166,7 +1179,7 @@ function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: Reposi
                     snippet: edge.evidence ? redactSecrets(edge.evidence) : edge.reason,
                     source: edge.type,
                     confidence: edge.confidence,
-                    confidenceLabel: edge.confidenceLabel || confidenceLabelFromScore(edge.confidence),
+                    confidenceLabel: edge.confidenceLabel || (edge.evidenceRefs?.length ? 'Probable' : 'Potential'),
                 });
             }
         }
@@ -1237,6 +1250,7 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
         issues,
         issueSummary: summarizeIssues(issues),
         impactedFiles,
+        confidenceDefinitions: REPOSITORY_CONFIDENCE_DEFINITIONS,
         findings: sanitizeScanResults(scanResults),
         evidence: canonicalEvidence(sanitizedArtifacts, executionMap, sanitizedPaths, scanResults),
         fixPlan: sanitizedPaths.slice(0, 10).map((pathItem, index) => ({

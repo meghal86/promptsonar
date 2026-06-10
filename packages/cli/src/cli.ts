@@ -227,6 +227,7 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
         lines.push(`      Execution path: ${issue.technicalDetails.executionPath}`);
         lines.push(`      Evidence: ${issue.technicalDetails.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`);
         lines.push(`      Confidence: ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%)`);
+        lines.push(`      Meaning: ${issue.technicalDetails.confidence.definition}`);
     }
     if (report.issues.length > 20) {
         lines.push(`  ... ${report.issues.length - 20} more issues in JSON, SARIF, or HTML output`);
@@ -237,6 +238,9 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
     lines.push(`  Confirmed: ${summary.confidenceSummary.confirmed}`);
     lines.push(`  Probable: ${summary.confidenceSummary.probable}`);
     lines.push(`  Potential: ${summary.confidenceSummary.potential}`);
+    lines.push(`    Confirmed means: ${report.confidenceDefinitions.confirmed}`);
+    lines.push(`    Probable means: ${report.confidenceDefinitions.probable}`);
+    lines.push(`    Potential means: ${report.confidenceDefinitions.potential}`);
 
     if (report.reachablePaths.length > 0) {
         lines.push('');

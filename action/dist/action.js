@@ -658,7 +658,7 @@ function repositorySummaryMarkdown(report) {
       `- **Technical Details:**`,
       `  - Execution path: ${issue.technicalDetails.executionPath}`,
       `  - Evidence: ${issue.technicalDetails.evidence.map((item) => `${item.file}:${item.line || 1}`).join(", ")}`,
-      `  - Confidence: ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%)`,
+      `  - Confidence: ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%) \u2014 ${issue.technicalDetails.confidence.definition}`,
       ""
     ])
   ].join("\n");
@@ -881,7 +881,7 @@ async function run() {
 
 **Evidence:** \`${evidence?.snippet || issue.issue}\`
 
-**Confidence:** ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%)
+**Confidence:** ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%) \u2014 ${issue.technicalDetails.confidence.definition}
 
 </details>`
           });

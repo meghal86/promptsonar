@@ -5,6 +5,10 @@ import {
   buildImpactedFileViews,
   REPOSITORY_IMPACTED_FILE_TYPES,
 } from "../../lib/repositoryImpactedFiles";
+import {
+  confidenceDefinition,
+  confidenceDefinitionRows,
+} from "../../lib/repositoryConfidence";
 
 type RepoReport = any;
 type SelectedObject = { kind: string; item: any } | null;
@@ -388,6 +392,14 @@ export default function RepositoryPage() {
                     ["Potential", report.summary.potentialPaths ?? 0],
                   ].map(([label, value]) => <div key={label} className="rounded-lg bg-[#FAF9F6] p-3"><span className="block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span><span className="mt-1 block font-mono text-base font-black">{value}</span></div>)}
                 </div>
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  {confidenceDefinitionRows(report).map(([label, definition]) => (
+                    <div key={label} className="rounded-lg border border-[#E4E3DE] bg-white p-3">
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span>
+                      <span className="mt-1 block text-[11px] font-semibold leading-5 text-[#57534E]">{definition}</span>
+                    </div>
+                  ))}
+                </div>
               </details>
             </section>
 
@@ -405,6 +417,7 @@ export default function RepositoryPage() {
                     <div>
                       <span className={`inline-flex rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${severityClasses(issue.severity)}`}>{issue.severity}</span>
                       <span className="mt-2 block text-[10px] font-bold text-[#78716C]">{issue.confidence?.label} · {issue.confidence?.score}%</span>
+                      <span className="mt-1 block text-[9px] font-semibold leading-4 text-[#78716C]">{issue.confidence?.definition || confidenceDefinition(issue.confidence?.label, report)}</span>
                     </div>
                     <div className="min-w-0">
                       <span className="block font-mono text-[10px] font-black text-[#78716C]">{issue.id}</span>
@@ -507,6 +520,7 @@ export default function RepositoryPage() {
                         <span className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-red-700">Confidence: {highestPath.confidenceLabel || confidenceLabel(highestPath.confidenceLevel)}</span>
                         <span className="rounded-full border border-[#E4E3DE] bg-white px-2.5 py-1">Files: {highestPath.files?.length || 0}</span>
                       </div>
+                      <p className="mt-2 text-[11px] font-semibold text-[#57534E]">{highestPath.confidenceDefinition || confidenceDefinition(highestPath.confidenceLevel, report)}</p>
                     </>
                   ) : <p className="mt-3 text-sm font-bold text-emerald-700">No reachable sensitive action paths found.</p>}
                 </div>

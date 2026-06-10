@@ -83,6 +83,7 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport): 
             properties: {
                 repository_summary: report.summary,
                 issue_summary: report.issueSummary,
+                confidence_definitions: report.confidenceDefinitions,
                 issue_ids: report.issues.map(issue => issue.id),
                 execution_nodes: report.executionMap.nodes.length,
                 execution_edges: report.executionMap.edges.length,
@@ -162,13 +163,16 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
       <h2>Canonical Issues</h2>
       <table>
         <tr><th>ID</th><th>Severity</th><th>Plain-Language Explanation</th></tr>
-        ${report.issues.map(issue => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td class="risk-${escapeHtml(issue.severity)}">${escapeHtml(String(issue.severity).toUpperCase())}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Fix:</strong> ${escapeHtml(issue.howToFix)}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails.executionPath)}<br><strong>Evidence:</strong> ${issue.technicalDetails.evidence.map(item => `<code>${escapeHtml(item.file)}:${item.line || 1}</code> ${escapeHtml(item.snippet)}`).join('<br>')}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails.confidence.label)} (${issue.technicalDetails.confidence.score}%)</details></td></tr>`).join('') || '<tr><td colspan="3">No active issues.</td></tr>'}
+        ${report.issues.map(issue => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td class="risk-${escapeHtml(issue.severity)}">${escapeHtml(String(issue.severity).toUpperCase())}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Fix:</strong> ${escapeHtml(issue.howToFix)}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails.executionPath)}<br><strong>Evidence:</strong> ${issue.technicalDetails.evidence.map(item => `<code>${escapeHtml(item.file)}:${item.line || 1}</code> ${escapeHtml(item.snippet)}`).join('<br>')}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails.confidence.label)} (${issue.technicalDetails.confidence.score}%) · ${escapeHtml(issue.technicalDetails.confidence.definition)}</details></td></tr>`).join('') || '<tr><td colspan="3">No active issues.</td></tr>'}
       </table>
     </section>
     <section>
       <h2>Reachable Execution Paths</h2>
       <div class="metric">${report.reachablePaths.length}</div>
       <div class="label">${summary.confidenceSummary.confirmed} Confirmed · ${summary.confidenceSummary.probable} Probable · ${summary.confidenceSummary.potential} Potential</div>
+      <p><strong>Confirmed:</strong> ${escapeHtml(report.confidenceDefinitions.confirmed)}<br>
+      <strong>Probable:</strong> ${escapeHtml(report.confidenceDefinitions.probable)}<br>
+      <strong>Potential:</strong> ${escapeHtml(report.confidenceDefinitions.potential)}</p>
     </section>
     ${highestPath ? `<section style="margin-top:18px">
       <h2>Highest Risk Path</h2>

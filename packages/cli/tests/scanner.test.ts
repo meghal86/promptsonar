@@ -219,6 +219,11 @@ describe('CLI scanner suppressions and SARIF', () => {
         expect(report.executionMap.nodes.length).toBe(executionMap.nodes.length);
         expect(report.executionMap.edges.length).toBe(executionMap.edges.length);
         expect(report.issueSummary.total).toBe(report.issues.length);
+        expect(report.confidenceDefinitions).toEqual({
+            confirmed: 'Direct evidence exists.',
+            probable: 'Evidence inferred from connected relationships.',
+            potential: 'Structural inference only.',
+        });
         expect(report.issues.length).toBeGreaterThan(0);
         expect(new Set(report.issues.map((issue: any) => issue.id)).size).toBe(report.issues.length);
         expect(report.issues.every((issue: any) =>
@@ -228,12 +233,13 @@ describe('CLI scanner suppressions and SARIF', () => {
             issue.howToFix &&
             issue.evidence.length > 0 &&
             issue.confidence?.label &&
+            issue.confidence?.definition &&
             issue.technicalDetails?.executionPath &&
             issue.technicalDetails?.evidence?.length > 0 &&
             issue.technicalDetails?.confidence?.label
         )).toBe(true);
         expect(report.summary.aiSurfacesFound.mcpServers).toBe(executionMap.nodes.filter((node: any) => node.type === 'MCP_SERVER').length);
-        expect(report.reachablePaths.every((pathItem: any) => pathItem.confidenceLabel)).toBe(true);
+        expect(report.reachablePaths.every((pathItem: any) => pathItem.confidenceLabel && pathItem.confidenceDefinition)).toBe(true);
         expect(executionMap.edges.every((edge: any) => edge.reason && edge.confidenceLabel && edge.evidenceRefs)).toBe(true);
         expect(executionMap.nodes.some((node: any) => node.label === 'MCP Server')).toBe(false);
         expect(JSON.stringify(report.findings)).not.toContain('MCP Server');
