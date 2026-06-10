@@ -231,6 +231,10 @@ describe('CLI scanner suppressions and SARIF', () => {
             issue.impact &&
             issue.whyThisMatters &&
             issue.howToFix &&
+            issue.fix?.quickFix &&
+            issue.fix?.recommendedFix &&
+            issue.fix?.safePattern &&
+            ['Quick', 'Moderate', 'Large'].includes(issue.fix?.effort) &&
             issue.evidence.length > 0 &&
             issue.confidence?.label &&
             issue.confidence?.definition &&

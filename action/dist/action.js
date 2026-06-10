@@ -654,7 +654,10 @@ function repositorySummaryMarkdown(report) {
       `- **Issue:** ${issue.issue}`,
       `- **Impact:** ${issue.impact}`,
       `- **Why this matters:** ${issue.whyThisMatters}`,
-      `- **Fix:** ${issue.howToFix}`,
+      `- **Quick Fix:** ${issue.fix.quickFix}`,
+      `- **Recommended Fix:** ${issue.fix.recommendedFix}`,
+      `- **Safe Pattern:** \`${issue.fix.safePattern}\``,
+      `- **Effort:** ${issue.fix.effort}`,
       `- **Technical Details:**`,
       `  - Execution path: ${issue.technicalDetails.executionPath}`,
       `  - Evidence: ${issue.technicalDetails.evidence.map((item) => `${item.file}:${item.line || 1}`).join(", ")}`,
@@ -873,7 +876,13 @@ async function run() {
 
 **Why this matters:** ${issue.whyThisMatters}
 
-**Fix:** ${issue.howToFix}
+**Quick Fix:** ${issue.fix.quickFix}
+
+**Recommended Fix:** ${issue.fix.recommendedFix}
+
+**Safe Pattern:** \`${issue.fix.safePattern}\`
+
+**Effort:** ${issue.fix.effort}
 
 <details><summary>Technical Details</summary>
 

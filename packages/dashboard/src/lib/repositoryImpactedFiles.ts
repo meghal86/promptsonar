@@ -30,7 +30,13 @@ export function buildImpactedFileViews(report: RepositoryReportLike | null | und
       (item: any) => item.id || `${item.file}:${item.line || 0}:${item.snippet || ''}`,
     );
     const fixes = Array.from(new Set(issues.flatMap((issue: any) =>
-      [issue.howToFix, ...(issue.fixSuggestions || [])].filter(Boolean)
+      [
+        issue.fix?.quickFix,
+        issue.fix?.recommendedFix,
+        issue.fix?.safePattern,
+        issue.howToFix,
+        ...(issue.fixSuggestions || []),
+      ].filter(Boolean)
     )));
     const root = String(report.repository?.root || '').replace(/\\/g, '/').replace(/\/+$/, '');
     const pathsForFile = (report.reachablePaths || []).filter(pathItem =>

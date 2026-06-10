@@ -21,6 +21,12 @@ describe('Repository Explorer impacted files', () => {
         severity: 'critical',
         impact: 'Repository instructions could trigger a sensitive action.',
         howToFix: 'Require approval before sensitive actions.',
+        fix: {
+          quickFix: 'Disable automatic execution.',
+          recommendedFix: 'Require approval before sensitive actions.',
+          safePattern: 'if (approved) run();',
+          effort: 'Moderate',
+        },
         evidence: [{ id: 'evidence-skill', file: 'skills/review/SKILL.md', snippet: 'run shell tools' }],
         pathIds: ['path-shell'],
       }, {
@@ -46,7 +52,11 @@ describe('Repository Explorer impacted files', () => {
     expect(views[0].issues.map(issue => issue.id)).toEqual(['issue-skill']);
     expect(views[0].impacts).toEqual(['Repository instructions could trigger a sensitive action.']);
     expect(views[0].evidence.map(item => item.id)).toEqual(['evidence-skill']);
-    expect(views[0].fixes).toEqual(['Require approval before sensitive actions.']);
+    expect(views[0].fixes).toEqual([
+      'Disable automatic execution.',
+      'Require approval before sensitive actions.',
+      'if (approved) run();',
+    ]);
     expect(views[0].executionPaths.map(path => path.id)).toEqual(['path-shell']);
   });
 });

@@ -222,7 +222,10 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
         lines.push(`    Issue: ${issue.issue}`);
         lines.push(`    Impact: ${issue.impact}`);
         lines.push(`    Why this matters: ${issue.whyThisMatters}`);
-        lines.push(`    Fix: ${issue.howToFix}`);
+        lines.push(`    Quick Fix: ${issue.fix.quickFix}`);
+        lines.push(`    Recommended Fix: ${issue.fix.recommendedFix}`);
+        lines.push(`    Safe Pattern: ${issue.fix.safePattern}`);
+        lines.push(`    Effort: ${issue.fix.effort}`);
         lines.push('    Technical Details:');
         lines.push(`      Execution path: ${issue.technicalDetails.executionPath}`);
         lines.push(`      Evidence: ${issue.technicalDetails.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`);

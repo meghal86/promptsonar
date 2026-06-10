@@ -11,6 +11,7 @@ import {
     formatRepositoryReportJson,
     formatRepositoryReportSarif,
     generateRepositorySummary,
+    validateRepositoryExecutionPaths,
     type RepositoryScanResult,
 } from '../src';
 
@@ -108,6 +109,104 @@ describe('repository execution analysis', () => {
         expect(report.reachablePaths[0]?.confidenceLabel).toBe('Probable');
         expect(report.issues[0]?.confidence.label).toBe('Probable');
         expect(report.issues[0]?.confidence.definition).toBe('Evidence inferred from connected relationships.');
+    });
+
+    it('keeps reachable paths graph-backed, source-first, action-ended, and count-consistent', () => {
+        const root = fixtureRepo({
+            'reviewer.prompt': 'Route user input toward shell execution.',
+        });
+        const promptPath = path.join(root, 'reviewer.prompt');
+        const report = analyzeRepositoryExecution(root, [{
+            filePath: promptPath,
+            findings: [{
+                rule_id: 'sec_workflow_escalation',
+                severity: 'critical',
+                line: 1,
+                message: 'User input can reach shell execution.',
+                evidence: 'Route user input toward shell execution.',
+                workflow: {
+                    risk: 'critical',
+                    confidence_score: 92,
+                    path: {
+                        privilegedSinkReached: true,
+                        nodes: [{ type: 'user_input' }, { type: 'tool_router' }, { type: 'shell_execution' }],
+                    },
+                },
+            }],
+        }]);
+        const nodesById = new Map(report.executionMap.nodes.map(node => [node.id, node]));
+        const nodeIds = new Set(nodesById.keys());
+        const edgeIds = new Set(report.executionMap.edges.map(edge => edge.id));
+
+        expect(report.summary.executionGraph.nodes).toBe(report.executionMap.nodes.length);
+        expect(report.summary.executionGraph.edges).toBe(report.executionMap.edges.length);
+        expect(report.summary.reachablePaths).toBe(report.reachablePaths.length);
+        expect(report.pathValidation).toEqual({
+            valid: true,
+            checkedPaths: report.reachablePaths.length,
+            errors: [],
+        });
+        expect(report.reachablePaths.length).toBeGreaterThan(0);
+
+        for (const pathItem of report.reachablePaths) {
+            expect(pathItem.nodeIds.length).toBeGreaterThanOrEqual(2);
+            expect(pathItem.nodeIds.every(nodeId => nodeIds.has(nodeId))).toBe(true);
+            expect(pathItem.edgeIds.every(edgeId => edgeIds.has(edgeId))).toBe(true);
+            expect(pathItem.sourceNodeId).toBe(pathItem.nodeIds[0]);
+            expect(pathItem.sinkNodeId).toBe(pathItem.nodeIds[pathItem.nodeIds.length - 1]);
+            expect(['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW']).toContain(nodesById.get(pathItem.nodeIds[0])?.type);
+            expect(nodesById.get(pathItem.nodeIds[pathItem.nodeIds.length - 1])?.type).toBe('ACTION');
+
+            if (pathItem.risk === 'critical' || pathItem.risk === 'high') {
+                expect(pathItem.evidence.length).toBeGreaterThan(0);
+                expect(pathItem.evidence.every(item => item.message.trim().length > 0)).toBe(true);
+            }
+        }
+
+        const issuePath = report.issues[0]?.technicalDetails.executionPath || '';
+        expect(issuePath).toContain('Instructions in reviewer.prompt');
+        expect(issuePath).toContain('Shell execution');
+        expect(issuePath).not.toContain('Workflow step');
+        expect(issuePath).not.toContain('Connected tool');
+    });
+
+    it('reports malformed execution paths and graph count drift', () => {
+        const executionMap = {
+            nodes: [{ id: 'prompt', type: 'PROMPT', label: 'Prompt', description: 'Prompt' }],
+            edges: [],
+            paths: [],
+        };
+        const validation = validateRepositoryExecutionPaths(executionMap as any, [{
+            id: 'broken-path',
+            risk: 'critical',
+            nodeIds: ['prompt', 'missing-action'],
+            edgeIds: ['missing-edge'],
+            sensitiveActions: ['Shell'],
+            sourceNodeId: 'prompt',
+            sinkNodeId: 'missing-action',
+            evidence: [],
+            files: ['reviewer.prompt'],
+            confidence: 90,
+            confidenceLevel: 'probable',
+            explanation: 'Broken path fixture.',
+            findings: [],
+        }], {
+            executionGraph: { nodes: 2, edges: 1 },
+            reachablePaths: 0,
+        } as any);
+
+        expect(validation.valid).toBe(false);
+        expect(validation.checkedPaths).toBe(1);
+        expect(validation.errors.map(error => error.code)).toEqual(expect.arrayContaining([
+            'node-count-mismatch',
+            'edge-count-mismatch',
+            'reachable-path-count-mismatch',
+            'unknown-node',
+            'unknown-edge',
+            'broken-chain',
+            'invalid-sensitive-action',
+            'missing-evidence',
+        ]));
     });
 
     it('classifies issue confidence from evidence provenance instead of score or severity', () => {
@@ -403,17 +502,31 @@ describe('repository execution analysis', () => {
             expect(issue.technicalDetails.executionPath).toBeTruthy();
             expect(issue.technicalDetails.evidence).toEqual(issue.evidence);
             expect(issue.technicalDetails.confidence).toEqual(issue.confidence);
+            expect(issue.fix.quickFix).toBeTruthy();
+            expect(issue.fix.recommendedFix).toBeTruthy();
+            expect(issue.fix.safePattern).toBeTruthy();
+            expect(['Quick', 'Moderate', 'Large']).toContain(issue.fix.effort);
 
             if (issue.severity === 'critical' || issue.severity === 'high') {
                 expect(issue.impactedFiles.length).toBeGreaterThan(0);
                 expect(issue.fixSuggestions.length).toBeGreaterThan(0);
+                expect(issue.fix.quickFix).toBeTruthy();
+                expect(issue.fix.recommendedFix).toBeTruthy();
             }
         }
 
         sarif.runs[0].results.forEach((result: any) => {
             expect(result.properties.technical_details.executionPath).toBeTruthy();
             expect(result.properties.confidence.definition).toBeTruthy();
+            expect(result.properties.fix.quickFix).toBeTruthy();
+            expect(result.properties.fix.recommendedFix).toBeTruthy();
+            expect(result.properties.fix.safePattern).toBeTruthy();
+            expect(result.properties.fix.effort).toBeTruthy();
         });
+        expect(html).toContain('Quick Fix:');
+        expect(html).toContain('Recommended Fix:');
+        expect(html).toContain('Safe Pattern:');
+        expect(html).toContain('Effort:');
         expect(report.reachablePaths.every(pathItem =>
             pathItem.confidenceDefinition === report.confidenceDefinitions[pathItem.confidenceLevel]
         )).toBe(true);

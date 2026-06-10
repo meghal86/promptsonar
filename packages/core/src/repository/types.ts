@@ -209,6 +209,15 @@ export interface RepositoryExecutionIssueConfidence {
     definition: string;
 }
 
+export type RepositoryIssueFixEffort = 'Quick' | 'Moderate' | 'Large';
+
+export interface RepositoryIssueFix {
+    quickFix: string;
+    recommendedFix: string;
+    safePattern: string;
+    effort: RepositoryIssueFixEffort;
+}
+
 export interface RepositoryExecutionIssue {
     id: string;
     ruleId: string;
@@ -218,6 +227,7 @@ export interface RepositoryExecutionIssue {
     impact: string;
     whyThisMatters: string;
     howToFix: string;
+    fix: RepositoryIssueFix;
     evidence: RepositoryExecutionIssueEvidence[];
     confidence: RepositoryExecutionIssueConfidence;
     technicalDetails: {
@@ -248,6 +258,27 @@ export interface RepositoryImpactedFile {
     issueCount: number;
     highestSeverity: Severity | string;
     pathIds: string[];
+}
+
+export interface RepositoryPathValidationError {
+    pathId?: string;
+    code:
+        | 'node-count-mismatch'
+        | 'edge-count-mismatch'
+        | 'reachable-path-count-mismatch'
+        | 'unknown-node'
+        | 'unknown-edge'
+        | 'broken-chain'
+        | 'invalid-source'
+        | 'invalid-sensitive-action'
+        | 'missing-evidence';
+    message: string;
+}
+
+export interface RepositoryPathValidation {
+    valid: boolean;
+    checkedPaths: number;
+    errors: RepositoryPathValidationError[];
 }
 
 export interface RepositoryExecutionReport {
@@ -296,6 +327,7 @@ export interface RepositoryExecutionReport {
     issues: RepositoryExecutionIssue[];
     issueSummary: RepositoryIssueSummary;
     impactedFiles: RepositoryImpactedFile[];
+    pathValidation: RepositoryPathValidation;
     confidenceDefinitions: Record<RepositoryPathConfidence, string>;
     findings: RepositoryScanResult[];
 }

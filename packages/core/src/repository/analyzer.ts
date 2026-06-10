@@ -18,7 +18,9 @@ import type {
     RepositoryImpactedFileType,
     RepositoryExecutionIssue,
     RepositoryExecutionReport,
+    RepositoryIssueFix,
     RepositoryIssueSummary,
+    RepositoryPathValidation,
     RepositoryPathConfidence,
     RepositoryRisk,
     RepositoryScanFinding,
@@ -28,7 +30,7 @@ import type {
     RepositoryTrustStatus,
 } from './types';
 
-const REPORT_VERSION = '1.4.0';
+const REPORT_VERSION = '1.5.0';
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
@@ -495,8 +497,7 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
     for (const result of scanResults) {
         const related = artifacts.find(artifact => path.resolve(artifact.filePath) === path.resolve(result.filePath));
         const sourceNode = related ? nodeIdByArtifact.get(related.id) : undefined;
-        if (!sourceNode) continue;
-        if (related && ['PROMPT', 'SKILL', 'AGENT_CONFIG'].includes(related.type)) continue;
+        if (!related || !sourceNode) continue;
         const actions = new Set<RepositorySensitiveAction>();
         for (const finding of result.findings || []) {
             if (finding.waived) continue;
@@ -508,7 +509,9 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
                 if (workflowNode.type === 'credential_store' || workflowNode.type === 'secret') actions.add('Secrets');
                 if (workflowNode.type === 'external_api') actions.add('External APIs');
             }
-            detectSensitiveActions(`${finding.message || ''}\n${finding.evidence || ''}\n${finding.fix || ''}`).forEach(action => actions.add(action));
+            if (!['PROMPT', 'SKILL', 'AGENT_CONFIG'].includes(related.type)) {
+                detectSensitiveActions(`${finding.message || ''}\n${finding.evidence || ''}\n${finding.fix || ''}`).forEach(action => actions.add(action));
+            }
         }
         addSensitiveActionNodes(nodes, edges, sourceNode, Array.from(actions), result.findings?.[0]?.evidence);
     }
@@ -722,15 +725,17 @@ function pathConfidenceLevel(pathItem: Pick<ReachableExecutionPath, 'confidence'
 
 function sourceNodeIdForPath(pathItem: Pick<ReachableExecutionPath, 'nodeIds'>, executionMap: RepositoryExecutionMap): string | undefined {
     const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
-    return pathItem.nodeIds.find(nodeId => {
-        const type = nodesById.get(nodeId)?.type;
-        return type === 'PROMPT' || type === 'SKILL' || type === 'WORKFLOW';
-    }) || pathItem.nodeIds[0];
+    const firstNodeId = pathItem.nodeIds[0];
+    const firstType = nodesById.get(firstNodeId)?.type;
+    return firstType && ['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW'].includes(firstType)
+        ? firstNodeId
+        : undefined;
 }
 
 function sinkNodeIdForPath(pathItem: Pick<ReachableExecutionPath, 'nodeIds'>, executionMap: RepositoryExecutionMap): string | undefined {
     const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
-    return [...pathItem.nodeIds].reverse().find(nodeId => nodesById.get(nodeId)?.type === 'ACTION') || pathItem.nodeIds[pathItem.nodeIds.length - 1];
+    const lastNodeId = pathItem.nodeIds[pathItem.nodeIds.length - 1];
+    return nodesById.get(lastNodeId)?.type === 'ACTION' ? lastNodeId : undefined;
 }
 
 export function generateRepositorySummary(artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[]): RepositorySummary {
@@ -927,6 +932,70 @@ function plainLanguageIssue(finding: RepositoryScanFinding): Pick<RepositoryExec
     };
 }
 
+function structuredIssueFix(finding: RepositoryScanFinding, recommendedFix: string): RepositoryIssueFix {
+    const signal = `${finding.rule_id} ${finding.category || ''} ${finding.message || ''}`.toLowerCase();
+    const effort: RepositoryIssueFix['effort'] = finding.severity === 'critical'
+        ? 'Large'
+        : finding.severity === 'high'
+            ? 'Moderate'
+            : 'Quick';
+
+    if (/injection|jailbreak|override|evasion|rag/.test(signal)) {
+        return {
+            quickFix: 'Block instruction-override phrases and keep untrusted content outside the trusted instruction block.',
+            recommendedFix,
+            safePattern: 'trustedInstructions + \"\\n<untrusted_input>\" + escape(userInput) + \"</untrusted_input>\"',
+            effort,
+        };
+    }
+    if (/secret|credential|api.?key|password|token|pii|sensitive.?data/.test(signal)) {
+        return {
+            quickFix: 'Remove the exposed value, rotate it if it may be active, and redact it from logs and generated output.',
+            recommendedFix,
+            safePattern: 'const apiKey = process.env.API_KEY; // never place the value in prompts or checked-in config',
+            effort,
+        };
+    }
+    if (/memory|persist|remember|session/.test(signal)) {
+        return {
+            quickFix: 'Stop storing unvalidated input and clear any saved content that can alter later requests.',
+            recommendedFix,
+            safePattern: 'if (isTrusted(memoryEntry) && isAllowedForSession(memoryEntry, sessionId)) save(memoryEntry);',
+            effort,
+        };
+    }
+    if (/mcp|permission|wildcard|auto.?approve|auto.?execute|tool.?poison/.test(signal)) {
+        return {
+            quickFix: 'Disable automatic approval and remove wildcard or unused permissions from the affected tool.',
+            recommendedFix,
+            safePattern: '{ "autoApprove": false, "permissions": ["filesystem.read"] }',
+            effort,
+        };
+    }
+    if (/shell|privileged|sink|escalation|workflow|autonomous|tool.?routing/.test(signal)) {
+        return {
+            quickFix: 'Require explicit approval before the sensitive action and reject unvalidated arguments.',
+            recommendedFix,
+            safePattern: 'if (!approved || !isAllowed(input)) return; await runScopedAction(input);',
+            effort,
+        };
+    }
+    if (/output|format|structure|clarity|consistency|best.?practice|efficiency|token/.test(signal)) {
+        return {
+            quickFix: 'State the expected input, output, and failure behavior directly in the instruction.',
+            recommendedFix,
+            safePattern: 'Input: <validated value>\\nOutput: <required schema>\\nOn failure: return an error without taking action.',
+            effort,
+        };
+    }
+    return {
+        quickFix: 'Add an explicit boundary around untrusted input and require approval before sensitive operations.',
+        recommendedFix,
+        safePattern: 'const validated = validate(input); if (approved) await runWithLeastPrivilege(validated);',
+        effort,
+    };
+}
+
 function executionStepLabel(node: RepositoryExecutionNode): string {
     if (node.type === 'PROMPT') return node.relativePath ? `Instructions in ${node.relativePath}` : 'AI instructions';
     if (node.type === 'SKILL') return `Agent skill ${node.label}`;
@@ -936,13 +1005,14 @@ function executionStepLabel(node: RepositoryExecutionNode): string {
     if (node.type === 'WORKFLOW') return `Automation workflow ${node.label}`;
     if (node.type === 'ACTION') {
         const action = node.metadata?.action as RepositorySensitiveAction | undefined;
-        return action ? SENSITIVE_ACTION_LABELS[action] : node.label.replace(/[_-]+/g, ' ');
+        return action
+            ? SENSITIVE_ACTION_LABELS[action].replace(/\b(Execution|Access|Call)\b/, word => word.toLowerCase())
+            : node.label.replace(/[_-]+/g, ' ');
     }
     return node.label.replace(/[_-]+/g, ' ');
 }
 
 function technicalExecutionPath(
-    finding: RepositoryScanFinding,
     pathIds: string[],
     reachablePaths: ReachableExecutionPath[],
     executionMap: RepositoryExecutionMap,
@@ -956,23 +1026,6 @@ function technicalExecutionPath(
             .map(node => executionStepLabel(node!));
         if (labels.length > 0) return labels.join(' → ');
     }
-
-    const workflowLabels = (finding.workflow?.path?.nodes || [])
-        .map((node: { type?: string; label?: string }) => {
-            if (node.type === 'user_input') return 'User-provided instructions';
-            if (node.type === 'prompt' || node.type === 'prompt_template') return 'AI instructions';
-            if (node.type === 'tool_router' || node.type === 'mcp_tool') return 'Connected tool';
-            if (node.type === 'mcp_server') return 'MCP server';
-            if (node.type === 'agent_memory') return 'Stored agent memory';
-            if (node.type === 'shell_execution') return 'Shell execution';
-            if (node.type === 'filesystem_access') return 'Filesystem access';
-            if (node.type === 'network_access') return 'Network access';
-            if (node.type === 'credential_store' || node.type === 'secret') return 'Credential access';
-            if (node.type === 'external_api') return 'External API call';
-            return node.label && !INTERNAL_TERMINOLOGY.test(node.label) ? node.label.replace(/[_-]+/g, ' ') : 'Workflow step';
-        })
-        .filter(Boolean);
-    if (workflowLabels.length > 0) return workflowLabels.join(' → ');
     return 'No connected sensitive action was confirmed for this finding.';
 }
 
@@ -1030,7 +1083,13 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 .sort();
             const workflowReason = finding.workflow?.path?.riskStory || finding.workflow?.path?.summary;
             const copy = plainLanguageIssue(finding);
-            const fixSuggestions = Array.from(new Set([copy.howToFix, ...detectedFixSuggestions]));
+            const fix = structuredIssueFix(finding, copy.howToFix);
+            const fixSuggestions = Array.from(new Set([
+                fix.quickFix,
+                fix.recommendedFix,
+                fix.safePattern,
+                ...detectedFixSuggestions,
+            ]));
             const evidence = [{
                 id: stableId('evidence', `${displayFile}:${finding.rule_id}:${finding.line || 1}:${finding.column || 1}`),
                 file: displayFile,
@@ -1047,10 +1106,11 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 severity: finding.severity,
                 category: finding.category || 'security',
                 ...copy,
+                fix,
                 evidence,
                 confidence,
                 technicalDetails: {
-                    executionPath: technicalExecutionPath(finding, pathIds, reachablePaths, executionMap),
+                    executionPath: technicalExecutionPath(pathIds, reachablePaths, executionMap),
                     evidence,
                     confidence,
                 },
@@ -1221,6 +1281,63 @@ function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: Reposi
     return Array.from(evidence.values()).sort((a, b) => a.id.localeCompare(b.id));
 }
 
+export function validateRepositoryExecutionPaths(
+    executionMap: RepositoryExecutionMap,
+    reachablePaths: ReachableExecutionPath[],
+    summary?: RepositorySummary,
+): RepositoryPathValidation {
+    const errors: RepositoryPathValidation['errors'] = [];
+    const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
+    const edgesById = new Map(executionMap.edges.map(edge => [edge.id, edge]));
+
+    if (summary?.executionGraph.nodes !== undefined && summary.executionGraph.nodes !== executionMap.nodes.length) {
+        errors.push({ code: 'node-count-mismatch', message: 'Summary node count does not match the execution graph.' });
+    }
+    if (summary?.executionGraph.edges !== undefined && summary.executionGraph.edges !== executionMap.edges.length) {
+        errors.push({ code: 'edge-count-mismatch', message: 'Summary edge count does not match the execution graph.' });
+    }
+    if (summary?.reachablePaths !== undefined && summary.reachablePaths !== reachablePaths.length) {
+        errors.push({ code: 'reachable-path-count-mismatch', message: 'Summary path count does not match the canonical reachable paths.' });
+    }
+
+    for (const pathItem of reachablePaths) {
+        const firstNode = nodesById.get(pathItem.nodeIds[0]);
+        const lastNode = nodesById.get(pathItem.nodeIds[pathItem.nodeIds.length - 1]);
+        const unknownNode = pathItem.nodeIds.find(nodeId => !nodesById.has(nodeId));
+        const unknownEdge = pathItem.edgeIds.find(edgeId => !edgesById.has(edgeId));
+        if (unknownNode) {
+            errors.push({ pathId: pathItem.id, code: 'unknown-node', message: `Path references unknown node ${unknownNode}.` });
+        }
+        if (unknownEdge) {
+            errors.push({ pathId: pathItem.id, code: 'unknown-edge', message: `Path references unknown edge ${unknownEdge}.` });
+        }
+        const chainIsConnected = pathItem.edgeIds.length === Math.max(0, pathItem.nodeIds.length - 1)
+            && pathItem.edgeIds.every((edgeId, index) => {
+                const edge = edgesById.get(edgeId);
+                return edge?.from === pathItem.nodeIds[index] && edge?.to === pathItem.nodeIds[index + 1];
+            });
+        if (!chainIsConnected) {
+            errors.push({ pathId: pathItem.id, code: 'broken-chain', message: 'Path nodes and edges do not form one connected route.' });
+        }
+        if (!firstNode || !['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW'].includes(firstNode.type) || pathItem.sourceNodeId !== firstNode.id) {
+            errors.push({ pathId: pathItem.id, code: 'invalid-source', message: 'Path does not start from its earliest known repository source.' });
+        }
+        const finalAction = lastNode?.type === 'ACTION' ? lastNode.metadata?.action as RepositorySensitiveAction | undefined : undefined;
+        if (!lastNode || !finalAction || pathItem.sinkNodeId !== lastNode.id || !pathItem.sensitiveActions.includes(finalAction)) {
+            errors.push({ pathId: pathItem.id, code: 'invalid-sensitive-action', message: 'Path does not end in a graph-backed sensitive action.' });
+        }
+        if ((pathItem.risk === 'critical' || pathItem.risk === 'high') && !pathItem.evidence.some(item => item.message.trim().length > 0)) {
+            errors.push({ pathId: pathItem.id, code: 'missing-evidence', message: 'High-risk path does not include evidence.' });
+        }
+    }
+
+    return {
+        valid: errors.length === 0,
+        checkedPaths: reachablePaths.length,
+        errors,
+    };
+}
+
 export function generateRepositoryExecutionReport(rootPath: string, artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[] = []): RepositoryExecutionReport {
     const root = path.resolve(rootPath);
     const generatedAt = new Date().toISOString();
@@ -1250,6 +1367,7 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
         issues,
         issueSummary: summarizeIssues(issues),
         impactedFiles,
+        pathValidation: validateRepositoryExecutionPaths(executionMap, sanitizedPaths, summary),
         confidenceDefinitions: REPOSITORY_CONFIDENCE_DEFINITIONS,
         findings: sanitizeScanResults(scanResults),
         evidence: canonicalEvidence(sanitizedArtifacts, executionMap, sanitizedPaths, scanResults),

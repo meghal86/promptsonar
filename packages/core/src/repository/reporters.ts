@@ -44,6 +44,7 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport): 
                 impact: issue.impact,
                 why_this_matters: issue.whyThisMatters,
                 how_to_fix: issue.howToFix,
+                fix: issue.fix,
                 technical_details: issue.technicalDetails,
                 evidence: issue.evidence,
                 confidence: issue.confidence,
@@ -163,7 +164,7 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
       <h2>Canonical Issues</h2>
       <table>
         <tr><th>ID</th><th>Severity</th><th>Plain-Language Explanation</th></tr>
-        ${report.issues.map(issue => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td class="risk-${escapeHtml(issue.severity)}">${escapeHtml(String(issue.severity).toUpperCase())}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Fix:</strong> ${escapeHtml(issue.howToFix)}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails.executionPath)}<br><strong>Evidence:</strong> ${issue.technicalDetails.evidence.map(item => `<code>${escapeHtml(item.file)}:${item.line || 1}</code> ${escapeHtml(item.snippet)}`).join('<br>')}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails.confidence.label)} (${issue.technicalDetails.confidence.score}%) · ${escapeHtml(issue.technicalDetails.confidence.definition)}</details></td></tr>`).join('') || '<tr><td colspan="3">No active issues.</td></tr>'}
+        ${report.issues.map(issue => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td class="risk-${escapeHtml(issue.severity)}">${escapeHtml(String(issue.severity).toUpperCase())}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Quick Fix:</strong> ${escapeHtml(issue.fix.quickFix)}<br><br><strong>Recommended Fix:</strong> ${escapeHtml(issue.fix.recommendedFix)}<br><br><strong>Safe Pattern:</strong> <code>${escapeHtml(issue.fix.safePattern)}</code><br><br><strong>Effort:</strong> ${escapeHtml(issue.fix.effort)}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails.executionPath)}<br><strong>Evidence:</strong> ${issue.technicalDetails.evidence.map(item => `<code>${escapeHtml(item.file)}:${item.line || 1}</code> ${escapeHtml(item.snippet)}`).join('<br>')}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails.confidence.label)} (${issue.technicalDetails.confidence.score}%) · ${escapeHtml(issue.technicalDetails.confidence.definition)}</details></td></tr>`).join('') || '<tr><td colspan="3">No active issues.</td></tr>'}
       </table>
     </section>
     <section>

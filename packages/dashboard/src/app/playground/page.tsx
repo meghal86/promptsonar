@@ -537,6 +537,7 @@ const uiFindingFromRepositoryIssue = (issue: any) => ({
   impact: issue.impact,
   whyThisMatters: issue.whyThisMatters,
   suggested_fix: issue.howToFix,
+  fix: issue.fix,
   evidence: issue.evidence,
   confidence: issue.confidence,
   technicalDetails: issue.technicalDetails,
@@ -2921,7 +2922,7 @@ export default function PlaygroundPage() {
           .replace(/\b\w/g, (letter) => letter.toUpperCase())
       : 'No Reachable Sensitive Execution Path');
   const issueImpact = scanConsequence;
-  const issueRecommendedFix = primaryCanonicalIssue?.howToFix || (hasPrimaryHighRiskWorkflow
+  const issueRecommendedFix = primaryCanonicalIssue?.fix?.recommendedFix || primaryCanonicalIssue?.howToFix || (hasPrimaryHighRiskWorkflow
     ? isRepositoryExecutionScan
       ? 'Add an approval step before sensitive tools, limit MCP and tool permissions, and remove unnecessary access to sensitive actions.'
       : primaryWorkflowFinding
@@ -2930,6 +2931,10 @@ export default function PlaygroundPage() {
     : primaryIssueFinding
       ? primaryIssueFinding.suggested_fix || getRemediation(primaryIssueFinding).mitigation
       : 'No immediate remediation is required. Keep approval boundaries and scoped tool permissions in place.');
+  const issueQuickFix = primaryCanonicalIssue?.fix?.quickFix || issueRecommendedFix;
+  const issueSafePattern = primaryCanonicalIssue?.fix?.safePattern
+    || 'Validate input, require approval, and run only the minimum scoped operation.';
+  const issueFixEffort = primaryCanonicalIssue?.fix?.effort || (hasPrimaryHighRiskWorkflow ? 'Moderate' : 'Quick');
   const issueEvidence = (() => {
     if (!primaryIssueWorkflow && primaryIssueFinding) {
       return [getFindingEvidence(primaryIssueFinding)];
@@ -3665,7 +3670,14 @@ export default function PlaygroundPage() {
                     <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">
                       {PLAYGROUND_ISSUE_CARD_SECTIONS[3]}
                     </span>
+                    <span className="mt-2 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Quick Fix</span>
+                    <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{issueQuickFix}</p>
+                    <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Recommended Fix</span>
                     <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">{issueRecommendedFix}</p>
+                    <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Safe Pattern</span>
+                    <p className="mt-1 font-mono text-[11px] font-semibold leading-5 text-slate-800">{issueSafePattern}</p>
+                    <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Effort</span>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">{issueFixEffort}</p>
                   </div>
                 </div>
                 <details className="rounded-lg border border-white/70 bg-white/60 p-3">

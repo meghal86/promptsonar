@@ -235,7 +235,10 @@ function repositorySummaryMarkdown(report: ReturnType<typeof analyzeRepositoryEx
             `- **Issue:** ${issue.issue}`,
             `- **Impact:** ${issue.impact}`,
             `- **Why this matters:** ${issue.whyThisMatters}`,
-            `- **Fix:** ${issue.howToFix}`,
+            `- **Quick Fix:** ${issue.fix.quickFix}`,
+            `- **Recommended Fix:** ${issue.fix.recommendedFix}`,
+            `- **Safe Pattern:** \`${issue.fix.safePattern}\``,
+            `- **Effort:** ${issue.fix.effort}`,
             `- **Technical Details:**`,
             `  - Execution path: ${issue.technicalDetails.executionPath}`,
             `  - Evidence: ${issue.technicalDetails.evidence.map(item => `${item.file}:${item.line || 1}`).join(', ')}`,
@@ -493,7 +496,7 @@ async function run(): Promise<void> {
                     inlineComments.push({
                         path: file.filename,
                         line,
-                        body: `**${issue.id}** (${issue.severity})\n\n**Issue:** ${issue.issue}\n\n**Impact:** ${issue.impact}\n\n**Why this matters:** ${issue.whyThisMatters}\n\n**Fix:** ${issue.howToFix}\n\n<details><summary>Technical Details</summary>\n\n**Execution path:** ${issue.technicalDetails.executionPath}\n\n**Evidence:** \`${evidence?.snippet || issue.issue}\`\n\n**Confidence:** ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%) — ${issue.technicalDetails.confidence.definition}\n\n</details>`,
+                        body: `**${issue.id}** (${issue.severity})\n\n**Issue:** ${issue.issue}\n\n**Impact:** ${issue.impact}\n\n**Why this matters:** ${issue.whyThisMatters}\n\n**Quick Fix:** ${issue.fix.quickFix}\n\n**Recommended Fix:** ${issue.fix.recommendedFix}\n\n**Safe Pattern:** \`${issue.fix.safePattern}\`\n\n**Effort:** ${issue.fix.effort}\n\n<details><summary>Technical Details</summary>\n\n**Execution path:** ${issue.technicalDetails.executionPath}\n\n**Evidence:** \`${evidence?.snippet || issue.issue}\`\n\n**Confidence:** ${issue.technicalDetails.confidence.label} (${issue.technicalDetails.confidence.score}%) — ${issue.technicalDetails.confidence.definition}\n\n</details>`,
                     });
                 }
             }

@@ -427,8 +427,7 @@ export default function RepositoryPage() {
                       <span className="mt-1 block text-xs font-semibold leading-5 text-[#57534E]">{issue.impact}</span>
                       <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Why this matters</span>
                       <span className="mt-1 block text-xs font-semibold leading-5 text-[#57534E]">{issue.whyThisMatters}</span>
-                      <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Fix</span>
-                      <span className="mt-1 block text-xs font-semibold leading-5 text-[#57534E]">{issue.howToFix}</span>
+                      <IssueFixSummary issue={issue} />
                     </div>
                     <div className="text-xs font-semibold text-[#57534E]">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">Technical Details</span>
@@ -456,8 +455,7 @@ export default function RepositoryPage() {
                         <span className="mt-1 block text-[11px] font-semibold text-[#57534E]">{issue.impact}</span>
                         <span className="mt-2 block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">Why this matters</span>
                         <span className="mt-1 block text-[11px] font-semibold text-[#57534E]">{issue.whyThisMatters}</span>
-                        <span className="mt-2 block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">Fix</span>
-                        <span className="mt-1 block text-[11px] font-semibold text-[#57534E]">{issue.howToFix}</span>
+                        <IssueFixSummary issue={issue} compact />
                         <span className="mt-2 block text-[8px] font-black uppercase tracking-widest text-[#A8A29E]">Technical Details</span>
                         <span className="mt-1 block text-[10px] font-semibold text-[#78716C]">{issue.technicalDetails?.executionPath || "No connected sensitive action confirmed."} · {issue.confidence?.label} {issue.confidence?.score}%</span>
                       </button>
@@ -537,12 +535,12 @@ export default function RepositoryPage() {
                 {topIssues.slice(0, 4).map((issue: any, index: number) => (
                   <li key={issue.id} className="grid gap-3 py-4 sm:grid-cols-[36px_1fr_auto] sm:items-start">
                     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 font-mono text-xs font-black text-white">{index + 1}</span>
-                    <div><span className="block text-sm font-black">{issue.howToFix}</span><span className="mt-1 block font-mono text-[10px] font-bold text-[#78716C]">{issue.id} · {(issue.impactedFiles || []).join(", ")}</span></div>
+                    <div><span className="block text-sm font-black">{issue.fix?.recommendedFix || issue.howToFix}</span><span className="mt-1 block font-mono text-[10px] font-bold text-[#78716C]">{issue.fix?.effort || "Moderate"} effort · {issue.id} · {(issue.impactedFiles || []).join(", ")}</span></div>
                     <button onClick={() => setSelected({ kind: "Findings", item: issue })} className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 text-[10px] font-black uppercase">Review</button>
                   </li>
                 ))}
               </ol>
-              {(topIssues.length > 4 || (report.fixPlan || []).length > 0) && <details className="mt-3"><summary className="cursor-pointer text-xs font-black">Show complete fix plan</summary><div className="mt-3 grid gap-2">{topIssues.slice(4).map((issue: any) => <button key={issue.id} onClick={() => setSelected({ kind: "Findings", item: issue })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left text-xs font-semibold"><span className="font-mono font-black">{issue.id}</span><span className="mt-1 block">{issue.howToFix}</span></button>)}{(report.fixPlan || []).map((fix: any, index: number) => <button key={`${fix.id}-${index}`} onClick={() => setSelected({ kind: "Fix Plan", item: fix })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left text-xs font-semibold"><span className="font-black">{fix.title}</span><span className="mt-1 block text-[#57534E]">{fix.description}</span></button>)}</div></details>}
+              {(topIssues.length > 4 || (report.fixPlan || []).length > 0) && <details className="mt-3"><summary className="cursor-pointer text-xs font-black">Show complete fix plan</summary><div className="mt-3 grid gap-2">{topIssues.slice(4).map((issue: any) => <button key={issue.id} onClick={() => setSelected({ kind: "Findings", item: issue })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left text-xs font-semibold"><span className="font-mono font-black">{issue.id}</span><span className="mt-1 block">{issue.fix?.recommendedFix || issue.howToFix}</span></button>)}{(report.fixPlan || []).map((fix: any, index: number) => <button key={`${fix.id}-${index}`} onClick={() => setSelected({ kind: "Fix Plan", item: fix })} className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3 text-left text-xs font-semibold"><span className="font-black">{fix.title}</span><span className="mt-1 block text-[#57534E]">{fix.description}</span></button>)}</div></details>}
             </section>
 
             <details className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">
@@ -670,8 +668,8 @@ function ObjectPanel({ report, selected, contentByPath }: { report: RepoReport; 
             ["Issue", item.issue],
             ["Impact", item.impact],
             ["Why this matters", item.whyThisMatters],
-            ["Fix", item.howToFix],
           ].map(([label, value]) => <div key={label} className="rounded-xl border border-[#E4E3DE] bg-white p-3"><span className="block text-[9px] font-black uppercase tracking-widest text-[#A8A29E]">{label}</span><p className="mt-1 text-xs font-semibold leading-5 text-[#57534E]">{value}</p></div>)}
+          <div className="rounded-xl border border-[#E4E3DE] bg-white p-3"><IssueFixSummary issue={item} /></div>
         </div>
       )}
       {!isImpactedFile && <details open className="rounded-xl border border-[#E4E3DE] bg-[#FAF9F6] p-3">
@@ -680,6 +678,26 @@ function ObjectPanel({ report, selected, contentByPath }: { report: RepoReport; 
       </details>}
       {!isIssue && !isImpactedFile && <p className="rounded-xl border border-[#E4E3DE] bg-white p-3 text-xs font-semibold leading-5 text-[#57534E]">Suggested fix: {item.howToFix || "Scope permissions, require explicit approval before sensitive actions, and remove unnecessary access to sensitive operations."}</p>}
       <a href={objectPlaygroundHref(report, item, contentByPath)} className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">Open in Playground →</a>
+    </div>
+  );
+}
+
+function IssueFixSummary({ issue, compact = false }: { issue: any; compact?: boolean }) {
+  const fix = issue.fix || {};
+  const rows = [
+    ["Quick Fix", fix.quickFix || issue.howToFix],
+    ["Recommended Fix", fix.recommendedFix || issue.howToFix],
+    ["Safe Pattern", fix.safePattern || "Validate input and require approval before running the scoped action."],
+    ["Effort", fix.effort || "Moderate"],
+  ];
+  return (
+    <div className={compact ? "mt-2 space-y-1.5" : "mt-3 space-y-2"}>
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <span className={`block font-black uppercase tracking-widest text-[#A8A29E] ${compact ? "text-[8px]" : "text-[9px]"}`}>{label}</span>
+          <span className={`mt-1 block font-semibold text-[#57534E] ${compact ? "text-[11px]" : "text-xs leading-5"} ${label === "Safe Pattern" ? "font-mono" : ""}`}>{value}</span>
+        </div>
+      ))}
     </div>
   );
 }
