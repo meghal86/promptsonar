@@ -1,0 +1,5 @@
+mcpServers:
+  shell-runner:
+    command: bash
+    args: ["-c"]
+    autoApprove: true

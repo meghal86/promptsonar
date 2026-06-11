@@ -96,7 +96,7 @@ const SENSITIVE_ACTION_LABELS: Record<RepositorySensitiveAction, string> = {
 };
 
 const SECRET_VALUE_PATTERNS = [
-    /sk-(?:live|test|proj)-[A-Za-z0-9_-]{16,}/g,
+    /sk-(?:live|test|proj|ant)-[A-Za-z0-9_-]{8,}/g,
     /ghp_[A-Za-z0-9]{20,}/g,
     /xox[baprs]-[A-Za-z0-9-]{10,}/g,
     /Bearer\s+[A-Za-z0-9._-]{16,}/g,
@@ -242,11 +242,106 @@ function extractReferences(content: string): string[] {
 function detectSensitiveActions(text: string): RepositorySensitiveAction[] {
     const normalized = stripNegatedClauses(text).replace(/[_-]/g, ' ');
     const actions = new Set<RepositorySensitiveAction>();
-    if (/\b(shell|bash|terminal|exec|spawn|subprocess|command|run\s+command)\b/i.test(normalized)) actions.add('Shell');
+    // "command" alone is not shell evidence (it appears in every MCP config and
+    // most prose); require an execution verb or an actual shell term.
+    if (/\b(shell|bash|terminal|exec|spawn|subprocess|run\s+(?:any\s+|all\s+)?commands?|execute\s+(?:any\s+|all\s+)?commands?)\b/i.test(normalized)) actions.add('Shell');
     if (/\b(filesystem|file\s*(read|write)|read\s+file|write\s+file|read\s+all\s+files|write\s+all\s+files|workspace|directory)\b/i.test(normalized)) actions.add('Filesystem');
     if (/\b(network|http|https|fetch|curl|webhook|internal api|network\s+request)\b/i.test(normalized)) actions.add('Network');
     if (/\b(secret|secrets|read\s+secret|token|api\s*key|password|credential|credentials|bearer)\b/i.test(normalized)) actions.add('Secrets');
     if (/https?:\/\/|\bexternal\s+api\b|\bapi\./i.test(text)) actions.add('External APIs');
+    return Array.from(actions);
+}
+
+const SHELL_BINARIES = new Set(['bash', 'sh', 'zsh', 'fish', 'dash', 'ksh', 'powershell', 'pwsh', 'cmd', 'cmd.exe']);
+const SHELL_VALUE_TOKENS = ['shell', 'bash', 'terminal', 'exec', 'spawn', 'subprocess', 'shell_exec', 'process.run'];
+const FS_VALUE_TOKENS = ['filesystem', 'file_write', 'file_read', 'file.write', 'file.read', 'fs.', 'disk_access', 'workspace_access', 'files'];
+const NETWORK_VALUE_TOKENS = ['network', 'http', 'https', 'fetch', 'curl', 'webhook', 'request'];
+const SECRET_VALUE_TOKENS = ['secret', 'token', 'api_key', 'apikey', 'password', 'credential', 'bearer'];
+
+function collectValueStrings(value: unknown, out: string[]): void {
+    if (value == null) return;
+    if (typeof value === 'string') {
+        out.push(value);
+        return;
+    }
+    if (Array.isArray(value)) {
+        for (const item of value) collectValueStrings(item, out);
+        return;
+    }
+    if (typeof value === 'object') {
+        for (const item of Object.values(value as Record<string, unknown>)) collectValueStrings(item, out);
+    }
+}
+
+function collectKeyedValues(node: unknown, keys: Set<string>, out: string[]): void {
+    if (node == null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+        for (const item of node) collectKeyedValues(item, keys, out);
+        return;
+    }
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        if (keys.has(key.toLowerCase())) collectValueStrings(value, out);
+        collectKeyedValues(value, keys, out);
+    }
+}
+
+// Value-based sensitive-action detection for MCP server configs. JSON key
+// names (notably the mandatory "command" launcher key) must never count as
+// capability evidence; only the configured values can.
+function detectMcpSensitiveActions(body: string): RepositorySensitiveAction[] {
+    let server: any;
+    try {
+        server = JSON.parse(body);
+    } catch {
+        // Unparseable config: fall back to keyword detection with structural
+        // launcher keys stripped so key names cannot masquerade as evidence.
+        const withoutLauncherKeys = body.replace(/"(?:command|args|cwd|name|id)"\s*:/gi, '"":');
+        return detectSensitiveActions(withoutLauncherKeys);
+    }
+    if (!server || typeof server !== 'object') return [];
+
+    const actions = new Set<RepositorySensitiveAction>();
+    const matchesToken = (value: string, tokens: string[]): boolean => {
+        const lower = value.toLowerCase();
+        return tokens.some(token => lower.includes(token));
+    };
+
+    // Launcher: only an actual shell binary or inline-eval form is shell evidence.
+    const command = typeof server.command === 'string' ? server.command.trim() : '';
+    const commandBinary = command.split(/[\\/\s]+/).filter(Boolean).pop()?.toLowerCase() || '';
+    const args: string[] = [];
+    collectValueStrings(server.args, args);
+    if (SHELL_BINARIES.has(commandBinary)) actions.add('Shell');
+    if (args.some(arg => arg === '-c' || arg === '/c')) actions.add('Shell');
+    if ((/\b(?:python\d?|node|ruby|perl)\b/i.test(commandBinary) || /\b(?:python\d?|node|ruby|perl)\b/i.test(command)) && args.some(arg => arg === '-e' || arg === '-c')) actions.add('Shell');
+
+    // Declared capabilities, permissions, scopes, and tools (values only).
+    const grantValues: string[] = [];
+    collectKeyedValues(server, new Set(['permissions', 'scopes', 'capabilities', 'tools', 'allow']), grantValues);
+    for (const value of grantValues) {
+        if (matchesToken(value, SHELL_VALUE_TOKENS)) actions.add('Shell');
+        if (matchesToken(value, FS_VALUE_TOKENS)) actions.add('Filesystem');
+        if (matchesToken(value, NETWORK_VALUE_TOKENS)) actions.add('Network');
+        if (matchesToken(value, SECRET_VALUE_TOKENS)) actions.add('Secrets');
+    }
+
+    // Free-text fields (descriptions, instructions) keep keyword detection.
+    const textValues: string[] = [];
+    collectKeyedValues(server, new Set(['description', 'instructions', 'prompt', 'usage']), textValues);
+    for (const action of detectSensitiveActions(textValues.join('\n'))) actions.add(action);
+
+    // Environment keys that hold credentials.
+    const env = server.env && typeof server.env === 'object' && !Array.isArray(server.env) ? server.env as Record<string, unknown> : undefined;
+    if (env && Object.keys(env).some(key => /(?:secret|token|key|password|credential)/i.test(key))) actions.add('Secrets');
+
+    // Endpoints.
+    const allValues: string[] = [];
+    collectValueStrings(server, allValues);
+    if (allValues.some(value => /^https?:\/\//i.test(value))) {
+        actions.add('Network');
+        actions.add('External APIs');
+    }
+
     return Array.from(actions);
 }
 
@@ -314,7 +409,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         const serverArtifacts = servers.length > 0 ? servers : [{ name: path.basename(filePath), body: content }];
         const parseWarning = mcpParseWarning(relativePath, content);
         for (const server of serverArtifacts) {
-            const sensitiveActions = detectSensitiveActions(server.body);
+            const sensitiveActions = detectMcpSensitiveActions(server.body);
             add('MCP_SERVER', server.name, 'MCP server configuration discovered in repository config.', ['mcp-config'], [lineEvidence(content, /mcpServers|servers|command|args|tools|permissions/i, relativePath)], {
                 servers: [server.name],
                 permissions: Array.from(server.body.matchAll(/"?(permissions|scopes|allow|allowAll|autoApprove|autoExecute)"?\s*[:=]\s*([^,\n}]+)/gi)).map(match => `${match[1]}=${String(match[2]).trim()}`).slice(0, 12),
@@ -845,8 +940,12 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
         seen.add(key);
         return true;
     }).sort((a, b) =>
-        // Graph-backed paths always rank above node-less inference.
+        // Graph-backed paths always rank above node-less inference, and
+        // evidence-backed (Confirmed/Probable) paths always rank above
+        // structural-inference-only (Potential) paths regardless of risk, so a
+        // Potential chain can never be selected as the highest-risk path.
         (b.nodeIds.length > 0 ? 1 : 0) - (a.nodeIds.length > 0 ? 1 : 0) ||
+        (b.confidenceLevel !== 'potential' ? 1 : 0) - (a.confidenceLevel !== 'potential' ? 1 : 0) ||
         riskRank(b.risk) - riskRank(a.risk) ||
         b.confidence - a.confidence
     );
@@ -889,9 +988,15 @@ function riskRank(risk: RepositoryRisk): number {
 
 function pathConfidenceLevel(pathItem: Pick<ReachableExecutionPath, 'confidence' | 'nodeIds' | 'edgeIds' | 'findings'>): 'confirmed' | 'probable' | 'potential' {
     const labels = (pathItem as any).edgeConfidenceLabels || [];
-    if (labels.length > 0 && labels.every((label: string) => label === 'Confirmed')) return 'confirmed';
-    if (pathItem.findings.length > 0 || labels.some((label: string) => label === 'Confirmed' || label === 'Probable')) return 'probable';
-    return 'potential';
+    // A chain is only as strong as its weakest edge: one structural-inference
+    // hop anywhere makes the whole path Potential, no matter how strong the
+    // other edges are.
+    if (labels.length > 0) {
+        if (labels.every((label: string) => label === 'Confirmed')) return 'confirmed';
+        if (labels.every((label: string) => label === 'Confirmed' || label === 'Probable')) return 'probable';
+        return 'potential';
+    }
+    return pathItem.findings.length > 0 ? 'probable' : 'potential';
 }
 
 function isPathSourceNode(node: RepositoryExecutionNode, executionMap: RepositoryExecutionMap): boolean {
@@ -933,19 +1038,25 @@ export function generateRepositorySummary(artifacts: RepositoryArtifact[], execu
         }
     }
 
-    const riskSummary = { critical: 0, high: 0, medium: 0, low: 0 };
-    for (const reachablePath of reachablePaths) {
-        riskSummary[reachablePath.risk] += 1;
-    }
     const confidenceSummary = { confirmed: 0, probable: 0, potential: 0 };
     for (const reachablePath of reachablePaths) {
         confidenceSummary[reachablePath.confidenceLevel || pathConfidenceLevel(reachablePath)] += 1;
     }
 
+    // Risk and trust are driven only by evidence-backed (Confirmed/Probable)
+    // paths. Potential-only structural inference is map context: it can ask
+    // for review, but it can never mark a repository High Risk on its own.
+    const riskSummary = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const reachablePath of reachablePaths) {
+        const level = reachablePath.confidenceLevel || pathConfidenceLevel(reachablePath);
+        if (level === 'potential') continue;
+        riskSummary[reachablePath.risk] += 1;
+    }
+
     const hasParseWarnings = artifacts.some(artifact => artifact.metadata?.parseWarning);
     const trustStatus: RepositoryTrustStatus = riskSummary.critical > 0 || riskSummary.high > 0
         ? 'High Risk'
-        : riskSummary.medium > 0 || riskSummary.low > 0 || hasParseWarnings
+        : riskSummary.medium > 0 || riskSummary.low > 0 || confidenceSummary.potential > 0 || hasParseWarnings
             ? 'Review Required'
             : 'Trusted';
 

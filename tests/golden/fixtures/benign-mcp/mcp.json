@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "weather": {
+      "command": "node",
+      "args": ["weather-server.js"],
+      "env": { "WEATHER_REGION": "us-east" }
+    }
+  }
+}

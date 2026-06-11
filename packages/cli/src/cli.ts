@@ -198,6 +198,10 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
     lines.push(`  ${summary.trustStatus === 'High Risk' ? chalk.red(summary.trustStatus) : summary.trustStatus === 'Review Required' ? chalk.yellow(summary.trustStatus) : chalk.green(summary.trustStatus)}`);
     lines.push(`  ${report.issueSummary.critical} critical · ${report.issueSummary.high} high · ${report.issueSummary.medium} medium · ${report.issueSummary.low} low`);
     lines.push(`  ${report.impactedFiles.length} impacted files · ${report.reachablePaths.length} reachable paths`);
+    const potentialOnly = report.reachablePaths.length > 0 && report.reachablePaths.every(pathItem => pathItem.confidenceLevel === 'potential');
+    if (potentialOnly) {
+        lines.push(`  ${chalk.yellow('Potential paths found · no confirmed dangerous path (structural inference only)')}`);
+    }
     if (summary.scanStats) {
         const stats = summary.scanStats;
         const skipDetail = Object.entries(stats.skipReasons).map(([reason, count]) => `${reason}: ${count}`).join(', ');

@@ -98,7 +98,10 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport): 
 export function formatRepositoryReportHtml(report: RepositoryExecutionReport): string {
     const summary = report.summary;
     const topPaths = report.reachablePaths.slice(0, 10);
-    const highestPath = report.reachablePaths.find(pathItem => pathItem.nodeIds.length > 0);
+    // Highest-risk path must be graph-backed AND evidence-backed; a chain of
+    // structural inference alone is map context, not a headline risk.
+    const highestPath = report.reachablePaths.find(pathItem => pathItem.nodeIds.length > 0 && pathItem.confidenceLevel !== 'potential');
+    const potentialOnly = !highestPath && report.reachablePaths.length > 0;
     const validation = report.pathValidation;
     const scanStats = summary.scanStats;
     const fileName = (file: string) => file.split(/[\\/]/).filter(Boolean).pop() || file;
@@ -195,6 +198,9 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
       <p><strong>Confidence:</strong> ${escapeHtml(highestPath.confidenceLevel)} (${highestPath.confidence}%)</p>
       <p><strong>Files:</strong> ${highestPath.files.length}</p>
       <p><a href="#path-${escapeHtml(highestPath.id)}">View path details →</a></p>
+    </section>` : potentialOnly ? `<section style="margin-top:18px">
+      <h2>Highest Risk Path</h2>
+      <p>No confirmed dangerous path. ${report.reachablePaths.length} potential path${report.reachablePaths.length === 1 ? '' : 's'} found from structural inference only — review the execution map below.</p>
     </section>` : ''}
     <section style="margin-top:18px">
       <h2>Impacted Files (${report.impactedFiles.length})</h2>

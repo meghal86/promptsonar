@@ -859,7 +859,7 @@ export function activate(context: ExtensionContext) {
                     rule_id: finding.rule_id,
                     category: 'security',
                     severity: finding.severity,
-                    line: 1,
+                    line: finding.line || 1,
                     message: finding.message,
                     fix: finding.fix,
                     evidence: finding.evidence || finding.path,

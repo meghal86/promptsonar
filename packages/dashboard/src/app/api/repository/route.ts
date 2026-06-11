@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { analyzeRepositoryExecution, evaluatePrompt } from '@promptsonar/core';
+import { analyzeRepositoryExecution } from '@promptsonar/core';
+import { scanFiles } from '@promptsonar/cli';
 
 const MAX_FILES = 700;
 const MAX_FILE_CHARS = 40_000;
@@ -58,22 +59,10 @@ export async function POST(request: Request) {
     }
 
     const { root, written, skipped } = writeUploadedRepo(files);
-    const scanResults = written.map(file => {
-      const fullPath = path.join(root, file.path);
-      const result = evaluatePrompt({
-        text: file.content,
-        context: { filePath: fullPath },
-      });
-      return {
-        filePath: fullPath,
-        findings: (result.findings || []).map((finding: any) => ({
-          ...finding,
-          message: finding.explanation || finding.message || finding.rule_id,
-          fix: finding.suggested_fix || finding.fix,
-          evidence: finding.matchedText || finding.evidence,
-        })),
-      };
-    });
+    // Use the same scanner pipeline as the CLI (prompt extraction + MCP audit
+    // + dedupe + evidence locations) so Web and CLI report identical issues
+    // for the same input.
+    const scanResults = await scanFiles(root, {});
 
     const report = analyzeRepositoryExecution(root, scanResults as any);
     report.scanMode = 'browser-bounded';

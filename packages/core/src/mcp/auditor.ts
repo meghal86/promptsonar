@@ -15,6 +15,8 @@ export interface McpFinding {
     workflow?: FindingWorkflow;
     evidence?: string;
     confidence_contribution?: number;
+    line?: number;
+    column?: number;
 }
 
 export type McpRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -402,7 +404,46 @@ function computeRiskScore(findings: McpFinding[], scopeServer?: string): McpRisk
     return { score, level: levelFromScore(score), factors };
 }
 
+// Locate the config line a finding refers to: prefer a key named in the
+// evidence (e.g. "permissions=..."), then the last JSON-path segment, then the
+// server name itself. The search is anchored at the server entry so two
+// servers with the same key resolve to their own lines.
+export function locateMcpFindingPosition(content: string, finding: Pick<McpFinding, 'path' | 'server' | 'evidence'>): { line: number; column: number } | undefined {
+    const lines = content.split(/\r?\n/);
+    const serverIndex = finding.server
+        ? lines.findIndex(line => line.includes(`"${finding.server}"`) || line.includes(`'${finding.server}'`))
+        : -1;
+
+    const candidates: string[] = [];
+    for (const match of (finding.evidence || '').matchAll(/(?:^|[\s;])([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)=/g)) {
+        candidates.push(match[1].split('.').pop()!);
+    }
+    const pathSegments = (finding.path || '').split('.').filter(Boolean);
+    const lastSegment = pathSegments[pathSegments.length - 1];
+    if (lastSegment && lastSegment !== finding.server && lastSegment !== 'mcpServers' && lastSegment !== 'servers') {
+        candidates.push(lastSegment);
+    }
+
+    for (const key of candidates) {
+        for (let index = Math.max(0, serverIndex); index < lines.length; index++) {
+            const column = lines[index].indexOf(`"${key}"`);
+            if (column >= 0) return { line: index + 1, column: column + 1 };
+        }
+    }
+    if (serverIndex >= 0) {
+        return { line: serverIndex + 1, column: Math.max(1, lines[serverIndex].indexOf(`"${finding.server}"`) + 1) };
+    }
+    return undefined;
+}
+
 function addFinding(findings: McpFinding[], finding: McpFinding, content?: string, filePath?: string): void {
+    if (content && finding.line === undefined) {
+        const position = locateMcpFindingPosition(content, finding);
+        if (position) {
+            finding.line = position.line;
+            finding.column = position.column;
+        }
+    }
     if (!finding.workflow) {
         const workflow = inferWorkflowForFinding({
             ruleId: finding.rule_id,
