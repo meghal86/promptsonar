@@ -17,6 +17,7 @@ import {
     inferWorkflowForFinding,
     auditMcpConfig,
     McpFinding,
+    scanContentForSecrets,
 } from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
@@ -840,7 +841,36 @@ export async function scanFiles(targetPath: string, options: {
                 }));
             }
 
-            if (prompts.length > 0) {
+            // Whole-content secret scan: catches hardcoded secrets in any
+            // string literal (not only prompt-shaped ones) and at the source
+            // line where an interpolated secret is actually assigned.
+            for (const secret of scanContentForSecrets(content)) {
+                const configSuppression = isFindingSuppressed('sec_owasp_llm02_pii', filePath, activeSuppressions);
+                const inlineSuppressed = isInlineSuppressed('sec_owasp_llm02_pii', secret.line, inlineSuppressions);
+                const recommendation = getDeterministicRecommendation('sec_owasp_llm02_pii', '');
+                fileFindings.push({
+                    rule_id: 'sec_owasp_llm02_pii',
+                    category: 'security',
+                    severity: 'high',
+                    line: secret.line,
+                    column: secret.column,
+                    message: `Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded ${secret.name} found in source.`,
+                    fix: recommendation,
+                    recommendation,
+                    owasp_ref: getOwaspRef('sec_owasp_llm02_pii'),
+                    owasp: getOwaspRef('sec_owasp_llm02_pii'),
+                    evidence: truncateEvidence((content.split(/\r?\n/)[secret.line - 1] || secret.matchedText)),
+                    confidence: getConfidenceForFinding('sec_owasp_llm02_pii', 'high'),
+                    why: `A hardcoded ${secret.name} in source can leak through logs, prompts, responses, or repository history.`,
+                    risk: getRiskExplanation('sec_owasp_llm02_pii'),
+                    docs_url: getRuleDocsUrl('sec_owasp_llm02_pii'),
+                    waived: Boolean(configSuppression || inlineSuppressed),
+                    suppression_reason: configSuppression?.reason || (inlineSuppressed ? 'Inline promptsonar-ignore comment' : undefined),
+                    suppression_source: configSuppression?.source || (inlineSuppressed ? 'inline' : undefined),
+                });
+            }
+
+            if (fileFindings.length > 0) {
                 results.push(buildScanResult(filePath, fileFindings, scanSummary));
             }
         } catch (err) {

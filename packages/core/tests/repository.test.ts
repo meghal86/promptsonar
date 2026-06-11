@@ -859,6 +859,65 @@ describe('repository execution analysis', () => {
         expect(report.summary.trustStatus).not.toBe('Trusted');
     });
 
+    it('surfaces path enumeration truncation in the map and summary', () => {
+        // Many prompts that name shell/fs/network, plus MCP servers exposing
+        // those actions, create a cross-product fan-out past the 100-path cap.
+        const files: Record<string, string> = {
+            'mcp.json': JSON.stringify({
+                mcpServers: {
+                    a: { command: 'bash', args: ['-c'], permissions: ['shell.execute', 'filesystem.write', 'network.fetch'] },
+                    b: { command: 'sh', args: ['-c'], permissions: ['shell.execute', 'filesystem.write', 'network.fetch'] },
+                    c: { command: 'zsh', args: ['-c'], permissions: ['shell.execute', 'filesystem.write', 'network.fetch'] },
+                },
+            }),
+        };
+        for (let i = 0; i < 30; i++) {
+            files[`prompts/p${i}.prompt`] = 'System prompt: run shell commands via bash, read all files, and fetch network resources.';
+        }
+        const root = fixtureRepo(files);
+        const report = analyzeRepositoryExecution(root, []);
+        expect(report.executionMap.pathsTruncated).toBe(true);
+        expect(report.executionMap.pathEnumerationLimit).toBe(100);
+        expect(report.summary.pathsTruncated).toBe(true);
+    });
+
+    it('does not mark path enumeration truncated on a small repo', () => {
+        const root = fixtureRepo({
+            'mcp.json': JSON.stringify({ mcpServers: { a: { command: 'bash', args: ['-c'], permissions: ['shell.execute'] } } }),
+        });
+        const report = analyzeRepositoryExecution(root, []);
+        expect(report.executionMap.pathsTruncated).toBe(false);
+        expect(report.summary.pathsTruncated).toBe(false);
+    });
+
+    it('produces distinct, action-specific fix plan entries instead of one repeated sentence', () => {
+        const root = fixtureRepo({
+            'mcp.json': JSON.stringify({
+                mcpServers: { runner: { command: 'bash', args: ['-c'], permissions: ['shell.execute', 'filesystem.write', 'network.fetch'] } },
+            }),
+        });
+        const report = analyzeRepositoryExecution(root, []);
+        const descriptions = (report.fixPlan || []).map(item => item.description);
+        expect(descriptions.length).toBeGreaterThan(1);
+        // Each action's plan entry is unique copy, not the same sentence.
+        expect(new Set(descriptions).size).toBe(descriptions.length);
+        expect((report.fixPlan || []).some(item => /Shell path/.test(item.title))).toBe(true);
+    });
+
+    it('labels structural cross-product edges Potential and real references Confirmed via provenance', () => {
+        const root = fixtureRepo({
+            'agent.prompt': 'System prompt: summarize tickets. See skills/deploy for deployment steps.',
+            'skills/deploy/SKILL.md': '# deploy\nCapabilities: route jobs to tools.',
+        });
+        const artifacts = analyzeRepository(root);
+        const map = buildRepositoryExecutionMap(artifacts, [], root);
+        const referenceEdge = map.edges.find(edge => edge.type === 'REFERENCES');
+        const crossProductEdge = map.edges.find(edge => edge.provenance === 'structural');
+        expect(referenceEdge?.provenance).toBe('direct');
+        expect(referenceEdge?.confidenceLabel).toBe('Confirmed');
+        expect(crossProductEdge?.confidenceLabel).toBe('Potential');
+    });
+
     it('keeps deep file paths from colliding into shared node or edge ids', () => {
         const deepDir = 'packages/core/test/fixtures/workflows/deeply/nested/path/segments/for/identifier/stress';
         const root = fixtureRepo({

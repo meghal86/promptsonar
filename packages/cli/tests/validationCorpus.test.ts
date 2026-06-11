@@ -13,14 +13,13 @@ const GOLDEN_ROOT = path.join(REPO_ROOT, 'tests', 'golden', 'fixtures');
 const KNOWN_FALSE_NEGATIVES = new Set([
     'c1_new_session.js',
     'c1_multilingual_reset.ts',
-    // Secrets referenced through variable interpolation ({VAR} placeholders in
-    // the extracted prompt) are not tracked back to their literal values yet.
+    // No literal secret exists in source: the value is supplied at runtime
+    // through interpolation (`${process.env.OPENAI_API_KEY}`,
+    // `${user.cardNumber}`). There is nothing to statically detect — flagging
+    // these would require taint analysis, and the env-var form is the safe
+    // pattern. Documented, not silently missed.
     'c3_env_var_interpolation.ts',
     'c4_pii_template_passthrough.ts',
-    // The Python extractor does not yet extract f-string prompts, so rules
-    // never see these prompt bodies (parseFile returns zero prompts).
-    'c3_anthropic_key.py',
-    'c4_credit_card.py',
     'string_splitting.ts',
 ]);
 const KNOWN_FALSE_POSITIVES = new Set([

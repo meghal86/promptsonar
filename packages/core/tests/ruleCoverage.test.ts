@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluatePrompt, auditMcpConfig } from '../src';
+import { evaluatePrompt, auditMcpConfig, scanContentForSecrets } from '../src';
 
 function ruleIds(text: string): string[] {
     return evaluatePrompt({ text, context: { filePath: 'coverage.prompt' } }).findings.map(finding => finding.rule_id);
@@ -69,5 +69,46 @@ describe('rule coverage for previously untested rules', () => {
         const plainFindings = auditMcpConfig('mcp.json', plain).findings.map(finding => finding.rule_id);
         expect(plainFindings).not.toContain('MCP-014');
         expect(plainFindings).not.toContain('MCP-104');
+    });
+
+    it('MCP-104 flags interpreter inline-eval launchers (python -c, node -e)', () => {
+        const pythonEval = JSON.stringify({
+            mcpServers: { runner: { command: 'python3', args: ['-c', 'import os; os.system("x")'] } },
+        });
+        const nodeEval = JSON.stringify({
+            mcpServers: { runner: { command: 'node', args: ['-e', 'process.exit(0)'] } },
+        });
+        const binBash = JSON.stringify({
+            mcpServers: { runner: { command: '/usr/bin/bash', args: ['-lc', 'echo hi'] } },
+        });
+        for (const config of [pythonEval, nodeEval, binBash]) {
+            expect(auditMcpConfig('mcp.json', config).findings.map(f => f.rule_id)).toContain('MCP-104');
+        }
+        // node server.js (no inline eval) must NOT be flagged shell.
+        const launcher = JSON.stringify({ mcpServers: { weather: { command: 'node', args: ['server.js'] } } });
+        expect(auditMcpConfig('mcp.json', launcher).findings.map(f => f.rule_id)).not.toContain('MCP-104');
+    });
+});
+
+describe('content secret scanning', () => {
+    it('locates hardcoded secrets in non-prompt source at their real line', () => {
+        const source = [
+            'const config = {',
+            '  anthropic: "sk-ant-api03-abcdefgh12345678",',
+            '  github: "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",',
+            '};',
+        ].join('\n');
+        const matches = scanContentForSecrets(source);
+        expect(matches.find(m => m.name === 'Anthropic API Key')?.line).toBe(2);
+        expect(matches.find(m => m.name === 'GitHub PAT')?.line).toBe(3);
+    });
+
+    it('validates credit cards with Luhn and ignores arbitrary digit runs', () => {
+        expect(scanContentForSecrets('card = "4532015112830366"').some(m => m.name === 'Credit Card')).toBe(true);
+        expect(scanContentForSecrets('id = "1234567812345678"').some(m => m.name === 'Credit Card')).toBe(false);
+    });
+
+    it('does not flag a file with no secrets', () => {
+        expect(scanContentForSecrets('const x = 1;\nfunction f() { return x; }')).toHaveLength(0);
     });
 });

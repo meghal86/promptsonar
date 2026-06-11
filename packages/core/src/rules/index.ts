@@ -15,6 +15,7 @@ import { checkEthics } from './ethics';
 import { inferWorkflowForFinding } from '../workflow';
 
 export * from './types';
+export { scanContentForSecrets, type ContentSecretMatch } from './security/pii';
 
 const severityRank: Record<Severity, number> = {
     critical: 0,

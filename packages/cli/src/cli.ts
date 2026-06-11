@@ -202,6 +202,9 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
     if (potentialOnly) {
         lines.push(`  ${chalk.yellow('Potential paths found · no confirmed dangerous path (structural inference only)')}`);
     }
+    if (report.executionMap.pathsTruncated) {
+        lines.push(`  ${chalk.yellow(`⚠ Path enumeration capped at ${report.executionMap.pathEnumerationLimit} — additional paths exist but are not listed.`)}`);
+    }
     if (summary.scanStats) {
         const stats = summary.scanStats;
         const skipDetail = Object.entries(stats.skipReasons).map(([reason, count]) => `${reason}: ${count}`).join(', ');

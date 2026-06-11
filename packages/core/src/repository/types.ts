@@ -85,6 +85,7 @@ export interface RepositoryExecutionEdge {
     confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
     confidenceDefinition?: string;
     relationship?: RepositoryExecutionEdgeType;
+    provenance?: 'direct' | 'connected' | 'structural';
 }
 
 export interface RepositoryExecutionGraphPath {
@@ -99,6 +100,9 @@ export interface RepositoryExecutionMap {
     nodes: RepositoryExecutionNode[];
     edges: RepositoryExecutionEdge[];
     paths: RepositoryExecutionGraphPath[];
+    // True when path enumeration hit its cap and the path list is incomplete.
+    pathsTruncated?: boolean;
+    pathEnumerationLimit?: number;
 }
 
 export interface RepositoryScanFinding {
@@ -172,6 +176,7 @@ export interface RepositorySummary {
     scanStats?: RepositoryScanStats;
     pathValidationStatus?: 'passed' | 'failed';
     pathValidationErrors?: number;
+    pathsTruncated?: boolean;
     aiSurfaces?: number;
     instructionSources?: number;
     skills?: number;

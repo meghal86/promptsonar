@@ -150,6 +150,24 @@ function containsPromptKeyword(text: string): boolean {
     return false;
 }
 
+// Strip a string literal down to its body: remove Python/JS string prefixes
+// (f, r, b, u, rb, fr, ...) and the surrounding quotes so f-string and raw
+// string bodies are scanned like any other prompt text.
+function stripStringLiteral(raw: string): string {
+    let text = raw.trim();
+    const prefixMatch = text.match(/^(?:[a-zA-Z]{1,2})(?=["'`])/);
+    if (prefixMatch && /^(?:[fFrRbBuU]{1,2})$/.test(prefixMatch[0])) {
+        text = text.slice(prefixMatch[0].length);
+    }
+    if (text.startsWith('"""') || text.startsWith("'''")) {
+        return text.slice(3, text.endsWith('"""') || text.endsWith("'''") ? -3 : undefined);
+    }
+    if (text.startsWith('"') || text.startsWith("'") || text.startsWith('`')) {
+        return text.slice(1, /["'`]$/.test(text) ? -1 : undefined);
+    }
+    return text;
+}
+
 function isWorkflowRelevantInstructionFile(filePath: string): boolean {
     const normalized = filePath.replace(/\\/g, '/').toLowerCase();
     return (
@@ -278,23 +296,10 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
                         };
 
                         if (capture.name.includes("prompt.string") && containsPromptKeyword(capture.node.text)) {
-                            // It's a string, ensure we strip quotes
-                            let cleanedText = capture.node.text;
-                            if (cleanedText.startsWith('"""') || cleanedText.startsWith("'''")) {
-                                cleanedText = cleanedText.slice(3, -3);
-                            } else if (cleanedText.startsWith('"') || cleanedText.startsWith("'") || cleanedText.startsWith("`")) {
-                                cleanedText = cleanedText.slice(1, -1);
-                            }
-                            results.push({ ...nodeInfo, text: cleanedText, sourceType: "string_literal" });
+                            results.push({ ...nodeInfo, text: stripStringLiteral(capture.node.text), sourceType: "string_literal" });
                         } else if (capture.name.includes("prompt.named_string")) {
                             // A string explicitly assigned to a prompt variable
-                            let cleanedText = capture.node.text;
-                            if (cleanedText.startsWith('"""') || cleanedText.startsWith("'''")) {
-                                cleanedText = cleanedText.slice(3, -3);
-                            } else if (cleanedText.startsWith('"') || cleanedText.startsWith("'") || cleanedText.startsWith("`")) {
-                                cleanedText = cleanedText.slice(1, -1);
-                            }
-                            results.push({ ...nodeInfo, text: cleanedText, sourceType: "named_variable" });
+                            results.push({ ...nodeInfo, text: stripStringLiteral(capture.node.text), sourceType: "named_variable" });
                         } else if (capture.name.includes("prompt.framework")) {
                             results.push({ ...nodeInfo, sourceType: "framework_call" });
                         }
