@@ -93,11 +93,19 @@ If guards pass, a string is recognized as a prompt if it matches **any** of the 
 
 ### Workspace Exclusions
 
-To ensure high-performance scans and low noise, PromptSonar automatically excludes:
-- `node_modules/`, `dist/`, `out/`, `build/`, `vendor/`
-- `.git/`, `venv/`, `coverage/`, `docs/`, `tests/`
-- Tool-specific folders: `.vscode-test/`
-- Root-level test scripts: `dummy_test.js`, `generate_test.js`, `test_parser.js`, etc.
+To ensure high-performance scans and low noise, PromptSonar automatically excludes
+build and dependency output that cannot contain authored AI instructions:
+- `node_modules/`, `dist/`, `out/`, `build/`, `vendor/`, `target/`
+- `.git/`, `venv/`, `.venv/`, `site-packages/`, `coverage/`, `__pycache__/`
+- Tool-specific folders: `.vscode-test/`, `.next/`, `.turbo/`, `.cache/`
+
+`docs/`, `tests/`, `examples/`, and fixtures **are scanned** so documentation and
+test prompts are covered. To keep that coverage honest, the repository analyzer
+classifies every artifact by **provenance** (`production`, `documentation`,
+`test`, `fixture`, `example`, `generated`). Documentation that describes an attack
+and intentional vulnerable fixtures stay visible in the report but are reported as
+non-production context and do **not** drive repository trust status — only
+`production` artifacts do.
 
 ---
 

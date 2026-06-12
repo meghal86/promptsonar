@@ -6,6 +6,7 @@ import {
     REPOSITORY_CONFIDENCE_DEFINITIONS,
     repositoryConfidenceDefinition,
 } from './confidence';
+import { NON_PRODUCTION_PROVENANCE } from './types';
 import type {
     AnalyzeRepositoryOptions,
     ReachableExecutionPath,
@@ -24,6 +25,7 @@ import type {
     RepositoryIssueSummary,
     RepositoryPathValidation,
     RepositoryPathConfidence,
+    RepositoryProvenance,
     RepositoryRisk,
     RepositoryScanFinding,
     RepositoryScanResult,
@@ -33,7 +35,10 @@ import type {
     RepositoryTrustStatus,
 } from './types';
 
-const REPORT_VERSION = '1.5.0';
+// Keep in lockstep with the published package version so the report version and
+// the CLI banner never disagree. The repository report schema is additive
+// (new fields are optional), so it rides the product version rather than its own.
+const REPORT_VERSION = '1.4.3';
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
@@ -377,11 +382,50 @@ function mcpParseWarning(relativePath: string, content: string): string | undefi
     }
 }
 
+// Classify where an artifact lives so repository trust can be read against
+// production code only. Documentation that *describes* an attack and fixtures
+// that *intentionally contain* one are real and stay visible, but they are not
+// live product vulnerabilities and must not drive trust status.
+function classifyRepositoryProvenance(relativePath: string, content: string): RepositoryProvenance {
+    const lower = normalizePath(relativePath).toLowerCase();
+    const segments = lower.split('/');
+    const basename = segments[segments.length - 1] || '';
+    const hasSegment = (...names: string[]): boolean => segments.some(segment => names.includes(segment));
+
+    if (hasSegment('node_modules', 'dist', 'build', 'out', '.next', 'coverage', 'vendor') ||
+        /\.(?:min|bundle|chunk|compiled|generated)\.[a-z]+$/.test(basename) ||
+        /\.d\.ts$/.test(basename)) {
+        return 'generated';
+    }
+    // Fixture is checked before test: a file under `tests/.../fixtures/` is a
+    // fixture (intentional sample), not a test runner file.
+    if (hasSegment('fixtures', 'fixture', 'golden', 'sample-repos', 'samples', 'corpus', 'snapshots') ||
+        /\.fixture\.[a-z]+$/.test(basename) ||
+        // Intentional vulnerable fixtures self-declare their suppression intent.
+        /\b(intentional(?:ly)? vulnerable|test fixture|do not fix|fixture only|vulnerable fixture|suppression_reason)\b/i.test(content)) {
+        return 'fixture';
+    }
+    if (hasSegment('tests', 'test', '__tests__', '__test__', 'spec', '__mocks__') ||
+        /\.(?:test|spec)\.[a-z]+$/.test(basename)) {
+        return 'test';
+    }
+    if (hasSegment('docs', 'doc', 'documentation', 'wiki') ||
+        basename === 'readme.md' || basename === 'changelog.md' || basename === 'contributing.md' ||
+        /\.mdx?$/.test(basename) && hasSegment('docs', 'doc')) {
+        return 'documentation';
+    }
+    if (hasSegment('examples', 'example', 'demo', 'demos', 'scratch', 'evidence', 'benchmarks', 'research', 'results', 'tmp', 'output')) {
+        return 'example';
+    }
+    return 'production';
+}
+
 function classifyFile(root: string, filePath: string, content: string): RepositoryArtifact[] {
     const relativePath = normalizePath(path.relative(root, filePath));
     const lower = relativePath.toLowerCase();
     const basename = path.basename(lower);
     const ext = path.extname(lower);
+    const provenance = classifyRepositoryProvenance(relativePath, content);
     const isPromptPath = lower.startsWith('prompts/') || lower.includes('/prompts/') || ['.prompt', '.ai', '.chat', '.system'].includes(ext);
     const artifacts: RepositoryArtifact[] = [];
     const add = (type: RepositoryArtifactType, name: string, description: string, signals: string[], evidence: string[], metadata?: RepositoryArtifact['metadata']) => {
@@ -393,6 +437,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
             relativePath,
             description,
             evidence: sanitizeStringArray(evidence) || [],
+            provenance,
             signals,
             metadata: metadata ? {
                 ...metadata,
@@ -578,7 +623,22 @@ function artifactText(artifact: RepositoryArtifact): string {
     ].join(' ').toLowerCase();
 }
 
-function addSensitiveActionNodes(nodes: Map<string, RepositoryExecutionNode>, edges: Map<string, RepositoryExecutionEdge>, sourceNodeId: string, actions: RepositorySensitiveAction[], evidence?: string): void {
+// Node types that actually *execute* a sensitive action (a configured MCP
+// server, tool registry, memory store, or workflow). Only these can anchor a
+// Confirmed source-to-sink edge. A PROMPT or SKILL only *declares* intent in
+// prose, so its reach to a synthetic action node is Probable at best — there is
+// no wired executor to confirm the sink.
+const EXECUTOR_NODE_TYPES = new Set<RepositoryExecutionNodeType>(['MCP_SERVER', 'TOOL', 'MEMORY', 'WORKFLOW']);
+
+function addSensitiveActionNodes(
+    nodes: Map<string, RepositoryExecutionNode>,
+    edges: Map<string, RepositoryExecutionEdge>,
+    sourceNodeId: string,
+    actions: RepositorySensitiveAction[],
+    options: { evidence?: string; sourceIsExecutor: boolean },
+): void {
+    const { evidence, sourceIsExecutor } = options;
+    const hasEvidence = Boolean(evidence?.trim());
     for (const action of actions) {
         const actionNodeId = stableId('node', `ACTION:${action}`);
         if (!nodes.has(actionNodeId)) {
@@ -590,7 +650,26 @@ function addSensitiveActionNodes(nodes: Map<string, RepositoryExecutionNode>, ed
                 metadata: { action },
             });
         }
-        addEdge(edges, sourceNodeId, actionNodeId, 'CAN_REACH', evidence ? `${action} capability derived from direct artifact evidence.` : `${action} capability inferred from artifact metadata.`, evidence ? redactSecrets(evidence) : undefined, evidence ? 85 : 65, evidence ? 'direct' : 'structural');
+        // Real wired executor + direct evidence -> Confirmed. A prose-only
+        // declaration (PROMPT/SKILL) is capped at Probable even with evidence,
+        // because no tool/MCP/workflow in the repo actually performs the action.
+        let reason: string;
+        let confidence: number;
+        let provenance: EdgeProvenance;
+        if (sourceIsExecutor && hasEvidence) {
+            reason = `${action} capability derived from direct executor evidence.`;
+            confidence = 85;
+            provenance = 'direct';
+        } else if (hasEvidence) {
+            reason = `${action} capability declared in instructions; no wired executor confirms the sink.`;
+            confidence = 75;
+            provenance = 'connected';
+        } else {
+            reason = `${action} capability inferred from artifact metadata.`;
+            confidence = 65;
+            provenance = 'structural';
+        }
+        addEdge(edges, sourceNodeId, actionNodeId, 'CAN_REACH', reason, hasEvidence ? redactSecrets(evidence!) : undefined, confidence, provenance);
     }
 }
 
@@ -628,7 +707,16 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
             // A config that failed to parse cannot provide direct evidence, so
             // its action edges stay structural inference instead of Confirmed.
             const directEvidence = artifact.metadata?.parseWarning ? undefined : artifact.evidence[0];
-            addSensitiveActionNodes(nodes, edges, nodeId, artifact.metadata?.sensitiveActions || [], directEvidence);
+            addSensitiveActionNodes(nodes, edges, nodeId, artifact.metadata?.sensitiveActions || [], { evidence: directEvidence, sourceIsExecutor: true });
+        } else if (artifact.type === 'SKILL') {
+            // An agent skill that declares shell/secret/file capabilities is a
+            // reachable instruction source even when no separate scanner finding
+            // lands on it. Wire its declared actions into the graph as a
+            // non-executor (Probable) source so a dangerous SKILL.md cannot
+            // silently report as Trusted with zero paths. Scoped to SKILL only:
+            // generic agent-instruction prose (AGENTS.md) merely mentioning these
+            // words is not a capability grant and must not synthesize paths.
+            addSensitiveActionNodes(nodes, edges, nodeId, artifact.metadata?.sensitiveActions || [], { evidence: artifact.evidence[0], sourceIsExecutor: false });
         }
     }
 
@@ -733,7 +821,9 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
             }
             sourceNode = syntheticNodeId;
         }
-        addSensitiveActionNodes(nodes, edges, sourceNode, Array.from(actions), result.findings?.[0]?.evidence);
+        const sourceNodeType = nodes.get(sourceNode)?.type;
+        const sourceIsExecutor = sourceNodeType ? EXECUTOR_NODE_TYPES.has(sourceNodeType) : false;
+        addSensitiveActionNodes(nodes, edges, sourceNode, Array.from(actions), { evidence: result.findings?.[0]?.evidence, sourceIsExecutor });
     }
 
     const graph: RepositoryExecutionMap = {
@@ -820,6 +910,15 @@ function clampConfidence(value: number): number {
 export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, artifacts: RepositoryArtifact[], scanResults: RepositoryScanResult[] = []): ReachableExecutionPath[] {
     const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
     const edgesById = new Map(executionMap.edges.map(edge => [edge.id, edge]));
+    const artifactProvenance = new Map<string, RepositoryProvenance>(
+        artifacts.filter(artifact => artifact.provenance).map(artifact => [path.resolve(artifact.filePath), artifact.provenance!]),
+    );
+    const findingsByFileForEvidence = new Map(scanResults.map(result => [path.resolve(result.filePath), result.findings || []]));
+    const pathProvenance = (nodeIds: string[], fallbackFile?: string): RepositoryProvenance => {
+        const sourceFile = nodesById.get(nodeIds[0])?.filePath || fallbackFile;
+        if (!sourceFile) return 'unknown';
+        return artifactProvenance.get(path.resolve(sourceFile)) || classifyRepositoryProvenance(path.resolve(sourceFile), '');
+    };
     const paths: ReachableExecutionPath[] = [];
     const graphPathsByStartFile = new Map<string, RepositoryExecutionGraphPath[]>();
     const graphPathsByAnyFile = new Map<string, RepositoryExecutionGraphPath[]>();
@@ -903,6 +1002,7 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
                     snippet: finding.evidence,
                 }],
                 files,
+                provenance: pathProvenance(nodeIds, result.filePath),
                 confidence: confidenceScore,
                 confidenceLevel,
                 confidenceLabel: pathConfidenceLabel(confidenceLevel),
@@ -932,6 +1032,15 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
         const confidenceLevel = pathConfidenceLevel({ confidence: 70, nodeIds: graphPath.nodeIds, edgeIds: graphPath.edgeIds, findings: [], edgeConfidenceLabels } as any);
         const graphConfidence = alignConfidenceScore(confidenceLevel, 70);
         const evidenceId = stableId('evidence', `graph:${graphPath.id}`);
+        // Anchor graph-path evidence to a real file and, when a scanner finding
+        // exists on any node in the chain, its rule id and line — so evidence is
+        // never rendered as `undefined@file:undefined`.
+        const evidenceFile = (nodesById.get(graphPath.nodeIds[0])?.filePath) || files[0] || '';
+        const linkedFinding = graphPath.nodeIds
+            .map(nodeId => nodesById.get(nodeId)?.filePath)
+            .filter(Boolean)
+            .flatMap(file => findingsByFileForEvidence.get(path.resolve(file as string)) || [])
+            .find(finding => sensitiveActions.length === 0 || !finding.waived);
         paths.push({
             id: stableId('reachable', key),
             risk: graphPath.risk,
@@ -946,10 +1055,14 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
             evidence: [{
                 id: evidenceId,
                 type: 'graph',
-                filePath: files[0] || '',
+                filePath: evidenceFile,
+                ruleId: linkedFinding?.rule_id,
+                severity: linkedFinding?.severity,
+                line: linkedFinding?.line ?? 1,
                 message: graphPath.explanation,
             }],
             files,
+            provenance: pathProvenance(graphPath.nodeIds, files[0]),
             confidence: graphConfidence,
             confidenceLevel,
             confidenceLabel: pathConfidenceLabel(confidenceLevel),
@@ -1070,16 +1183,18 @@ export function generateRepositorySummary(artifacts: RepositoryArtifact[], execu
     }
 
     // Risk and trust are driven only by evidence-backed (Confirmed/Probable)
-    // paths. Potential-only structural inference is map context: it can ask
-    // for review, but it can never mark a repository High Risk on its own.
+    // paths that live in production artifacts. Potential-only structural
+    // inference is map context, and documentation/test/fixture paths are real
+    // but non-production — neither can mark a repository High Risk on its own.
     const riskSummary = { critical: 0, high: 0, medium: 0, low: 0 };
     for (const reachablePath of reachablePaths) {
         const level = reachablePath.confidenceLevel || pathConfidenceLevel(reachablePath);
         if (level === 'potential') continue;
+        if (NON_PRODUCTION_PROVENANCE.has(reachablePath.provenance ?? 'production')) continue;
         riskSummary[reachablePath.risk] += 1;
     }
 
-    const hasParseWarnings = artifacts.some(artifact => artifact.metadata?.parseWarning);
+    const hasParseWarnings = artifacts.some(artifact => artifact.metadata?.parseWarning && !NON_PRODUCTION_PROVENANCE.has(artifact.provenance ?? 'production'));
     const trustStatus: RepositoryTrustStatus = riskSummary.critical > 0 || riskSummary.high > 0
         ? 'High Risk'
         : riskSummary.medium > 0 || riskSummary.low > 0 || confidenceSummary.potential > 0 || hasParseWarnings
@@ -1483,7 +1598,52 @@ function refineFindingLocation(
     return { line: index + 1, column: Math.max(1, lines[index].indexOf(needle) + 1) };
 }
 
-function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], reachablePaths: ReachableExecutionPath[], executionMap: RepositoryExecutionMap): RepositoryExecutionIssue[] {
+// A SKILL.md or agent-config file that declares shell/secret/file/network reach
+// is dangerous on its own, but the prompt scanner may emit no finding on it. We
+// synthesize a repository-level finding from the declared sensitive actions so
+// the artifact produces a real, plain-language issue with a fix — instead of
+// silently reporting as Trusted with zero issues.
+const DECLARED_ACTION_RULE_ID = 'repo_skill_declared_sensitive_action';
+
+function declaredSensitiveActionFindings(artifacts: RepositoryArtifact[], scanResults: RepositoryScanResult[]): RepositoryScanResult[] {
+    const filesWithFindings = new Set(
+        scanResults
+            .filter(result => (result.findings || []).some(finding => !finding.waived))
+            .map(result => path.resolve(result.filePath)),
+    );
+    const synthetic: RepositoryScanResult[] = [];
+    for (const artifact of artifacts) {
+        if (artifact.type !== 'SKILL') continue;
+        const actions = artifact.metadata?.sensitiveActions || [];
+        if (actions.length === 0) continue;
+        if (filesWithFindings.has(path.resolve(artifact.filePath))) continue;
+        const highRisk = actions.includes('Shell') || actions.includes('Secrets');
+        const kind = 'skill';
+        const actionList = actions.join(', ');
+        synthetic.push({
+            filePath: artifact.filePath,
+            findings: [{
+                rule_id: DECLARED_ACTION_RULE_ID,
+                category: 'security',
+                severity: highRisk ? 'high' : 'medium',
+                line: 1,
+                column: 1,
+                message: `This ${kind} declares it can perform sensitive actions (${actionList}) without a reviewed, least-privilege boundary.`,
+                evidence: artifact.evidence[0] || `Declared sensitive actions: ${actionList}.`,
+                recommendation: `Restrict the ${kind} to the minimum operations it needs, require explicit approval before ${actionList.toLowerCase()} actions, and keep secrets out of the instructions.`,
+                confidence: highRisk ? 'high' : 'medium',
+            }],
+        });
+    }
+    return synthetic;
+}
+
+function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], reachablePaths: ReachableExecutionPath[], executionMap: RepositoryExecutionMap, artifacts: RepositoryArtifact[] = []): RepositoryExecutionIssue[] {
+    const artifactProvenance = new Map<string, RepositoryProvenance>(
+        artifacts.filter(artifact => artifact.provenance).map(artifact => [path.resolve(artifact.filePath), artifact.provenance!]),
+    );
+    const provenanceForFile = (absoluteFile: string): RepositoryProvenance =>
+        artifactProvenance.get(absoluteFile) || classifyRepositoryProvenance(absoluteFile, '');
     const root = path.resolve(rootPath);
     const issues = new Map<string, RepositoryExecutionIssue>();
     const contentCache = new Map<string, string | null>();
@@ -1547,6 +1707,7 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 impactedFiles: [displayFile],
                 fixSuggestions,
                 pathIds,
+                provenance: provenanceForFile(absoluteFile),
             });
         }
     }
@@ -1805,10 +1966,28 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     const generatedAt = new Date().toISOString();
     const sanitizedArtifacts = sanitizeArtifacts(artifacts);
     const sanitizedPaths = sanitizeReachablePaths(reachablePaths);
-    const issues = canonicalIssues(root, scanResults, sanitizedPaths, executionMap);
+    // Synthesize findings for skills/agent-configs that declare sensitive actions
+    // but received no scanner finding, so a dangerous SKILL.md yields a real issue.
+    const declaredFindings = declaredSensitiveActionFindings(sanitizedArtifacts, scanResults);
+    const issueScanResults = declaredFindings.length > 0 ? [...scanResults, ...declaredFindings] : scanResults;
+    const issues = canonicalIssues(root, issueScanResults, sanitizedPaths, executionMap, sanitizedArtifacts);
     const issueSummary = summarizeIssues(issues);
+    const isNonProduction = (issue: RepositoryExecutionIssue): boolean =>
+        NON_PRODUCTION_PROVENANCE.has(issue.provenance ?? 'production');
+    const productionIssues = issues.filter(issue => !isNonProduction(issue));
+    const nonProductionIssues = issues.filter(isNonProduction);
+    const productionIssueSummary = summarizeIssues(productionIssues);
+    const nonProductionIssueSummary = summarizeIssues(nonProductionIssues);
+    const issuesByProvenance = issues.reduce((acc, issue) => {
+        const key = issue.provenance ?? 'production';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+    }, {} as Record<RepositoryProvenance, number>);
     const impactedFiles = canonicalImpactedFiles(root, issues, sanitizedArtifacts, sanitizedPaths);
     const summary = generateRepositorySummary(artifacts, executionMap, reachablePaths);
+    summary.productionIssueSummary = productionIssueSummary;
+    summary.nonProductionIssueSummary = nonProductionIssueSummary;
+    summary.issuesByProvenance = issuesByProvenance;
     const pathValidation = validateRepositoryExecutionPaths(executionMap, sanitizedPaths, summary);
 
     if (scanStats) {
@@ -1817,11 +1996,15 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     }
     summary.pathValidationStatus = pathValidation.valid ? 'passed' : 'failed';
     summary.pathValidationErrors = pathValidation.errors.length;
-    // Trust status must reflect issue severity, not only path risk, and a repo
-    // whose own path validation failed cannot present as fully trusted.
-    if (issueSummary.critical > 0 || issueSummary.high > 0) {
+    // Trust status reflects issue severity in *production* artifacts only:
+    // documentation describing attacks and intentional fixtures are visible but
+    // never drive trust. Quality-only findings (clarity/best-practice) likewise
+    // do not raise trust on their own — only security risk or a failed self-check.
+    const productionSecurityRisk = productionIssues.some(issue =>
+        issue.category === 'security' || issue.severity === 'high' || issue.severity === 'critical');
+    if (productionIssueSummary.critical > 0 || productionIssueSummary.high > 0) {
         summary.trustStatus = 'High Risk';
-    } else if (summary.trustStatus === 'Trusted' && (issueSummary.total > 0 || !pathValidation.valid)) {
+    } else if (summary.trustStatus === 'Trusted' && (productionSecurityRisk || !pathValidation.valid)) {
         summary.trustStatus = 'Review Required';
     }
 

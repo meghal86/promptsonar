@@ -191,12 +191,21 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
         .slice(0, 10);
     const lines: string[] = [];
 
-    lines.push(chalk.bold(`PromptSonar Repository Analysis v${VERSION}`));
+    lines.push(chalk.bold(`PromptSonar Repository Analysis v${report.version}`));
     lines.push(`Repository: ${report.repository.name}`);
     lines.push('');
     lines.push(chalk.bold('1. Trust Status'));
     lines.push(`  ${summary.trustStatus === 'High Risk' ? chalk.red(summary.trustStatus) : summary.trustStatus === 'Review Required' ? chalk.yellow(summary.trustStatus) : chalk.green(summary.trustStatus)}`);
-    lines.push(`  ${report.issueSummary.critical} critical · ${report.issueSummary.high} high · ${report.issueSummary.medium} medium · ${report.issueSummary.low} low`);
+    // Trust status reflects production artifacts only; documentation/test/fixture
+    // findings are real but reported separately so they are not read as live risk.
+    const prod = summary.productionIssueSummary;
+    const nonProd = summary.nonProductionIssueSummary;
+    if (prod && nonProd && nonProd.total > 0) {
+        lines.push(`  Production: ${prod.critical} critical · ${prod.high} high · ${prod.medium} medium · ${prod.low} low`);
+        lines.push(`  ${chalk.dim(`Non-production (docs/tests/fixtures): ${nonProd.critical} critical · ${nonProd.high} high · ${nonProd.medium} medium · ${nonProd.low} low — not counted toward trust`)}`);
+    } else {
+        lines.push(`  ${report.issueSummary.critical} critical · ${report.issueSummary.high} high · ${report.issueSummary.medium} medium · ${report.issueSummary.low} low`);
+    }
     lines.push(`  ${report.impactedFiles.length} impacted files · ${report.reachablePaths.length} reachable paths`);
     const potentialOnly = report.reachablePaths.length > 0 && report.reachablePaths.every(pathItem => pathItem.confidenceLevel === 'potential');
     if (potentialOnly) {

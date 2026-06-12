@@ -32,6 +32,26 @@ export type RepositoryTrustStatus = 'Trusted' | 'Review Required' | 'High Risk';
 export type RepositorySensitiveAction = 'Shell' | 'Filesystem' | 'Network' | 'Secrets' | 'External APIs';
 export type RepositoryPathConfidence = 'confirmed' | 'probable' | 'potential';
 
+// Where an artifact/finding lives in the repository. Only `production` artifacts
+// drive repository trust status; documentation, tests, fixtures, and examples
+// stay visible but are reported as non-production context, not live product risk.
+export type RepositoryProvenance =
+    | 'production'
+    | 'documentation'
+    | 'test'
+    | 'fixture'
+    | 'example'
+    | 'generated'
+    | 'unknown';
+
+export const NON_PRODUCTION_PROVENANCE: ReadonlySet<RepositoryProvenance> = new Set<RepositoryProvenance>([
+    'documentation',
+    'test',
+    'fixture',
+    'example',
+    'generated',
+]);
+
 export interface RepositoryArtifact {
     id: string;
     type: RepositoryArtifactType;
@@ -43,6 +63,7 @@ export interface RepositoryArtifact {
     confidence?: number;
     confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
     evidenceRefs?: string[];
+    provenance?: RepositoryProvenance;
     signals: string[];
     metadata?: {
         servers?: string[];
@@ -149,6 +170,7 @@ export interface ReachableExecutionPath {
         snippet?: string;
     }>;
     files: string[];
+    provenance?: RepositoryProvenance;
     confidence: number;
     confidenceLevel: RepositoryPathConfidence;
     confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
@@ -208,6 +230,11 @@ export interface RepositorySummary {
     riskSummary: Record<'critical' | 'high' | 'medium' | 'low', number>;
     confidenceSummary: Record<RepositoryPathConfidence, number>;
     trustStatus: RepositoryTrustStatus;
+    // Issue counts split by provenance so trust can be read against production
+    // artifacts only, while documentation/test/fixture findings stay visible.
+    productionIssueSummary?: RepositoryIssueSummary;
+    nonProductionIssueSummary?: RepositoryIssueSummary;
+    issuesByProvenance?: Record<RepositoryProvenance, number>;
 }
 
 export interface RepositoryExecutionIssueEvidence {
@@ -255,6 +282,7 @@ export interface RepositoryExecutionIssue {
     impactedFiles: string[];
     fixSuggestions: string[];
     pathIds: string[];
+    provenance?: RepositoryProvenance;
 }
 
 export interface RepositoryIssueSummary {
