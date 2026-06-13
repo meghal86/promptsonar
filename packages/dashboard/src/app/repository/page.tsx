@@ -425,17 +425,23 @@ export default function RepositoryPage() {
               </div>
             </Card>
 
-            {/* What to fix first */}
+            {/* What to fix first — the problems themselves, ordered by impact */}
             <Card className="p-6">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <Eyebrow>What to fix first</Eyebrow>
+                  <Eyebrow>What to fix first · the problems</Eyebrow>
                   <h3 className="mt-2 font-playfair text-[22px] font-normal tracking-tight">
                     {issues.length ? "Ordered by impact" : "Nothing needs fixing"}
                   </h3>
+                  {issues.length > 0 && (
+                    <p className="mt-1.5 text-[13px] leading-[1.6] text-muted-foreground">
+                      {issues.length} problem{issues.length === 1 ? "" : "s"} we found
+                      {impactedFiles.length > 0 && <>, spread across the {impactedFiles.length} file{impactedFiles.length === 1 ? "" : "s"} listed below</>}.
+                    </p>
+                  )}
                 </div>
                 {issues.length > 0 && (
-                  <span className="text-[13px] text-muted-foreground">{issues.length} found</span>
+                  <span className="shrink-0 text-[13px] text-muted-foreground">{issues.length} issue{issues.length === 1 ? "" : "s"}</span>
                 )}
               </div>
 
@@ -485,15 +491,18 @@ export default function RepositoryPage() {
               )}
             </Card>
 
-            {/* Files that need attention — each opens the playground */}
+            {/* Files that need attention — the same problems, grouped by location */}
             {impactedFiles.length > 0 && (
               <Card className="p-6">
                 <div className="flex items-end justify-between gap-3">
                   <div>
-                    <Eyebrow>Files that need attention</Eyebrow>
+                    <Eyebrow>Files that need attention · where they live</Eyebrow>
                     <h3 className="mt-2 font-playfair text-[22px] font-normal tracking-tight">Open any file to see the full result</h3>
+                    <p className="mt-1.5 text-[13px] leading-[1.6] text-muted-foreground">
+                      The same {issues.length} problem{issues.length === 1 ? "" : "s"} from above, grouped by the file they live in. Click a file to open it in the playground with the issue, why it matters, and the fix.
+                    </p>
                   </div>
-                  <span className="text-[13px] text-muted-foreground">{impactedFiles.length} files</span>
+                  <span className="shrink-0 text-[13px] text-muted-foreground">{impactedFiles.length} file{impactedFiles.length === 1 ? "" : "s"}</span>
                 </div>
                 <ul className="mt-5 divide-y divide-border overflow-hidden rounded-lg border border-border">
                   {impactedFiles.map((file: any) => {
