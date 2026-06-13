@@ -38,6 +38,10 @@ import type {
 // Keep in lockstep with the published package version so the report version and
 // the CLI banner never disagree. The repository report schema is additive
 // (new fields are optional), so it rides the product version rather than its own.
+// Workflow/action artifacts are config surfaces, not source code that merely
+// mentions "workflow" in its name.
+const WORKFLOW_CONFIG_EXTENSIONS = new Set(['.yml', '.yaml', '.json', '.toml']);
+
 const REPORT_VERSION = '1.4.3';
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
@@ -502,7 +506,14 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (lower.startsWith('.github/workflows/') || lower.includes('/.github/workflows/') || basename.includes('workflow') || basename.includes('pipeline') || basename === 'action.yml' || basename === 'action.yaml') {
+    // WORKFLOW/ACTION are CI/orchestration *config* surfaces. A basename match
+    // (`workflow`, `pipeline`) only counts on a config extension or under
+    // `.github/workflows/` — otherwise a UI component like `WorkflowGraph.tsx`
+    // would be misclassified as a workflow executor and reach a Confirmed sink.
+    const isGithubWorkflow = lower.startsWith('.github/workflows/') || lower.includes('/.github/workflows/');
+    const isActionManifest = basename === 'action.yml' || basename === 'action.yaml';
+    const isWorkflowConfigName = (basename.includes('workflow') || basename.includes('pipeline')) && WORKFLOW_CONFIG_EXTENSIONS.has(ext);
+    if (isGithubWorkflow || isActionManifest || isWorkflowConfigName) {
         add(basename.startsWith('action.') ? 'ACTION' : 'WORKFLOW', path.basename(filePath), 'Workflow or action orchestration file discovered.', ['workflow-config'], [lineEvidence(content, /workflow|jobs|steps|uses|run|tool|prompt|mcp/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
@@ -914,10 +925,22 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
         artifacts.filter(artifact => artifact.provenance).map(artifact => [path.resolve(artifact.filePath), artifact.provenance!]),
     );
     const findingsByFileForEvidence = new Map(scanResults.map(result => [path.resolve(result.filePath), result.findings || []]));
+    const fileProvenance = (filePath: string): RepositoryProvenance =>
+        artifactProvenance.get(path.resolve(filePath)) || classifyRepositoryProvenance(path.resolve(filePath), '');
+    // A path is live production risk only when its whole chain is production. If
+    // any node it traverses (e.g. a fixture MCP that supplies the sink) is
+    // non-production, the path is non-production — a production-sourced prompt
+    // that can only reach a sensitive action through a test fixture is not a
+    // shippable vulnerability. Source provenance is used only as the fallback.
     const pathProvenance = (nodeIds: string[], fallbackFile?: string): RepositoryProvenance => {
-        const sourceFile = nodesById.get(nodeIds[0])?.filePath || fallbackFile;
-        if (!sourceFile) return 'unknown';
-        return artifactProvenance.get(path.resolve(sourceFile)) || classifyRepositoryProvenance(path.resolve(sourceFile), '');
+        const chain = nodeIds
+            .map(id => nodesById.get(id)?.filePath)
+            .filter(Boolean)
+            .map(file => fileProvenance(file as string));
+        const nonProduction = chain.find(provenance => NON_PRODUCTION_PROVENANCE.has(provenance));
+        if (nonProduction) return nonProduction;
+        if (chain.length > 0) return chain[0];
+        return fallbackFile ? fileProvenance(fallbackFile) : 'unknown';
     };
     const paths: ReachableExecutionPath[] = [];
     const graphPathsByStartFile = new Map<string, RepositoryExecutionGraphPath[]>();
@@ -970,14 +993,26 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
             const confidence = typeof finding.workflow.confidence_score === 'number'
                 ? finding.workflow.confidence_score
                 : sensitiveActions.length > 0 ? 85 : 70;
-            const risk = (finding.workflow.risk || finding.severity || matchingGraphPath?.risk || 'medium') as RepositoryRisk;
+            // Path risk must match the canonical issue severity (finding.severity)
+            // so overallRisk never contradicts the issue summary. workflow.risk is
+            // an internal escalation hint and only fills in when severity is absent.
+            const risk = (finding.severity || finding.workflow.risk || matchingGraphPath?.risk || 'medium') as RepositoryRisk;
             const files = Array.from(new Set([
                 result.filePath,
                 ...nodeIds.map(nodeId => nodesById.get(nodeId)?.filePath).filter(Boolean) as string[],
             ]));
-            // A path without graph nodes is structural inference only — it must
-            // not outrank or outscore graph-backed paths.
-            const confidenceLevel: RepositoryPathConfidence = nodeIds.length > 0 ? 'probable' : 'potential';
+            // Confidence is the weakest link of the matched graph path's edges,
+            // not a flat 'probable'. A path that ends at a real wired executor
+            // (MCP/tool/workflow, all-direct edges) is Confirmed even when a
+            // scanner finding also corroborates it; a prose-only prompt->action
+            // chain stays Probable, and a node-less inference stays Potential.
+            const edgeLabels = edgeIds.map(edgeId => {
+                const edge = edgesById.get(edgeId);
+                return edge?.confidenceLabel || (edge?.evidenceRefs?.length ? 'Probable' : 'Potential');
+            });
+            const confidenceLevel: RepositoryPathConfidence = nodeIds.length === 0
+                ? 'potential'
+                : pathConfidenceLevel({ confidence, nodeIds, edgeIds, findings: [], edgeConfidenceLabels: edgeLabels } as any);
             const confidenceScore = alignConfidenceScore(confidenceLevel, clampConfidence(confidence));
             const evidenceId = stableId('evidence', `${result.filePath}:${finding.rule_id}:${finding.line || 1}`);
             paths.push({
@@ -2007,6 +2042,17 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     } else if (summary.trustStatus === 'Trusted' && (productionSecurityRisk || !pathValidation.valid)) {
         summary.trustStatus = 'Review Required';
     }
+    // overallRisk must not contradict the production picture: it is the higher
+    // of the production path risk and the highest *security-relevant* production
+    // issue severity. We never report "critical" with zero production criticals,
+    // and quality-only findings (clarity/best-practice) do not inflate the risk.
+    const riskOrder: Array<RepositoryRisk | 'none'> = ['none', 'low', 'medium', 'high', 'critical'];
+    const securityIssueRank = productionIssues.reduce((rank, issue) => {
+        if (issue.category !== 'security' && issue.severity !== 'high' && issue.severity !== 'critical') return rank;
+        return Math.max(rank, riskOrder.indexOf(issue.severity as RepositoryRisk));
+    }, 0);
+    const currentRisk: RepositoryRisk | 'none' = summary.overallRisk ?? 'none';
+    summary.overallRisk = riskOrder[Math.max(riskOrder.indexOf(currentRisk), securityIssueRank)];
 
     return {
         id: stableId('repo-report', `${root}:${generatedAt}`),

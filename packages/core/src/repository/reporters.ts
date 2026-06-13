@@ -41,6 +41,7 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport): 
             },
             properties: {
                 issue_id: issue.id,
+                provenance: issue.provenance ?? 'production',
                 impact: issue.impact,
                 why_this_matters: issue.whyThisMatters,
                 how_to_fix: issue.howToFix,
@@ -170,13 +171,14 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
       <div class="card"><div class="metric">${summary.executionGraph.nodes}</div><div class="label">Execution Nodes</div></div>
       <div class="card"><div class="metric">${summary.executionGraph.edges}</div><div class="label">Execution Edges</div></div>
       <div class="card"><div class="metric">${report.reachablePaths.length}</div><div class="label">Reachable Paths</div></div>
-      <div class="card"><div class="metric">${report.issueSummary.total}</div><div class="label">Canonical Issues</div></div>
+      <div class="card"><div class="metric">${(summary.productionIssueSummary ?? report.issueSummary).total}</div><div class="label">Production Issues</div></div>
     </div>
+    ${summary.productionIssueSummary && summary.nonProductionIssueSummary ? `<p class="label">Production: <span class="risk-critical">${summary.productionIssueSummary.critical} critical</span> · <span class="risk-high">${summary.productionIssueSummary.high} high</span> · ${summary.productionIssueSummary.medium} medium · ${summary.productionIssueSummary.low} low. Non-production (docs/tests/fixtures): ${summary.nonProductionIssueSummary.critical} critical · ${summary.nonProductionIssueSummary.high} high · ${summary.nonProductionIssueSummary.medium} medium · ${summary.nonProductionIssueSummary.low} low — visible below but not counted toward trust.</p>` : ''}
     <section>
-      <h2>Canonical Issues</h2>
+      <h2>Canonical Issues (${report.issueSummary.total})</h2>
       <table>
-        <tr><th>ID</th><th>Severity</th><th>Plain-Language Explanation</th></tr>
-        ${report.issues.map(issue => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td class="risk-${escapeHtml(issue.severity)}">${escapeHtml(String(issue.severity).toUpperCase())}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Quick Fix:</strong> ${escapeHtml(issue.fix.quickFix)}<br><br><strong>Recommended Fix:</strong> ${escapeHtml(issue.fix.recommendedFix)}<br><br><strong>Safe Pattern:</strong> <code>${escapeHtml(issue.fix.safePattern)}</code><br><br><strong>Effort:</strong> ${escapeHtml(issue.fix.effort)}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails.executionPath)}<br><strong>Evidence:</strong> ${issue.technicalDetails.evidence.map(item => `<code>${escapeHtml(item.file)}:${item.line || 1}</code> ${escapeHtml(item.snippet)}`).join('<br>')}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails.confidence.label)} (${issue.technicalDetails.confidence.score}%) · ${escapeHtml(issue.technicalDetails.confidence.definition)}</details></td></tr>`).join('') || '<tr><td colspan="3">No active issues.</td></tr>'}
+        <tr><th>ID</th><th>Context</th><th>Severity</th><th>Plain-Language Explanation</th></tr>
+        ${report.issues.map(issue => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td>${escapeHtml(issue.provenance ?? 'production')}</td><td class="risk-${escapeHtml(issue.severity)}">${escapeHtml(String(issue.severity).toUpperCase())}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Quick Fix:</strong> ${escapeHtml(issue.fix.quickFix)}<br><br><strong>Recommended Fix:</strong> ${escapeHtml(issue.fix.recommendedFix)}<br><br><strong>Safe Pattern:</strong> <code>${escapeHtml(issue.fix.safePattern)}</code><br><br><strong>Effort:</strong> ${escapeHtml(issue.fix.effort)}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails.executionPath)}<br><strong>Evidence:</strong> ${issue.technicalDetails.evidence.map(item => `<code>${escapeHtml(item.file)}:${item.line || 1}</code> ${escapeHtml(item.snippet)}`).join('<br>')}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails.confidence.label)} (${issue.technicalDetails.confidence.score}%) · ${escapeHtml(issue.technicalDetails.confidence.definition)}</details></td></tr>`).join('') || '<tr><td colspan="4">No active issues.</td></tr>'}
       </table>
     </section>
     <section>

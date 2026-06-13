@@ -183,8 +183,13 @@ function formatModelComparisonMarkdown(result: ModelComparisonResult): string {
 function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
     const summary = report.summary;
     const severityRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+    const NON_PRODUCTION = new Set(['documentation', 'test', 'fixture', 'example', 'generated']);
+    const isProduction = (issue: RepositoryExecutionReport['issues'][number]) => !NON_PRODUCTION.has(issue.provenance ?? 'production');
+    // Production issues lead the list so the top is not dominated by
+    // non-production (docs/test/fixture) findings that do not drive trust.
     const topIssues = [...report.issues]
         .sort((left, right) =>
+            (isProduction(right) ? 1 : 0) - (isProduction(left) ? 1 : 0) ||
             (severityRank[String(right.severity)] || 0) - (severityRank[String(left.severity)] || 0) ||
             left.id.localeCompare(right.id)
         )
@@ -231,7 +236,8 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
         const severity = issue.severity === 'critical' ? chalk.red(String(issue.severity).toUpperCase())
             : issue.severity === 'high' ? chalk.hex('#FF8C00')(String(issue.severity).toUpperCase())
                 : String(issue.severity).toUpperCase();
-        lines.push(`  ${severity} · ${issue.id}`);
+        const context = isProduction(issue) ? '' : chalk.dim(` [${issue.provenance} · not counted toward trust]`);
+        lines.push(`  ${severity}${context} · ${issue.id}`);
         lines.push(`    Issue: ${issue.issue}`);
         lines.push(`    Impact: ${issue.impact}`);
         lines.push(`    Files: ${issue.impactedFiles.join(', ')}`);

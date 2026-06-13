@@ -65,4 +65,45 @@ describe('GitHub Action repository summary', () => {
             'repository-report.sarif',
         ]);
     });
+
+    it('surfaces the production vs non-production split and labels non-production issues', () => {
+        const report = {
+            summary: {
+                trustStatus: 'High Risk',
+                riskSummary: { critical: 0, high: 1, medium: 0, low: 0 },
+                productionIssueSummary: { total: 1, critical: 0, high: 1, medium: 0, low: 0 },
+                nonProductionIssueSummary: { total: 1, critical: 1, high: 0, medium: 0, low: 0 },
+            },
+            issueSummary: { total: 2, critical: 1, high: 1, medium: 0, low: 0 },
+            issues: [{
+                id: 'issue-doc-crit',
+                severity: 'critical',
+                provenance: 'documentation',
+                issue: 'Documentation describes an injection example.',
+                impact: 'Illustrative only.',
+                fix: { quickFix: 'No action — example.', effort: 'Quick' },
+                impactedFiles: ['docs/GUIDE.md'],
+            }, {
+                id: 'issue-prod-high',
+                severity: 'high',
+                provenance: 'production',
+                issue: 'Production prompt can leak PII.',
+                impact: 'Real risk.',
+                fix: { quickFix: 'Redact PII.', effort: 'Moderate' },
+                impactedFiles: ['prompts/agent.prompt'],
+            }],
+            impactedFiles: [],
+            reachablePaths: [],
+        };
+
+        const markdown = repositorySummaryMarkdown(report as any);
+
+        expect(markdown).toContain('1 production issues');
+        expect(markdown).toContain('Non-production (docs/tests/fixtures): 1 critical');
+        expect(markdown).toContain('not counted toward trust');
+        expect(markdown).toContain('| Severity | Context | Issue | Impacted Files | Quick Fix |');
+        // Production issue leads the table even though the doc issue is critical.
+        expect(markdown.indexOf('Production prompt can leak PII.')).toBeLessThan(markdown.indexOf('Documentation describes an injection example.'));
+        expect(markdown).toContain('documentation');
+    });
 });

@@ -182,10 +182,11 @@ const CRITICAL_MODIFIER_PATTERNS = [
     { pattern: /\bdisable\s+restrictions?\b/i, reason: 'severity increased because restrictions are disabled.', confidence: 'high' as WorkflowConfidence },
 ];
 
-// Drop clauses that forbid a capability ("do not run shell commands") so a
-// prohibition is never inferred as a granted capability.
+// Drop clauses that forbid or disclaim a capability ("do not run shell
+// commands", "does not access files or secrets") so a prohibition is never
+// inferred as a granted capability.
 export function stripNegatedClauses(text: string): string {
-    return text.replace(/\b(?:do not|don'?t|never|must not|shall not|avoid|not allowed to|forbidden(?: to)?|no)\b[^.\n;]*/gi, ' ');
+    return text.replace(/\b(?:do(?:es)?\s+not|did\s+not|do(?:es)?n'?t|didn'?t|cannot|can'?t|won'?t|will\s+not|would\s+not|shall\s+not|should\s+not|must\s+not|never|avoid|not\s+allowed\s+to|forbidden(?: to)?|no\s+access\s+to|without\s+access\s+to|no)\b[^.\n;]*/gi, ' ');
 }
 
 function matchPattern(text: string, patterns: PatternDef[]): (PatternDef & { evidence: string }) | undefined {
