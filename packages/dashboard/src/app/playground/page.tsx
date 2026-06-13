@@ -3273,6 +3273,64 @@ export default function PlaygroundPage() {
         {/* Main Dashboard Layout */}
         <main className="flex-1 flex flex-col justify-start gap-6 p-4 lg:p-6 xl:p-8 overflow-y-auto min-h-0">
 
+          {/* Plain-language handoff card — shown when a file was opened from the repository scan. */}
+          {hasCompletedScan && repositoryObjectHandoff && (() => {
+            const f: any = primaryIssueFinding || {};
+            const sev = String(f.severity || '').toLowerCase();
+            const sevTone = sev === 'critical' || sev === 'high'
+              ? 'border-red-200 bg-red-50 text-red-700'
+              : sev === 'medium'
+                ? 'border-amber-200 bg-amber-50 text-amber-800'
+                : 'border-sky-200 bg-sky-50 text-sky-700';
+            const sevLabel = f.severity ? `${String(f.severity)[0].toUpperCase()}${String(f.severity).slice(1)}` : 'Info';
+            const fix = f.fix?.recommendedFix || f.suggested_fix || f.fix?.quickFix;
+            return (
+              <section className="rounded-xl border border-border bg-card shadow-xs overflow-hidden shrink-0">
+                <div className="flex">
+                  <div className={`w-1.5 shrink-0 ${sev === 'critical' || sev === 'high' ? 'bg-red-500' : sev === 'medium' ? 'bg-amber-500' : 'bg-sky-500'}`} />
+                  <div className="flex-1 p-5">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">From your repository scan</p>
+                      <a href="/repository" className="text-[12px] font-medium text-muted-foreground hover:text-foreground">← Back to results</a>
+                    </div>
+                    <h2 className="mt-2 font-mono text-[15px] font-medium tracking-tight text-foreground break-all">{repositoryObjectHandoff.file || 'Selected file'}</h2>
+                    {f.explanation || f.title ? (
+                      <div className="mt-4 grid gap-4 sm:grid-cols-[auto_1fr]">
+                        <div className="flex flex-row gap-2 sm:flex-col">
+                          <span className={`inline-flex h-fit items-center rounded-full border px-2.5 py-1 text-[11px] font-medium ${sevTone}`}>{sevLabel}</span>
+                        </div>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground/70">What&apos;s the issue</p>
+                            <p className="mt-1 text-[14px] font-medium leading-snug text-foreground">{f.explanation || f.title}</p>
+                          </div>
+                          {(f.whyThisMatters || f.impact) && (
+                            <div>
+                              <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground/70">Why it matters</p>
+                              <p className="mt-1 text-[13px] leading-[1.6] text-muted-foreground">{f.whyThisMatters || f.impact}</p>
+                            </div>
+                          )}
+                          {fix && (
+                            <div>
+                              <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground/70">How to fix it</p>
+                              <p className="mt-1 text-[13px] leading-[1.6] text-muted-foreground">{fix}</p>
+                              {f.fix?.safePattern && (
+                                <pre className="mt-2 overflow-x-auto rounded-lg bg-primary px-3 py-2 font-mono text-[12px] text-primary-foreground whitespace-pre-wrap break-words">{f.fix.safePattern}</pre>
+                              )}
+                            </div>
+                          )}
+                          <p className="text-[12px] text-muted-foreground">The full breakdown — proof, connected paths, and exports — is in the tabs below.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-[13px] text-muted-foreground">No issues were found in this file. The full scan detail is in the tabs below.</p>
+                    )}
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
+
           {/* V2 - SECTION 1: PROMPT INPUT (collapsed after scan so findings lead) */}
           <details open={!hasCompletedScan} className="shrink-0">
             <summary className={hasCompletedScan

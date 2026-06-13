@@ -1,39 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
+@font-face {
+  font-family: 'Geist';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
 }
 
-@media (prefers-color-scheme: dark) {
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+/* Shared design system — matches the PromptSonar marketing site. */
+@layer base {
   :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
+    --background: 45 11% 95%;
+    --foreground: 240 10% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 12%;
+    --primary: 240 14% 14%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 45 8% 92%;
+    --secondary-foreground: 240 10% 12%;
+    --muted: 45 8% 92%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 45 8% 92%;
+    --accent-foreground: 240 10% 12%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 45 6% 88%;
+    --input: 45 6% 88%;
+    --ring: 240 14% 14%;
+    --radius: 0.625rem;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: 'Geist', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html {
+    scroll-behavior: smooth;
   }
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
-}
-
 @layer utilities {
+  .font-playfair {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+  .font-mono {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+  }
   .text-balance {
     text-wrap: balance;
   }
 }
 
-/* Workflow graph: barely-visible pulse on critical execution-path nodes.
-   Honors prefers-reduced-motion. */
+/* Workflow graph: barely-visible pulse on critical execution-path nodes. */
 @keyframes ps-risk-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.0); }
   50%      { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15); }
@@ -50,7 +88,7 @@ body {
 }
 
 .ps-skeleton {
-  background: #ECEAE5;
+  background: hsl(var(--muted));
   animation: ps-skeleton 1.5s ease-in-out infinite;
   border-radius: 6px;
 }
@@ -59,4 +97,3 @@ body {
   .ps-critical-node { animation: none; }
   .ps-skeleton      { animation: none; }
 }
-
