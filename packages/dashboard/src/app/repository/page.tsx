@@ -199,6 +199,7 @@ const TONE_ACCENT: Record<Tone, string> = {
 export default function RepositoryPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [report, setReport] = useState<RepoReport | null>(null);
+  const [scanMeta, setScanMeta] = useState<any>(null);
   const [contentByPath, setContentByPath] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -246,6 +247,7 @@ export default function RepositoryPage() {
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error || `Scan failed (${res.status})`);
     setReport(data.report);
+    setScanMeta(data.scan || null);
     setContentByPath(payloadFiles.reduce((acc, file) => {
       const normalized = normalizeRepoPath(file.path);
       acc[normalized] = file.content;
@@ -365,6 +367,10 @@ export default function RepositoryPage() {
         {/* ── Loading skeleton ── */}
         {loading && !report && (
           <div className="mt-6 space-y-3">
+            <p className="text-[13px] text-muted-foreground">
+              Reading and analyzing {files.length ? `${files.length} files` : "your repository"}
+              {files.length > 150 ? " — large repositories can take a moment." : "…"}
+            </p>
             <div className="ps-skeleton h-24 w-full" />
             <div className="ps-skeleton h-40 w-full" />
           </div>
@@ -609,10 +615,20 @@ export default function RepositoryPage() {
               </Card>
             )}
 
-            <p className="pt-2 text-center text-[12px] text-muted-foreground">
-              Browser scan reads a bounded set of files. For a complete, repeatable scan, run{" "}
-              <code className="font-mono text-foreground">npx @promptsonar/cli repo .</code> in your terminal.
-            </p>
+            <div className="pt-2 text-center text-[12px] leading-[1.7] text-muted-foreground">
+              {scanMeta && (
+                <p>
+                  Scanned <span className="font-medium text-foreground">{scanMeta.filesWritten}</span> of {scanMeta.filesReceived} files
+                  {scanMeta.filesSkipped > 0 && <> · {scanMeta.filesSkipped} skipped (binary, ignored folders, or over the browser limit)</>}.
+                </p>
+              )}
+              <p className={scanMeta ? "mt-0.5" : ""}>
+                {scanMeta && scanMeta.filesSkipped > 0
+                  ? "Want every file scanned? Run "
+                  : "For a complete, repeatable scan, run "}
+                <code className="font-mono text-foreground">npx @promptsonar/cli repo .</code> in your terminal.
+              </p>
+            </div>
           </div>
         )}
       </div>

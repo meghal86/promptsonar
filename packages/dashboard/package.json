@@ -3,6 +3,7 @@
   "version": "1.4.3",
   "private": true,
   "scripts": {
+    "predev": "npm --prefix ../core run build && npm --prefix ../cli run build",
     "dev": "next dev",
     "build": "npm --prefix ../core run build && npm --prefix ../cli run build && next build",
     "start": "next start",
