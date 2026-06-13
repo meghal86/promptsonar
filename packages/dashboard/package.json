@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm --prefix ../core run build && next build",
+    "build": "npm --prefix ../core run build && npm --prefix ../cli run build && next build",
     "start": "next start",
     "lint": "eslint src"
   },
