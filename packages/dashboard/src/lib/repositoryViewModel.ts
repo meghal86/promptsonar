@@ -1,6 +1,7 @@
 import type {
   ReachableExecutionPath,
   RepositoryArtifact,
+  RepositoryArtifactType,
   RepositoryExecutionEdge,
   RepositoryExecutionIssue,
   RepositoryExecutionNode,
@@ -53,6 +54,33 @@ export type CountMetadata = {
   visible: number;
   hidden: number;
 };
+
+export type ArtifactKind =
+  | "prompt"
+  | "file"
+  | "agent"
+  | "mcp"
+  | "skill"
+  | "workflow"
+  | "memory"
+  | "tool"
+  | "repository";
+
+export type InvestigationSource =
+  | {
+      mode: "single-input";
+      artifactKind: ArtifactKind;
+      input: string;
+      filename?: string;
+    }
+  | {
+      mode: "repository";
+      scanId: string;
+      artifactId?: string;
+      filePath?: string;
+      issueId?: string;
+      pathId?: string;
+    };
 
 export type PresentedEvidence =
   | {
@@ -148,6 +176,7 @@ export type PathProjection = {
 
 export type FileProjection = {
   path: string;
+  artifactId?: string;
   label: string;
   name: string;
   artifactType: string;
@@ -169,6 +198,104 @@ export type FocusedGraphProjection = {
   hiddenNodeCount: number;
   selectedNodeIds: string[];
   relatedPaths: PathProjection[];
+};
+
+export type FindingGroup = {
+  id: string;
+  title: string;
+  ruleId: string;
+  severity: RepositoryExecutionIssue["severity"];
+  confidence: RepositoryPathConfidence;
+  issueCount: number;
+  evidenceCount: number;
+  issues: IssuePresentation[];
+};
+
+export type RelatedArtifact = {
+  id: string;
+  kind: ArtifactKind;
+  name: string;
+  repositoryRelativePath?: string;
+  relationship: string;
+  confidence: RepositoryPathConfidence;
+};
+
+export type SensitiveActionSummary = {
+  action: RepositorySensitiveAction;
+  confidence: RepositoryPathConfidence;
+  supportingPathId: string;
+  evidence: string;
+};
+
+export type PresentedRemediation = {
+  quickFix: string;
+  recommendedFix: string;
+  safePattern: string;
+  effort: RepositoryExecutionIssue["fix"]["effort"] | "Larger change";
+  expectedEffect: string;
+};
+
+export type ArtifactInvestigationViewModel = {
+  artifact: {
+    id: string;
+    kind: ArtifactKind;
+    name: string;
+    repositoryRelativePath?: string;
+    provenance?: RepositoryProvenance;
+    role?: string;
+    metadata?: RepositoryArtifact["metadata"];
+  };
+  source: InvestigationSource["mode"];
+  repositoryWiringAvailable: boolean;
+  summary: {
+    findingCount: number;
+    executionPathCount: number;
+    highestFindingSeverity?: RepositoryExecutionIssue["severity"] | "none";
+    highestPathRisk?: RepositoryRisk | "none";
+    findingConfidence?: RepositoryPathConfidence;
+  };
+  findingGroups: FindingGroup[];
+  selectedFinding?: IssuePresentation | null;
+  evidence: PresentedEvidence[];
+  remediation?: PresentedRemediation | null;
+  linkedPathFamilies: PathProjection[];
+  otherPathFamilies: PathProjection[];
+  focusedGraph: FocusedGraphProjection;
+  upstream: RelatedArtifact[];
+  downstream: RelatedArtifact[];
+  sensitiveActions: SensitiveActionSummary[];
+  countMetadata: {
+    findings: CountMetadata;
+    paths: CountMetadata;
+    evidence: CountMetadata;
+  };
+};
+
+export type PlaygroundMicroscopeViewModel = ArtifactInvestigationViewModel & {
+  selectedFile: string;
+  selectedFileLabel: string;
+  artifactType: string;
+  provenance: RepositoryProvenance;
+  fileFindingSeverity: RepositoryExecutionIssue["severity"] | "none";
+  highestRelatedPathRisk: RepositoryRisk | "none";
+  relatedPathCount: number;
+  issueCount: number;
+  issueCountMeta: CountMetadata;
+  issues: IssuePresentation[];
+  issue: IssuePresentation | null;
+  issueIndex: number;
+  previousIssue: IssuePresentation | null;
+  nextIssue: IssuePresentation | null;
+  evidence: PresentedEvidence[];
+  evidenceCount: CountMetadata;
+  graph: FocusedGraphProjection;
+  pathsSupportedByIssue: PathProjection[];
+  pathsSupportedByIssueCount: CountMetadata;
+  otherPathsInvolvingFile: PathProjection[];
+  otherPathsInvolvingFileCount: CountMetadata;
+  relatedPaths: PathProjection[];
+  whyItMatters: string;
+  fix: PresentedRemediation | null;
 };
 
 export function getCountMetadata(total: number, visible = total): CountMetadata {
@@ -219,6 +346,35 @@ export function formatDistinctPathLabel(filePath: string, allPaths: string[]): s
 
 function normalizePath(report: RepositoryExecutionReport, value = ""): string {
   return formatRepositoryRelativePath(value, report.repository.root);
+}
+
+function artifactKindFromRepositoryType(type?: RepositoryArtifactType | string): ArtifactKind {
+  const mapping: Record<string, ArtifactKind> = {
+    PROMPT: "prompt",
+    SKILL: "skill",
+    MCP_SERVER: "mcp",
+    AGENT_CONFIG: "agent",
+    MEMORY: "memory",
+    TOOL: "tool",
+    WORKFLOW: "workflow",
+    ACTION: "tool",
+  };
+  return mapping[String(type || "").toUpperCase()] || "file";
+}
+
+function artifactKindLabel(kind: ArtifactKind): string {
+  const labels: Record<ArtifactKind, string> = {
+    prompt: "Prompt",
+    file: "File",
+    agent: "Agent instructions",
+    mcp: "MCP configuration",
+    skill: "Skill",
+    workflow: "Workflow",
+    memory: "Memory",
+    tool: "Tool router",
+    repository: "Repository",
+  };
+  return labels[kind];
 }
 
 function displayConfidence(level: RepositoryPathConfidence): "Confirmed" | "Probable" | "Potential" {
@@ -616,6 +772,22 @@ function artifactForFile(report: RepositoryExecutionReport, filePath: string): R
   );
 }
 
+function artifactForFocus(
+  report: RepositoryExecutionReport,
+  artifactId?: string | null,
+  filePath?: string | null,
+): RepositoryArtifact | undefined {
+  if (artifactId) {
+    const byId = report.artifacts.find((artifact) => artifact.id === artifactId);
+    if (byId) return byId;
+  }
+  return filePath ? artifactForFile(report, filePath) : undefined;
+}
+
+function artifactPath(report: RepositoryExecutionReport, artifact?: RepositoryArtifact): string {
+  return artifact ? normalizePath(report, artifact.relativePath || artifact.filePath || artifact.name) : "";
+}
+
 function roleForFile(path: PathProjection | null, filePath: string): string {
   if (!path) return "Impacted file";
   const target = formatRepositoryRelativePath(filePath);
@@ -647,6 +819,7 @@ function buildFileProjections(report: RepositoryExecutionReport): FileProjection
 
     return {
       path: filePath,
+      artifactId: artifact?.id,
       label: formatDistinctPathLabel(filePath, canonicalPaths),
       name: file.name,
       artifactType: artifact?.type || file.type,
@@ -773,23 +946,136 @@ export function buildRepositoryExplorerViewModel(report: RepositoryExecutionRepo
   };
 }
 
-export function buildPlaygroundMicroscopeViewModel({
+function relatedArtifactsForGraph(
+  report: RepositoryExecutionReport,
+  graph: FocusedGraphProjection,
+  artifactId: string,
+) {
+  const selected = new Set(graph.selectedNodeIds);
+  const nodeById = new Map(report.executionMap.nodes.map((node) => [node.id, node]));
+  const toRelated = (edge: RepositoryExecutionEdge, direction: "upstream" | "downstream"): RelatedArtifact | null => {
+    const relatedNodeId = direction === "upstream" ? edge.from : edge.to;
+    const node = nodeById.get(relatedNodeId);
+    if (!node) return null;
+    const artifact = node.artifactId
+      ? report.artifacts.find((item) => item.id === node.artifactId)
+      : artifactForFile(report, node.relativePath || node.filePath || "");
+    return {
+      id: artifact?.id || node.id,
+      kind: artifactKindFromRepositoryType(artifact?.type || node.type),
+      name: artifact?.name || node.label,
+      repositoryRelativePath: artifact ? artifactPath(report, artifact) : normalizePath(report, node.relativePath || node.filePath || ""),
+      relationship: relationshipLabel(edge),
+      confidence: confidenceFromLabel(edge.confidenceLabel),
+    };
+  };
+  const upstream = graph.edges
+    .filter((edge) => selected.has(edge.to) && edge.from !== artifactId)
+    .map((edge) => toRelated(edge, "upstream"))
+    .filter((item): item is RelatedArtifact => Boolean(item));
+  const downstream = graph.edges
+    .filter((edge) => selected.has(edge.from) && edge.to !== artifactId)
+    .map((edge) => toRelated(edge, "downstream"))
+    .filter((item): item is RelatedArtifact => Boolean(item));
+  return { upstream, downstream };
+}
+
+export function groupArtifactFindings(issues: IssuePresentation[]): FindingGroup[] {
+  const groups = new Map<string, FindingGroup>();
+  for (const issue of issues) {
+    const existing = groups.get(issue.ruleId);
+    if (existing) {
+      existing.issueCount += 1;
+      existing.evidenceCount += issue.evidence.length;
+      existing.issues.push(issue);
+      if (RISK_RANK[issue.severity] > RISK_RANK[existing.severity]) existing.severity = issue.severity;
+      if (CONFIDENCE_RANK[issue.confidence.level] > CONFIDENCE_RANK[existing.confidence]) existing.confidence = issue.confidence.level;
+    } else {
+      groups.set(issue.ruleId, {
+        id: issue.ruleId,
+        title: issue.issue,
+        ruleId: issue.ruleId,
+        severity: issue.severity,
+        confidence: issue.confidence.level,
+        issueCount: 1,
+        evidenceCount: issue.evidence.length,
+        issues: [issue],
+      });
+    }
+  }
+  return Array.from(groups.values()).sort((a, b) =>
+    RISK_RANK[b.severity] - RISK_RANK[a.severity] ||
+    CONFIDENCE_RANK[b.confidence] - CONFIDENCE_RANK[a.confidence] ||
+    a.title.localeCompare(b.title),
+  );
+}
+
+export function groupArtifactPathFamilies(paths: PathProjection[]): PathProjection[] {
+  return groupPathProjections(paths);
+}
+
+function buildSensitiveActionSummaries(paths: PathProjection[]): SensitiveActionSummary[] {
+  const byAction = new Map<RepositorySensitiveAction, SensitiveActionSummary>();
+  for (const path of paths) {
+    if (!path.action) continue;
+    const existing = byAction.get(path.action);
+    if (existing && CONFIDENCE_RANK[existing.confidence] >= CONFIDENCE_RANK[path.confidence]) continue;
+    byAction.set(path.action, {
+      action: path.action,
+      confidence: path.confidence,
+      supportingPathId: path.id,
+      evidence: path.edgePresentations.find((edge) => edge.evidence)?.evidence || path.explanation,
+    });
+  }
+  return Array.from(byAction.values());
+}
+
+export function validateArtifactInvestigationViewModel(view: ArtifactInvestigationViewModel): void {
+  const selectedPathIds = new Set(view.linkedPathFamilies.flatMap((path) => path.instanceIds));
+  if (view.selectedFinding) {
+    validateIssuePresentation(view.selectedFinding);
+    const issuePathIds = new Set(view.selectedFinding.pathIds);
+    for (const pathId of selectedPathIds) {
+      if (!issuePathIds.has(pathId)) {
+        throw new Error(`Linked path ${pathId} is not explicitly attached to selected finding ${view.selectedFinding.id}.`);
+      }
+    }
+  }
+  const artifactPathValue = view.artifact.repositoryRelativePath;
+  for (const path of view.otherPathFamilies) {
+    if (artifactPathValue && !path.files.includes(artifactPathValue)) {
+      throw new Error(`Other path ${path.id} does not include selected artifact ${artifactPathValue}.`);
+    }
+  }
+  if (!view.repositoryWiringAvailable) {
+    if (view.upstream.length > 0 || view.downstream.length > 0 || view.otherPathFamilies.length > 0) {
+      throw new Error("Single-input artifact model exposed repository-only relationships.");
+    }
+  }
+}
+
+export function buildArtifactInvestigationViewModel({
   report,
+  source,
+  artifactId,
   filePath,
   issueId,
   pathId,
   actionType,
 }: {
   report: RepositoryExecutionReport;
+  source?: InvestigationSource["mode"];
+  artifactId?: string | null;
   filePath?: string | null;
   issueId?: string | null;
   pathId?: string | null;
   actionType?: RepositorySensitiveAction | null;
-}) {
+}): PlaygroundMicroscopeViewModel {
   const selectedPath = pathId
     ? report.reachablePaths.find((path) => path.id === pathId)
     : undefined;
-  const requestedFile = filePath ? normalizePath(report, filePath) : undefined;
+  const requestedArtifact = artifactForFocus(report, artifactId, filePath);
+  const requestedFile = filePath ? normalizePath(report, filePath) : artifactPath(report, requestedArtifact) || undefined;
   const knownFiles = new Set([
     ...report.impactedFiles.map((file) => normalizePath(report, file.path)),
     ...report.artifacts.map((artifact) => normalizePath(report, artifact.relativePath || artifact.filePath)),
@@ -814,6 +1100,7 @@ export function buildPlaygroundMicroscopeViewModel({
       report.artifacts[0]?.relativePath ||
       "",
   );
+  const selectedArtifact = artifactForFocus(report, artifactId, selectedFile) || artifactForFile(report, selectedFile);
   const fileIssues = report.issues
     .filter((issue) =>
       issue.impactedFiles.some((file) => normalizePath(report, file) === selectedFile),
@@ -854,13 +1141,25 @@ export function buildPlaygroundMicroscopeViewModel({
   const artifact = artifactForFile(report, selectedFile);
   const file = buildFileProjections(report).find((item) => item.path === selectedFile);
   const issueIndex = issue ? fileIssues.findIndex((item) => item.id === issue.id) : -1;
-
-  return {
+  const sourceMode = source || (report.repository.root === "/playground" ? "single-input" : "repository");
+  const repositoryWiringAvailable = sourceMode === "repository" && report.reachablePaths.length > 0;
+  const groupedLinkedPaths = groupArtifactPathFamilies(pathsSupportedByIssue);
+  const groupedOtherPaths = sourceMode === "single-input" ? [] : groupArtifactPathFamilies(otherPathsInvolvingFile);
+  const related = sourceMode === "single-input"
+    ? { upstream: [], downstream: [] }
+    : relatedArtifactsForGraph(report, graph, selectedArtifact?.id || "");
+  const artifactKind = artifactKindFromRepositoryType(selectedArtifact?.type || artifact?.type || file?.artifactType);
+  const artifactName = selectedArtifact?.name || selectedFile || artifactKindLabel(artifactKind);
+  const highestFindingSeverity = file?.fileFindingSeverity || issue?.severity || "none";
+  const highestConfidence = fileIssues
+    .map((item) => item.confidence.level)
+    .sort((a, b) => CONFIDENCE_RANK[b] - CONFIDENCE_RANK[a])[0];
+  const legacy = buildLegacyMicroscopeFields({
     selectedFile,
     selectedFileLabel: formatDistinctPathLabel(selectedFile, report.impactedFiles.map((fileItem) => normalizePath(report, fileItem.path))),
-    artifactType: artifact?.type || file?.artifactType || "Other",
-    provenance: artifact?.provenance || file?.provenance || "unknown",
-    fileFindingSeverity: file?.fileFindingSeverity || issue?.severity || "none",
+    artifactType: selectedArtifact?.type || artifact?.type || file?.artifactType || "Other",
+    provenance: selectedArtifact?.provenance || artifact?.provenance || file?.provenance || "unknown",
+    fileFindingSeverity: highestFindingSeverity,
     highestRelatedPathRisk: file?.highestPathRisk || fileRelatedPaths[0]?.risk || "none",
     relatedPathCount: fileRelatedPaths.length,
     issueCount: fileIssues.length,
@@ -873,11 +1172,11 @@ export function buildPlaygroundMicroscopeViewModel({
     evidence: issue?.evidence || [],
     evidenceCount: getCountMetadata(issue?.evidence.length || 0),
     graph,
-    pathsSupportedByIssue,
-    pathsSupportedByIssueCount: getCountMetadata(pathsSupportedByIssue.length),
-    otherPathsInvolvingFile,
-    otherPathsInvolvingFileCount: getCountMetadata(otherPathsInvolvingFile.length),
-    relatedPaths: [...pathsSupportedByIssue, ...otherPathsInvolvingFile],
+    pathsSupportedByIssue: groupedLinkedPaths,
+    pathsSupportedByIssueCount: getCountMetadata(pathsSupportedByIssue.length, groupedLinkedPaths.length),
+    otherPathsInvolvingFile: groupedOtherPaths,
+    otherPathsInvolvingFileCount: getCountMetadata(otherPathsInvolvingFile.length, groupedOtherPaths.length),
+    relatedPaths: [...groupedLinkedPaths, ...groupedOtherPaths],
     whyItMatters: issue?.whyThisMatters || issue?.impact || fileRelatedPaths[0]?.explanation || "",
     fix: issue ? {
       quickFix: issue.quickFix,
@@ -886,5 +1185,73 @@ export function buildPlaygroundMicroscopeViewModel({
       effort: issue.effort,
       expectedEffect: issue.impact,
     } : null,
+  });
+
+  const view: PlaygroundMicroscopeViewModel = {
+    ...legacy,
+    artifact: {
+      id: selectedArtifact?.id || stableArtifactId(selectedFile || artifactName),
+      kind: artifactKind,
+      name: artifactName,
+      repositoryRelativePath: selectedFile || undefined,
+      provenance: selectedArtifact?.provenance || artifact?.provenance || file?.provenance,
+      role: file?.role || roleForFile(fileRelatedPaths[0] || null, selectedFile),
+      metadata: selectedArtifact?.metadata || artifact?.metadata,
+    },
+    source: sourceMode,
+    repositoryWiringAvailable,
+    summary: {
+      findingCount: fileIssues.length,
+      executionPathCount: sourceMode === "single-input" ? 0 : fileRelatedPaths.length,
+      highestFindingSeverity,
+      highestPathRisk: sourceMode === "single-input" ? "none" : legacy.highestRelatedPathRisk,
+      findingConfidence: highestConfidence,
+    },
+    findingGroups: groupArtifactFindings(fileIssues),
+    selectedFinding: issue,
+    evidence: issue?.evidence || [],
+    remediation: legacy.fix,
+    linkedPathFamilies: groupedLinkedPaths,
+    otherPathFamilies: groupedOtherPaths,
+    focusedGraph: graph,
+    upstream: related.upstream,
+    downstream: related.downstream,
+    sensitiveActions: sourceMode === "single-input" ? [] : buildSensitiveActionSummaries([...groupedLinkedPaths, ...groupedOtherPaths]),
+    countMetadata: {
+      findings: getCountMetadata(fileIssues.length),
+      paths: getCountMetadata(fileRelatedPaths.length, groupedLinkedPaths.length + groupedOtherPaths.length),
+      evidence: getCountMetadata(issue?.evidence.length || 0),
+    },
   };
+
+  if (process.env.NODE_ENV !== "production") validateArtifactInvestigationViewModel(view);
+  return view;
+}
+
+function stableArtifactId(value: string): string {
+  return `artifact:${value.replace(/[^a-z0-9_.-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "selected"}`;
+}
+
+function buildLegacyMicroscopeFields<T>(fields: T): T {
+  return fields;
+}
+
+export function buildPlaygroundMicroscopeViewModel(args: Parameters<typeof buildArtifactInvestigationViewModel>[0]) {
+  return buildArtifactInvestigationViewModel(args);
+}
+
+export function buildRepositoryArtifactInvestigationViewModel(args: Omit<Parameters<typeof buildArtifactInvestigationViewModel>[0], "source">) {
+  return buildArtifactInvestigationViewModel({ ...args, source: "repository" });
+}
+
+export function buildSinglePromptInvestigationViewModel(report: RepositoryExecutionReport, issueId?: string | null) {
+  return buildArtifactInvestigationViewModel({ report, source: "single-input", issueId, filePath: report.artifacts[0]?.relativePath || "playground.prompt" });
+}
+
+export function buildSingleFileInvestigationViewModel(report: RepositoryExecutionReport, filePath?: string | null, issueId?: string | null) {
+  return buildArtifactInvestigationViewModel({ report, source: "single-input", filePath: filePath || report.artifacts[0]?.relativePath, issueId });
+}
+
+export function buildFocusedArtifactGraph(report: RepositoryExecutionReport, filePath: string, limit = 18) {
+  return getFileGraphProjection(report, filePath, limit);
 }

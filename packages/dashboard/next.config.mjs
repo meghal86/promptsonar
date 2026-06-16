@@ -30,7 +30,7 @@ const nextConfig = {
         permanent: false,
       });
     }
-    if (process.env.NEXT_PUBLIC_PROMPTSONAR_PLAYGROUND_V4 === 'true') {
+    if (process.env.NEXT_PUBLIC_PROMPTSONAR_PLAYGROUND_V4 !== 'false') {
       redirects.push({
         source: '/playground',
         destination: '/playground-v4',

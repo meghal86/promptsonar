@@ -202,13 +202,16 @@ export function RepositoryExplorer() {
     const scrollToSection = () => {
       if (section) window.setTimeout(() => document.getElementById(section)?.scrollIntoView({ block: "start" }), 250);
     };
-    if (!scanId) return;
     const stored = readStoredReport(scanId);
     if (stored) {
       setReport(stored);
+      if (!scanId && stored.id) {
+        window.history.replaceState({}, "", `/repository-v2?scan=${encodeURIComponent(stored.id)}&section=${section || "overview"}#${section || "overview"}`);
+      }
       scrollToSection();
       return;
     }
+    if (!scanId) return;
     setLoading(true);
     fetch(`/api/repository?scanId=${encodeURIComponent(scanId)}`)
       .then(async (response) => {
@@ -620,7 +623,11 @@ export function RepositoryExplorer() {
                     <p className="mt-3 font-mono text-[11px] text-stone-500">Effort · {view.nextAction.effort}</p>
                   </div>
                   <a
-                    href={microscopeHref(report, { file: view.nextAction.file, issue: view.nextAction.issueId })}
+                    href={microscopeHref(report, {
+                      artifact: view.files.find((file) => file.path === view.nextAction?.file)?.artifactId,
+                      file: view.nextAction.file,
+                      issue: view.nextAction.issueId,
+                    })}
                     className="shrink-0 rounded-xl bg-stone-900 px-5 py-3 text-center text-[13px] font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
                   >
                     Inspect this file
@@ -749,7 +756,7 @@ export function RepositoryExplorer() {
                     {filteredFiles.slice(0, fileLimit).map((file) => (
                       <a
                         key={file.path}
-                        href={microscopeHref(report, { file: file.path, issue: file.issueIds[0] })}
+                        href={microscopeHref(report, { artifact: file.artifactId, file: file.path, issue: file.issueIds[0] })}
                         className="grid gap-4 border-t border-stone-900/10 p-5 first:border-t-0 hover:bg-white/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-inset md:grid-cols-[1fr_auto_auto] md:items-center"
                       >
                         <div className="min-w-0">

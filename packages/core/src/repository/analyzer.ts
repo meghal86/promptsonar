@@ -152,7 +152,8 @@ function safeRead(filePath: string, maxFileSizeBytes: number): string | undefine
         const stat = fs.statSync(filePath);
         if (!stat.isFile() || stat.size > maxFileSizeBytes) return undefined;
         const ext = path.extname(filePath).toLowerCase();
-        if (!TEXT_EXTENSIONS.has(ext) && path.basename(filePath).toLowerCase() !== 'agents.md') return undefined;
+        const basename = path.basename(filePath).toLowerCase();
+        if (!TEXT_EXTENSIONS.has(ext) && basename !== 'agents.md' && basename !== 'agent.md') return undefined;
         return fs.readFileSync(filePath, 'utf-8');
     } catch {
         return undefined;
@@ -481,7 +482,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (lower === 'agents.md' || lower.endsWith('/agents.md')) {
+    if (lower === 'agents.md' || lower === 'agent.md' || lower.startsWith('agents/') || lower.endsWith('/agents.md') || lower.endsWith('/agent.md') || lower.includes('/agents/')) {
         add('AGENT_CONFIG', path.basename(filePath), 'Repository agent instruction file discovered.', ['agent-instructions'], [lineEvidence(content, /agent|codex|cursor|claude|instructions/i, relativePath)], {
             constraints: Array.from(content.matchAll(/\b(?:do not|never|only|must|important)[:\s-]+(.+)/gi)).map(match => match[0].trim()).slice(0, 10),
             sensitiveActions: detectSensitiveActions(content),

@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { analyzeRepositoryExecution, type RepositoryExecutionReport } from '@promptsonar/core';
 import { scanFiles } from '@promptsonar/cli';
+import { cacheRepositoryReport, repositoryReportCache } from '@/lib/repositoryReportCache';
 
 const MAX_FILES = 200;
 const MAX_FILE_CHARS = 20_000;
@@ -14,22 +15,6 @@ type RepositoryUploadFile = {
   path: string;
   content: string;
 };
-
-const globalReportCache = globalThis as typeof globalThis & {
-  __promptsonarRepositoryReports?: Map<string, RepositoryExecutionReport>;
-};
-const reportCache = globalReportCache.__promptsonarRepositoryReports
-  || (globalReportCache.__promptsonarRepositoryReports = new Map<string, RepositoryExecutionReport>());
-
-function cacheReport(report: RepositoryExecutionReport) {
-  if (!report.id) return;
-  reportCache.set(report.id, report);
-  while (reportCache.size > 10) {
-    const oldestKey = reportCache.keys().next().value;
-    if (!oldestKey) break;
-    reportCache.delete(oldestKey);
-  }
-}
 
 function normalizeRelativePath(value: string): string {
   return value.replace(/\\/g, '/').split('/').filter(part => part && part !== '..' && part !== '.').join('/');
@@ -105,7 +90,7 @@ export async function POST(request: Request) {
       ...report.repository,
       name: body?.repositoryName || 'Uploaded repository',
     };
-    cacheReport(report);
+    cacheRepositoryReport(report);
 
     return NextResponse.json({
       report,
@@ -134,7 +119,7 @@ export async function GET(request: Request) {
   if (!scanId) {
     return NextResponse.json({ error: 'scanId is required' }, { status: 400 });
   }
-  const report = reportCache.get(scanId);
+  const report = repositoryReportCache.get(scanId);
   if (!report) {
     return NextResponse.json({ error: 'Preview scan not found or expired' }, { status: 404 });
   }

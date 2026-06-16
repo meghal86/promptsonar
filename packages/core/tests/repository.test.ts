@@ -46,6 +46,16 @@ describe('repository execution analysis', () => {
         expect(report.reachablePaths).toHaveLength(0);
     });
 
+    it('classifies standalone agent instruction files as agent artifacts', () => {
+        const root = fixtureRepo({
+            'agents/reviewer-agent.md': 'Agent instructions: use the review prompt and route approved work to filesystem tools.',
+        });
+        const report = analyzeRepositoryExecution(root, []);
+
+        expect(report.artifacts[0]?.type).toBe('AGENT_CONFIG');
+        expect(report.summary.aiSurfacesFound.agentConfigs).toBe(1);
+    });
+
     it('does not confirm shell reachability when a prompt mentions shell without connected tool config', () => {
         const root = fixtureRepo({
             'agent.prompt': 'System prompt: explain how shell commands work, but do not call tools.',

@@ -5,11 +5,15 @@ export function PreviewShell({
   active,
   crumb,
   scanMode,
+  repositoryHref = "/repository-v2",
+  playgroundHref = "/playground-v4",
 }: {
   children: ReactNode;
   active: "repository" | "playground";
   crumb: string;
   scanMode?: string;
+  repositoryHref?: string;
+  playgroundHref?: string;
 }) {
   const showInternalPreviewNav = process.env.NODE_ENV !== "production";
   const modeLabel = scanMode === "browser-bounded"
@@ -28,13 +32,13 @@ export function PreviewShell({
         <p className="mt-9 px-3 font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">AI execution analysis</p>
         <nav className="mt-3 space-y-1" aria-label="Preview navigation">
           <a
-            href="/repository-v2"
+            href={repositoryHref}
             className={`block rounded-xl px-3 py-2.5 text-[14px] font-medium ${active === "repository" ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-white/60 hover:text-stone-900"}`}
           >
             Repository map
           </a>
           <a
-            href="/playground-v4"
+            href={playgroundHref}
             className={`block rounded-xl px-3 py-2.5 text-[14px] font-medium ${active === "playground" ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-white/60 hover:text-stone-900"}`}
           >
             File microscope

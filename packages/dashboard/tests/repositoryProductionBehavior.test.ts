@@ -29,9 +29,34 @@ describe("repository v2 and playground v4 production behavior", () => {
     expect(source).toContain("popstate");
     expect(source).toContain("aria-current");
     expect(source).toContain("ArrowDown");
+    expect(source).toContain("repositoryBackHref(report)");
+    expect(source).toContain('query.set("scan", report.id)');
     expect(source).toContain("File-level absence finding");
-    expect(source).toContain("Independent execution paths involving this file");
+    expect(source).toContain("Other paths involving this artifact");
     expect(source).toContain("Relationship");
     expect(source).toContain("Structurally inferred relationship");
+  });
+
+  it("keeps prompt, file, and repository analysis on the shared artifact microscope", () => {
+    const source = read("src/components/repository-v2/PlaygroundMicroscope.tsx");
+    expect(source).toContain("buildArtifactInvestigationViewModel");
+    expect(source).toContain("Analyze a prompt");
+    expect(source).toContain("Analyze a file");
+    expect(source).toContain("Analyze a repository");
+    expect(source).toContain("Repository wiring is unavailable for this single-input scan");
+    expect(source).not.toContain("Prompt analysis UI");
+    expect(source).not.toContain("MCP analysis UI");
+  });
+
+  it("preserves repository scan context when returning from the microscope", () => {
+    const explorer = read("src/components/repository-v2/RepositoryExplorer.tsx");
+    const microscope = read("src/components/repository-v2/PlaygroundMicroscope.tsx");
+    const shell = read("src/components/repository-v2/PreviewShell.tsx");
+
+    expect(explorer).toContain("const stored = readStoredReport(scanId)");
+    expect(explorer).toContain("if (!scanId && stored.id)");
+    expect(microscope).toContain("repositoryHref={repositoryBackHref(report)}");
+    expect(microscope).toContain('href={repositoryBackHref(report)}');
+    expect(shell).toContain('repositoryHref = "/repository-v2"');
   });
 });

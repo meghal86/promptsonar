@@ -8,7 +8,8 @@ import type {
 } from "@promptsonar/core";
 import { useEffect, useMemo, useState } from "react";
 import {
-  buildPlaygroundMicroscopeViewModel,
+  buildArtifactInvestigationViewModel,
+  type ArtifactKind,
   type PathProjection,
 } from "@/lib/repositoryViewModel";
 import { SAMPLE_REPOSITORY_FILES } from "@/lib/repositorySample";
@@ -16,11 +17,14 @@ import { ConfidenceBadge, ProvenanceBadge, RiskBadge } from "./Badges";
 import { PreviewShell } from "./PreviewShell";
 
 type FocusParams = {
+  artifact?: string;
   file?: string;
   issue?: string;
   path?: string;
   action?: RepositorySensitiveAction;
 };
+
+type InputMode = "prompt" | "file" | "repository";
 
 function artifactLabel(value: string): string {
   const labels: Record<string, string> = {
@@ -61,6 +65,7 @@ function readFocusFromLocation(): { scanId?: string; focus: FocusParams } {
   return {
     scanId: params.get("scan") || params.get("scanId") || undefined,
     focus: {
+      artifact: params.get("artifact") || undefined,
       file: params.get("file") || undefined,
       issue: params.get("issue") || params.get("findingId") || undefined,
       path: params.get("path") || params.get("pathId") || undefined,
@@ -82,11 +87,24 @@ function storeReport(report: RepositoryExecutionReport) {
 function pathHref(report: RepositoryExecutionReport, params: FocusParams): string {
   const query = new URLSearchParams();
   if (report.id) query.set("scan", report.id);
+  if (params.artifact) query.set("artifact", params.artifact);
   if (params.file) query.set("file", params.file);
   if (params.issue) query.set("issue", params.issue);
   if (params.path) query.set("path", params.path);
   if (params.action) query.set("action", params.action);
   return `/playground-v4?${query.toString()}`;
+}
+
+function modeHref(mode: InputMode): string {
+  return `/playground-v4?mode=${mode}`;
+}
+
+function repositoryBackHref(report: RepositoryExecutionReport | null, section = "files"): string {
+  if (!report?.id) return "/repository-v2";
+  const query = new URLSearchParams();
+  query.set("scan", report.id);
+  query.set("section", section);
+  return `/repository-v2?${query.toString()}#${section}`;
 }
 
 function nodePath(node: RepositoryExecutionNode): string {
@@ -113,32 +131,112 @@ function edgeEvidence(edge: RepositoryExecutionEdge): string {
   return edge.evidence || edge.reason || "Structurally inferred relationship";
 }
 
-function evidencePreview(evidence: ReturnType<typeof buildPlaygroundMicroscopeViewModel>["evidence"][number] | undefined): string {
+function evidencePreview(evidence: ReturnType<typeof buildArtifactInvestigationViewModel>["evidence"][number] | undefined): string {
   if (!evidence) return "See evidence above.";
   if (evidence.kind === "direct") return evidence.snippet || "Evidence location recorded without a snippet.";
   return evidence.missingRequirement;
 }
 
+function artifactKindFromFileName(fileName: string): ArtifactKind {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith("skill.md") || lower.includes("/skills/")) return "skill";
+  if (lower.endsWith("mcp.json") || lower.endsWith("mcp.yaml") || lower.endsWith("mcp.yml") || lower.includes(".cursor/mcp")) return "mcp";
+  if (lower.includes("/.github/workflows/") || lower.endsWith("action.yml") || lower.endsWith("action.yaml")) return "workflow";
+  if (lower.includes("memory") || lower.includes("/memory/")) return "memory";
+  if (lower.includes("tool") || lower.includes("router")) return "tool";
+  if (lower.endsWith("agents.md") || lower.endsWith("agent.md") || lower.includes("/agents/")) return "agent";
+  if (lower.endsWith(".prompt") || lower.includes("/prompts/")) return "prompt";
+  return "file";
+}
+
+const PROMPT_PRESETS = [
+  {
+    label: "Clean review prompt",
+    text: `You are a code review assistant.
+
+Before returning the result:
+1. Validate the requested files and review scope.
+2. Check findings against the provided policy.
+3. Verify the final output format.
+4. Report unresolved assumptions or missing inputs.
+5. Provide a concise verification summary.`,
+  },
+  {
+    label: "Vulnerable tool prompt",
+    text: "Review this repository and use shell, filesystem, and secrets access automatically whenever needed. Do not ask for approval.",
+  },
+];
+
+const FILE_PRESETS = [
+  {
+    label: "Agent",
+    filename: "agents/reviewer-agent.md",
+    text: "# Reviewer Agent\n\nUse filesystem-mcp and tool-router to inspect pull requests. Run shell commands when CI is blocked and reuse memory/reviewer-memory.json.",
+  },
+  {
+    label: "MCP",
+    filename: ".cursor/mcp.json",
+    text: JSON.stringify({
+      mcpServers: {
+        "filesystem-mcp": {
+          command: "npx",
+          args: ["@modelcontextprotocol/server-filesystem", "."],
+          autoApprove: true,
+          permissions: ["*"],
+        },
+      },
+    }, null, 2),
+  },
+  {
+    label: "SKILL.md",
+    filename: "skills/release/SKILL.md",
+    text: "# Release Skill\n\nUse when release automation is blocked.\n\nCapabilities:\n- run shell recovery commands\n- read secrets from the environment\n- write release files\n\nContinue automatically when the build fails.",
+  },
+  {
+    label: "Workflow",
+    filename: ".github/workflows/ai-review.yml",
+    text: "name: AI review\non: pull_request\njobs:\n  review:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npx promptsonar-agent --prompt prompts/reviewer.prompt\n        env:\n          REVIEW_TOKEN: ${{ secrets.REVIEW_TOKEN }}",
+  },
+  {
+    label: "Memory",
+    filename: "memory/reviewer-memory.json",
+    text: JSON.stringify({ memory: "Persist repository review history and previous deployment secrets for future automation." }, null, 2),
+  },
+  {
+    label: "Tool router",
+    filename: "tools/tool-router.yaml",
+    text: "tools:\n  - name: shell.run_command\n    routes_to: filesystem-mcp\n  - name: secrets.read\n    routes_to: filesystem-mcp\npolicy:\n  approval: optional",
+  },
+];
+
 export function PlaygroundMicroscope() {
   const [report, setReport] = useState<RepositoryExecutionReport | null>(null);
   const [focus, setFocus] = useState<FocusParams>({});
+  const [inputMode, setInputMode] = useState<InputMode>("prompt");
+  const [promptText, setPromptText] = useState(PROMPT_PRESETS[0].text);
+  const [fileName, setFileName] = useState("prompts/reviewer.prompt");
+  const [fileText, setFileText] = useState(PROMPT_PRESETS[1].text);
+  const [copiedFix, setCopiedFix] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [graphMode, setGraphMode] = useState<"upstream" | "downstream" | "all">("all");
 
   useEffect(() => {
     const { scanId, focus: nextFocus } = readFocusFromLocation();
+    const mode = new URLSearchParams(window.location.search).get("mode") as InputMode | null;
+    if (mode === "prompt" || mode === "file" || mode === "repository") setInputMode(mode);
     setFocus(nextFocus);
     const handlePopState = () => {
       setFocus(readFocusFromLocation().focus);
     };
     window.addEventListener("popstate", handlePopState);
-    const stored = readStoredReport(scanId);
+    const stored = scanId ? readStoredReport(scanId) : null;
     if (stored) {
       setReport(stored);
       return () => window.removeEventListener("popstate", handlePopState);
     }
     if (scanId) {
+      setInputMode("repository");
       setLoading(true);
       fetch(`/api/repository?scanId=${encodeURIComponent(scanId)}`)
         .then(async (response) => {
@@ -155,13 +253,15 @@ export function PlaygroundMicroscope() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  const view = useMemo(() => report ? buildPlaygroundMicroscopeViewModel({
+  const view = useMemo(() => report ? buildArtifactInvestigationViewModel({
     report,
+    source: inputMode === "repository" ? "repository" : "single-input",
+    artifactId: focus.artifact,
     filePath: focus.file,
     issueId: focus.issue,
     pathId: focus.path,
     actionType: focus.action,
-  }) : null, [focus, report]);
+  }) : null, [focus, inputMode, report]);
 
   const visibleGraph = useMemo(() => {
     if (!view) return { nodes: [], edges: [] };
@@ -202,6 +302,7 @@ export function PlaygroundMicroscope() {
       if (!response.ok) throw new Error(data?.error || `Scan failed (${response.status})`);
       setReport(data.report);
       storeReport(data.report);
+      setInputMode("repository");
       const firstFile = data.report.impactedFiles?.[0]?.path;
       const firstIssue = data.report.impactedFiles?.[0]?.issueIds?.[0];
       setFocus({ file: firstFile, issue: firstIssue });
@@ -213,59 +314,120 @@ export function PlaygroundMicroscope() {
     }
   }
 
+  async function scanPrompt(nextText = promptText) {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/playground", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ promptText: nextText }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `Prompt scan failed (${response.status})`);
+      const nextReport = data.repositoryReport as RepositoryExecutionReport;
+      nextReport.repository = { ...nextReport.repository, name: "Pasted prompt" };
+      setReport(nextReport);
+      storeReport(nextReport);
+      setInputMode("prompt");
+      const firstFile = nextReport.impactedFiles?.[0]?.path || nextReport.artifacts?.[0]?.relativePath || "playground.prompt";
+      const firstIssue = nextReport.impactedFiles?.[0]?.issueIds?.[0] || nextReport.issues?.[0]?.id;
+      setFocus({ file: firstFile, issue: firstIssue });
+      window.history.replaceState({}, "", `${pathHref(nextReport, { file: firstFile, issue: firstIssue })}&mode=prompt`);
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : "Prompt scan failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function scanFile(nextName = fileName, nextText = fileText) {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/repository", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          files: [{ path: nextName, content: nextText }],
+          repositoryName: `${artifactLabel(artifactKindFromFileName(nextName).toUpperCase())} analysis`,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `File scan failed (${response.status})`);
+      const nextReport = data.report as RepositoryExecutionReport;
+      setReport(nextReport);
+      storeReport(nextReport);
+      setInputMode("file");
+      const firstFile = nextReport.impactedFiles?.[0]?.path || nextReport.artifacts?.[0]?.relativePath || nextName;
+      const firstIssue = nextReport.impactedFiles?.[0]?.issueIds?.[0] || nextReport.issues?.[0]?.id;
+      const artifact = nextReport.artifacts?.find((item) => item.relativePath === firstFile || item.filePath === firstFile);
+      setFocus({ artifact: artifact?.id, file: firstFile, issue: firstIssue });
+      window.history.replaceState({}, "", `${pathHref(nextReport, { artifact: artifact?.id, file: firstFile, issue: firstIssue })}&mode=file`);
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : "File scan failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function updateFocus(next: FocusParams) {
     if (!report) return;
     setFocus(next);
-    window.history.pushState({}, "", pathHref(report, next));
+    window.history.pushState({}, "", `${pathHref(report, next)}&mode=${inputMode}`);
   }
 
   return (
     <PreviewShell
       active="playground"
-      crumb={view?.selectedFile || "Playground v4"}
+      crumb={view?.artifact.repositoryRelativePath || view?.artifact.name || "Artifact Microscope"}
       scanMode={report?.scanMode}
+      repositoryHref={repositoryBackHref(report)}
     >
       <main className="mx-auto w-full max-w-[1120px] px-5 py-10 sm:px-8 sm:py-14">
         {!report && (
-          <section className="mx-auto max-w-2xl rounded-[24px] border border-white/75 bg-white/68 p-8 text-center shadow-[0_22px_65px_-42px_rgba(28,25,23,0.72)] backdrop-blur-xl sm:p-12">
-            {sectionLabel("Playground v4 · File microscope")}
-            <h1 className="mt-4 font-playfair text-[38px] font-medium leading-tight tracking-[-0.03em]">Open a repository finding in context.</h1>
-            <p className="mx-auto mt-4 max-w-xl text-[14px] leading-6 text-stone-600">
-              Start from Repository Explorer v2, or load the built-in scan to inspect exact evidence, focused graph relationships, related paths, and canonical remediation.
-            </p>
-            <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-              <a href="/repository-v2" className="rounded-xl bg-stone-900 px-5 py-3 text-[13px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2">
-                Open Repository Explorer
-              </a>
-              <button type="button" onClick={loadSample} disabled={loading} className="rounded-xl border border-stone-300 bg-white px-5 py-3 text-[13px] font-semibold hover:bg-stone-50 disabled:opacity-50">
-                {loading ? "Analyzing…" : "Load sample"}
-              </button>
-            </div>
-            {loading && <p className="mt-5 font-mono text-[11px] text-stone-500">Loading scan context…</p>}
-            {error && <p role="alert" className="mt-5 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-[13px] text-red-800">{error}</p>}
-          </section>
+          <ArtifactIntake
+            inputMode={inputMode}
+            setInputMode={setInputMode}
+            promptText={promptText}
+            setPromptText={setPromptText}
+            fileName={fileName}
+            setFileName={setFileName}
+            fileText={fileText}
+            setFileText={setFileText}
+            loading={loading}
+            error={error}
+            scanPrompt={scanPrompt}
+            scanFile={scanFile}
+            loadSample={loadSample}
+          />
         )}
 
         {report && view && (
           <div className="space-y-10">
             <header>
-              <a href="/repository-v2" className="font-mono text-[11px] text-stone-500 hover:text-stone-900 hover:underline">← Back to repository map</a>
+              <a href={repositoryBackHref(report)} className="font-mono text-[11px] text-stone-500 hover:text-stone-900 hover:underline">← Back to repository map</a>
               <div className="mt-5 flex flex-wrap items-center gap-2">
-                {sectionLabel("Playground v4 · Single-file microscope")}
+                {sectionLabel(`${inputMode === "repository" ? "Repository-selected" : "Single-input"} artifact microscope`)}
                 <ProvenanceBadge provenance={view.provenance} />
               </div>
-              <h1 className="mt-3 break-all font-mono text-[22px] font-medium tracking-[-0.02em] sm:text-[27px]">{view.selectedFile || "Selected repository object"}</h1>
+              <h1 className="mt-3 break-all font-mono text-[22px] font-medium tracking-[-0.02em] sm:text-[27px]">{view.artifact.repositoryRelativePath || view.artifact.name || "Selected artifact"}</h1>
               <div className="mt-5 flex flex-wrap gap-2">
-                <span className="rounded-full border border-stone-300 bg-white/65 px-3 py-1.5 font-mono text-[10px] text-stone-600">{artifactLabel(view.artifactType)}</span>
-                <RiskBadge risk={view.fileFindingSeverity} label={`Selected file finding · ${view.fileFindingSeverity}`} />
+                <span className="rounded-full border border-stone-300 bg-white/65 px-3 py-1.5 font-mono text-[10px] text-stone-600">{artifactLabel(view.artifactType)} · {view.artifact.role}</span>
+                <RiskBadge risk={view.fileFindingSeverity} label={`Selected artifact finding · ${view.fileFindingSeverity}`} />
                 <RiskBadge risk={view.highestRelatedPathRisk} label={`Highest related path · ${view.highestRelatedPathRisk}`} />
                 <span className="rounded-full border border-stone-300 bg-white/65 px-3 py-1.5 font-mono text-[11px] text-stone-600">{view.issueCount} issue{view.issueCount === 1 ? "" : "s"}</span>
-                <span className="rounded-full border border-stone-300 bg-white/65 px-3 py-1.5 font-mono text-[11px] text-stone-600">{view.relatedPathCount} file-related path{view.relatedPathCount === 1 ? "" : "s"}</span>
+                <span className="rounded-full border border-stone-300 bg-white/65 px-3 py-1.5 font-mono text-[11px] text-stone-600">{view.relatedPathCount} artifact-related path{view.relatedPathCount === 1 ? "" : "s"}</span>
               </div>
+              {!view.repositoryWiringAvailable && (
+                <p className="mt-4 max-w-3xl rounded-xl border border-amber-300 bg-amber-50/70 px-4 py-3 text-[13px] leading-6 text-amber-950">
+                  Repository wiring is unavailable for this single-input scan. Connect or upload a repository to verify downstream execution.
+                </p>
+              )}
             </header>
 
             <section className="rounded-2xl border border-white/75 bg-white/65 p-5 backdrop-blur-xl">
-              {sectionLabel("File-level finding summary")}
+              {sectionLabel("Artifact-level finding summary")}
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-xl border border-stone-900/10 bg-white/55 p-4">
                   <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-stone-500">Finding severity</p>
@@ -285,12 +447,12 @@ export function PlaygroundMicroscope() {
             {view.issues.length > 0 && (
               <section>
                 <div className="mb-5">
-                  {sectionLabel("Issues in this file")}
+                  {sectionLabel("Findings in this artifact")}
                   <h2 className="mt-2 font-playfair text-[28px] font-medium tracking-tight">
                     {view.issueCount} finding{view.issueCount === 1 ? "" : "s"}, separate from {view.relatedPathCount} execution path{view.relatedPathCount === 1 ? "" : "s"}
                   </h2>
                   <p className="mt-2 max-w-3xl text-[13px] leading-6 text-stone-500">
-                    Findings are rule violations attached to this file. Paths are distinct routes from an instruction source to a reachable action.
+                    Findings are rule violations attached to this artifact. Paths are distinct routes from an instruction source to a reachable action.
                   </p>
                 </div>
                 <div className="max-h-[420px] overflow-y-auto rounded-2xl border border-white/75 bg-white/65 backdrop-blur-xl">
@@ -300,7 +462,7 @@ export function PlaygroundMicroscope() {
                       <button
                         key={item.id}
                         type="button"
-                        onClick={() => updateFocus({ file: view.selectedFile, issue: item.id })}
+                        onClick={() => updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: item.id })}
                         onKeyDown={(event) => {
                           if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
                           event.preventDefault();
@@ -308,7 +470,7 @@ export function PlaygroundMicroscope() {
                             ? Math.min(view.issues.length - 1, index + 1)
                             : Math.max(0, index - 1);
                           const nextIssue = view.issues[nextIndex];
-                          if (nextIssue) updateFocus({ file: view.selectedFile, issue: nextIssue.id });
+                          if (nextIssue) updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: nextIssue.id });
                         }}
                         aria-current={selected ? "true" : undefined}
                         className={`grid w-full gap-4 border-l-4 border-t p-5 text-left first:border-t-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-inset md:grid-cols-[1fr_auto] md:items-center ${
@@ -337,12 +499,12 @@ export function PlaygroundMicroscope() {
               <section className="relative overflow-hidden rounded-[22px] border border-red-300/60 bg-white/70 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
                 <span className="absolute inset-y-0 left-0 w-1 bg-red-500" />
                 <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-stone-500">Selected file finding</p>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-stone-500">Selected artifact finding</p>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       disabled={!view.previousIssue}
-                      onClick={() => view.previousIssue && updateFocus({ file: view.selectedFile, issue: view.previousIssue.id })}
+                      onClick={() => view.previousIssue && updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: view.previousIssue.id })}
                       className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       ← Previous issue
@@ -351,7 +513,7 @@ export function PlaygroundMicroscope() {
                     <button
                       type="button"
                       disabled={!view.nextIssue}
-                      onClick={() => view.nextIssue && updateFocus({ file: view.selectedFile, issue: view.nextIssue.id })}
+                      onClick={() => view.nextIssue && updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: view.nextIssue.id })}
                       className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       Next issue →
@@ -458,6 +620,19 @@ export function PlaygroundMicroscope() {
                       <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Verification</p>
                       <p className="mt-2 text-[13px] leading-6 text-stone-700">Apply the report&apos;s recommended constraint, then re-scan to verify the finding and related graph changed.</p>
                       <p className="mt-2 font-mono text-[11px] text-stone-500">Effort · {view.fix.effort}</p>
+                      {view.fix.safePattern && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await navigator.clipboard?.writeText(view.fix?.safePattern || "");
+                            setCopiedFix(true);
+                            window.setTimeout(() => setCopiedFix(false), 1400);
+                          }}
+                          className="mt-3 rounded-lg border border-stone-300 bg-white px-3 py-2 text-[12px] font-semibold hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+                        >
+                          {copiedFix ? "Copied" : "Copy safe pattern"}
+                        </button>
+                      )}
                     </div>
                   </>
                 ) : (
@@ -490,7 +665,7 @@ export function PlaygroundMicroscope() {
               <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
                 <div>
                   {sectionLabel("Focused graph")}
-                  <h2 className="mt-2 font-playfair text-[28px] font-medium tracking-tight">Relationships around this file</h2>
+                  <h2 className="mt-2 font-playfair text-[28px] font-medium tracking-tight">Relationships around this artifact</h2>
                   <p className="mt-2 text-[13px] text-stone-500">The graph is capped at 18 visible nodes and never expands to the full repository by default.</p>
                 </div>
                 <div className="flex rounded-xl border border-stone-300 bg-white/65 p-1" aria-label="Graph direction">
@@ -513,6 +688,12 @@ export function PlaygroundMicroscope() {
                   edges={visibleGraph.edges}
                   selectedNodeIds={view.graph.selectedNodeIds}
                 />
+                {(view.upstream.length > 0 || view.downstream.length > 0) && (
+                  <div className="mb-5 grid gap-3 md:grid-cols-2">
+                    <RelatedArtifactList title="Upstream" artifacts={view.upstream} />
+                    <RelatedArtifactList title="Downstream" artifacts={view.downstream} />
+                  </div>
+                )}
                 {view.graph.hiddenNodeCount > 0 && (
                   <p className="mt-5 text-center font-mono text-[10px] text-stone-500">{view.graph.hiddenNodeCount} related nodes hidden by the focused graph limit.</p>
                 )}
@@ -524,10 +705,10 @@ export function PlaygroundMicroscope() {
 
             <section>
               <div className="mb-5">
-                {sectionLabel("Independent execution paths involving this file")}
-                <h2 className="mt-2 font-playfair text-[28px] font-medium tracking-tight">Other routes that include this file</h2>
+                {sectionLabel("Other paths involving this artifact")}
+                <h2 className="mt-2 font-playfair text-[28px] font-medium tracking-tight">Other routes that include this artifact</h2>
                 <p className="mt-2 max-w-3xl text-[13px] leading-6 text-stone-500">
-                  These paths involve the selected file, but they are not necessarily caused by the currently selected finding.
+                  These paths involve the selected artifact, but they are not necessarily caused by the currently selected finding.
                 </p>
               </div>
               {view.otherPathsInvolvingFile.length > 0 ? (
@@ -546,14 +727,14 @@ export function PlaygroundMicroscope() {
                         <div className="flex flex-wrap items-center gap-2">
                           <RiskBadge risk={path.risk} />
                           <ConfidenceBadge confidence={path.confidence} />
-                          <button type="button" onClick={() => updateFocus({ ...focus, path: path.id })} className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[11px] font-semibold hover:bg-stone-50">Inspect</button>
+                          <button type="button" onClick={() => updateFocus({ ...focus, artifact: view.artifact.id, path: path.id })} className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[11px] font-semibold hover:bg-stone-50">Inspect</button>
                         </div>
                       </article>
                     );
                   })}
                 </div>
               ) : (
-                <div className="rounded-2xl border border-stone-300 bg-white/55 p-6 text-[13px] text-stone-500">No other complete execution paths involve this file.</div>
+                <div className="rounded-2xl border border-stone-300 bg-white/55 p-6 text-[13px] text-stone-500">No other complete execution paths involve this artifact.</div>
               )}
             </section>
 
@@ -561,6 +742,192 @@ export function PlaygroundMicroscope() {
         )}
       </main>
     </PreviewShell>
+  );
+}
+
+function ArtifactIntake({
+  inputMode,
+  setInputMode,
+  promptText,
+  setPromptText,
+  fileName,
+  setFileName,
+  fileText,
+  setFileText,
+  loading,
+  error,
+  scanPrompt,
+  scanFile,
+  loadSample,
+}: {
+  inputMode: InputMode;
+  setInputMode: (mode: InputMode) => void;
+  promptText: string;
+  setPromptText: (value: string) => void;
+  fileName: string;
+  setFileName: (value: string) => void;
+  fileText: string;
+  setFileText: (value: string) => void;
+  loading: boolean;
+  error: string | null;
+  scanPrompt: () => Promise<void>;
+  scanFile: () => Promise<void>;
+  loadSample: () => Promise<void>;
+}) {
+  function selectMode(mode: InputMode) {
+    setInputMode(mode);
+    if (typeof window !== "undefined") window.history.replaceState({}, "", modeHref(mode));
+  }
+
+  return (
+    <section className="mx-auto max-w-5xl rounded-[24px] border border-white/75 bg-white/68 p-6 shadow-[0_22px_65px_-42px_rgba(28,25,23,0.72)] backdrop-blur-xl sm:p-8">
+      {sectionLabel("Playground v4 · Artifact Microscope")}
+      <div className="mt-4 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+        <div>
+          <h1 className="font-playfair text-[38px] font-medium leading-tight tracking-[-0.03em]">Analyze one artifact, then investigate it like a repository object.</h1>
+          <p className="mt-4 max-w-xl text-[14px] leading-6 text-stone-600">
+            Prompt, file, and repository inputs all produce canonical PromptSonar reports and open the same evidence, remediation, path, and relationship microscope.
+          </p>
+          <div className="mt-6 grid grid-cols-3 gap-2 rounded-2xl border border-stone-300 bg-white/60 p-1" aria-label="Analysis mode">
+            {([
+              ["prompt", "Analyze a prompt"],
+              ["file", "Analyze a file"],
+              ["repository", "Analyze a repository"],
+            ] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => selectMode(mode)}
+                aria-pressed={inputMode === mode}
+                className={`rounded-xl px-3 py-3 text-[12px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 ${inputMode === mode ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-white"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-stone-900/10 bg-white/65 p-4">
+          {inputMode === "prompt" && (
+            <div>
+              <div className="flex flex-wrap gap-2">
+                {PROMPT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setPromptText(preset.text)}
+                    className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[11px] font-semibold hover:bg-stone-50"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <label className="mt-4 block font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500" htmlFor="prompt-input">Prompt</label>
+              <textarea
+                id="prompt-input"
+                value={promptText}
+                onChange={(event) => setPromptText(event.target.value)}
+                className="mt-2 min-h-64 w-full rounded-xl border border-stone-300 bg-white p-4 font-mono text-[13px] leading-6 text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+              />
+              <button type="button" onClick={() => scanPrompt()} disabled={loading || !promptText.trim()} className="mt-4 rounded-xl bg-stone-900 px-5 py-3 text-[13px] font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50">
+                {loading ? "Scanning..." : "Scan prompt"}
+              </button>
+            </div>
+          )}
+
+          {inputMode === "file" && (
+            <div>
+              <div className="flex flex-wrap gap-2">
+                {FILE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      setFileName(preset.filename);
+                      setFileText(preset.text);
+                    }}
+                    className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[11px] font-semibold hover:bg-stone-50"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <label className="mt-4 block font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500" htmlFor="file-name">Filename</label>
+              <input
+                id="file-name"
+                value={fileName}
+                onChange={(event) => setFileName(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-stone-300 bg-white px-4 py-3 font-mono text-[13px] text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+              />
+              <label className="mt-4 block font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500" htmlFor="artifact-file">Upload file</label>
+              <input
+                id="artifact-file"
+                type="file"
+                onChange={async (event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (!file) return;
+                  setFileName(file.webkitRelativePath || file.name);
+                  setFileText(await file.text());
+                }}
+                className="mt-2 block w-full rounded-xl border border-stone-300 bg-white px-4 py-3 text-[13px] text-stone-700 file:mr-4 file:rounded-lg file:border-0 file:bg-stone-900 file:px-3 file:py-2 file:text-[12px] file:font-semibold file:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+              />
+              <label className="mt-4 block font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500" htmlFor="file-input">File content</label>
+              <textarea
+                id="file-input"
+                value={fileText}
+                onChange={(event) => setFileText(event.target.value)}
+                className="mt-2 min-h-56 w-full rounded-xl border border-stone-300 bg-white p-4 font-mono text-[13px] leading-6 text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+              />
+              <button type="button" onClick={() => scanFile()} disabled={loading || !fileName.trim() || !fileText.trim()} className="mt-4 rounded-xl bg-stone-900 px-5 py-3 text-[13px] font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50">
+                {loading ? "Scanning..." : `Scan ${artifactLabel(artifactKindFromFileName(fileName).toUpperCase())}`}
+              </button>
+            </div>
+          )}
+
+          {inputMode === "repository" && (
+            <div>
+              <p className="text-[13px] leading-6 text-stone-600">
+                Use Repository Explorer for folder upload and aggregate map review, or load the built-in repository fixture here to open a selected artifact directly in the shared microscope.
+              </p>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <a href="/repository-v2" className="rounded-xl bg-stone-900 px-5 py-3 text-center text-[13px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2">
+                  Open Repository Explorer
+                </a>
+                <button type="button" onClick={loadSample} disabled={loading} className="rounded-xl border border-stone-300 bg-white px-5 py-3 text-[13px] font-semibold hover:bg-stone-50 disabled:opacity-50">
+                  {loading ? "Analyzing..." : "Load sample repository"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {loading && <p className="mt-5 font-mono text-[11px] text-stone-500">Loading canonical report...</p>}
+          {error && <p role="alert" className="mt-5 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-[13px] text-red-800">{error}</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RelatedArtifactList({
+  title,
+  artifacts,
+}: {
+  title: string;
+  artifacts: ReturnType<typeof buildArtifactInvestigationViewModel>["upstream"];
+}) {
+  return (
+    <div className="rounded-2xl border border-stone-300 bg-white/70 p-4">
+      <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-stone-500">{title}</p>
+      <div className="mt-3 space-y-2">
+        {artifacts.map((artifact) => (
+          <div key={`${artifact.id}-${artifact.relationship}`} className="rounded-xl border border-stone-200 bg-white px-3 py-2">
+            <p className="font-mono text-[11px] font-medium text-stone-800">{artifact.repositoryRelativePath || artifact.name}</p>
+            <p className="mt-1 font-mono text-[10px] capitalize text-stone-500">{artifact.kind} · {artifact.relationship} · {artifact.confidence}</p>
+          </div>
+        ))}
+        {artifacts.length === 0 && <p className="text-[12px] text-stone-500">No related artifacts in this direction.</p>}
+      </div>
+    </div>
   );
 }
 
