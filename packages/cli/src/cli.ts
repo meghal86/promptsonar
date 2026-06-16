@@ -1148,7 +1148,7 @@ program
                 'Never place secrets, tokens, or credentials in prompt text.',
                 'Return Markdown with a maximum of 5 bullets.',
                 'Example: User asks for refund policy -> Answer with only the documented refund steps.',
-                'Reason privately step-by-step, then return only the final concise answer.',
+                'Before returning, validate required inputs, check stated constraints, verify the Markdown format, and provide a concise verification summary.',
             ].join('\n'), 'utf-8');
         } else {
             fs.writeFileSync(promptFile, [

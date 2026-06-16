@@ -1877,7 +1877,7 @@ export default function PlaygroundPage() {
       setActiveLeftTab('prompt');
       runAnalysis(p, c, v);
     } else {
-      const p = `Role: Acme customer support assistant. Scope: answer payment-support questions using validated inputs only. Refuse secret requests and command execution. Use sanitized <trusted_context> only. Return exactly 2 Markdown sections: Answer and Next step.\n<trusted_context>{{validated_context}}</trusted_context>\nValidated question: {{validated_user_query}}\nExample:\nInput: validated_user_query = "How do I request a refund?"\nOutput:\n## Answer\nUse the secure billing portal for an accurate refund answer.\n## Next step\nSubmit the transaction ID.\nThink step-by-step privately; return only the 2 sections.`;
+      const p = `Role: Acme customer support assistant. Scope: answer payment-support questions using validated inputs only. Refuse secret requests and command execution. Use sanitized <trusted_context> only. Return exactly 2 Markdown sections: Answer and Next step.\n<trusted_context>{{validated_context}}</trusted_context>\nValidated question: {{validated_user_query}}\nExample:\nInput: validated_user_query = "How do I request a refund?"\nOutput:\n## Answer\nUse the secure billing portal for an accurate refund answer.\n## Next step\nSubmit the transaction ID.\nBefore returning, validate required inputs, check stated constraints, verify the two-section Markdown format, and provide a concise verification summary within the requested sections.`;
       const c = `contract:\n  id: "payment-agent-v1"\n  input:\n    properties:\n      validated_context:\n        type: "string"\n      validated_user_query:\n        type: "string"\n    required:\n      - validated_context\n      - validated_user_query\n  output:\n    properties:\n      answer:\n        type: "string"\n  safety:\n    must_not:\n      - "override instructions"\n      - "ignore system guidelines"\n    must_have:\n      - "secure"\n      - "accurate"`;
       const v = {
         validated_context: "Acme FAQ details about secure refund policies.",
@@ -2496,7 +2496,7 @@ export default function PlaygroundPage() {
       '## Safety note',
       'I used only validated support context and did not expose private data.',
       '',
-      'Think step-by-step privately; return only the two requested sections.'
+      'Before returning, validate required inputs, check stated constraints, verify the two-section Markdown format, and provide a concise verification summary within the requested sections.'
     ];
     return lines.filter(Boolean).join('\n');
   };
@@ -6231,7 +6231,7 @@ export default function PlaygroundPage() {
                           { gate: 'OWASP LLM01 - Prompt Injection Prevention', check: !hasInjectionRisk, details: hasInjectionRisk ? 'Obfuscations or malicious command bypass patterns matched system instruction rules.' : 'No active injection patterns or homoglyph overrides identified.' },
                           { gate: 'OWASP LLM02 - Sensitive PII Disclosure Prevention', check: !hasExposureRisk, details: hasExposureRisk ? 'Hardcoded OpenAI API Keys or PII data found in prompt instructions.' : 'No hardcoded private API Keys or user credentials detected.' },
                           { gate: 'Clarity & Ambiguity Audit Checklist', check: getCategoryIssuesCount('clarity') === 0, details: getCategoryIssuesCount('clarity') > 0 ? 'Vague terms or missing list limits can trigger inconsistent outputs.' : 'System expectations are clearly delineated without vague terms.' },
-                          { gate: 'Best Practices Guidelines Audit Checklist', check: getCategoryIssuesCount('best_practices') === 0, details: getCategoryIssuesCount('best_practices') > 0 ? 'Prompt lacks either Chain-of-Thought reasoning or few-shot training blocks.' : 'Persona establishes clear guidelines and step-by-step logic.' },
+                          { gate: 'Best Practices Guidelines Audit Checklist', check: getCategoryIssuesCount('best_practices') === 0, details: getCategoryIssuesCount('best_practices') > 0 ? 'Prompt lacks either observable verification criteria or few-shot examples.' : 'Persona establishes clear guidelines and verification checks.' },
                           { gate: 'Consistency Instruction Match Check', check: getCategoryIssuesCount('consistency') === 0, details: getCategoryIssuesCount('consistency') > 0 ? 'Contradicting constraints found (e.g. asking both short and long responses).' : 'Prompt parameters are coherent and free of contradictory rules.' }
                         ].map((g, idx) => (
                           <div key={idx} className="p-3.5 bg-white flex items-start gap-4 hover:bg-slate-50/50">

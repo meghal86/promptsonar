@@ -178,7 +178,7 @@ describe('execution path report serialization', () => {
     expect(report.workflow_replay?.replay_version).toBe('1.0');
     expect(report.workflow_replay?.events.map(event => event.type)).toEqual(['USER_INPUT', 'TOOL_ROUTER', 'SHELL']);
     expect(report.evidence_items.map(item => item.finding_rule_id)).toContain('sec_workflow_escalation');
-    expect(report.confidence.reasons).toContain('Privileged sink reached');
+    expect(report.confidence.reasons).toContain('Dangerous destination reached');
     expect(report.recommended_fixes).toEqual([{
       finding_rule_id: 'sec_workflow_escalation',
       severity: 'critical',
@@ -225,10 +225,10 @@ describe('execution path report serialization', () => {
 
     expect(JSON.parse(reportToJson(report)).report_hash).toBe(report.report_hash);
     expect(JSON.parse(reportToSarif(report)).version).toBe('2.1.0');
-    expect(reportToMarkdown(report)).toContain('PromptSonar Execution Path Review');
+    expect(reportToMarkdown(report)).toContain('PromptSonar Prompt Flow Review');
     expect(reportToMarkdown(report)).toContain('Recommended Fixes');
     expect(reportToMarkdown(report)).toContain('Workflow Replay');
-    expect(reportToPrComment(report)).toContain('Execution Path Review');
+    expect(reportToPrComment(report)).toContain('Prompt Flow Review');
     expect(reportToPrComment(report)).toContain('Execution risk');
   });
 });

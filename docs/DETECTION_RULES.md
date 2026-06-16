@@ -51,7 +51,7 @@ Source Code → Parser (Fast Regex + Tree-sitter) → Detected Prompts → Rule 
 
 ## Prompt Detection (Parser)
 
-The parser identifies prompts using a multi-strategy approach in [`packages/core/src/parser/index.ts`](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/parser/index.ts).
+The parser identifies prompts using a multi-strategy approach in [`packages/core/src/parser/index.ts`](../packages/core/src/parser/index.ts).
 
 ### Supported Languages
 
@@ -113,7 +113,7 @@ non-production context and do **not** drive repository trust status — only
 
 ### 1. Security — OWASP Injection Patterns (`sec_owasp_llm01_injection`)
 
-**File:** [owasp_patterns.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/security/owasp_patterns.ts)  
+**File:** [owasp_patterns.ts](../packages/core/src/rules/security/owasp_patterns.ts)  
 **Severity:** `critical` | **Penalty:** 30 pts | **Weight:** 40%
 
 Detects prompt injection attacks mapped to **OWASP LLM Top 10 — LLM01**. Before scanning, text is **normalized** by:
@@ -144,7 +144,7 @@ Detects prompt injection attacks mapped to **OWASP LLM Top 10 — LLM01**. Befor
 
 ### 2. Security — PII / Sensitive Data (`sec_owasp_llm02_pii`)
 
-**File:** [pii.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/security/pii.ts)  
+**File:** [pii.ts](../packages/core/src/rules/security/pii.ts)  
 **Severity:** `high` | **Penalty:** 20 pts | **Weight:** 40%
 
 Detects hardcoded sensitive information mapped to **OWASP LLM02 (Sensitive Information Disclosure)**.
@@ -162,7 +162,7 @@ Detects hardcoded sensitive information mapped to **OWASP LLM02 (Sensitive Infor
 
 ### 3. Security — Unbounded Persona (`sec_unbounded_persona`)
 
-**File:** [unbounded_persona.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/security/unbounded_persona.ts)  
+**File:** [unbounded_persona.ts](../packages/core/src/rules/security/unbounded_persona.ts)  
 **Severity:** `high` | **Penalty:** 15 pts | **OWASP:** LLM01
 
 Detects `act as` / `you are a` / `pretend to be` / `role-play as` persona declarations **without** behavioral constraint indicators.
@@ -177,7 +177,7 @@ If the prompt assigns a persona but contains none of these constraint keywords, 
 
 ### 4. Security — Unbounded Access (`sec_unbounded_access`)
 
-**File:** [unbounded_access.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/security/unbounded_access.ts)  
+**File:** [unbounded_access.ts](../packages/core/src/rules/security/unbounded_access.ts)  
 **Severity:** `high` | **Penalty:** 15 pts | **OWASP:** LLM07
 
 Detects prompts granting unrestricted system/DB/file access.
@@ -194,7 +194,7 @@ Scope-limited prompts are exempted if they contain: `only from`, `restricted to`
 
 ### 5. Security — RAG Injection (`sec_rag_injection`)
 
-**File:** [rag_injection.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/security/rag_injection.ts)  
+**File:** [rag_injection.ts](../packages/core/src/rules/security/rag_injection.ts)  
 **Severity:** `high` | **Penalty:** 15 pts | **OWASP:** LLM07
 
 Detects raw user input passed directly into retrieval/tool operations without validation.
@@ -210,7 +210,7 @@ Exempted when sanitization indicators are present: `sanitize`, `validate`, `esca
 
 ### 6. Clarity
 
-**File:** [clarity.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/clarity.ts)  
+**File:** [clarity.ts](../packages/core/src/rules/clarity.ts)  
 **Weight:** 15%
 
 | Rule ID | Severity | Penalty | Trigger |
@@ -223,7 +223,7 @@ Exempted when sanitization indicators are present: `sanitize`, `validate`, `esca
 
 ### 7. Structure
 
-**File:** [structure.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/structure.ts)  
+**File:** [structure.ts](../packages/core/src/rules/structure.ts)  
 **Weight:** 15%
 
 | Rule ID | Severity | Penalty | Trigger |
@@ -234,20 +234,20 @@ Exempted when sanitization indicators are present: `sanitize`, `validate`, `esca
 
 ### 8. Best Practices
 
-**File:** [best_practices.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/best_practices.ts)  
+**File:** [best_practices.ts](../packages/core/src/rules/best_practices.ts)  
 **Weight:** 15%
 
 | Rule ID | Severity | Penalty | Trigger |
 |---|---|---|---|
 | `bp_missing_persona` | `low` | 5 | Missing role/persona setup (`"you are a"`, `"act as"`, `"role:"`, `"persona:"`) |
 | `bp_missing_few_shot` | `low` | 5 | Missing few-shot examples (`"example:"`, `"for example"`, `"input:"`, `"output:"`) |
-| `bp_missing_cot` | `low` | 5 | Complex prompt (>100 chars) without Chain-of-Thought (`"think step by step"`, `"step-by-step"`, `"explain your reasoning"`) |
+| `bp_missing_cot` | `low` | 5 | Complex prompt (>100 chars) without observable verification criteria (`"checklist"`, `"decision criteria"`, `"verify each"`, `"brief rationale"`) |
 
 ---
 
 ### 9. Consistency
 
-**File:** [consistency.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/consistency.ts)  
+**File:** [consistency.ts](../packages/core/src/rules/consistency.ts)  
 **Weight:** 10%
 
 | Rule ID | Severity | Penalty | Trigger |
@@ -270,7 +270,7 @@ Exempted when sanitization indicators are present: `sanitize`, `validate`, `esca
 
 ### 10. Efficiency / Token Limits
 
-**File:** [token_limit.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/efficiency/token_limit.ts)  
+**File:** [token_limit.ts](../packages/core/src/rules/efficiency/token_limit.ts)  
 **Weight:** 5%
 
 | Rule ID | Severity | Penalty | Trigger |
@@ -283,7 +283,7 @@ Exempted when sanitization indicators are present: `sanitize`, `validate`, `esca
 
 ### 11. Ethics
 
-**File:** [ethics.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/ethics.ts)  
+**File:** [ethics.ts](../packages/core/src/rules/ethics.ts)  
 **Weight:** 5%
 
 | Rule ID | Severity | Penalty | Trigger |
@@ -295,7 +295,7 @@ Exempted when sanitization indicators are present: `sanitize`, `validate`, `esca
 
 ## Scoring Model
 
-**File:** [rules/index.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/rules/index.ts)
+**File:** [rules/index.ts](../packages/core/src/rules/index.ts)
 
 ### Weighted Category Formula
 
@@ -329,7 +329,7 @@ Score = max(0, min(100, 100 − Σ(penalty × category_weight)))
 
 ### SARIF (Static Analysis Results Interchange Format)
 
-**File:** [formatter/sarif.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/formatter/sarif.ts)
+**File:** [formatter/sarif.ts](../packages/core/src/formatter/sarif.ts)
 
 Findings are exported as SARIF v2.1.0 for CI/CD integration (GitHub Code Scanning, etc.).
 
@@ -343,8 +343,8 @@ Findings are exported as SARIF v2.1.0 for CI/CD integration (GitHub Code Scannin
 
 ## CLI
 
-**Package:** [`packages/cli/`](file:///Users/meghalparikh/Downloads/promptsonar/packages/cli/)  
-**Entry:** [`packages/cli/src/cli.ts`](file:///Users/meghalparikh/Downloads/promptsonar/packages/cli/src/cli.ts)
+**Package:** [`packages/cli/`](../packages/cli/)  
+**Entry:** [`packages/cli/src/cli.ts`](../packages/cli/src/cli.ts)
 
 ### Usage
 
@@ -375,7 +375,7 @@ promptsonar scan <path> [options]
 
 ## Waiver System
 
-**File:** [`packages/core/src/waiver.ts`](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/waiver.ts)
+**File:** [`packages/core/src/waiver.ts`](../packages/core/src/waiver.ts)
 
 External `.promptsonar-waivers.yaml` file with Zod-validated schema.
 
@@ -401,13 +401,13 @@ Waived findings show `"waived": true` in JSON output and are excluded from exit 
 
 ### LLMLingua-2 Compression
 
-**File:** [optimizer/llmlingua.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/optimizer/llmlingua.ts)
+**File:** [optimizer/llmlingua.ts](../packages/core/src/optimizer/llmlingua.ts)
 
 Uses `microsoft/llmlingua-2-xlm-roberta-large-meetingbank` model to compress prompt tokens with a target of **20% minimum reduction**. Falls back to a simulated 22% reduction if the Python dependency is unavailable.
 
 ### ROI Cost Calculator
 
-**File:** [optimizer/costCalculator.ts](file:///Users/meghalparikh/Downloads/promptsonar/packages/core/src/optimizer/costCalculator.ts)
+**File:** [optimizer/costCalculator.ts](../packages/core/src/optimizer/costCalculator.ts)
 
 Estimates dollar savings based on:
 - **Blended LLM cost:** $5.00 per 1M input tokens (GPT-4 Turbo / Claude 3 Opus average)

@@ -57,6 +57,11 @@ export interface ScanFinding {
     owasp: string;
     recommendation: string;
     evidence: string;
+    evidenceKind?: 'direct' | 'absence';
+    scopeLabel?: string;
+    missingRequirement?: string;
+    scopeStartLine?: number;
+    scopeEndLine?: number;
     confidence: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
     why: string;
     risk: string;
@@ -179,6 +184,17 @@ function getDeterministicRecommendation(ruleId: string, fallback: string): strin
         return 'Validate and sanitize retrieval queries before use. Pass only a validated_query object into retrieval code.';
     }
     return fallback || 'Review the prompt and apply the documented safer pattern.';
+}
+
+const ABSENCE_REQUIREMENTS: Record<string, string> = {
+    bp_missing_persona: 'No bounded role or persona requirement was found within that block.',
+    bp_missing_few_shot: 'No example input/output behavior was found within that block.',
+    bp_missing_cot: 'No verification requirement or reviewable decision criteria were found within that block.',
+    struct_missing_format_enforcer: 'No required output format or schema enforcement was found within that block.',
+};
+
+function evidenceKindForRule(ruleId: string, explicit?: 'direct' | 'absence'): 'direct' | 'absence' {
+    return explicit || (ABSENCE_REQUIREMENTS[ruleId] ? 'absence' : 'direct');
 }
 
 function lineLooksRelevant(line: string, ruleId: string): boolean {
@@ -804,7 +820,10 @@ export async function scanFiles(targetPath: string, options: {
                     const owasp = getOwaspRef(f.rule_id);
                     const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || '');
                     const risk = getRiskExplanation(f.rule_id);
+                    const evidenceKind = evidenceKindForRule(f.rule_id, f.evidenceKind);
                     const located = locateEvidence(content, prompt.startLine, f.rule_id, f.matchedText);
+                    const evidenceLine = evidenceKind === 'absence' ? prompt.startLine : located.line;
+                    const evidenceColumn = evidenceKind === 'absence' ? 1 : located.column;
                     const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions)
                         || isInlineSuppressed(f.rule_id, located.line, inlineSuppressions);
                     const workflow = inferWorkflowForFinding({
@@ -813,22 +832,31 @@ export async function scanFiles(targetPath: string, options: {
                         text: prompt.text,
                         content,
                         filePath,
-                        line: located.line,
-                        column: located.column,
+                        line: evidenceLine,
+                        column: evidenceColumn,
                         message: f.explanation,
                     });
                     return {
                         rule_id: f.rule_id,
                         category: getCategoryForRule(f.rule_id),
                         severity: f.severity,
-                        line: located.line,
-                        column: located.column,
+                        line: evidenceLine,
+                        column: evidenceColumn,
                         message: f.explanation,
                         fix: recommendation,
                         recommendation,
                         owasp_ref: owasp,
                         owasp,
-                        evidence: located.evidence,
+                        evidence: evidenceKind === 'absence'
+                            ? (f.missingRequirement || ABSENCE_REQUIREMENTS[f.rule_id] || f.explanation)
+                            : located.evidence,
+                        evidenceKind,
+                        scopeLabel: evidenceKind === 'absence' ? (f.scopeLabel || 'Instruction block') : undefined,
+                        missingRequirement: evidenceKind === 'absence'
+                            ? (f.missingRequirement || ABSENCE_REQUIREMENTS[f.rule_id] || f.explanation)
+                            : undefined,
+                        scopeStartLine: evidenceKind === 'absence' ? prompt.startLine : undefined,
+                        scopeEndLine: evidenceKind === 'absence' ? prompt.endLine : undefined,
                         confidence: getConfidenceForFinding(f.rule_id, f.severity),
                         why: f.explanation,
                         risk,

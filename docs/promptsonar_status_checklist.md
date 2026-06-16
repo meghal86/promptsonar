@@ -45,7 +45,7 @@ The Threat Intelligence Playground is the flagship interactive component of Prom
 - [x] **Attack Surface Map Drawer (`Explore map`)**: Renders an interactive SVG representation of the prompt processing pipeline. Highlights data ingestion nodes, untrusted placeholders, parser boundaries, and LLM output blockades with colored alert anchors.
 - [x] **Security Timeline Drawer (`View full timeline`)**: A chronological audit-trace console showing the milliseconds elapsed at each gateway checker (Token count, Regex parser, PII scrub, Model safety gates).
 - [x] **Cross-Model Drift Grid Drawer (`View drift analysis`)**: A comparative analytic chart evaluating prompt output fidelity and semantic drift indexes across four major LLMs: `gpt-4o`, `claude-3.5`, `gemini-1.5`, and `llama-3.1`.
-- [x] **Mitigation Recommendations Drawer (`View all recommendations`)**: A checklist of recommended boilerplate configurations (e.g. Adding delimiter fences, configuring JSON-only directives, introducing Chain-of-Thought thinking directives) with direct copy actions.
+- [x] **Mitigation Recommendations Drawer (`View all recommendations`)**: A checklist of recommended boilerplate configurations (e.g. Adding delimiter fences, configuring JSON-only directives, introducing observable verification checklists) with direct copy actions.
 - [x] **Executive Compliance Dossier Drawer (`View full intelligence dossier`)**: The primary audit report combining score metrics, policy match indexes, CycloneDX SBOM exports, active security waivers, and a printable compliance sign-off card.
 
 ##### D. Core Background Logic & Optimization
@@ -69,7 +69,7 @@ The Threat Intelligence Playground is the flagship interactive component of Prom
   - **Security (8 Rules)**: OWASP LLM01 injections, homoglyph character obfuscations, base64 and unicode enclosed bypasses, API keys / auth token patterns, SSN and Credit Card PII patterns, unbounded persona constraints (missing "only/never"), database/system access parameters, and RAG input boundaries.
   - **Clarity (3 Rules)**: open-ended instruction warnings, missing quantitative constraints, and vague words (like "try" or "attempt").
   - **Structure (1 Rule)**: Absence of structured output enforcement (missing JSON/YAML formatting demands).
-  - **Best Practices (3 Rules)**: Absence of role definition, missing few-shot exemplars, and lack of Chain-of-Thought ("think step-by-step") triggers.
+  - **Best Practices (3 Rules)**: Absence of role definition, missing few-shot exemplars, and lack of observable verification criteria for multi-step tasks.
   - **Consistency (1 Rule)**: Internal semantic contradictions (e.g. contradicting length constraints).
   - **Efficiency (3 Rules)**: Token limits, redundancy, and compression viability.
   - **Ethics (2 Rules)**: Bias risks and adversarial manipulation detection.

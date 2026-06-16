@@ -11,7 +11,7 @@ const nextConfig = {
     'ignore',
   ],
   async redirects() {
-    return [
+    const redirects = [
       {
         source: '/overview',
         destination: '/projects',
@@ -23,6 +23,21 @@ const nextConfig = {
         permanent: false,
       },
     ];
+    if (process.env.NEXT_PUBLIC_PROMPTSONAR_REPOSITORY_V2 === 'true') {
+      redirects.push({
+        source: '/repository',
+        destination: '/repository-v2',
+        permanent: false,
+      });
+    }
+    if (process.env.NEXT_PUBLIC_PROMPTSONAR_PLAYGROUND_V4 === 'true') {
+      redirects.push({
+        source: '/playground',
+        destination: '/playground-v4',
+        permanent: false,
+      });
+    }
+    return redirects;
   },
 };
 

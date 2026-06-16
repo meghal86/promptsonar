@@ -853,56 +853,96 @@ const MAX_GRAPH_PATHS = 100;
 
 function inferGraphPaths(graph: RepositoryExecutionMap, scanResults: RepositoryScanResult[]): { paths: RepositoryExecutionGraphPath[]; truncated: boolean } {
     const adjacency = new Map<string, RepositoryExecutionEdge[]>();
+    const reverseAdjacency = new Map<string, RepositoryExecutionEdge[]>();
     for (const edge of graph.edges) {
         const existing = adjacency.get(edge.from) || [];
         existing.push(edge);
         adjacency.set(edge.from, existing);
+        const incoming = reverseAdjacency.get(edge.to) || [];
+        incoming.push(edge);
+        reverseAdjacency.set(edge.to, incoming);
     }
-    const actionNodes = new Set(graph.nodes.filter(node => node.type === 'ACTION' && node.metadata?.action).map(node => node.id));
-    const startNodes = graph.nodes.filter(node => isPathSourceNode(node, graph)).map(node => node.id);
+    const edgeSort = (a: RepositoryExecutionEdge, b: RepositoryExecutionEdge) =>
+        b.confidence - a.confidence || a.id.localeCompare(b.id);
+    for (const edges of adjacency.values()) edges.sort(edgeSort);
+    for (const edges of reverseAdjacency.values()) edges.sort(edgeSort);
+
+    const actionNodes = graph.nodes
+        .filter(node => node.type === 'ACTION' && node.metadata?.action)
+        .sort((a, b) => a.id.localeCompare(b.id));
+    const startNodes = graph.nodes
+        .filter(node => isPathSourceNode(node, graph))
+        .map(node => node.id)
+        .sort();
     const paths: RepositoryExecutionGraphPath[] = [];
     const findingsByFile = new Map(scanResults.map(result => [path.resolve(result.filePath), result.findings || []]));
     const nodeById = new Map(graph.nodes.map(node => [node.id, node]));
+    const nextEdgeToAction = new Map<string, Map<string, RepositoryExecutionEdge>>();
 
+    // One reverse traversal per sensitive action records a deterministic
+    // shortest suffix from every reachable node. Route enumeration can then
+    // vary the first hop without expanding every combination in a dense graph.
+    for (const actionNode of actionNodes) {
+        const nextEdge = new Map<string, RepositoryExecutionEdge>();
+        const visited = new Set<string>([actionNode.id]);
+        const queue = [actionNode.id];
+        for (let index = 0; index < queue.length; index += 1) {
+            const current = queue[index];
+            for (const edge of reverseAdjacency.get(current) || []) {
+                if (visited.has(edge.from)) continue;
+                visited.add(edge.from);
+                nextEdge.set(edge.from, edge);
+                queue.push(edge.from);
+            }
+        }
+        nextEdgeToAction.set(actionNode.id, nextEdge);
+    }
+
+    const seen = new Set<string>();
     let truncated = false;
     for (const start of startNodes) {
         if (truncated) break;
-        const queue: Array<{ nodeId: string; nodeIds: string[]; edgeIds: string[] }> = [{ nodeId: start, nodeIds: [start], edgeIds: [] }];
-        while (queue.length > 0) {
-            if (paths.length >= MAX_GRAPH_PATHS) {
-                truncated = true;
-                break;
-            }
-            const current = queue.shift()!;
-            if (current.nodeIds.length > 6) continue;
-            if (actionNodes.has(current.nodeId) && current.edgeIds.length > 0) {
-                const nodes = current.nodeIds.map(id => nodeById.get(id)).filter(Boolean) as RepositoryExecutionNode[];
+        for (const firstEdge of adjacency.get(start) || []) {
+            if (truncated) break;
+            for (const actionNode of actionNodes) {
+                const nodeIds = [start];
+                const edgeIds: string[] = [];
+                const visited = new Set(nodeIds);
+                let edge: RepositoryExecutionEdge | undefined = firstEdge;
+
+                while (edge && nodeIds.length <= 6) {
+                    if (visited.has(edge.to)) break;
+                    edgeIds.push(edge.id);
+                    nodeIds.push(edge.to);
+                    visited.add(edge.to);
+                    if (edge.to === actionNode.id) break;
+                    edge = nextEdgeToAction.get(actionNode.id)?.get(edge.to);
+                }
+
+                if (nodeIds[nodeIds.length - 1] !== actionNode.id) continue;
+                const key = nodeIds.join('>');
+                if (seen.has(key)) continue;
+                seen.add(key);
+                if (paths.length >= MAX_GRAPH_PATHS) {
+                    truncated = true;
+                    break;
+                }
+
+                const nodes = nodeIds.map(id => nodeById.get(id)).filter(Boolean) as RepositoryExecutionNode[];
                 const actions = nodes.map(node => node.metadata?.action).filter(Boolean) as RepositorySensitiveAction[];
                 const findings = nodes.flatMap(node => node.filePath ? (findingsByFile.get(path.resolve(node.filePath)) || []) : []);
                 paths.push({
-                    id: stableId('path', current.nodeIds.join('>')),
-                    nodeIds: current.nodeIds,
-                    edgeIds: current.edgeIds,
+                    id: stableId('path', key),
+                    nodeIds,
+                    edgeIds,
                     risk: riskForActions(actions, findings),
                     explanation: nodes.map(node => node.label).join(' -> '),
                 });
-                continue;
-            }
-            for (const edge of adjacency.get(current.nodeId) || []) {
-                if (current.nodeIds.includes(edge.to)) continue;
-                queue.push({ nodeId: edge.to, nodeIds: [...current.nodeIds, edge.to], edgeIds: [...current.edgeIds, edge.id] });
             }
         }
     }
 
-    const seen = new Set<string>();
-    const deduped = paths.filter(pathItem => {
-        const key = pathItem.nodeIds.join('>');
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
-    return { paths: deduped, truncated };
+    return { paths, truncated };
 }
 
 function actionFromWorkflowNode(type: string): RepositorySensitiveAction | undefined {
@@ -1325,6 +1365,17 @@ function issueFixFallback(severity: string): string {
 
 const INTERNAL_TERMINOLOGY = /\b(?:heuristic|source-to-sink|privileged sink|trust boundary|execution graph|internal engine|scanner|rule[_ -]?id|workflow node|execution edge|sink node|source node|node|edge)\b/i;
 
+const ABSENCE_REQUIREMENTS: Record<string, string> = {
+    bp_missing_persona: 'No bounded role or persona requirement was found within that block.',
+    bp_missing_few_shot: 'No example input/output behavior was found within that block.',
+    bp_missing_cot: 'No verification requirement or reviewable decision criteria were found within that block.',
+    struct_missing_format_enforcer: 'No required output format or schema enforcement was found within that block.',
+};
+
+function issueEvidenceKind(finding: RepositoryScanFinding): 'direct' | 'absence' {
+    return finding.evidenceKind || (ABSENCE_REQUIREMENTS[finding.rule_id] ? 'absence' : 'direct');
+}
+
 function plainFixCandidate(finding: RepositoryScanFinding, fallback: string): string {
     const candidate = [finding.fix, finding.recommendation].find(value => value && !INTERNAL_TERMINOLOGY.test(value));
     if (!candidate || INTERNAL_TERMINOLOGY.test(candidate)) return fallback;
@@ -1377,10 +1428,10 @@ const QUALITY_ISSUE_COPY: Record<string, { issue: string; impact: string; whyThi
         fallback: 'Add one or two input/output examples that demonstrate the required behavior.',
     },
     bp_missing_cot: {
-        issue: 'The instruction does not ask for reasoning on a task that benefits from it.',
-        impact: 'Complex answers may skip steps and arrive at wrong but confident conclusions.',
-        whyThisMatters: 'Explicit step-by-step reasoning improves accuracy on multi-step tasks.',
-        fallback: 'Ask the model to reason step by step before giving its final answer.',
+        issue: 'The instruction does not define reviewable decision criteria for a complex task.',
+        impact: 'The model may skip required checks or produce a conclusion that is difficult to verify.',
+        whyThisMatters: 'An observable checklist or concise verification summary makes multi-step behavior testable from the returned output.',
+        fallback: 'Add explicit decision criteria, a short verification checklist, or a concise rationale field.',
     },
     eff_token_budget: {
         issue: 'The prompt is close to a token budget that risks truncation.',
@@ -1531,6 +1582,30 @@ function structuredIssueFix(finding: RepositoryScanFinding, recommendedFix: stri
             effort,
         };
     }
+    if (finding.rule_id === 'bp_missing_cot') {
+        return {
+            quickFix: 'Require verification for a multi-step task.',
+            recommendedFix,
+            safePattern: 'Before returning the result:\\n1. Validate required inputs.\\n2. Check intermediate results against the stated constraints.\\n3. Verify the final output format.\\n4. Report unresolved assumptions, validation failures, or missing inputs.\\n5. Provide a concise verification summary.',
+            effort,
+        };
+    }
+    if (finding.rule_id === 'bp_missing_few_shot') {
+        return {
+            quickFix: 'Add one or two examples that demonstrate the expected input and output.',
+            recommendedFix,
+            safePattern: 'Example:\\nInput: <representative request>\\nOutput: <expected response shape and edge-case handling>',
+            effort,
+        };
+    }
+    if (finding.rule_id === 'bp_missing_persona') {
+        return {
+            quickFix: 'Define a specific, bounded role for the assistant.',
+            recommendedFix,
+            safePattern: 'You are a <bounded role>. You may <allowed scope>. You must not <out-of-scope behavior>.',
+            effort,
+        };
+    }
     if (/output|format|structure|clarity|consistency|best.?practice|efficiency|token/.test(signal)) {
         return {
             quickFix: 'State the expected input, output, and failure behavior directly in the instruction.',
@@ -1591,7 +1666,7 @@ function issueConfidence(finding: RepositoryScanFinding): RepositoryExecutionIss
     const score = clampConfidence(typeof workflowScore === 'number'
         ? workflowScore
         : fallbackScores[String(finding.confidence || '').toUpperCase()] ?? 70);
-    const hasDirectEvidence = Boolean(finding.evidence?.trim());
+    const hasDirectEvidence = issueEvidenceKind(finding) === 'direct' && Boolean(finding.evidence?.trim());
     const hasInferredRelationships = Boolean(finding.workflow?.path);
     const level: RepositoryExecutionIssue['confidence']['level'] = hasInferredRelationships
         ? 'probable'
@@ -1693,7 +1768,11 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
 
             const location = refineFindingLocation(absoluteFile, finding, contentCache);
             const id = stableId('issue', `${displayFile}:${finding.rule_id}:${location.line || 1}:${location.column || 1}`);
-            const evidenceSnippet = redactSecrets(finding.evidence || finding.message || finding.rule_id);
+            const evidenceKind = issueEvidenceKind(finding);
+            const missingRequirement = finding.missingRequirement || ABSENCE_REQUIREMENTS[finding.rule_id] || finding.message || finding.rule_id;
+            const evidenceSnippet = evidenceKind === 'absence'
+                ? ''
+                : redactSecrets(finding.evidence || finding.message || finding.rule_id);
             const detectedFixSuggestions = Array.from(new Set([
                 finding.fix ? redactSecrets(finding.fix) : '',
                 finding.recommendation ? redactSecrets(finding.recommendation) : '',
@@ -1718,9 +1797,14 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
             const evidence = [{
                 id: stableId('evidence', `${displayFile}:${finding.rule_id}:${location.line || 1}:${location.column || 1}`),
                 file: displayFile,
-                line: location.line,
-                column: location.column,
+                line: evidenceKind === 'direct' ? location.line : undefined,
+                column: evidenceKind === 'direct' ? location.column : undefined,
                 snippet: evidenceSnippet,
+                kind: evidenceKind,
+                startLine: evidenceKind === 'absence' ? finding.scopeStartLine || location.line : undefined,
+                endLine: evidenceKind === 'absence' ? finding.scopeEndLine || finding.scopeStartLine || location.line : undefined,
+                scopeLabel: evidenceKind === 'absence' ? finding.scopeLabel || 'Instruction block' : undefined,
+                missingRequirement: evidenceKind === 'absence' ? redactSecrets(missingRequirement) : undefined,
                 source: workflowReason ? 'workflow' as const : 'scanner' as const,
             }];
             const confidence = issueConfidence(finding);

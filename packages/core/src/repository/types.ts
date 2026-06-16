@@ -136,6 +136,11 @@ export interface RepositoryScanFinding {
     fix?: string;
     recommendation?: string;
     evidence?: string;
+    evidenceKind?: 'direct' | 'absence';
+    scopeLabel?: string;
+    missingRequirement?: string;
+    scopeStartLine?: number;
+    scopeEndLine?: number;
     confidence?: string;
     why?: string;
     risk?: string;
@@ -243,6 +248,11 @@ export interface RepositoryExecutionIssueEvidence {
     line?: number;
     column?: number;
     snippet: string;
+    kind?: 'direct' | 'absence';
+    startLine?: number;
+    endLine?: number;
+    scopeLabel?: string;
+    missingRequirement?: string;
     source: 'scanner' | 'workflow' | 'repository-graph';
 }
 

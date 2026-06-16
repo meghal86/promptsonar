@@ -93,6 +93,11 @@ const testConfig = write('prompts.test.json', JSON.stringify([
   }
 ], null, 2));
 
+const modelOutputDir = path.join(tmp, 'model-outputs');
+fs.mkdirSync(modelOutputDir, { recursive: true });
+fs.writeFileSync(path.join(modelOutputDir, 'gpt-4o.txt'), '{"summary":"Auth is required","risks":[]}', 'utf8');
+fs.writeFileSync(path.join(modelOutputDir, 'claude.txt'), '{"summary":"MCP server now requires authentication","risks":[]}', 'utf8');
+
 const safeMcp = path.join(repoRoot, 'tests/fixtures/mcp/safe-mcp.json');
 const vulnerableMcp = path.join(repoRoot, 'tests/fixtures/mcp/vulnerable-mcp.json');
 
@@ -127,10 +132,10 @@ assert(fs.existsSync(exportPath), 'Article 19 export should be created');
 
 run('prompt tests', ['test', testConfig]);
 run('prompt contract validation', ['test-contracts', contractFile, '--prompt', safePrompt, '--vars', '{"input":"release notes"}']);
-run('cross-model eval', ['eval', safePrompt]);
+run('cross-model compare', ['compare', '--prompt', safePrompt, '--outputs', modelOutputDir, '--expected-format', 'json', '--format', 'json']);
 run('compression fallback', ['compress', safePrompt]);
 
-const forbiddenPathParts = ['/.next/', '/docs/', '/tests/', '/benchmarks/', '/evidence/', '/node_modules/', '/dist/', '/results/', '/tmp/'];
+const forbiddenPathParts = ['/.next/', '/node_modules/', '/dist/', '/results/', '/tmp/'];
 
 (async () => {
   const { scanFiles } = require(path.join(repoRoot, 'packages/cli/dist/index.js'));
@@ -142,7 +147,7 @@ const forbiddenPathParts = ['/.next/', '/docs/', '/tests/', '/benchmarks/', '/ev
       `self scan included ignored artifact path: ${result.filePath}`
     );
   }
-  console.log('[pass] self scan excludes generated/test/docs artifacts');
+  console.log('[pass] self scan excludes generated/dependency artifacts');
   console.log(`\nFeature smoke tests passed. Temporary fixtures: ${tmp}`);
 })().catch(error => {
   console.error(error);

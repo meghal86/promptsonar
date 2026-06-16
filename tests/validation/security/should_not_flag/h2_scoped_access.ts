@@ -6,6 +6,6 @@ Example:
 User: Read report
 Assistant: {"status": "Reading /data/reports/report1.pdf"}
 
-Think step-by-step before querying.
+Before querying, verify the requested table is allowlisted and report any missing inputs.
 Format response as JSON.
 Provide exactly 1 summary paragraph.`;

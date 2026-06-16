@@ -20,4 +20,14 @@ describe('Agent B: Quality Tester (Consistency)', () => {
         const hasContradiction = result.findings.some(f => f.rule_id === 'cons_contradiction');
         expect(hasContradiction).toBe(false);
     });
+
+    it('recommends observable verification for complex tasks', () => {
+        const complexInstructions = "Analyze the supplied deployment plan, compare the operational risks across environments, identify unsafe assumptions, and return the recommended rollout decision.";
+        const result = evaluatePrompt({ text: complexInstructions, context: { filePath: 'test.prompt' } }, config);
+        const finding = result.findings.find(f => f.rule_id === 'bp_missing_cot');
+
+        expect(finding?.suggested_fix).toContain('checklist');
+        expect(finding?.suggested_fix).toContain('brief rationale');
+        expect(finding?.suggested_fix).toContain('reviewed from the output');
+    });
 });

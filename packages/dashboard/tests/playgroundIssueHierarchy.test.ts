@@ -30,11 +30,11 @@ describe('Playground issue-first hierarchy', () => {
   it('preserves the existing advanced tabs and execution map', () => {
     expect(PLAYGROUND_ADVANCED_TABS.map((tab) => tab.label)).toEqual([
       'Overview',
-      'Execution Map',
-      'Findings',
-      'Evidence',
-      'Fix Plan',
-      'Report',
+      'How it connects',
+      'What we found',
+      'Proof',
+      'How to fix',
+      'Full report',
     ]);
   });
 });
