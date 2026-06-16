@@ -17,6 +17,9 @@ export function checkStructure(input: RuleInput): Finding[] {
             severity: "medium",
             explanation: "Output formatting requested but no strong format enforcer (JSON, YAML, Markdown syntax) is present.",
             suggested_fix: "Explicitly mention a data format (e.g., 'JSON') or use markdown blocks to specify structured output constraints.",
+            evidenceKind: "absence",
+            scopeLabel: "Instruction block",
+            missingRequirement: "No required output format or schema enforcement was found within that block.",
             penalty_score: 15
         });
     }

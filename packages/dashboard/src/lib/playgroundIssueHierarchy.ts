@@ -17,9 +17,9 @@ export const PLAYGROUND_ISSUE_CARD_SECTIONS = [
 
 export const PLAYGROUND_ADVANCED_TABS = [
   { key: 'repo_overview', label: 'Overview' },
-  { key: 'execution_map', label: 'Execution Map' },
-  { key: 'findings', label: 'Findings' },
-  { key: 'workflows_page', label: 'Evidence' },
-  { key: 'rules', label: 'Fix Plan' },
-  { key: 'report', label: 'Report' },
+  { key: 'execution_map', label: 'How it connects' },
+  { key: 'findings', label: 'What we found' },
+  { key: 'workflows_page', label: 'Proof' },
+  { key: 'rules', label: 'How to fix' },
+  { key: 'report', label: 'Full report' },
 ] as const;

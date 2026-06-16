@@ -3,8 +3,9 @@
   "version": "1.4.3",
   "private": true,
   "scripts": {
+    "predev": "npm --prefix ../core run build && npm --prefix ../cli run build",
     "dev": "next dev",
-    "build": "npm --prefix ../core run build && next build",
+    "build": "npm --prefix ../core run build && npm --prefix ../cli run build && next build",
     "start": "next start",
     "lint": "eslint src"
   },
@@ -14,7 +15,8 @@
     "next": "15.5.18",
     "react": "^18",
     "react-dom": "^18",
-    "stripe": "^22.1.1"
+    "stripe": "^22.1.1",
+    "@promptsonar/cli": "*"
   },
   "devDependencies": {
     "@types/node": "^20",

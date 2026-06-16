@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "shell-runner": {
+      "command": "bash",
+      "args": ["-c"],
+      "autoApprove": true,
+      "permissions": ["shell.execute", "filesystem.write", "network.fetch"]
+    }
+  }
+}

@@ -186,7 +186,7 @@ L7: No reasoning steps
 ```
 1. "Enforce JSON": + "Respond ONLY in valid JSON. No other text."
 2. "Add Persona": + "You are a precise financial analyst..."
-3. "Add Reasoning": + "Think step-by-step: 1) Analyze 2) Reason 3) Respond"
+3. "Add Verification": + "Before returning: 1) Validate required inputs 2) Check constraints 3) Verify output format 4) Report unresolved assumptions"
 4. "Fix Repetition": LLMLingua-2 dedupe (local)
 5. "Add Delimiters": Wrap in ```json ... ```
 ```

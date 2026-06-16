@@ -700,7 +700,8 @@ export function activate(context: ExtensionContext) {
             ['AI Surfaces', summary.aiSurfacesFound.prompts + summary.aiSurfacesFound.skills + summary.aiSurfacesFound.mcpServers + summary.aiSurfacesFound.tools + summary.aiSurfacesFound.workflows + summary.aiSurfacesFound.memorySystems],
             ['Execution Nodes', summary.executionGraph.nodes],
             ['Reachable Actions', report.reachablePaths.length],
-            ['Issues', report.issueSummary.total],
+            ['Production Issues', (summary.productionIssueSummary ?? report.issueSummary).total],
+            ['Non-production Issues', (summary.nonProductionIssueSummary ?? { total: 0 }).total],
             ['Trust Status', summary.trustStatus],
         ];
         const artifactsByType = (type: string) => report.artifacts.filter((artifact: any) => artifact.type === type);
@@ -779,9 +780,10 @@ export function activate(context: ExtensionContext) {
       </section>
       <section id="findings">
         <h2>Canonical Issues (${report.issueSummary.total})</h2>
+        ${summary.productionIssueSummary && summary.nonProductionIssueSummary ? `<p class="muted">Production: ${summary.productionIssueSummary.critical} critical · ${summary.productionIssueSummary.high} high · ${summary.productionIssueSummary.medium} medium · ${summary.productionIssueSummary.low} low. Non-production (docs/tests/fixtures): ${summary.nonProductionIssueSummary.critical} critical · ${summary.nonProductionIssueSummary.high} high · ${summary.nonProductionIssueSummary.medium} medium · ${summary.nonProductionIssueSummary.low} low — not counted toward trust.</p>` : ''}
         <table>
-          <tr><th>ID</th><th>Severity</th><th>Issue</th><th>Evidence</th><th>How to Fix</th><th>Confidence</th></tr>
-          ${issues.map((issue: any) => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td class="risk-${issue.severity}">${escapeHtml(issue.severity)}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Quick Fix:</strong> ${escapeHtml(issue.fix?.quickFix || issue.howToFix)}<br><br><strong>Recommended Fix:</strong> ${escapeHtml(issue.fix?.recommendedFix || issue.howToFix)}<br><br><strong>Safe Pattern:</strong> <code>${escapeHtml(issue.fix?.safePattern || '')}</code><br><br><strong>Effort:</strong> ${escapeHtml(issue.fix?.effort || 'Moderate')}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails?.executionPath || 'No connected sensitive action was confirmed for this finding.')}<br><strong>Evidence:</strong> ${escapeHtml((issue.technicalDetails?.evidence || issue.evidence).map((item: any) => `${item.file}:${item.line || 1}`).join(', '))}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails?.confidence?.label || issue.confidence.label)} ${escapeHtml(issue.technicalDetails?.confidence?.score ?? issue.confidence.score)}% · ${escapeHtml(issue.technicalDetails?.confidence?.definition || issue.confidence.definition)}</details></td><td><button class="link" data-open-file="${escapeHtml(reportFilePath(issue.impactedFiles[0] || ''))}">${escapeHtml(issue.impactedFiles.join(', '))}</button></td><td>${escapeHtml(issue.fix?.recommendedFix || issue.howToFix)}</td><td>${escapeHtml(issue.confidence.label)} ${escapeHtml(issue.confidence.score)}%<br>${escapeHtml(issue.confidence.definition)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No active issues.</td></tr>'}
+          <tr><th>ID</th><th>Context</th><th>Severity</th><th>Issue</th><th>Evidence</th><th>How to Fix</th><th>Confidence</th></tr>
+          ${issues.map((issue: any) => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td>${escapeHtml(issue.provenance ?? 'production')}</td><td class="risk-${issue.severity}">${escapeHtml(issue.severity)}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Quick Fix:</strong> ${escapeHtml(issue.fix?.quickFix || issue.howToFix)}<br><br><strong>Recommended Fix:</strong> ${escapeHtml(issue.fix?.recommendedFix || issue.howToFix)}<br><br><strong>Safe Pattern:</strong> <code>${escapeHtml(issue.fix?.safePattern || '')}</code><br><br><strong>Effort:</strong> ${escapeHtml(issue.fix?.effort || 'Moderate')}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails?.executionPath || 'No connected sensitive action was confirmed for this finding.')}<br><strong>Evidence:</strong> ${escapeHtml((issue.technicalDetails?.evidence || issue.evidence).map((item: any) => `${item.file}:${item.line || 1}`).join(', '))}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails?.confidence?.label || issue.confidence.label)} ${escapeHtml(issue.technicalDetails?.confidence?.score ?? issue.confidence.score)}% · ${escapeHtml(issue.technicalDetails?.confidence?.definition || issue.confidence.definition)}</details></td><td><button class="link" data-open-file="${escapeHtml(reportFilePath(issue.impactedFiles[0] || ''))}">${escapeHtml(issue.impactedFiles.join(', '))}</button></td><td>${escapeHtml(issue.fix?.recommendedFix || issue.howToFix)}</td><td>${escapeHtml(issue.confidence.label)} ${escapeHtml(issue.confidence.score)}%<br>${escapeHtml(issue.confidence.definition)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No active issues.</td></tr>'}
         </table>
       </section>
       <section id="map">
@@ -859,7 +861,7 @@ export function activate(context: ExtensionContext) {
                     rule_id: finding.rule_id,
                     category: 'security',
                     severity: finding.severity,
-                    line: 1,
+                    line: finding.line || 1,
                     message: finding.message,
                     fix: finding.fix,
                     evidence: finding.evidence || finding.path,

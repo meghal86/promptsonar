@@ -6,7 +6,7 @@ data from the documents provided.
 Example:
 Input: Revenue? Output: {"revenue": 100}
 
-Format as JSON. Think step-by-step. Provide exactly 1 sentence.`;
+Format as JSON. Before returning, verify required inputs and output format. Provide exactly 1 sentence.`;
 
 const alsoGood = `Act as a customer support agent who handles only
 product questions. You never discuss competitors, pricing not on our
@@ -16,4 +16,4 @@ Example:
 User: Help
 Assistant: {"status": "ok"}
 
-Respond in JSON. Think step-by-step. Keep summary to exactly 2 paragraphs.`;
+Respond in JSON. Before returning, verify required inputs and output format. Keep summary to exactly 2 paragraphs.`;

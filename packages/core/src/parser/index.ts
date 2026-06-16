@@ -30,13 +30,43 @@ function findAssetsRoot(): string {
     return __dirname; // Fallback
 }
 
+function resolvePackageAsset(packageName: string, assetPath: string): string | undefined {
+    try {
+        const resolvedPackage = require.resolve(`${packageName}/package.json`);
+        const directAsset = path.join(path.dirname(resolvedPackage), assetPath);
+        if (fs.existsSync(directAsset)) return directAsset;
+
+        if (!path.isAbsolute(resolvedPackage)) {
+            const relativeAsset = path.resolve(process.cwd(), resolvedPackage, '..', assetPath);
+            if (fs.existsSync(relativeAsset)) return relativeAsset;
+        }
+    } catch {
+        // Fall through to the workspace and extension locations.
+    }
+
+    let currentDir = process.cwd();
+    while (currentDir !== path.dirname(currentDir)) {
+        const candidates = [
+            path.join(currentDir, 'node_modules', packageName, assetPath),
+            path.join(currentDir, 'packages', 'core', 'node_modules', packageName, assetPath),
+            path.join(currentDir, 'core', 'node_modules', packageName, assetPath),
+        ];
+        const match = candidates.find(candidate => fs.existsSync(candidate));
+        if (match) return match;
+        currentDir = path.dirname(currentDir);
+    }
+    return undefined;
+}
+
 async function initParser() {
     if (!parserInitialized) {
-        const root = findAssetsRoot();
-        let wasmPath = path.join(root, 'tree-sitter.wasm'); // Bundled VS Code location
-        if (!fs.existsSync(wasmPath)) {
-            // Local dev/CLI location
-            wasmPath = path.join(root, 'node_modules', 'web-tree-sitter', 'tree-sitter.wasm');
+        let wasmPath = resolvePackageAsset('web-tree-sitter', 'tree-sitter.wasm');
+        if (!wasmPath) {
+            const root = findAssetsRoot();
+            wasmPath = path.join(root, 'tree-sitter.wasm'); // Bundled VS Code location
+            if (!fs.existsSync(wasmPath)) {
+                wasmPath = path.join(root, 'node_modules', 'web-tree-sitter', 'tree-sitter.wasm');
+            }
         }
 
         await Parser.init({
@@ -55,13 +85,11 @@ function getWasmPath(langName: string): string {
     let wasmPath = path.join(root, 'tree-sitter-wasms', 'out', `tree-sitter-${langName}.wasm`);
     if (fs.existsSync(wasmPath)) return wasmPath;
 
-    // Local dev/CLI fallback via node_modules
-    try {
-        const wasmsDir = path.dirname(require.resolve('tree-sitter-wasms/package.json'));
-        return path.join(wasmsDir, 'out', `tree-sitter-${langName}.wasm`);
-    } catch {
-        return path.join(root, 'node_modules', 'tree-sitter-wasms', 'out', `tree-sitter-${langName}.wasm`);
-    }
+    const packageAsset = resolvePackageAsset(
+        'tree-sitter-wasms',
+        path.join('out', `tree-sitter-${langName}.wasm`),
+    );
+    return packageAsset || path.join(root, 'node_modules', 'tree-sitter-wasms', 'out', `tree-sitter-${langName}.wasm`);
 }
 
 async function getLanguage(langName: string): Promise<any> {
@@ -150,11 +178,37 @@ function containsPromptKeyword(text: string): boolean {
     return false;
 }
 
+// Strip a string literal down to its body: remove Python/JS string prefixes
+// (f, r, b, u, rb, fr, ...) and the surrounding quotes so f-string and raw
+// string bodies are scanned like any other prompt text.
+function stripStringLiteral(raw: string): string {
+    let text = raw.trim();
+    const prefixMatch = text.match(/^(?:[a-zA-Z]{1,2})(?=["'`])/);
+    if (prefixMatch && /^(?:[fFrRbBuU]{1,2})$/.test(prefixMatch[0])) {
+        text = text.slice(prefixMatch[0].length);
+    }
+    if (text.startsWith('"""') || text.startsWith("'''")) {
+        return text.slice(3, text.endsWith('"""') || text.endsWith("'''") ? -3 : undefined);
+    }
+    if (text.startsWith('"') || text.startsWith("'") || text.startsWith('`')) {
+        return text.slice(1, /["'`]$/.test(text) ? -1 : undefined);
+    }
+    return text;
+}
+
 function isWorkflowRelevantInstructionFile(filePath: string): boolean {
     const normalized = filePath.replace(/\\/g, '/').toLowerCase();
     return (
         /(^|\/)(prompts|agents|ai|rag)\//.test(normalized) ||
         /(^|\/)[^/]+\.prompt\.[^/]+$/.test(normalized)
+    );
+}
+
+function isExecutablePermissionEntry(text: string): boolean {
+    const normalized = text.trim().replace(/^[-\s"'[\],]+/, '');
+    return (
+        /^(?:Bash|Shell|Read|Write|Edit|Glob|Grep|WebFetch|WebSearch)\s*\(/i.test(normalized) ||
+        /^(?:bash|sh|zsh|curl|wget|node|npm|npx|pnpm|yarn|python|python3|pip|git|gh|docker|kubectl)\b/i.test(normalized)
     );
 }
 
@@ -205,7 +259,7 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
             const lines = content.split('\n');
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
-                if (containsPromptKeyword(line)) {
+                if (!isExecutablePermissionEntry(line) && containsPromptKeyword(line)) {
                     if (line.length > 20) {
                         results.push({
                             filePath,
@@ -278,23 +332,10 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
                         };
 
                         if (capture.name.includes("prompt.string") && containsPromptKeyword(capture.node.text)) {
-                            // It's a string, ensure we strip quotes
-                            let cleanedText = capture.node.text;
-                            if (cleanedText.startsWith('"""') || cleanedText.startsWith("'''")) {
-                                cleanedText = cleanedText.slice(3, -3);
-                            } else if (cleanedText.startsWith('"') || cleanedText.startsWith("'") || cleanedText.startsWith("`")) {
-                                cleanedText = cleanedText.slice(1, -1);
-                            }
-                            results.push({ ...nodeInfo, text: cleanedText, sourceType: "string_literal" });
+                            results.push({ ...nodeInfo, text: stripStringLiteral(capture.node.text), sourceType: "string_literal" });
                         } else if (capture.name.includes("prompt.named_string")) {
                             // A string explicitly assigned to a prompt variable
-                            let cleanedText = capture.node.text;
-                            if (cleanedText.startsWith('"""') || cleanedText.startsWith("'''")) {
-                                cleanedText = cleanedText.slice(3, -3);
-                            } else if (cleanedText.startsWith('"') || cleanedText.startsWith("'") || cleanedText.startsWith("`")) {
-                                cleanedText = cleanedText.slice(1, -1);
-                            }
-                            results.push({ ...nodeInfo, text: cleanedText, sourceType: "named_variable" });
+                            results.push({ ...nodeInfo, text: stripStringLiteral(capture.node.text), sourceType: "named_variable" });
                         } else if (capture.name.includes("prompt.framework")) {
                             results.push({ ...nodeInfo, sourceType: "framework_call" });
                         }

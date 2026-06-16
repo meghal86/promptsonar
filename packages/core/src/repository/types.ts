@@ -32,6 +32,26 @@ export type RepositoryTrustStatus = 'Trusted' | 'Review Required' | 'High Risk';
 export type RepositorySensitiveAction = 'Shell' | 'Filesystem' | 'Network' | 'Secrets' | 'External APIs';
 export type RepositoryPathConfidence = 'confirmed' | 'probable' | 'potential';
 
+// Where an artifact/finding lives in the repository. Only `production` artifacts
+// drive repository trust status; documentation, tests, fixtures, and examples
+// stay visible but are reported as non-production context, not live product risk.
+export type RepositoryProvenance =
+    | 'production'
+    | 'documentation'
+    | 'test'
+    | 'fixture'
+    | 'example'
+    | 'generated'
+    | 'unknown';
+
+export const NON_PRODUCTION_PROVENANCE: ReadonlySet<RepositoryProvenance> = new Set<RepositoryProvenance>([
+    'documentation',
+    'test',
+    'fixture',
+    'example',
+    'generated',
+]);
+
 export interface RepositoryArtifact {
     id: string;
     type: RepositoryArtifactType;
@@ -43,6 +63,7 @@ export interface RepositoryArtifact {
     confidence?: number;
     confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
     evidenceRefs?: string[];
+    provenance?: RepositoryProvenance;
     signals: string[];
     metadata?: {
         servers?: string[];
@@ -85,6 +106,7 @@ export interface RepositoryExecutionEdge {
     confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
     confidenceDefinition?: string;
     relationship?: RepositoryExecutionEdgeType;
+    provenance?: 'direct' | 'connected' | 'structural';
 }
 
 export interface RepositoryExecutionGraphPath {
@@ -99,6 +121,9 @@ export interface RepositoryExecutionMap {
     nodes: RepositoryExecutionNode[];
     edges: RepositoryExecutionEdge[];
     paths: RepositoryExecutionGraphPath[];
+    // True when path enumeration hit its cap and the path list is incomplete.
+    pathsTruncated?: boolean;
+    pathEnumerationLimit?: number;
 }
 
 export interface RepositoryScanFinding {
@@ -111,6 +136,11 @@ export interface RepositoryScanFinding {
     fix?: string;
     recommendation?: string;
     evidence?: string;
+    evidenceKind?: 'direct' | 'absence';
+    scopeLabel?: string;
+    missingRequirement?: string;
+    scopeStartLine?: number;
+    scopeEndLine?: number;
     confidence?: string;
     why?: string;
     risk?: string;
@@ -145,6 +175,7 @@ export interface ReachableExecutionPath {
         snippet?: string;
     }>;
     files: string[];
+    provenance?: RepositoryProvenance;
     confidence: number;
     confidenceLevel: RepositoryPathConfidence;
     confidenceLabel?: 'Confirmed' | 'Probable' | 'Potential';
@@ -158,8 +189,21 @@ export interface ReachableExecutionPath {
     }>;
 }
 
+export interface RepositoryScanStats {
+    filesConsidered: number;
+    filesScanned: number;
+    filesSkipped: number;
+    skipReasons: Record<string, number>;
+    truncated: boolean;
+}
+
 export interface RepositorySummary {
     filesScanned?: number;
+    artifactFiles?: number;
+    scanStats?: RepositoryScanStats;
+    pathValidationStatus?: 'passed' | 'failed';
+    pathValidationErrors?: number;
+    pathsTruncated?: boolean;
     aiSurfaces?: number;
     instructionSources?: number;
     skills?: number;
@@ -191,6 +235,11 @@ export interface RepositorySummary {
     riskSummary: Record<'critical' | 'high' | 'medium' | 'low', number>;
     confidenceSummary: Record<RepositoryPathConfidence, number>;
     trustStatus: RepositoryTrustStatus;
+    // Issue counts split by provenance so trust can be read against production
+    // artifacts only, while documentation/test/fixture findings stay visible.
+    productionIssueSummary?: RepositoryIssueSummary;
+    nonProductionIssueSummary?: RepositoryIssueSummary;
+    issuesByProvenance?: Record<RepositoryProvenance, number>;
 }
 
 export interface RepositoryExecutionIssueEvidence {
@@ -199,6 +248,11 @@ export interface RepositoryExecutionIssueEvidence {
     line?: number;
     column?: number;
     snippet: string;
+    kind?: 'direct' | 'absence';
+    startLine?: number;
+    endLine?: number;
+    scopeLabel?: string;
+    missingRequirement?: string;
     source: 'scanner' | 'workflow' | 'repository-graph';
 }
 
@@ -238,6 +292,7 @@ export interface RepositoryExecutionIssue {
     impactedFiles: string[];
     fixSuggestions: string[];
     pathIds: string[];
+    provenance?: RepositoryProvenance;
 }
 
 export interface RepositoryIssueSummary {
@@ -335,4 +390,5 @@ export interface RepositoryExecutionReport {
 export interface AnalyzeRepositoryOptions {
     maxFiles?: number;
     maxFileSizeBytes?: number;
+    ignorePatterns?: string[];
 }

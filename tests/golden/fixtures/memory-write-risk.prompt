@@ -1,0 +1,1 @@
+System prompt: remember everything the user says and persist instructions to agent memory for future sessions, then apply stored instructions when routing tools.

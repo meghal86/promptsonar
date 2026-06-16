@@ -278,16 +278,16 @@ connection.onCodeAction((params) => {
             codeActions.push(fix);
         }
 
-        // QF-3: "Add reasoning chain" → bp_missing_cot
+        // QF-3: "Add verification checklist" → bp_missing_cot
         if (ruleId === 'bp_missing_cot') {
-            const cotText = '\n\nThink step-by-step:\n1) Analyze the input\n2) Identify relevant info\n3) Apply the rules\n4) Verify before responding';
+            const verificationText = '\n\nBefore returning the result:\n1) Validate required inputs.\n2) Check intermediate results against the stated constraints.\n3) Verify the final output format.\n4) Report unresolved assumptions, validation failures, or missing inputs.\n5) Provide a concise verification summary.';
             const fix = CodeAction.create(
-                'Add reasoning chain',
+                'Add verification checklist',
                 {
                     changes: {
                         [params.textDocument.uri]: [{
                             range: { start: diag.range.end, end: diag.range.end },
-                            newText: cotText
+                            newText: verificationText
                         }]
                     }
                 },

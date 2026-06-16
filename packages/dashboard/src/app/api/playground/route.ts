@@ -6,6 +6,7 @@ import {
 } from '@promptsonar/core';
 import { supabase } from '@/lib/supabase';
 import { checkUsageLimit, incrementScanUsage } from '@/lib/billing';
+import { cacheRepositoryReport } from '@/lib/repositoryReportCache';
 
 const MAX_PLAYGROUND_PROMPT_CHARS = 100_000;
 const LARGE_SCAN_MESSAGE = 'This scan is too large for the web playground. Use the CLI for full repository scans: npx @promptsonar/cli scan .';
@@ -121,6 +122,7 @@ export async function POST(request: Request) {
       }]
     );
     repositoryReport.scanMode = 'browser-bounded';
+    cacheRepositoryReport(repositoryReport);
 
     // 5. Optional: Prompt Rules validation
     let contractResult = null;

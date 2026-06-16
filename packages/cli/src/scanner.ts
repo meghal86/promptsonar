@@ -17,6 +17,7 @@ import {
     inferWorkflowForFinding,
     auditMcpConfig,
     McpFinding,
+    scanContentForSecrets,
 } from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
@@ -56,6 +57,11 @@ export interface ScanFinding {
     owasp: string;
     recommendation: string;
     evidence: string;
+    evidenceKind?: 'direct' | 'absence';
+    scopeLabel?: string;
+    missingRequirement?: string;
+    scopeStartLine?: number;
+    scopeEndLine?: number;
     confidence: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
     why: string;
     risk: string;
@@ -180,6 +186,17 @@ function getDeterministicRecommendation(ruleId: string, fallback: string): strin
     return fallback || 'Review the prompt and apply the documented safer pattern.';
 }
 
+const ABSENCE_REQUIREMENTS: Record<string, string> = {
+    bp_missing_persona: 'No bounded role or persona requirement was found within that block.',
+    bp_missing_few_shot: 'No example input/output behavior was found within that block.',
+    bp_missing_cot: 'No verification requirement or reviewable decision criteria were found within that block.',
+    struct_missing_format_enforcer: 'No required output format or schema enforcement was found within that block.',
+};
+
+function evidenceKindForRule(ruleId: string, explicit?: 'direct' | 'absence'): 'direct' | 'absence' {
+    return explicit || (ABSENCE_REQUIREMENTS[ruleId] ? 'absence' : 'direct');
+}
+
 function lineLooksRelevant(line: string, ruleId: string): boolean {
     const lower = line.toLowerCase();
     if (ruleId.includes('llm01') || ruleId.includes('injection')) {
@@ -203,15 +220,53 @@ function lineLooksRelevant(line: string, ruleId: string): boolean {
     return false;
 }
 
-function extractEvidence(content: string, startLine: number, ruleId: string, maxLength: number = 180): string {
-    const lines = content.split(/\r?\n/);
-    const line = lines.find(value => lineLooksRelevant(value, ruleId))
-        || lines[Math.max(0, startLine - 1)]
-        || lines.find(value => value.trim().length > 0)
-        || '';
+function truncateEvidence(line: string, maxLength: number = 180): string {
     const normalized = line.trim().replace(/\s+/g, ' ');
     if (normalized.length <= maxLength) return normalized;
     return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function locateEvidence(
+    content: string,
+    startLine: number,
+    ruleId: string,
+    matchedText?: string,
+): { evidence: string; line: number; column: number } {
+    const lines = content.split(/\r?\n/);
+
+    // 1. Exact location of the text the rule matched.
+    const needle = (matchedText || '').split(/\r?\n/).map(value => value.trim()).find(value => value.length > 0);
+    if (needle) {
+        const index = lines.findIndex(value => value.includes(needle));
+        if (index >= 0) {
+            return {
+                evidence: truncateEvidence(lines[index]),
+                line: index + 1,
+                column: Math.max(1, lines[index].indexOf(needle) + 1),
+            };
+        }
+    }
+
+    // 2. First line that looks relevant for this rule.
+    const relevantIndex = lines.findIndex(value => lineLooksRelevant(value, ruleId));
+    if (relevantIndex >= 0) {
+        return { evidence: truncateEvidence(lines[relevantIndex]), line: relevantIndex + 1, column: 1 };
+    }
+
+    // 3. Fall back to where the prompt block starts.
+    const fallback = lines[Math.max(0, startLine - 1)]
+        || lines.find(value => value.trim().length > 0)
+        || '';
+    return { evidence: truncateEvidence(fallback), line: Math.max(1, startLine), column: 1 };
+}
+
+export function loadRepositoryIgnorePatterns(scanRoot: string): string[] {
+    const promptsonarIgnorePath = path.join(scanRoot, '.promptsonarignore');
+    if (!fs.existsSync(promptsonarIgnorePath)) return [];
+    return fs.readFileSync(promptsonarIgnorePath, 'utf-8')
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#') && !line.startsWith('!'));
 }
 
 function extractInlineSuppressions(content: string): Map<number, Set<string>> {
@@ -345,6 +400,9 @@ const SUPPORTED_MARKDOWN_PROMPT_FILES = new Set([
     'agents.md',
 ]);
 
+// Default ignores cover dependency, build, cache, and binary artifacts only.
+// User content directories (docs/, tests/, examples/) are scanned by default;
+// repo-specific exclusions belong in that repository's .promptsonarignore.
 const DEFAULT_IGNORE_PATTERNS = [
     '**/node_modules/**',
     '**/dist/**',
@@ -356,21 +414,21 @@ const DEFAULT_IGNORE_PATTERNS = [
     '**/.vercel/**',
     '**/.cache/**',
     '**/.pytest_cache/**',
+    '**/.mypy_cache/**',
+    '**/.tox/**',
     '**/.git/**',
+    '**/.hg/**',
+    '**/.svn/**',
+    '**/.idea/**',
     '**/.vscode-test/**',
-    '**/tests/**',
-    '**/test/**',
-    '**/__tests__/**',
-    '**/docs/**',
-    '**/evidence/**',
-    '**/benchmarks/**',
-    '**/examples/vulnerable-prompts/**',
-    '**/examples/reports/**',
-    '**/Agentsabha-angigravity/**',
-    '**/custom-writer-skill/**',
-    '**/my-writer-agent/**',
-    '**/scratch/**',
-    '**/results/**',
+    '**/venv/**',
+    '**/.venv/**',
+    '**/env/**',
+    '**/site-packages/**',
+    '**/dist-packages/**',
+    '**/__pycache__/**',
+    '**/vendor/**',
+    '**/target/**',
     '**/tmp/**',
     '**/logs/**',
     '**/*.log',
@@ -402,13 +460,6 @@ const DEFAULT_IGNORE_PATTERNS = [
     '**/.promptsonar-waivers.yaml',
     '**/.promptsonarignore',
     '**/.promptsonar-policy.yaml',
-    '**/dummy_test.*',
-    '**/generate_test.*',
-    '**/generate_tests.*',
-    '**/generate_dummies.*',
-    '**/debug_*',
-    '**/test_parser.*',
-    '**/test_parse.*',
 ];
 
 const WORKFLOW_RELEVANT_PATTERNS = [
@@ -441,23 +492,31 @@ function getLanguageForExt(ext: string): string {
 function isRecognizedMcpConfig(filePath: string): boolean {
     const normalized = filePath.replace(/\\/g, '/').toLowerCase();
     return normalized.endsWith('/mcp.json')
+        || normalized.endsWith('/.mcp.json')
         || normalized.endsWith('/.vscode/mcp.json')
+        || normalized.endsWith('/.cursor/mcp.json')
         || normalized.endsWith('/claude_desktop_config.json')
         || normalized === 'mcp.json'
+        || normalized === '.mcp.json'
         || normalized === 'claude_desktop_config.json';
 }
 
 async function collectCandidateFiles(resolvedPath: string, ignore: string[]): Promise<string[]> {
     const patterns = SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
+    // dot: true so AI configs in dot directories (.cursor/mcp.json,
+    // .vscode/mcp.json, .claude/**, .github/workflows) are discovered; the
+    // ignore list keeps .git, caches, and dependency directories out.
     const files = await fg(patterns, {
         cwd: resolvedPath,
         absolute: true,
+        dot: true,
         ignore,
     });
 
     const markdownPromptFiles = await fg(['**/*.md'], {
         cwd: resolvedPath,
         absolute: true,
+        dot: true,
         ignore,
     });
     files.push(
@@ -469,6 +528,7 @@ async function collectCandidateFiles(resolvedPath: string, ignore: string[]): Pr
         cwd: resolvedPath,
         absolute: true,
         onlyFiles: true,
+        dot: true,
         ignore,
     }));
 
@@ -640,8 +700,8 @@ function mapMcpFinding(finding: McpFinding, filePath: string): ScanFinding {
         rule_id: finding.rule_id,
         category: 'security',
         severity: finding.severity,
-        line: 1,
-        column: 1,
+        line: finding.line || 1,
+        column: finding.column || 1,
         message: finding.message,
         fix: recommendation,
         recommendation,
@@ -706,13 +766,7 @@ export async function scanFiles(targetPath: string, options: {
     const scanRoot = fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory()
         ? resolvedPath
         : path.dirname(resolvedPath);
-    const promptsonarIgnorePath = path.join(scanRoot, '.promptsonarignore');
-    const promptsonarIgnorePatterns = fs.existsSync(promptsonarIgnorePath)
-        ? fs.readFileSync(promptsonarIgnorePath, 'utf-8')
-            .split(/\r?\n/)
-            .map(line => line.trim())
-            .filter(line => line && !line.startsWith('#') && !line.startsWith('!'))
-        : [];
+    const promptsonarIgnorePatterns = loadRepositoryIgnorePatterns(scanRoot);
     const ignorePatterns = [...DEFAULT_IGNORE_PATTERNS, ...promptsonarIgnorePatterns];
     const workspaceIgnoreMatchers = loadWorkspaceIgnoreMatchers(scanRoot);
 
@@ -763,32 +817,46 @@ export async function scanFiles(targetPath: string, options: {
 
                 fileFindings.push(...evalResult.findings.map(f => {
                     const configSuppression = isFindingSuppressed(f.rule_id, filePath, activeSuppressions);
-                    const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions);
                     const owasp = getOwaspRef(f.rule_id);
                     const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || '');
                     const risk = getRiskExplanation(f.rule_id);
+                    const evidenceKind = evidenceKindForRule(f.rule_id, f.evidenceKind);
+                    const located = locateEvidence(content, prompt.startLine, f.rule_id, f.matchedText);
+                    const evidenceLine = evidenceKind === 'absence' ? prompt.startLine : located.line;
+                    const evidenceColumn = evidenceKind === 'absence' ? 1 : located.column;
+                    const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions)
+                        || isInlineSuppressed(f.rule_id, located.line, inlineSuppressions);
                     const workflow = inferWorkflowForFinding({
                         ruleId: f.rule_id,
                         severity: f.severity,
                         text: prompt.text,
                         content,
                         filePath,
-                        line: prompt.startLine,
-                        column: 1,
+                        line: evidenceLine,
+                        column: evidenceColumn,
                         message: f.explanation,
                     });
                     return {
                         rule_id: f.rule_id,
                         category: getCategoryForRule(f.rule_id),
                         severity: f.severity,
-                        line: prompt.startLine,
-                        column: 1,
+                        line: evidenceLine,
+                        column: evidenceColumn,
                         message: f.explanation,
                         fix: recommendation,
                         recommendation,
                         owasp_ref: owasp,
                         owasp,
-                        evidence: extractEvidence(content, prompt.startLine, f.rule_id),
+                        evidence: evidenceKind === 'absence'
+                            ? (f.missingRequirement || ABSENCE_REQUIREMENTS[f.rule_id] || f.explanation)
+                            : located.evidence,
+                        evidenceKind,
+                        scopeLabel: evidenceKind === 'absence' ? (f.scopeLabel || 'Instruction block') : undefined,
+                        missingRequirement: evidenceKind === 'absence'
+                            ? (f.missingRequirement || ABSENCE_REQUIREMENTS[f.rule_id] || f.explanation)
+                            : undefined,
+                        scopeStartLine: evidenceKind === 'absence' ? prompt.startLine : undefined,
+                        scopeEndLine: evidenceKind === 'absence' ? prompt.endLine : undefined,
                         confidence: getConfidenceForFinding(f.rule_id, f.severity),
                         why: f.explanation,
                         risk,
@@ -801,7 +869,36 @@ export async function scanFiles(targetPath: string, options: {
                 }));
             }
 
-            if (prompts.length > 0) {
+            // Whole-content secret scan: catches hardcoded secrets in any
+            // string literal (not only prompt-shaped ones) and at the source
+            // line where an interpolated secret is actually assigned.
+            for (const secret of scanContentForSecrets(content)) {
+                const configSuppression = isFindingSuppressed('sec_owasp_llm02_pii', filePath, activeSuppressions);
+                const inlineSuppressed = isInlineSuppressed('sec_owasp_llm02_pii', secret.line, inlineSuppressions);
+                const recommendation = getDeterministicRecommendation('sec_owasp_llm02_pii', '');
+                fileFindings.push({
+                    rule_id: 'sec_owasp_llm02_pii',
+                    category: 'security',
+                    severity: 'high',
+                    line: secret.line,
+                    column: secret.column,
+                    message: `Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded ${secret.name} found in source.`,
+                    fix: recommendation,
+                    recommendation,
+                    owasp_ref: getOwaspRef('sec_owasp_llm02_pii'),
+                    owasp: getOwaspRef('sec_owasp_llm02_pii'),
+                    evidence: truncateEvidence((content.split(/\r?\n/)[secret.line - 1] || secret.matchedText)),
+                    confidence: getConfidenceForFinding('sec_owasp_llm02_pii', 'high'),
+                    why: `A hardcoded ${secret.name} in source can leak through logs, prompts, responses, or repository history.`,
+                    risk: getRiskExplanation('sec_owasp_llm02_pii'),
+                    docs_url: getRuleDocsUrl('sec_owasp_llm02_pii'),
+                    waived: Boolean(configSuppression || inlineSuppressed),
+                    suppression_reason: configSuppression?.reason || (inlineSuppressed ? 'Inline promptsonar-ignore comment' : undefined),
+                    suppression_source: configSuppression?.source || (inlineSuppressed ? 'inline' : undefined),
+                });
+            }
+
+            if (fileFindings.length > 0) {
                 results.push(buildScanResult(filePath, fileFindings, scanSummary));
             }
         } catch (err) {

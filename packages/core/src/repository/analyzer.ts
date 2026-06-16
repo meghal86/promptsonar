@@ -1,9 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { minimatch } from 'minimatch';
+import { stripNegatedClauses } from '../workflow/analyzer';
 import {
     REPOSITORY_CONFIDENCE_DEFINITIONS,
     repositoryConfidenceDefinition,
 } from './confidence';
+import { NON_PRODUCTION_PROVENANCE } from './types';
 import type {
     AnalyzeRepositoryOptions,
     ReachableExecutionPath,
@@ -22,15 +25,24 @@ import type {
     RepositoryIssueSummary,
     RepositoryPathValidation,
     RepositoryPathConfidence,
+    RepositoryProvenance,
     RepositoryRisk,
     RepositoryScanFinding,
     RepositoryScanResult,
+    RepositoryScanStats,
     RepositorySensitiveAction,
     RepositorySummary,
     RepositoryTrustStatus,
 } from './types';
 
-const REPORT_VERSION = '1.5.0';
+// Keep in lockstep with the published package version so the report version and
+// the CLI banner never disagree. The repository report schema is additive
+// (new fields are optional), so it rides the product version rather than its own.
+// Workflow/action artifacts are config surfaces, not source code that merely
+// mentions "workflow" in its name.
+const WORKFLOW_CONFIG_EXTENSIONS = new Set(['.yml', '.yaml', '.json', '.toml']);
+
+const REPORT_VERSION = '1.4.3';
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
@@ -47,6 +59,20 @@ const IGNORED_DIRECTORIES = new Set([
     '.cache',
     'tmp',
     'logs',
+    'venv',
+    '.venv',
+    'env',
+    '.env',
+    'site-packages',
+    'dist-packages',
+    'vendor',
+    'target',
+    '__pycache__',
+    '.pytest_cache',
+    '.mypy_cache',
+    '.tox',
+    '.idea',
+    '.vscode-test',
 ]);
 
 const TEXT_EXTENSIONS = new Set([
@@ -79,7 +105,7 @@ const SENSITIVE_ACTION_LABELS: Record<RepositorySensitiveAction, string> = {
 };
 
 const SECRET_VALUE_PATTERNS = [
-    /sk-(?:live|test|proj)-[A-Za-z0-9_-]{16,}/g,
+    /sk-(?:live|test|proj|ant)-[A-Za-z0-9_-]{8,}/g,
     /ghp_[A-Za-z0-9]{20,}/g,
     /xox[baprs]-[A-Za-z0-9-]{10,}/g,
     /Bearer\s+[A-Za-z0-9._-]{16,}/g,
@@ -97,7 +123,15 @@ function normalizePath(filePath: string): string {
 }
 
 function stableId(prefix: string, value: string): string {
-    return `${prefix}:${normalizePath(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 120)}`;
+    const slug = normalizePath(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    if (slug.length <= 120) return `${prefix}:${slug}`;
+    // Long values keep a readable prefix plus a hash of the full slug so two
+    // deep paths can never silently collide into one node or edge id.
+    let hash = 5381;
+    for (let index = 0; index < slug.length; index++) {
+        hash = ((hash << 5) + hash + slug.charCodeAt(index)) >>> 0;
+    }
+    return `${prefix}:${slug.slice(0, 96)}-${hash.toString(36)}`;
 }
 
 function redactSecrets(value: string): string {
@@ -118,17 +152,43 @@ function safeRead(filePath: string, maxFileSizeBytes: number): string | undefine
         const stat = fs.statSync(filePath);
         if (!stat.isFile() || stat.size > maxFileSizeBytes) return undefined;
         const ext = path.extname(filePath).toLowerCase();
-        if (!TEXT_EXTENSIONS.has(ext) && path.basename(filePath).toLowerCase() !== 'agents.md') return undefined;
+        const basename = path.basename(filePath).toLowerCase();
+        if (!TEXT_EXTENSIONS.has(ext) && basename !== 'agents.md' && basename !== 'agent.md') return undefined;
         return fs.readFileSync(filePath, 'utf-8');
     } catch {
         return undefined;
     }
 }
 
-function walkRepository(root: string, options: Required<AnalyzeRepositoryOptions>): string[] {
+function emptyScanStats(): RepositoryScanStats {
+    return {
+        filesConsidered: 0,
+        filesScanned: 0,
+        filesSkipped: 0,
+        skipReasons: {},
+        truncated: false,
+    };
+}
+
+function noteSkip(stats: RepositoryScanStats, reason: string, count = 1): void {
+    stats.filesSkipped += count;
+    stats.skipReasons[reason] = (stats.skipReasons[reason] || 0) + count;
+}
+
+function walkRepository(
+    root: string,
+    options: { maxFiles: number; maxFileSizeBytes: number; ignorePatterns: string[] },
+    stats: RepositoryScanStats,
+): string[] {
     const files: string[] = [];
+    const ignorePatterns = options.ignorePatterns;
+    const isIgnored = (relativePath: string): boolean =>
+        ignorePatterns.some(pattern =>
+            minimatch(relativePath, pattern, { dot: true }) ||
+            minimatch(relativePath, pattern.replace(/\/\*?\*?$/, ''), { dot: true })
+        );
+
     const visit = (dir: string) => {
-        if (files.length >= options.maxFiles) return;
         let entries: fs.Dirent[] = [];
         try {
             entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -137,11 +197,29 @@ function walkRepository(root: string, options: Required<AnalyzeRepositoryOptions
         }
 
         for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-            if (files.length >= options.maxFiles) break;
             const fullPath = path.join(dir, entry.name);
+            const relativePath = normalizePath(path.relative(root, fullPath));
             if (entry.isDirectory()) {
-                if (!IGNORED_DIRECTORIES.has(entry.name)) visit(fullPath);
+                if (IGNORED_DIRECTORIES.has(entry.name)) {
+                    noteSkip(stats, 'ignored_directory_subtree');
+                    continue;
+                }
+                if (ignorePatterns.length > 0 && isIgnored(relativePath)) {
+                    noteSkip(stats, 'ignore_pattern_directory');
+                    continue;
+                }
+                visit(fullPath);
             } else if (entry.isFile()) {
+                stats.filesConsidered += 1;
+                if (ignorePatterns.length > 0 && isIgnored(relativePath)) {
+                    noteSkip(stats, 'ignore_pattern');
+                    continue;
+                }
+                if (files.length >= options.maxFiles) {
+                    stats.truncated = true;
+                    noteSkip(stats, 'max_files_exceeded');
+                    continue;
+                }
                 files.push(fullPath);
             }
         }
@@ -172,13 +250,108 @@ function extractReferences(content: string): string[] {
 }
 
 function detectSensitiveActions(text: string): RepositorySensitiveAction[] {
-    const normalized = text.replace(/[_-]/g, ' ');
+    const normalized = stripNegatedClauses(text).replace(/[_-]/g, ' ');
     const actions = new Set<RepositorySensitiveAction>();
-    if (/\b(shell|bash|terminal|exec|spawn|subprocess|command|run\s+command)\b/i.test(normalized)) actions.add('Shell');
+    // "command" alone is not shell evidence (it appears in every MCP config and
+    // most prose); require an execution verb or an actual shell term.
+    if (/\b(shell|bash|terminal|exec|spawn|subprocess|run\s+(?:any\s+|all\s+)?commands?|execute\s+(?:any\s+|all\s+)?commands?)\b/i.test(normalized)) actions.add('Shell');
     if (/\b(filesystem|file\s*(read|write)|read\s+file|write\s+file|read\s+all\s+files|write\s+all\s+files|workspace|directory)\b/i.test(normalized)) actions.add('Filesystem');
     if (/\b(network|http|https|fetch|curl|webhook|internal api|network\s+request)\b/i.test(normalized)) actions.add('Network');
     if (/\b(secret|secrets|read\s+secret|token|api\s*key|password|credential|credentials|bearer)\b/i.test(normalized)) actions.add('Secrets');
     if (/https?:\/\/|\bexternal\s+api\b|\bapi\./i.test(text)) actions.add('External APIs');
+    return Array.from(actions);
+}
+
+const SHELL_BINARIES = new Set(['bash', 'sh', 'zsh', 'fish', 'dash', 'ksh', 'powershell', 'pwsh', 'cmd', 'cmd.exe']);
+const SHELL_VALUE_TOKENS = ['shell', 'bash', 'terminal', 'exec', 'spawn', 'subprocess', 'shell_exec', 'process.run'];
+const FS_VALUE_TOKENS = ['filesystem', 'file_write', 'file_read', 'file.write', 'file.read', 'fs.', 'disk_access', 'workspace_access', 'files'];
+const NETWORK_VALUE_TOKENS = ['network', 'http', 'https', 'fetch', 'curl', 'webhook', 'request'];
+const SECRET_VALUE_TOKENS = ['secret', 'token', 'api_key', 'apikey', 'password', 'credential', 'bearer'];
+
+function collectValueStrings(value: unknown, out: string[]): void {
+    if (value == null) return;
+    if (typeof value === 'string') {
+        out.push(value);
+        return;
+    }
+    if (Array.isArray(value)) {
+        for (const item of value) collectValueStrings(item, out);
+        return;
+    }
+    if (typeof value === 'object') {
+        for (const item of Object.values(value as Record<string, unknown>)) collectValueStrings(item, out);
+    }
+}
+
+function collectKeyedValues(node: unknown, keys: Set<string>, out: string[]): void {
+    if (node == null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+        for (const item of node) collectKeyedValues(item, keys, out);
+        return;
+    }
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        if (keys.has(key.toLowerCase())) collectValueStrings(value, out);
+        collectKeyedValues(value, keys, out);
+    }
+}
+
+// Value-based sensitive-action detection for MCP server configs. JSON key
+// names (notably the mandatory "command" launcher key) must never count as
+// capability evidence; only the configured values can.
+function detectMcpSensitiveActions(body: string): RepositorySensitiveAction[] {
+    let server: any;
+    try {
+        server = JSON.parse(body);
+    } catch {
+        // Unparseable config: fall back to keyword detection with structural
+        // launcher keys stripped so key names cannot masquerade as evidence.
+        const withoutLauncherKeys = body.replace(/"(?:command|args|cwd|name|id)"\s*:/gi, '"":');
+        return detectSensitiveActions(withoutLauncherKeys);
+    }
+    if (!server || typeof server !== 'object') return [];
+
+    const actions = new Set<RepositorySensitiveAction>();
+    const matchesToken = (value: string, tokens: string[]): boolean => {
+        const lower = value.toLowerCase();
+        return tokens.some(token => lower.includes(token));
+    };
+
+    // Launcher: only an actual shell binary or inline-eval form is shell evidence.
+    const command = typeof server.command === 'string' ? server.command.trim() : '';
+    const commandBinary = command.split(/[\\/\s]+/).filter(Boolean).pop()?.toLowerCase() || '';
+    const args: string[] = [];
+    collectValueStrings(server.args, args);
+    if (SHELL_BINARIES.has(commandBinary)) actions.add('Shell');
+    if (args.some(arg => arg === '-c' || arg === '/c')) actions.add('Shell');
+    if ((/\b(?:python\d?|node|ruby|perl)\b/i.test(commandBinary) || /\b(?:python\d?|node|ruby|perl)\b/i.test(command)) && args.some(arg => arg === '-e' || arg === '-c')) actions.add('Shell');
+
+    // Declared capabilities, permissions, scopes, and tools (values only).
+    const grantValues: string[] = [];
+    collectKeyedValues(server, new Set(['permissions', 'scopes', 'capabilities', 'tools', 'allow']), grantValues);
+    for (const value of grantValues) {
+        if (matchesToken(value, SHELL_VALUE_TOKENS)) actions.add('Shell');
+        if (matchesToken(value, FS_VALUE_TOKENS)) actions.add('Filesystem');
+        if (matchesToken(value, NETWORK_VALUE_TOKENS)) actions.add('Network');
+        if (matchesToken(value, SECRET_VALUE_TOKENS)) actions.add('Secrets');
+    }
+
+    // Free-text fields (descriptions, instructions) keep keyword detection.
+    const textValues: string[] = [];
+    collectKeyedValues(server, new Set(['description', 'instructions', 'prompt', 'usage']), textValues);
+    for (const action of detectSensitiveActions(textValues.join('\n'))) actions.add(action);
+
+    // Environment keys that hold credentials.
+    const env = server.env && typeof server.env === 'object' && !Array.isArray(server.env) ? server.env as Record<string, unknown> : undefined;
+    if (env && Object.keys(env).some(key => /(?:secret|token|key|password|credential)/i.test(key))) actions.add('Secrets');
+
+    // Endpoints.
+    const allValues: string[] = [];
+    collectValueStrings(server, allValues);
+    if (allValues.some(value => /^https?:\/\//i.test(value))) {
+        actions.add('Network');
+        actions.add('External APIs');
+    }
+
     return Array.from(actions);
 }
 
@@ -214,11 +387,50 @@ function mcpParseWarning(relativePath: string, content: string): string | undefi
     }
 }
 
+// Classify where an artifact lives so repository trust can be read against
+// production code only. Documentation that *describes* an attack and fixtures
+// that *intentionally contain* one are real and stay visible, but they are not
+// live product vulnerabilities and must not drive trust status.
+function classifyRepositoryProvenance(relativePath: string, content: string): RepositoryProvenance {
+    const lower = normalizePath(relativePath).toLowerCase();
+    const segments = lower.split('/');
+    const basename = segments[segments.length - 1] || '';
+    const hasSegment = (...names: string[]): boolean => segments.some(segment => names.includes(segment));
+
+    if (hasSegment('node_modules', 'dist', 'build', 'out', '.next', 'coverage', 'vendor') ||
+        /\.(?:min|bundle|chunk|compiled|generated)\.[a-z]+$/.test(basename) ||
+        /\.d\.ts$/.test(basename)) {
+        return 'generated';
+    }
+    // Fixture is checked before test: a file under `tests/.../fixtures/` is a
+    // fixture (intentional sample), not a test runner file.
+    if (hasSegment('fixtures', 'fixture', 'golden', 'sample-repos', 'samples', 'corpus', 'snapshots') ||
+        /\.fixture\.[a-z]+$/.test(basename) ||
+        // Intentional vulnerable fixtures self-declare their suppression intent.
+        /\b(intentional(?:ly)? vulnerable|test fixture|do not fix|fixture only|vulnerable fixture|suppression_reason)\b/i.test(content)) {
+        return 'fixture';
+    }
+    if (hasSegment('tests', 'test', '__tests__', '__test__', 'spec', '__mocks__') ||
+        /\.(?:test|spec)\.[a-z]+$/.test(basename)) {
+        return 'test';
+    }
+    if (hasSegment('docs', 'doc', 'documentation', 'wiki') ||
+        basename === 'readme.md' || basename === 'changelog.md' || basename === 'contributing.md' ||
+        /\.mdx?$/.test(basename) && hasSegment('docs', 'doc')) {
+        return 'documentation';
+    }
+    if (hasSegment('examples', 'example', 'demo', 'demos', 'scratch', 'evidence', 'benchmarks', 'research', 'results', 'tmp', 'output')) {
+        return 'example';
+    }
+    return 'production';
+}
+
 function classifyFile(root: string, filePath: string, content: string): RepositoryArtifact[] {
     const relativePath = normalizePath(path.relative(root, filePath));
     const lower = relativePath.toLowerCase();
     const basename = path.basename(lower);
     const ext = path.extname(lower);
+    const provenance = classifyRepositoryProvenance(relativePath, content);
     const isPromptPath = lower.startsWith('prompts/') || lower.includes('/prompts/') || ['.prompt', '.ai', '.chat', '.system'].includes(ext);
     const artifacts: RepositoryArtifact[] = [];
     const add = (type: RepositoryArtifactType, name: string, description: string, signals: string[], evidence: string[], metadata?: RepositoryArtifact['metadata']) => {
@@ -230,6 +442,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
             relativePath,
             description,
             evidence: sanitizeStringArray(evidence) || [],
+            provenance,
             signals,
             metadata: metadata ? {
                 ...metadata,
@@ -246,7 +459,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         const serverArtifacts = servers.length > 0 ? servers : [{ name: path.basename(filePath), body: content }];
         const parseWarning = mcpParseWarning(relativePath, content);
         for (const server of serverArtifacts) {
-            const sensitiveActions = detectSensitiveActions(server.body);
+            const sensitiveActions = detectMcpSensitiveActions(server.body);
             add('MCP_SERVER', server.name, 'MCP server configuration discovered in repository config.', ['mcp-config'], [lineEvidence(content, /mcpServers|servers|command|args|tools|permissions/i, relativePath)], {
                 servers: [server.name],
                 permissions: Array.from(server.body.matchAll(/"?(permissions|scopes|allow|allowAll|autoApprove|autoExecute)"?\s*[:=]\s*([^,\n}]+)/gi)).map(match => `${match[1]}=${String(match[2]).trim()}`).slice(0, 12),
@@ -269,7 +482,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (lower === 'agents.md' || lower.endsWith('/agents.md')) {
+    if (lower === 'agents.md' || lower === 'agent.md' || lower.startsWith('agents/') || lower.endsWith('/agents.md') || lower.endsWith('/agent.md') || lower.includes('/agents/')) {
         add('AGENT_CONFIG', path.basename(filePath), 'Repository agent instruction file discovered.', ['agent-instructions'], [lineEvidence(content, /agent|codex|cursor|claude|instructions/i, relativePath)], {
             constraints: Array.from(content.matchAll(/\b(?:do not|never|only|must|important)[:\s-]+(.+)/gi)).map(match => match[0].trim()).slice(0, 10),
             sensitiveActions: detectSensitiveActions(content),
@@ -294,7 +507,14 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (lower.startsWith('.github/workflows/') || lower.includes('/.github/workflows/') || basename.includes('workflow') || basename.includes('pipeline') || basename === 'action.yml' || basename === 'action.yaml') {
+    // WORKFLOW/ACTION are CI/orchestration *config* surfaces. A basename match
+    // (`workflow`, `pipeline`) only counts on a config extension or under
+    // `.github/workflows/` — otherwise a UI component like `WorkflowGraph.tsx`
+    // would be misclassified as a workflow executor and reach a Confirmed sink.
+    const isGithubWorkflow = lower.startsWith('.github/workflows/') || lower.includes('/.github/workflows/');
+    const isActionManifest = basename === 'action.yml' || basename === 'action.yaml';
+    const isWorkflowConfigName = (basename.includes('workflow') || basename.includes('pipeline')) && WORKFLOW_CONFIG_EXTENSIONS.has(ext);
+    if (isGithubWorkflow || isActionManifest || isWorkflowConfigName) {
         add(basename.startsWith('action.') ? 'ACTION' : 'WORKFLOW', path.basename(filePath), 'Workflow or action orchestration file discovered.', ['workflow-config'], [lineEvidence(content, /workflow|jobs|steps|uses|run|tool|prompt|mcp/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
@@ -321,20 +541,40 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     return artifacts;
 }
 
-export function analyzeRepository(rootPath: string, options: AnalyzeRepositoryOptions = {}): RepositoryArtifact[] {
+export function analyzeRepositoryArtifacts(rootPath: string, options: AnalyzeRepositoryOptions = {}): { artifacts: RepositoryArtifact[]; scanStats: RepositoryScanStats } {
     const root = path.resolve(rootPath);
     const resolvedOptions = {
         maxFiles: options.maxFiles || DEFAULT_MAX_FILES,
         maxFileSizeBytes: options.maxFileSizeBytes || DEFAULT_MAX_FILE_SIZE_BYTES,
+        ignorePatterns: options.ignorePatterns || [],
     };
-    const files = fs.statSync(root).isDirectory() ? walkRepository(root, resolvedOptions) : [root];
+    const scanStats = emptyScanStats();
+    const isDirectory = fs.statSync(root).isDirectory();
+    let files: string[];
+    if (isDirectory) {
+        files = walkRepository(root, resolvedOptions, scanStats);
+    } else {
+        files = [root];
+        scanStats.filesConsidered = 1;
+    }
     const artifacts: RepositoryArtifact[] = [];
     for (const filePath of files) {
         const content = safeRead(filePath, resolvedOptions.maxFileSizeBytes);
-        if (content === undefined) continue;
-        artifacts.push(...classifyFile(fs.statSync(root).isDirectory() ? root : path.dirname(root), filePath, content));
+        if (content === undefined) {
+            noteSkip(scanStats, 'unsupported_or_unreadable');
+            continue;
+        }
+        scanStats.filesScanned += 1;
+        artifacts.push(...classifyFile(isDirectory ? root : path.dirname(root), filePath, content));
     }
-    return artifacts.sort((a, b) => `${a.relativePath}:${a.type}:${a.name}`.localeCompare(`${b.relativePath}:${b.type}:${b.name}`));
+    return {
+        artifacts: artifacts.sort((a, b) => `${a.relativePath}:${a.type}:${a.name}`.localeCompare(`${b.relativePath}:${b.type}:${b.name}`)),
+        scanStats,
+    };
+}
+
+export function analyzeRepository(rootPath: string, options: AnalyzeRepositoryOptions = {}): RepositoryArtifact[] {
+    return analyzeRepositoryArtifacts(rootPath, options).artifacts;
 }
 
 function nodeTypeForArtifact(type: RepositoryArtifactType): RepositoryExecutionNodeType {
@@ -346,14 +586,25 @@ function edgeId(from: string, to: string, type: string): string {
     return stableId('edge', `${from}:${type}:${to}`);
 }
 
-function addEdge(edges: Map<string, RepositoryExecutionEdge>, from: string, to: string, type: RepositoryExecutionEdge['type'], reason: string, evidence: string | undefined, confidence: number): void {
+// Edge provenance is the structured basis for confidence — set explicitly by
+// each call site rather than recovered by regex from the English reason text.
+//  - 'direct':     a real reference or direct config/artifact evidence -> Confirmed
+//  - 'connected':  a relationship inferred from shared metadata/capability -> Probable
+//  - 'structural': co-location or broad repository possibility only      -> Potential
+type EdgeProvenance = 'direct' | 'connected' | 'structural';
+
+const PROVENANCE_LEVEL: Record<EdgeProvenance, RepositoryPathConfidence> = {
+    direct: 'confirmed',
+    connected: 'probable',
+    structural: 'potential',
+};
+
+function addEdge(edges: Map<string, RepositoryExecutionEdge>, from: string, to: string, type: RepositoryExecutionEdge['type'], reason: string, evidence: string | undefined, confidence: number, provenance: EdgeProvenance): void {
     if (from === to) return;
     const id = edgeId(from, to, type);
     if (edges.has(id)) return;
-    const hasEvidence = Boolean(evidence?.trim());
-    const hasDirectEvidence = hasEvidence && /direct artifact evidence|direct prompt evidence|\breferences\b/i.test(reason);
-    const hasConnectedEvidence = hasEvidence && !/\binferred from artifact metadata\b|\bcan (?:read|invoke|route|reference|reach)\b/i.test(reason);
-    const level: RepositoryPathConfidence = hasDirectEvidence ? 'confirmed' : hasConnectedEvidence ? 'probable' : 'potential';
+    // A claim of direct evidence is only honored when evidence actually exists.
+    const level: RepositoryPathConfidence = provenance === 'direct' && !evidence?.trim() ? 'probable' : PROVENANCE_LEVEL[provenance];
     const label = pathConfidenceLabel(level);
     edges.set(id, {
         id,
@@ -362,6 +613,7 @@ function addEdge(edges: Map<string, RepositoryExecutionEdge>, from: string, to: 
         type,
         relationship: type,
         reason,
+        provenance,
         evidence: evidence ? redactSecrets(evidence) : undefined,
         evidenceRefs: evidence ? [stableId('evidence', `${from}:${to}:${type}:${evidence}`)] : [],
         confidence,
@@ -383,7 +635,22 @@ function artifactText(artifact: RepositoryArtifact): string {
     ].join(' ').toLowerCase();
 }
 
-function addSensitiveActionNodes(nodes: Map<string, RepositoryExecutionNode>, edges: Map<string, RepositoryExecutionEdge>, sourceNodeId: string, actions: RepositorySensitiveAction[], evidence?: string): void {
+// Node types that actually *execute* a sensitive action (a configured MCP
+// server, tool registry, memory store, or workflow). Only these can anchor a
+// Confirmed source-to-sink edge. A PROMPT or SKILL only *declares* intent in
+// prose, so its reach to a synthetic action node is Probable at best — there is
+// no wired executor to confirm the sink.
+const EXECUTOR_NODE_TYPES = new Set<RepositoryExecutionNodeType>(['MCP_SERVER', 'TOOL', 'MEMORY', 'WORKFLOW']);
+
+function addSensitiveActionNodes(
+    nodes: Map<string, RepositoryExecutionNode>,
+    edges: Map<string, RepositoryExecutionEdge>,
+    sourceNodeId: string,
+    actions: RepositorySensitiveAction[],
+    options: { evidence?: string; sourceIsExecutor: boolean },
+): void {
+    const { evidence, sourceIsExecutor } = options;
+    const hasEvidence = Boolean(evidence?.trim());
     for (const action of actions) {
         const actionNodeId = stableId('node', `ACTION:${action}`);
         if (!nodes.has(actionNodeId)) {
@@ -395,7 +662,26 @@ function addSensitiveActionNodes(nodes: Map<string, RepositoryExecutionNode>, ed
                 metadata: { action },
             });
         }
-        addEdge(edges, sourceNodeId, actionNodeId, 'CAN_REACH', evidence ? `${action} capability derived from direct artifact evidence.` : `${action} capability inferred from artifact metadata.`, evidence ? redactSecrets(evidence) : undefined, evidence ? 85 : 65);
+        // Real wired executor + direct evidence -> Confirmed. A prose-only
+        // declaration (PROMPT/SKILL) is capped at Probable even with evidence,
+        // because no tool/MCP/workflow in the repo actually performs the action.
+        let reason: string;
+        let confidence: number;
+        let provenance: EdgeProvenance;
+        if (sourceIsExecutor && hasEvidence) {
+            reason = `${action} capability derived from direct executor evidence.`;
+            confidence = 85;
+            provenance = 'direct';
+        } else if (hasEvidence) {
+            reason = `${action} capability declared in instructions; no wired executor confirms the sink.`;
+            confidence = 75;
+            provenance = 'connected';
+        } else {
+            reason = `${action} capability inferred from artifact metadata.`;
+            confidence = 65;
+            provenance = 'structural';
+        }
+        addEdge(edges, sourceNodeId, actionNodeId, 'CAN_REACH', reason, hasEvidence ? redactSecrets(evidence!) : undefined, confidence, provenance);
     }
 }
 
@@ -406,7 +692,7 @@ function riskForActions(actions: RepositorySensitiveAction[], findings: Reposito
     return 'low';
 }
 
-export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], scanResults: RepositoryScanResult[] = []): RepositoryExecutionMap {
+export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], scanResults: RepositoryScanResult[] = [], rootPath?: string): RepositoryExecutionMap {
     const nodes = new Map<string, RepositoryExecutionNode>();
     const edges = new Map<string, RepositoryExecutionEdge>();
     const nodeIdByArtifact = new Map<string, string>();
@@ -430,7 +716,19 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
         });
         const directActionTypes = new Set<RepositoryArtifactType>(['MCP_SERVER', 'TOOL', 'MEMORY']);
         if (directActionTypes.has(artifact.type)) {
-            addSensitiveActionNodes(nodes, edges, nodeId, artifact.metadata?.sensitiveActions || [], artifact.evidence[0]);
+            // A config that failed to parse cannot provide direct evidence, so
+            // its action edges stay structural inference instead of Confirmed.
+            const directEvidence = artifact.metadata?.parseWarning ? undefined : artifact.evidence[0];
+            addSensitiveActionNodes(nodes, edges, nodeId, artifact.metadata?.sensitiveActions || [], { evidence: directEvidence, sourceIsExecutor: true });
+        } else if (artifact.type === 'SKILL') {
+            // An agent skill that declares shell/secret/file capabilities is a
+            // reachable instruction source even when no separate scanner finding
+            // lands on it. Wire its declared actions into the graph as a
+            // non-executor (Probable) source so a dangerous SKILL.md cannot
+            // silently report as Trusted with zero paths. Scoped to SKILL only:
+            // generic agent-instruction prose (AGENTS.md) merely mentioning these
+            // words is not a capability grant and must not synthesize paths.
+            addSensitiveActionNodes(nodes, edges, nodeId, artifact.metadata?.sensitiveActions || [], { evidence: artifact.evidence[0], sourceIsExecutor: false });
         }
     }
 
@@ -453,7 +751,7 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
             const targetName = target.name.toLowerCase();
             const targetBase = path.basename(target.relativePath).toLowerCase();
             if (sourceText.includes(targetName) || sourceText.includes(target.relativePath.toLowerCase()) || (targetBase.length > 4 && sourceText.includes(targetBase))) {
-                addEdge(edges, sourceNode, targetNode, 'REFERENCES', `${source.name} references ${target.name}.`, source.evidence[0], 75);
+                addEdge(edges, sourceNode, targetNode, 'REFERENCES', `${source.name} references ${target.name}.`, source.evidence[0], 75, 'direct');
             }
         }
     }
@@ -461,14 +759,16 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
     for (const prompt of prompts) {
         const sourceNode = nodeIdByArtifact.get(prompt.id);
         if (!sourceNode) continue;
-        for (const memory of memories) addEdge(edges, sourceNode, nodeIdByArtifact.get(memory.id)!, 'READS', 'Prompt or agent config can read repository memory context.', prompt.evidence[0], 55);
-        for (const skill of skills) addEdge(edges, sourceNode, nodeIdByArtifact.get(skill.id)!, 'INVOKES', 'Prompt or agent config can invoke discovered agent skills.', prompt.evidence[0], 60);
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'ROUTES_TO', 'Prompt or agent config can route work to tool definitions.', prompt.evidence[0], 60);
+        for (const memory of memories) addEdge(edges, sourceNode, nodeIdByArtifact.get(memory.id)!, 'READS', 'Prompt or agent config can read repository memory context.', prompt.evidence[0], 55, 'structural');
+        for (const skill of skills) addEdge(edges, sourceNode, nodeIdByArtifact.get(skill.id)!, 'INVOKES', 'Prompt or agent config can invoke discovered agent skills.', prompt.evidence[0], 60, 'structural');
+        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'ROUTES_TO', 'Prompt or agent config can route work to tool definitions.', prompt.evidence[0], 60, 'structural');
         for (const mcp of mcps) {
             const promptActions = prompt.metadata?.sensitiveActions || [];
             const mcpActions = mcp.metadata?.sensitiveActions || [];
             if (promptActions.some(action => mcpActions.includes(action))) {
-                addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Direct prompt evidence references a sensitive action exposed by a configured MCP server.', prompt.evidence[0], 85);
+                // Capability overlap (prompt names an action the MCP exposes) is
+                // strong structural evidence, not a confirmed reference.
+                addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Prompt names a sensitive action exposed by a configured MCP server.', prompt.evidence[0], 80, 'connected');
             }
         }
     }
@@ -476,28 +776,27 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
     for (const skill of skills) {
         const sourceNode = nodeIdByArtifact.get(skill.id);
         if (!sourceNode) continue;
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'ROUTES_TO', 'Skill can route instructions to a tool surface.', skill.evidence[0], 65);
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Skill can invoke MCP server capabilities.', skill.evidence[0], 60);
+        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'ROUTES_TO', 'Skill can route instructions to a tool surface.', skill.evidence[0], 65, 'structural');
+        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Skill can invoke MCP server capabilities.', skill.evidence[0], 60, 'structural');
     }
 
     for (const tool of tools) {
         const sourceNode = nodeIdByArtifact.get(tool.id);
         if (!sourceNode) continue;
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'ROUTES_TO', 'Tool surface can route to MCP server capability.', tool.evidence[0], 70);
+        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'ROUTES_TO', 'Tool surface can route to MCP server capability.', tool.evidence[0], 70, 'structural');
     }
 
     for (const workflow of workflows) {
         const sourceNode = nodeIdByArtifact.get(workflow.id);
         if (!sourceNode) continue;
-        for (const prompt of prompts) addEdge(edges, sourceNode, nodeIdByArtifact.get(prompt.id)!, 'REFERENCES', 'Workflow can reference prompt or agent instructions.', workflow.evidence[0], 55);
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'INVOKES', 'Workflow can invoke tool definitions.', workflow.evidence[0], 65);
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Workflow can invoke MCP server configuration.', workflow.evidence[0], 65);
+        for (const prompt of prompts) addEdge(edges, sourceNode, nodeIdByArtifact.get(prompt.id)!, 'REFERENCES', 'Workflow can reference prompt or agent instructions.', workflow.evidence[0], 55, 'structural');
+        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'INVOKES', 'Workflow can invoke tool definitions.', workflow.evidence[0], 65, 'structural');
+        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Workflow can invoke MCP server configuration.', workflow.evidence[0], 65, 'structural');
     }
 
     for (const result of scanResults) {
         const related = artifacts.find(artifact => path.resolve(artifact.filePath) === path.resolve(result.filePath));
-        const sourceNode = related ? nodeIdByArtifact.get(related.id) : undefined;
-        if (!related || !sourceNode) continue;
+        let sourceNode = related ? nodeIdByArtifact.get(related.id) : undefined;
         const actions = new Set<RepositorySensitiveAction>();
         for (const finding of result.findings || []) {
             if (finding.waived) continue;
@@ -509,67 +808,142 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
                 if (workflowNode.type === 'credential_store' || workflowNode.type === 'secret') actions.add('Secrets');
                 if (workflowNode.type === 'external_api') actions.add('External APIs');
             }
-            if (!['PROMPT', 'SKILL', 'AGENT_CONFIG'].includes(related.type)) {
+            if (related && !['PROMPT', 'SKILL', 'AGENT_CONFIG'].includes(related.type)) {
                 detectSensitiveActions(`${finding.message || ''}\n${finding.evidence || ''}\n${finding.fix || ''}`).forEach(action => actions.add(action));
             }
         }
-        addSensitiveActionNodes(nodes, edges, sourceNode, Array.from(actions), result.findings?.[0]?.evidence);
+        if (!sourceNode) {
+            // The scanner extracted AI instructions from a file the artifact
+            // classifier did not recognize. Give the findings a real source node
+            // so their execution paths stay graph-backed instead of node-less.
+            if (actions.size === 0) continue;
+            const syntheticNodeId = stableId('node', `SCAN:${normalizePath(result.filePath)}`);
+            if (!nodes.has(syntheticNodeId)) {
+                nodes.set(syntheticNodeId, {
+                    id: syntheticNodeId,
+                    type: 'PROMPT',
+                    label: path.basename(result.filePath),
+                    filePath: result.filePath,
+                    relativePath: rootPath
+                        ? normalizePath(path.relative(path.resolve(rootPath), path.resolve(result.filePath)))
+                        : normalizePath(result.filePath),
+                    description: 'AI instructions detected by the scanner in this file.',
+                    metadata: { artifactType: 'PROMPT', scannerDetected: true },
+                });
+            }
+            sourceNode = syntheticNodeId;
+        }
+        const sourceNodeType = nodes.get(sourceNode)?.type;
+        const sourceIsExecutor = sourceNodeType ? EXECUTOR_NODE_TYPES.has(sourceNodeType) : false;
+        addSensitiveActionNodes(nodes, edges, sourceNode, Array.from(actions), { evidence: result.findings?.[0]?.evidence, sourceIsExecutor });
     }
 
-    const graph = {
+    const graph: RepositoryExecutionMap = {
         nodes: Array.from(nodes.values()).sort((a, b) => a.id.localeCompare(b.id)),
         edges: Array.from(edges.values()).sort((a, b) => a.id.localeCompare(b.id)),
         paths: [] as RepositoryExecutionGraphPath[],
     };
-    graph.paths = inferGraphPaths(graph, scanResults);
+    const enumeration = inferGraphPaths(graph, scanResults);
+    graph.paths = enumeration.paths;
+    graph.pathsTruncated = enumeration.truncated;
+    graph.pathEnumerationLimit = MAX_GRAPH_PATHS;
     return graph;
 }
 
-function inferGraphPaths(graph: RepositoryExecutionMap, scanResults: RepositoryScanResult[]): RepositoryExecutionGraphPath[] {
+const MAX_GRAPH_PATHS = 100;
+
+function inferGraphPaths(graph: RepositoryExecutionMap, scanResults: RepositoryScanResult[]): { paths: RepositoryExecutionGraphPath[]; truncated: boolean } {
     const adjacency = new Map<string, RepositoryExecutionEdge[]>();
+    const reverseAdjacency = new Map<string, RepositoryExecutionEdge[]>();
     for (const edge of graph.edges) {
         const existing = adjacency.get(edge.from) || [];
         existing.push(edge);
         adjacency.set(edge.from, existing);
+        const incoming = reverseAdjacency.get(edge.to) || [];
+        incoming.push(edge);
+        reverseAdjacency.set(edge.to, incoming);
     }
-    const actionNodes = new Set(graph.nodes.filter(node => node.type === 'ACTION' && node.metadata?.action).map(node => node.id));
-    const startNodes = graph.nodes.filter(node => ['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW'].includes(node.type)).map(node => node.id);
+    const edgeSort = (a: RepositoryExecutionEdge, b: RepositoryExecutionEdge) =>
+        b.confidence - a.confidence || a.id.localeCompare(b.id);
+    for (const edges of adjacency.values()) edges.sort(edgeSort);
+    for (const edges of reverseAdjacency.values()) edges.sort(edgeSort);
+
+    const actionNodes = graph.nodes
+        .filter(node => node.type === 'ACTION' && node.metadata?.action)
+        .sort((a, b) => a.id.localeCompare(b.id));
+    const startNodes = graph.nodes
+        .filter(node => isPathSourceNode(node, graph))
+        .map(node => node.id)
+        .sort();
     const paths: RepositoryExecutionGraphPath[] = [];
     const findingsByFile = new Map(scanResults.map(result => [path.resolve(result.filePath), result.findings || []]));
     const nodeById = new Map(graph.nodes.map(node => [node.id, node]));
+    const nextEdgeToAction = new Map<string, Map<string, RepositoryExecutionEdge>>();
 
+    // One reverse traversal per sensitive action records a deterministic
+    // shortest suffix from every reachable node. Route enumeration can then
+    // vary the first hop without expanding every combination in a dense graph.
+    for (const actionNode of actionNodes) {
+        const nextEdge = new Map<string, RepositoryExecutionEdge>();
+        const visited = new Set<string>([actionNode.id]);
+        const queue = [actionNode.id];
+        for (let index = 0; index < queue.length; index += 1) {
+            const current = queue[index];
+            for (const edge of reverseAdjacency.get(current) || []) {
+                if (visited.has(edge.from)) continue;
+                visited.add(edge.from);
+                nextEdge.set(edge.from, edge);
+                queue.push(edge.from);
+            }
+        }
+        nextEdgeToAction.set(actionNode.id, nextEdge);
+    }
+
+    const seen = new Set<string>();
+    let truncated = false;
     for (const start of startNodes) {
-        const queue: Array<{ nodeId: string; nodeIds: string[]; edgeIds: string[] }> = [{ nodeId: start, nodeIds: [start], edgeIds: [] }];
-        while (queue.length > 0 && paths.length < 100) {
-            const current = queue.shift()!;
-            if (current.nodeIds.length > 6) continue;
-            if (actionNodes.has(current.nodeId) && current.edgeIds.length > 0) {
-                const nodes = current.nodeIds.map(id => nodeById.get(id)).filter(Boolean) as RepositoryExecutionNode[];
+        if (truncated) break;
+        for (const firstEdge of adjacency.get(start) || []) {
+            if (truncated) break;
+            for (const actionNode of actionNodes) {
+                const nodeIds = [start];
+                const edgeIds: string[] = [];
+                const visited = new Set(nodeIds);
+                let edge: RepositoryExecutionEdge | undefined = firstEdge;
+
+                while (edge && nodeIds.length <= 6) {
+                    if (visited.has(edge.to)) break;
+                    edgeIds.push(edge.id);
+                    nodeIds.push(edge.to);
+                    visited.add(edge.to);
+                    if (edge.to === actionNode.id) break;
+                    edge = nextEdgeToAction.get(actionNode.id)?.get(edge.to);
+                }
+
+                if (nodeIds[nodeIds.length - 1] !== actionNode.id) continue;
+                const key = nodeIds.join('>');
+                if (seen.has(key)) continue;
+                seen.add(key);
+                if (paths.length >= MAX_GRAPH_PATHS) {
+                    truncated = true;
+                    break;
+                }
+
+                const nodes = nodeIds.map(id => nodeById.get(id)).filter(Boolean) as RepositoryExecutionNode[];
                 const actions = nodes.map(node => node.metadata?.action).filter(Boolean) as RepositorySensitiveAction[];
                 const findings = nodes.flatMap(node => node.filePath ? (findingsByFile.get(path.resolve(node.filePath)) || []) : []);
                 paths.push({
-                    id: stableId('path', current.nodeIds.join('>')),
-                    nodeIds: current.nodeIds,
-                    edgeIds: current.edgeIds,
+                    id: stableId('path', key),
+                    nodeIds,
+                    edgeIds,
                     risk: riskForActions(actions, findings),
                     explanation: nodes.map(node => node.label).join(' -> '),
                 });
-                continue;
-            }
-            for (const edge of adjacency.get(current.nodeId) || []) {
-                if (current.nodeIds.includes(edge.to)) continue;
-                queue.push({ nodeId: edge.to, nodeIds: [...current.nodeIds, edge.to], edgeIds: [...current.edgeIds, edge.id] });
             }
         }
     }
 
-    const seen = new Set<string>();
-    return paths.filter(pathItem => {
-        const key = pathItem.nodeIds.join('>');
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
+    return { paths, truncated };
 }
 
 function actionFromWorkflowNode(type: string): RepositorySensitiveAction | undefined {
@@ -588,8 +962,30 @@ function clampConfidence(value: number): number {
 export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, artifacts: RepositoryArtifact[], scanResults: RepositoryScanResult[] = []): ReachableExecutionPath[] {
     const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
     const edgesById = new Map(executionMap.edges.map(edge => [edge.id, edge]));
+    const artifactProvenance = new Map<string, RepositoryProvenance>(
+        artifacts.filter(artifact => artifact.provenance).map(artifact => [path.resolve(artifact.filePath), artifact.provenance!]),
+    );
+    const findingsByFileForEvidence = new Map(scanResults.map(result => [path.resolve(result.filePath), result.findings || []]));
+    const fileProvenance = (filePath: string): RepositoryProvenance =>
+        artifactProvenance.get(path.resolve(filePath)) || classifyRepositoryProvenance(path.resolve(filePath), '');
+    // A path is live production risk only when its whole chain is production. If
+    // any node it traverses (e.g. a fixture MCP that supplies the sink) is
+    // non-production, the path is non-production — a production-sourced prompt
+    // that can only reach a sensitive action through a test fixture is not a
+    // shippable vulnerability. Source provenance is used only as the fallback.
+    const pathProvenance = (nodeIds: string[], fallbackFile?: string): RepositoryProvenance => {
+        const chain = nodeIds
+            .map(id => nodesById.get(id)?.filePath)
+            .filter(Boolean)
+            .map(file => fileProvenance(file as string));
+        const nonProduction = chain.find(provenance => NON_PRODUCTION_PROVENANCE.has(provenance));
+        if (nonProduction) return nonProduction;
+        if (chain.length > 0) return chain[0];
+        return fallbackFile ? fileProvenance(fallbackFile) : 'unknown';
+    };
     const paths: ReachableExecutionPath[] = [];
     const graphPathsByStartFile = new Map<string, RepositoryExecutionGraphPath[]>();
+    const graphPathsByAnyFile = new Map<string, RepositoryExecutionGraphPath[]>();
     for (const graphPath of executionMap.paths) {
         const first = nodesById.get(graphPath.nodeIds[0]);
         if (first?.filePath) {
@@ -597,6 +993,14 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
             const existing = graphPathsByStartFile.get(key) || [];
             existing.push(graphPath);
             graphPathsByStartFile.set(key, existing);
+        }
+        for (const nodeId of graphPath.nodeIds) {
+            const node = nodesById.get(nodeId);
+            if (!node?.filePath) continue;
+            const key = path.resolve(node.filePath);
+            const existing = graphPathsByAnyFile.get(key) || [];
+            existing.push(graphPath);
+            graphPathsByAnyFile.set(key, existing);
         }
     }
 
@@ -607,24 +1011,50 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
             const sensitiveActions = Array.from(new Set(workflowNodes.map(node => actionFromWorkflowNode(node.type)).filter(Boolean))) as RepositorySensitiveAction[];
             if (sensitiveActions.length === 0 && !finding.workflow.path.privilegedSinkReached) continue;
 
-            const matchingGraphPath = (graphPathsByStartFile.get(path.resolve(result.filePath)) || []).find(candidate => {
+            const actionsOverlap = (candidate: RepositoryExecutionGraphPath): boolean => {
                 const candidateActions = candidate.nodeIds
                     .map(nodeId => nodesById.get(nodeId)?.metadata?.action)
                     .filter(Boolean) as RepositorySensitiveAction[];
                 return sensitiveActions.some(action => candidateActions.includes(action));
-            });
-            const nodeIds = matchingGraphPath?.nodeIds || [];
-            const edgeIds = matchingGraphPath?.edgeIds || [];
+            };
+            // Prefer a graph path starting at the finding's file; fall back to
+            // any graph path passing through it (e.g. an MCP config that a
+            // prompt routes into), then to the direct file->action edge so the
+            // finding stays graph-backed even when path enumeration was capped.
+            const matchingGraphPath = (graphPathsByStartFile.get(path.resolve(result.filePath)) || []).find(actionsOverlap)
+                || (graphPathsByAnyFile.get(path.resolve(result.filePath)) || []).find(actionsOverlap)
+                || directGraphPath(result.filePath, sensitiveActions, executionMap);
+            // A reachable path is a graph-backed claim. Findings whose workflow
+            // never connects to a graph sensitive action stay visible as issues
+            // (with their workflow story in technical details) but are not
+            // presented as repository execution paths.
+            if (!matchingGraphPath) continue;
+            const nodeIds = matchingGraphPath.nodeIds;
+            const edgeIds = matchingGraphPath.edgeIds;
             const confidence = typeof finding.workflow.confidence_score === 'number'
                 ? finding.workflow.confidence_score
                 : sensitiveActions.length > 0 ? 85 : 70;
-            const risk = (finding.workflow.risk || finding.severity || matchingGraphPath?.risk || 'medium') as RepositoryRisk;
+            // Path risk must match the canonical issue severity (finding.severity)
+            // so overallRisk never contradicts the issue summary. workflow.risk is
+            // an internal escalation hint and only fills in when severity is absent.
+            const risk = (finding.severity || finding.workflow.risk || matchingGraphPath?.risk || 'medium') as RepositoryRisk;
             const files = Array.from(new Set([
                 result.filePath,
                 ...nodeIds.map(nodeId => nodesById.get(nodeId)?.filePath).filter(Boolean) as string[],
             ]));
-            const confidenceScore = clampConfidence(confidence);
-            const confidenceLevel: RepositoryPathConfidence = 'probable';
+            // Confidence is the weakest link of the matched graph path's edges,
+            // not a flat 'probable'. A path that ends at a real wired executor
+            // (MCP/tool/workflow, all-direct edges) is Confirmed even when a
+            // scanner finding also corroborates it; a prose-only prompt->action
+            // chain stays Probable, and a node-less inference stays Potential.
+            const edgeLabels = edgeIds.map(edgeId => {
+                const edge = edgesById.get(edgeId);
+                return edge?.confidenceLabel || (edge?.evidenceRefs?.length ? 'Probable' : 'Potential');
+            });
+            const confidenceLevel: RepositoryPathConfidence = nodeIds.length === 0
+                ? 'potential'
+                : pathConfidenceLevel({ confidence, nodeIds, edgeIds, findings: [], edgeConfidenceLabels: edgeLabels } as any);
+            const confidenceScore = alignConfidenceScore(confidenceLevel, clampConfidence(confidence));
             const evidenceId = stableId('evidence', `${result.filePath}:${finding.rule_id}:${finding.line || 1}`);
             paths.push({
                 id: stableId('reachable', `${result.filePath}:${finding.rule_id}:${finding.line || 1}:${workflowNodes.map(node => node.type).join('>')}`),
@@ -648,6 +1078,7 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
                     snippet: finding.evidence,
                 }],
                 files,
+                provenance: pathProvenance(nodeIds, result.filePath),
                 confidence: confidenceScore,
                 confidenceLevel,
                 confidenceLabel: pathConfidenceLabel(confidenceLevel),
@@ -675,7 +1106,17 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
             return edge?.confidenceLabel || (edge?.evidenceRefs?.length ? 'Probable' : 'Potential');
         });
         const confidenceLevel = pathConfidenceLevel({ confidence: 70, nodeIds: graphPath.nodeIds, edgeIds: graphPath.edgeIds, findings: [], edgeConfidenceLabels } as any);
+        const graphConfidence = alignConfidenceScore(confidenceLevel, 70);
         const evidenceId = stableId('evidence', `graph:${graphPath.id}`);
+        // Anchor graph-path evidence to a real file and, when a scanner finding
+        // exists on any node in the chain, its rule id and line — so evidence is
+        // never rendered as `undefined@file:undefined`.
+        const evidenceFile = (nodesById.get(graphPath.nodeIds[0])?.filePath) || files[0] || '';
+        const linkedFinding = graphPath.nodeIds
+            .map(nodeId => nodesById.get(nodeId)?.filePath)
+            .filter(Boolean)
+            .flatMap(file => findingsByFileForEvidence.get(path.resolve(file as string)) || [])
+            .find(finding => sensitiveActions.length === 0 || !finding.waived);
         paths.push({
             id: stableId('reachable', key),
             risk: graphPath.risk,
@@ -690,11 +1131,15 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
             evidence: [{
                 id: evidenceId,
                 type: 'graph',
-                filePath: files[0] || '',
+                filePath: evidenceFile,
+                ruleId: linkedFinding?.rule_id,
+                severity: linkedFinding?.severity,
+                line: linkedFinding?.line ?? 1,
                 message: graphPath.explanation,
             }],
             files,
-            confidence: 70,
+            provenance: pathProvenance(graphPath.nodeIds, files[0]),
+            confidence: graphConfidence,
             confidenceLevel,
             confidenceLabel: pathConfidenceLabel(confidenceLevel),
             confidenceDefinition: repositoryConfidenceDefinition(confidenceLevel),
@@ -709,7 +1154,47 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
-    }).sort((a, b) => riskRank(b.risk) - riskRank(a.risk) || b.confidence - a.confidence);
+    }).sort((a, b) =>
+        // Graph-backed paths always rank above node-less inference, and
+        // evidence-backed (Confirmed/Probable) paths always rank above
+        // structural-inference-only (Potential) paths regardless of risk, so a
+        // Potential chain can never be selected as the highest-risk path.
+        (b.nodeIds.length > 0 ? 1 : 0) - (a.nodeIds.length > 0 ? 1 : 0) ||
+        (b.confidenceLevel !== 'potential' ? 1 : 0) - (a.confidenceLevel !== 'potential' ? 1 : 0) ||
+        riskRank(b.risk) - riskRank(a.risk) ||
+        b.confidence - a.confidence
+    );
+}
+
+function directGraphPath(
+    filePath: string,
+    sensitiveActions: RepositorySensitiveAction[],
+    executionMap: RepositoryExecutionMap,
+): Pick<RepositoryExecutionGraphPath, 'nodeIds' | 'edgeIds' | 'risk'> | undefined {
+    const resolved = path.resolve(filePath);
+    const sourceNode = executionMap.nodes.find(node =>
+        node.filePath && path.resolve(node.filePath) === resolved && isPathSourceNode(node, executionMap));
+    if (!sourceNode) return undefined;
+    for (const action of sensitiveActions) {
+        const actionNode = executionMap.nodes.find(node => node.type === 'ACTION' && node.metadata?.action === action);
+        if (!actionNode) continue;
+        const edge = executionMap.edges.find(candidate => candidate.from === sourceNode.id && candidate.to === actionNode.id);
+        if (edge) {
+            return {
+                nodeIds: [sourceNode.id, actionNode.id],
+                edgeIds: [edge.id],
+                risk: riskForActions([action]),
+            };
+        }
+    }
+    return undefined;
+}
+
+function alignConfidenceScore(level: RepositoryPathConfidence, score: number): number {
+    // Numeric scores must not contradict labels: Confirmed >= 85, Probable 60-84, Potential <= 59.
+    if (level === 'confirmed') return Math.max(85, score);
+    if (level === 'probable') return Math.min(84, Math.max(60, score));
+    return Math.min(59, score);
 }
 
 function riskRank(risk: RepositoryRisk): number {
@@ -718,16 +1203,32 @@ function riskRank(risk: RepositoryRisk): number {
 
 function pathConfidenceLevel(pathItem: Pick<ReachableExecutionPath, 'confidence' | 'nodeIds' | 'edgeIds' | 'findings'>): 'confirmed' | 'probable' | 'potential' {
     const labels = (pathItem as any).edgeConfidenceLabels || [];
-    if (labels.length > 0 && labels.every((label: string) => label === 'Confirmed')) return 'confirmed';
-    if (pathItem.findings.length > 0 || labels.some((label: string) => label === 'Confirmed' || label === 'Probable')) return 'probable';
-    return 'potential';
+    // A chain is only as strong as its weakest edge: one structural-inference
+    // hop anywhere makes the whole path Potential, no matter how strong the
+    // other edges are.
+    if (labels.length > 0) {
+        if (labels.every((label: string) => label === 'Confirmed')) return 'confirmed';
+        if (labels.every((label: string) => label === 'Confirmed' || label === 'Probable')) return 'probable';
+        return 'potential';
+    }
+    return pathItem.findings.length > 0 ? 'probable' : 'potential';
+}
+
+function isPathSourceNode(node: RepositoryExecutionNode, executionMap: RepositoryExecutionMap): boolean {
+    if (['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW'].includes(node.type)) return true;
+    // A configured MCP server or tool with no upstream source is itself the
+    // earliest known source (e.g. an MCP-only repository).
+    if (node.type === 'MCP_SERVER' || node.type === 'TOOL') {
+        return !executionMap.edges.some(edge => edge.to === node.id);
+    }
+    return false;
 }
 
 function sourceNodeIdForPath(pathItem: Pick<ReachableExecutionPath, 'nodeIds'>, executionMap: RepositoryExecutionMap): string | undefined {
     const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
     const firstNodeId = pathItem.nodeIds[0];
-    const firstType = nodesById.get(firstNodeId)?.type;
-    return firstType && ['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW'].includes(firstType)
+    const firstNode = nodesById.get(firstNodeId);
+    return firstNode && isPathSourceNode(firstNode, executionMap)
         ? firstNodeId
         : undefined;
 }
@@ -752,19 +1253,27 @@ export function generateRepositorySummary(artifacts: RepositoryArtifact[], execu
         }
     }
 
-    const riskSummary = { critical: 0, high: 0, medium: 0, low: 0 };
-    for (const reachablePath of reachablePaths) {
-        riskSummary[reachablePath.risk] += 1;
-    }
     const confidenceSummary = { confirmed: 0, probable: 0, potential: 0 };
     for (const reachablePath of reachablePaths) {
         confidenceSummary[reachablePath.confidenceLevel || pathConfidenceLevel(reachablePath)] += 1;
     }
 
-    const hasParseWarnings = artifacts.some(artifact => artifact.metadata?.parseWarning);
+    // Risk and trust are driven only by evidence-backed (Confirmed/Probable)
+    // paths that live in production artifacts. Potential-only structural
+    // inference is map context, and documentation/test/fixture paths are real
+    // but non-production — neither can mark a repository High Risk on its own.
+    const riskSummary = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const reachablePath of reachablePaths) {
+        const level = reachablePath.confidenceLevel || pathConfidenceLevel(reachablePath);
+        if (level === 'potential') continue;
+        if (NON_PRODUCTION_PROVENANCE.has(reachablePath.provenance ?? 'production')) continue;
+        riskSummary[reachablePath.risk] += 1;
+    }
+
+    const hasParseWarnings = artifacts.some(artifact => artifact.metadata?.parseWarning && !NON_PRODUCTION_PROVENANCE.has(artifact.provenance ?? 'production'));
     const trustStatus: RepositoryTrustStatus = riskSummary.critical > 0 || riskSummary.high > 0
         ? 'High Risk'
-        : riskSummary.medium > 0 || riskSummary.low > 0 || hasParseWarnings
+        : riskSummary.medium > 0 || riskSummary.low > 0 || confidenceSummary.potential > 0 || hasParseWarnings
             ? 'Review Required'
             : 'Trusted';
 
@@ -780,8 +1289,10 @@ export function generateRepositorySummary(artifacts: RepositoryArtifact[], execu
     const aiSurfaces = aiSurfacesFound.prompts + aiSurfacesFound.skills + aiSurfacesFound.mcpServers + aiSurfacesFound.tools + aiSurfacesFound.workflows + aiSurfacesFound.memorySystems;
     const criticalFindings = reachablePaths.reduce((count, pathItem) => count + pathItem.findings.filter(finding => finding.severity === 'critical').length, 0);
     const overallRisk: RepositoryRisk | 'none' = riskSummary.critical > 0 ? 'critical' : riskSummary.high > 0 ? 'high' : riskSummary.medium > 0 ? 'medium' : riskSummary.low > 0 ? 'low' : 'none';
+    const artifactFiles = new Set(artifacts.map(artifact => normalizePath(artifact.relativePath))).size;
     return {
-        filesScanned: new Set(artifacts.map(artifact => normalizePath(artifact.relativePath))).size,
+        filesScanned: artifactFiles,
+        artifactFiles,
         aiSurfaces,
         instructionSources: aiSurfacesFound.prompts,
         skills: aiSurfacesFound.skills,
@@ -807,6 +1318,7 @@ export function generateRepositorySummary(artifacts: RepositoryArtifact[], execu
         riskSummary,
         confidenceSummary,
         trustStatus,
+        pathsTruncated: executionMap.pathsTruncated || false,
     };
 }
 
@@ -854,11 +1366,93 @@ function issueFixFallback(severity: string): string {
 
 const INTERNAL_TERMINOLOGY = /\b(?:heuristic|source-to-sink|privileged sink|trust boundary|execution graph|internal engine|scanner|rule[_ -]?id|workflow node|execution edge|sink node|source node|node|edge)\b/i;
 
+const ABSENCE_REQUIREMENTS: Record<string, string> = {
+    bp_missing_persona: 'No bounded role or persona requirement was found within that block.',
+    bp_missing_few_shot: 'No example input/output behavior was found within that block.',
+    bp_missing_cot: 'No verification requirement or reviewable decision criteria were found within that block.',
+    struct_missing_format_enforcer: 'No required output format or schema enforcement was found within that block.',
+};
+
+function issueEvidenceKind(finding: RepositoryScanFinding): 'direct' | 'absence' {
+    return finding.evidenceKind || (ABSENCE_REQUIREMENTS[finding.rule_id] ? 'absence' : 'direct');
+}
+
 function plainFixCandidate(finding: RepositoryScanFinding, fallback: string): string {
     const candidate = [finding.fix, finding.recommendation].find(value => value && !INTERNAL_TERMINOLOGY.test(value));
     if (!candidate || INTERNAL_TERMINOLOGY.test(candidate)) return fallback;
     return redactSecrets(candidate).trim();
 }
+
+// Rule-specific plain-language copy for quality rules, so two different
+// clarity/structure findings do not render the identical sentence.
+const QUALITY_ISSUE_COPY: Record<string, { issue: string; impact: string; whyThisMatters: string; fallback: string }> = {
+    clarity_missing_quantifier: {
+        issue: 'The instruction asks for output without saying how much.',
+        impact: 'The model may return too little or an unbounded amount, making output unpredictable and costly.',
+        whyThisMatters: 'Quantifiers ("exactly 3", "at most 5") are what make output length testable and stable.',
+        fallback: 'State an explicit quantity or range for the requested output.',
+    },
+    clarity_open_ended: {
+        issue: 'The instruction is open-ended and under-specified.',
+        impact: 'Different runs can drift in scope, tone, or depth, which is hard to review or test.',
+        whyThisMatters: 'Bounded instructions keep behavior consistent across model and prompt changes.',
+        fallback: 'Constrain the task scope and state what a complete answer must include.',
+    },
+    clarity_vague_words: {
+        issue: 'The instruction relies on vague wording.',
+        impact: 'Ambiguous terms ("good", "appropriate", "some") are interpreted differently each run.',
+        whyThisMatters: 'Concrete criteria are what let you verify the output is correct.',
+        fallback: 'Replace vague adjectives with measurable, explicit criteria.',
+    },
+    struct_missing_format_enforcer: {
+        issue: 'The instruction does not pin down an output format.',
+        impact: 'Downstream parsing can break when the model returns prose instead of the expected structure.',
+        whyThisMatters: 'A declared schema (JSON/columns/fields) is what makes the output machine-consumable.',
+        fallback: 'State the required output format explicitly and reject anything that does not match it.',
+    },
+    consist_contradiction: {
+        issue: 'The instruction contains conflicting directives.',
+        impact: 'The model must guess which rule wins, producing inconsistent and unreviewable behavior.',
+        whyThisMatters: 'Contradictions are silent bugs — they surface only when the wrong branch is taken.',
+        fallback: 'Resolve the conflicting instructions so only one expected behavior remains.',
+    },
+    bp_missing_persona: {
+        issue: 'The instruction never establishes a bounded role for the model.',
+        impact: 'Without a defined persona the model is easier to steer off-task by untrusted input.',
+        whyThisMatters: 'A constrained role is a cheap, durable guardrail against scope creep.',
+        fallback: 'Add a specific, bounded system persona that states what the assistant must and must not do.',
+    },
+    bp_missing_few_shot: {
+        issue: 'The instruction provides no examples of the expected behavior.',
+        impact: 'The model has to infer format and edge-case handling, increasing variance.',
+        whyThisMatters: 'A few worked examples sharply reduce ambiguity for little token cost.',
+        fallback: 'Add one or two input/output examples that demonstrate the required behavior.',
+    },
+    bp_missing_cot: {
+        issue: 'The instruction does not define reviewable decision criteria for a complex task.',
+        impact: 'The model may skip required checks or produce a conclusion that is difficult to verify.',
+        whyThisMatters: 'An observable checklist or concise verification summary makes multi-step behavior testable from the returned output.',
+        fallback: 'Add explicit decision criteria, a short verification checklist, or a concise rationale field.',
+    },
+    eff_token_budget: {
+        issue: 'The prompt is close to a token budget that risks truncation.',
+        impact: 'Important instructions near the end may be cut, silently changing behavior.',
+        whyThisMatters: 'Truncated system instructions fail open, often without any error.',
+        fallback: 'Trim or restructure the prompt to stay within a safe token budget.',
+    },
+    eff_token_bloat: {
+        issue: 'The prompt is large enough to risk truncation or high cost.',
+        impact: 'Long prompts increase latency and cost and can push instructions out of the window.',
+        whyThisMatters: 'Concise prompts are cheaper and less likely to drop instructions.',
+        fallback: 'Shorten the prompt or move static context into retrieval.',
+    },
+    eff_compression_potential: {
+        issue: 'The prompt contains redundant or compressible content.',
+        impact: 'Wasted tokens add cost and latency without improving output.',
+        whyThisMatters: 'Tighter prompts are easier to review and cheaper to run at scale.',
+        fallback: 'Remove redundancy and keep only the instructions that change behavior.',
+    },
+};
 
 function plainLanguageIssue(finding: RepositoryScanFinding): Pick<RepositoryExecutionIssue, 'issue' | 'impact' | 'whyThisMatters' | 'howToFix'> {
     const signal = `${finding.rule_id} ${finding.category || ''} ${finding.message || ''}`.toLowerCase();
@@ -913,6 +1507,15 @@ function plainLanguageIssue(finding: RepositoryScanFinding): Pick<RepositoryExec
         };
     }
 
+    const qualityCopy = QUALITY_ISSUE_COPY[finding.rule_id];
+    if (qualityCopy) {
+        return {
+            issue: qualityCopy.issue,
+            impact: qualityCopy.impact,
+            whyThisMatters: qualityCopy.whyThisMatters,
+            howToFix: plainFixCandidate(finding, qualityCopy.fallback),
+        };
+    }
     if (/output|format|structure|clarity|consistency|best.?practice|efficiency|token/.test(signal)) {
         const fallback = 'Make the expected input, output, validation, and failure behavior explicit, then add a test that verifies the required behavior.';
         return {
@@ -980,6 +1583,30 @@ function structuredIssueFix(finding: RepositoryScanFinding, recommendedFix: stri
             effort,
         };
     }
+    if (finding.rule_id === 'bp_missing_cot') {
+        return {
+            quickFix: 'Require verification for a multi-step task.',
+            recommendedFix,
+            safePattern: 'Before returning the result:\\n1. Validate required inputs.\\n2. Check intermediate results against the stated constraints.\\n3. Verify the final output format.\\n4. Report unresolved assumptions, validation failures, or missing inputs.\\n5. Provide a concise verification summary.',
+            effort,
+        };
+    }
+    if (finding.rule_id === 'bp_missing_few_shot') {
+        return {
+            quickFix: 'Add one or two examples that demonstrate the expected input and output.',
+            recommendedFix,
+            safePattern: 'Example:\\nInput: <representative request>\\nOutput: <expected response shape and edge-case handling>',
+            effort,
+        };
+    }
+    if (finding.rule_id === 'bp_missing_persona') {
+        return {
+            quickFix: 'Define a specific, bounded role for the assistant.',
+            recommendedFix,
+            safePattern: 'You are a <bounded role>. You may <allowed scope>. You must not <out-of-scope behavior>.',
+            effort,
+        };
+    }
     if (/output|format|structure|clarity|consistency|best.?practice|efficiency|token/.test(signal)) {
         return {
             quickFix: 'State the expected input, output, and failure behavior directly in the instruction.',
@@ -1040,7 +1667,7 @@ function issueConfidence(finding: RepositoryScanFinding): RepositoryExecutionIss
     const score = clampConfidence(typeof workflowScore === 'number'
         ? workflowScore
         : fallbackScores[String(finding.confidence || '').toUpperCase()] ?? 70);
-    const hasDirectEvidence = Boolean(finding.evidence?.trim());
+    const hasDirectEvidence = issueEvidenceKind(finding) === 'direct' && Boolean(finding.evidence?.trim());
     const hasInferredRelationships = Boolean(finding.workflow?.path);
     const level: RepositoryExecutionIssue['confidence']['level'] = hasInferredRelationships
         ? 'probable'
@@ -1055,9 +1682,82 @@ function issueConfidence(finding: RepositoryScanFinding): RepositoryExecutionIss
     };
 }
 
-function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], reachablePaths: ReachableExecutionPath[], executionMap: RepositoryExecutionMap): RepositoryExecutionIssue[] {
+function refineFindingLocation(
+    absoluteFile: string,
+    finding: RepositoryScanFinding,
+    contentCache: Map<string, string | null>,
+): { line?: number; column?: number } {
+    const reported = { line: finding.line, column: finding.column };
+    // Trust the scanner when it reported a real position; only refine the
+    // line-1 default by locating the evidence text in the source file.
+    if (finding.line && finding.line > 1) return reported;
+    const needle = (finding.evidence || '').split(/\r?\n/)[0].trim().replace(/…$/, '').slice(0, 160);
+    if (!needle) return reported;
+    let content = contentCache.get(absoluteFile);
+    if (content === undefined) {
+        try {
+            content = fs.readFileSync(absoluteFile, 'utf-8');
+        } catch {
+            content = null;
+        }
+        contentCache.set(absoluteFile, content);
+    }
+    if (!content) return reported;
+    const lines = content.split(/\r?\n/);
+    const index = lines.findIndex(line => line.includes(needle));
+    if (index === -1) return reported;
+    return { line: index + 1, column: Math.max(1, lines[index].indexOf(needle) + 1) };
+}
+
+// A SKILL.md or agent-config file that declares shell/secret/file/network reach
+// is dangerous on its own, but the prompt scanner may emit no finding on it. We
+// synthesize a repository-level finding from the declared sensitive actions so
+// the artifact produces a real, plain-language issue with a fix — instead of
+// silently reporting as Trusted with zero issues.
+const DECLARED_ACTION_RULE_ID = 'repo_skill_declared_sensitive_action';
+
+function declaredSensitiveActionFindings(artifacts: RepositoryArtifact[], scanResults: RepositoryScanResult[]): RepositoryScanResult[] {
+    const filesWithFindings = new Set(
+        scanResults
+            .filter(result => (result.findings || []).some(finding => !finding.waived))
+            .map(result => path.resolve(result.filePath)),
+    );
+    const synthetic: RepositoryScanResult[] = [];
+    for (const artifact of artifacts) {
+        if (artifact.type !== 'SKILL') continue;
+        const actions = artifact.metadata?.sensitiveActions || [];
+        if (actions.length === 0) continue;
+        if (filesWithFindings.has(path.resolve(artifact.filePath))) continue;
+        const highRisk = actions.includes('Shell') || actions.includes('Secrets');
+        const kind = 'skill';
+        const actionList = actions.join(', ');
+        synthetic.push({
+            filePath: artifact.filePath,
+            findings: [{
+                rule_id: DECLARED_ACTION_RULE_ID,
+                category: 'security',
+                severity: highRisk ? 'high' : 'medium',
+                line: 1,
+                column: 1,
+                message: `This ${kind} declares it can perform sensitive actions (${actionList}) without a reviewed, least-privilege boundary.`,
+                evidence: artifact.evidence[0] || `Declared sensitive actions: ${actionList}.`,
+                recommendation: `Restrict the ${kind} to the minimum operations it needs, require explicit approval before ${actionList.toLowerCase()} actions, and keep secrets out of the instructions.`,
+                confidence: highRisk ? 'high' : 'medium',
+            }],
+        });
+    }
+    return synthetic;
+}
+
+function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], reachablePaths: ReachableExecutionPath[], executionMap: RepositoryExecutionMap, artifacts: RepositoryArtifact[] = []): RepositoryExecutionIssue[] {
+    const artifactProvenance = new Map<string, RepositoryProvenance>(
+        artifacts.filter(artifact => artifact.provenance).map(artifact => [path.resolve(artifact.filePath), artifact.provenance!]),
+    );
+    const provenanceForFile = (absoluteFile: string): RepositoryProvenance =>
+        artifactProvenance.get(absoluteFile) || classifyRepositoryProvenance(absoluteFile, '');
     const root = path.resolve(rootPath);
     const issues = new Map<string, RepositoryExecutionIssue>();
+    const contentCache = new Map<string, string | null>();
 
     for (const result of scanResults) {
         const absoluteFile = path.isAbsolute(result.filePath) ? path.resolve(result.filePath) : path.resolve(root, result.filePath);
@@ -1067,8 +1767,13 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
         for (const finding of result.findings || []) {
             if (finding.waived) continue;
 
-            const id = stableId('issue', `${displayFile}:${finding.rule_id}:${finding.line || 1}:${finding.column || 1}`);
-            const evidenceSnippet = redactSecrets(finding.evidence || finding.message || finding.rule_id);
+            const location = refineFindingLocation(absoluteFile, finding, contentCache);
+            const id = stableId('issue', `${displayFile}:${finding.rule_id}:${location.line || 1}:${location.column || 1}`);
+            const evidenceKind = issueEvidenceKind(finding);
+            const missingRequirement = finding.missingRequirement || ABSENCE_REQUIREMENTS[finding.rule_id] || finding.message || finding.rule_id;
+            const evidenceSnippet = evidenceKind === 'absence'
+                ? ''
+                : redactSecrets(finding.evidence || finding.message || finding.rule_id);
             const detectedFixSuggestions = Array.from(new Set([
                 finding.fix ? redactSecrets(finding.fix) : '',
                 finding.recommendation ? redactSecrets(finding.recommendation) : '',
@@ -1091,11 +1796,16 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 ...detectedFixSuggestions,
             ]));
             const evidence = [{
-                id: stableId('evidence', `${displayFile}:${finding.rule_id}:${finding.line || 1}:${finding.column || 1}`),
+                id: stableId('evidence', `${displayFile}:${finding.rule_id}:${location.line || 1}:${location.column || 1}`),
                 file: displayFile,
-                line: finding.line,
-                column: finding.column,
+                line: evidenceKind === 'direct' ? location.line : undefined,
+                column: evidenceKind === 'direct' ? location.column : undefined,
                 snippet: evidenceSnippet,
+                kind: evidenceKind,
+                startLine: evidenceKind === 'absence' ? finding.scopeStartLine || location.line : undefined,
+                endLine: evidenceKind === 'absence' ? finding.scopeEndLine || finding.scopeStartLine || location.line : undefined,
+                scopeLabel: evidenceKind === 'absence' ? finding.scopeLabel || 'Instruction block' : undefined,
+                missingRequirement: evidenceKind === 'absence' ? redactSecrets(missingRequirement) : undefined,
                 source: workflowReason ? 'workflow' as const : 'scanner' as const,
             }];
             const confidence = issueConfidence(finding);
@@ -1117,6 +1827,7 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 impactedFiles: [displayFile],
                 fixSuggestions,
                 pathIds,
+                provenance: provenanceForFile(absoluteFile),
             });
         }
     }
@@ -1319,7 +2030,7 @@ export function validateRepositoryExecutionPaths(
         if (!chainIsConnected) {
             errors.push({ pathId: pathItem.id, code: 'broken-chain', message: 'Path nodes and edges do not form one connected route.' });
         }
-        if (!firstNode || !['PROMPT', 'SKILL', 'MEMORY', 'WORKFLOW'].includes(firstNode.type) || pathItem.sourceNodeId !== firstNode.id) {
+        if (!firstNode || !isPathSourceNode(firstNode, executionMap) || pathItem.sourceNodeId !== firstNode.id) {
             errors.push({ pathId: pathItem.id, code: 'invalid-source', message: 'Path does not start from its earliest known repository source.' });
         }
         const finalAction = lastNode?.type === 'ACTION' ? lastNode.metadata?.action as RepositorySensitiveAction | undefined : undefined;
@@ -1338,14 +2049,96 @@ export function validateRepositoryExecutionPaths(
     };
 }
 
-export function generateRepositoryExecutionReport(rootPath: string, artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[] = []): RepositoryExecutionReport {
+const ACTION_FIX_GUIDANCE: Record<RepositorySensitiveAction, string> = {
+    Shell: 'Require explicit human approval and an allowlist of commands before any shell-capable tool runs; reject unvalidated arguments.',
+    Filesystem: 'Scope file tools to specific directories, prefer read-only access, and block AI-selected write/delete operations.',
+    Network: 'Restrict network egress to an explicit domain allowlist and require approval before internal or external requests.',
+    Secrets: 'Keep credentials out of this route, use scoped service tokens, and require review before any secret-access step.',
+    'External APIs': 'Allowlist external API destinations and require approval before AI-controlled calls leave the environment.',
+};
+
+// One fix-plan entry per (sensitive action × earliest source), not one per
+// path, so the plan reads as concrete remediation steps instead of the same
+// sentence repeated for every enumerated path.
+function dedupeFixPlan(paths: ReachableExecutionPath[], executionMap: RepositoryExecutionMap): RepositoryExecutionReport['fixPlan'] {
+    const nodesById = new Map(executionMap.nodes.map(node => [node.id, node]));
+    const grouped = new Map<string, { action: RepositorySensitiveAction; sourceLabel: string; sourceNodeId?: string; files: Set<string>; topConfidence: string }>();
+    for (const pathItem of paths) {
+        const action = (pathItem.sensitiveAction || pathItem.sensitiveActions[0]) as RepositorySensitiveAction | undefined;
+        if (!action) continue;
+        const sourceNode = pathItem.sourceNodeId ? nodesById.get(pathItem.sourceNodeId) : undefined;
+        const sourceLabel = sourceNode?.relativePath || sourceNode?.label || 'AI instructions';
+        const key = `${action}:${sourceLabel}`;
+        const entry = grouped.get(key) || { action, sourceLabel, sourceNodeId: pathItem.sourceNodeId, files: new Set<string>(), topConfidence: pathItem.confidenceLabel || 'Potential' };
+        for (const file of pathItem.files) entry.files.add(normalizePath(file));
+        grouped.set(key, entry);
+    }
+    return Array.from(grouped.values()).slice(0, 12).map(entry => ({
+        id: stableId('fix', `${entry.action}:${entry.sourceLabel}`),
+        title: `Break the ${entry.action} path from ${entry.sourceLabel}`,
+        description: `${ACTION_FIX_GUIDANCE[entry.action]} Affects ${entry.files.size} file${entry.files.size === 1 ? '' : 's'} reachable from ${entry.sourceLabel}.`,
+        artifactId: entry.sourceNodeId,
+    }));
+}
+
+export function generateRepositoryExecutionReport(rootPath: string, artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[] = [], scanStats?: RepositoryScanStats): RepositoryExecutionReport {
     const root = path.resolve(rootPath);
     const generatedAt = new Date().toISOString();
     const sanitizedArtifacts = sanitizeArtifacts(artifacts);
     const sanitizedPaths = sanitizeReachablePaths(reachablePaths);
-    const issues = canonicalIssues(root, scanResults, sanitizedPaths, executionMap);
+    // Synthesize findings for skills/agent-configs that declare sensitive actions
+    // but received no scanner finding, so a dangerous SKILL.md yields a real issue.
+    const declaredFindings = declaredSensitiveActionFindings(sanitizedArtifacts, scanResults);
+    const issueScanResults = declaredFindings.length > 0 ? [...scanResults, ...declaredFindings] : scanResults;
+    const issues = canonicalIssues(root, issueScanResults, sanitizedPaths, executionMap, sanitizedArtifacts);
+    const issueSummary = summarizeIssues(issues);
+    const isNonProduction = (issue: RepositoryExecutionIssue): boolean =>
+        NON_PRODUCTION_PROVENANCE.has(issue.provenance ?? 'production');
+    const productionIssues = issues.filter(issue => !isNonProduction(issue));
+    const nonProductionIssues = issues.filter(isNonProduction);
+    const productionIssueSummary = summarizeIssues(productionIssues);
+    const nonProductionIssueSummary = summarizeIssues(nonProductionIssues);
+    const issuesByProvenance = issues.reduce((acc, issue) => {
+        const key = issue.provenance ?? 'production';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+    }, {} as Record<RepositoryProvenance, number>);
     const impactedFiles = canonicalImpactedFiles(root, issues, sanitizedArtifacts, sanitizedPaths);
     const summary = generateRepositorySummary(artifacts, executionMap, reachablePaths);
+    summary.productionIssueSummary = productionIssueSummary;
+    summary.nonProductionIssueSummary = nonProductionIssueSummary;
+    summary.issuesByProvenance = issuesByProvenance;
+    const pathValidation = validateRepositoryExecutionPaths(executionMap, sanitizedPaths, summary);
+
+    if (scanStats) {
+        summary.scanStats = scanStats;
+        summary.filesScanned = scanStats.filesScanned;
+    }
+    summary.pathValidationStatus = pathValidation.valid ? 'passed' : 'failed';
+    summary.pathValidationErrors = pathValidation.errors.length;
+    // Trust status reflects issue severity in *production* artifacts only:
+    // documentation describing attacks and intentional fixtures are visible but
+    // never drive trust. Quality-only findings (clarity/best-practice) likewise
+    // do not raise trust on their own — only security risk or a failed self-check.
+    const productionSecurityRisk = productionIssues.some(issue =>
+        issue.category === 'security' || issue.severity === 'high' || issue.severity === 'critical');
+    if (productionIssueSummary.critical > 0 || productionIssueSummary.high > 0) {
+        summary.trustStatus = 'High Risk';
+    } else if (summary.trustStatus === 'Trusted' && (productionSecurityRisk || !pathValidation.valid)) {
+        summary.trustStatus = 'Review Required';
+    }
+    // overallRisk must not contradict the production picture: it is the higher
+    // of the production path risk and the highest *security-relevant* production
+    // issue severity. We never report "critical" with zero production criticals,
+    // and quality-only findings (clarity/best-practice) do not inflate the risk.
+    const riskOrder: Array<RepositoryRisk | 'none'> = ['none', 'low', 'medium', 'high', 'critical'];
+    const securityIssueRank = productionIssues.reduce((rank, issue) => {
+        if (issue.category !== 'security' && issue.severity !== 'high' && issue.severity !== 'critical') return rank;
+        return Math.max(rank, riskOrder.indexOf(issue.severity as RepositoryRisk));
+    }, 0);
+    const currentRisk: RepositoryRisk | 'none' = summary.overallRisk ?? 'none';
+    summary.overallRisk = riskOrder[Math.max(riskOrder.indexOf(currentRisk), securityIssueRank)];
+
     return {
         id: stableId('repo-report', `${root}:${generatedAt}`),
         version: REPORT_VERSION,
@@ -1365,26 +2158,20 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
         reachablePaths: sanitizedPaths,
         summary,
         issues,
-        issueSummary: summarizeIssues(issues),
+        issueSummary,
         impactedFiles,
-        pathValidation: validateRepositoryExecutionPaths(executionMap, sanitizedPaths, summary),
+        pathValidation,
         confidenceDefinitions: REPOSITORY_CONFIDENCE_DEFINITIONS,
         findings: sanitizeScanResults(scanResults),
         evidence: canonicalEvidence(sanitizedArtifacts, executionMap, sanitizedPaths, scanResults),
-        fixPlan: sanitizedPaths.slice(0, 10).map((pathItem, index) => ({
-            id: stableId('fix', pathItem.id),
-            title: `Review ${pathItem.sensitiveAction || pathItem.sensitiveActions[0] || 'reachable action'} path`,
-            description: 'Remove unnecessary routes from AI-controlled instructions to sensitive actions, require approval for sensitive tools, and limit MCP/tool permissions.',
-            pathId: pathItem.id,
-            artifactId: pathItem.sourceNodeId,
-        })),
+        fixPlan: dedupeFixPlan(sanitizedPaths, executionMap),
         exports: { json: true, sarif: true, html: true, mapJson: true },
     };
 }
 
 export function analyzeRepositoryExecution(rootPath: string, scanResults: RepositoryScanResult[] = [], options: AnalyzeRepositoryOptions = {}): RepositoryExecutionReport {
-    const artifacts = analyzeRepository(rootPath, options);
-    const executionMap = buildRepositoryExecutionMap(artifacts, scanResults);
+    const { artifacts, scanStats } = analyzeRepositoryArtifacts(rootPath, options);
+    const executionMap = buildRepositoryExecutionMap(artifacts, scanResults, rootPath);
     const reachablePaths = analyzeReachablePaths(executionMap, artifacts, scanResults);
-    return generateRepositoryExecutionReport(rootPath, artifacts, executionMap, reachablePaths, scanResults);
+    return generateRepositoryExecutionReport(rootPath, artifacts, executionMap, reachablePaths, scanResults, scanStats);
 }

@@ -49,14 +49,14 @@ describe('Repository Explorer impacted files', () => {
     expect(REPOSITORY_IMPACTED_FILE_TYPES).toEqual(['SKILL.md', 'MCP Config', 'Workflow', 'Prompt']);
     expect(views).toHaveLength(report.impactedFiles.length);
     expect(views[0].issueCount).toBe(report.impactedFiles[0].issueCount);
-    expect(views[0].issues.map(issue => issue.id)).toEqual(['issue-skill']);
+    expect(views[0].issues.map((issue: any) => issue.id)).toEqual(['issue-skill']);
     expect(views[0].impacts).toEqual(['Repository instructions could trigger a sensitive action.']);
-    expect(views[0].evidence.map(item => item.id)).toEqual(['evidence-skill']);
+    expect(views[0].evidence.map((item: any) => item.id)).toEqual(['evidence-skill']);
     expect(views[0].fixes).toEqual([
       'Disable automatic execution.',
       'Require approval before sensitive actions.',
       'if (approved) run();',
     ]);
-    expect(views[0].executionPaths.map(path => path.id)).toEqual(['path-shell']);
+    expect(views[0].executionPaths.map((path: any) => path.id)).toEqual(['path-shell']);
   });
 });

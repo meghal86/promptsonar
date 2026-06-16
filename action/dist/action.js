@@ -494,22 +494,33 @@ function markdownCell(value) {
 }
 function repositorySummaryMarkdown(report) {
   const severityRank = { critical: 4, high: 3, medium: 2, low: 1 };
+  const NON_PRODUCTION = /* @__PURE__ */ new Set(["documentation", "test", "fixture", "example", "generated"]);
+  const isProduction = (issue) => !NON_PRODUCTION.has(issue.provenance ?? "production");
   const topIssues = [...report.issues].sort(
-    (left, right) => (severityRank[String(right.severity)] || 0) - (severityRank[String(left.severity)] || 0) || left.id.localeCompare(right.id)
+    (left, right) => (isProduction(right) ? 1 : 0) - (isProduction(left) ? 1 : 0) || (severityRank[String(right.severity)] || 0) - (severityRank[String(left.severity)] || 0) || left.id.localeCompare(right.id)
   ).slice(0, 5);
   const topPaths = report.reachablePaths.slice(0, 5);
+  const validation = report.pathValidation;
+  const scanStats = report.summary.scanStats;
   return [
     "# PromptSonar Repository Analysis",
     "",
     "## Trust Status",
     "",
-    `**${report.summary.trustStatus}** \xB7 ${report.issueSummary.total} issues \xB7 ${report.reachablePaths.length} reachable paths`,
+    `**${report.summary.trustStatus}** \xB7 ${(report.summary.productionIssueSummary ?? report.issueSummary).total} production issues \xB7 ${report.reachablePaths.length} reachable paths`,
+    ...report.summary.productionIssueSummary && report.summary.nonProductionIssueSummary ? [
+      "",
+      `Production: ${report.summary.productionIssueSummary.critical} critical \xB7 ${report.summary.productionIssueSummary.high} high \xB7 ${report.summary.productionIssueSummary.medium} medium \xB7 ${report.summary.productionIssueSummary.low} low. Non-production (docs/tests/fixtures): ${report.summary.nonProductionIssueSummary.critical} critical \xB7 ${report.summary.nonProductionIssueSummary.high} high \xB7 ${report.summary.nonProductionIssueSummary.medium} medium \xB7 ${report.summary.nonProductionIssueSummary.low} low \u2014 not counted toward trust.`
+    ] : [],
+    "",
+    validation && !validation.valid ? `> \u26A0\uFE0F **Path validation failed** \u2014 ${validation.errors.length} error${validation.errors.length === 1 ? "" : "s"} across ${validation.checkedPaths} checked paths. Treat path-derived results with caution (details in \`repository-report.json\`).` : `Path validation: passed (${validation ? validation.checkedPaths : 0} paths checked).`,
+    ...scanStats ? [`Files: ${scanStats.filesConsidered} considered \xB7 ${scanStats.filesScanned} scanned \xB7 ${scanStats.filesSkipped} skipped${scanStats.truncated ? " \xB7 **\u26A0\uFE0F scan truncated at file limit**" : ""}`] : [],
     "",
     "## Top Issues",
     "",
-    "| Severity | Issue | Impacted Files | Quick Fix |",
-    "| --- | --- | --- | --- |",
-    ...topIssues.length > 0 ? topIssues.map((issue) => `| ${markdownCell(String(issue.severity).toUpperCase())} | ${markdownCell(issue.issue)} | ${markdownCell(issue.impactedFiles.join(", "))} | ${markdownCell(issue.fix.quickFix)} |`) : ["| None | No active issues | - | - |"],
+    "| Severity | Context | Issue | Impacted Files | Quick Fix |",
+    "| --- | --- | --- | --- | --- |",
+    ...topIssues.length > 0 ? topIssues.map((issue) => `| ${markdownCell(String(issue.severity).toUpperCase())} | ${markdownCell(issue.provenance ?? "production")} | ${markdownCell(issue.issue)} | ${markdownCell(issue.impactedFiles.join(", "))} | ${markdownCell(issue.fix.quickFix)} |`) : ["| None | - | No active issues | - | - |"],
     "",
     `## Impacted Files (${report.impactedFiles.length})`,
     "",

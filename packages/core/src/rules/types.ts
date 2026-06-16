@@ -1,6 +1,7 @@
 import type { FindingWorkflow } from '../workflow/types';
 
 export type Severity = "low" | "medium" | "high" | "critical";
+export type FindingEvidenceKind = "direct" | "absence";
 
 export interface Finding {
     rule_id: string;
@@ -11,6 +12,9 @@ export interface Finding {
     workflow?: FindingWorkflow;
     penalty_score?: number; // Internal score deduction
     matchedText?: string;
+    evidenceKind?: FindingEvidenceKind;
+    scopeLabel?: string;
+    missingRequirement?: string;
 }
 
 export interface RuleContext {

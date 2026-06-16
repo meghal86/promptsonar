@@ -4,7 +4,7 @@ import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
-import { scanFiles, generateSarif, ScanResult, scoreFromFindings } from './scanner';
+import { scanFiles, generateSarif, ScanResult, scoreFromFindings, loadRepositoryIgnorePatterns } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport } from '@promptsonar/core';
 import { runPromptTests } from './tester';
@@ -183,28 +183,61 @@ function formatModelComparisonMarkdown(result: ModelComparisonResult): string {
 function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
     const summary = report.summary;
     const severityRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+    const NON_PRODUCTION = new Set(['documentation', 'test', 'fixture', 'example', 'generated']);
+    const isProduction = (issue: RepositoryExecutionReport['issues'][number]) => !NON_PRODUCTION.has(issue.provenance ?? 'production');
+    // Production issues lead the list so the top is not dominated by
+    // non-production (docs/test/fixture) findings that do not drive trust.
     const topIssues = [...report.issues]
         .sort((left, right) =>
+            (isProduction(right) ? 1 : 0) - (isProduction(left) ? 1 : 0) ||
             (severityRank[String(right.severity)] || 0) - (severityRank[String(left.severity)] || 0) ||
             left.id.localeCompare(right.id)
         )
         .slice(0, 10);
     const lines: string[] = [];
 
-    lines.push(chalk.bold(`PromptSonar Repository Analysis v${VERSION}`));
+    lines.push(chalk.bold(`PromptSonar Repository Analysis v${report.version}`));
     lines.push(`Repository: ${report.repository.name}`);
     lines.push('');
     lines.push(chalk.bold('1. Trust Status'));
     lines.push(`  ${summary.trustStatus === 'High Risk' ? chalk.red(summary.trustStatus) : summary.trustStatus === 'Review Required' ? chalk.yellow(summary.trustStatus) : chalk.green(summary.trustStatus)}`);
-    lines.push(`  ${report.issueSummary.critical} critical · ${report.issueSummary.high} high · ${report.issueSummary.medium} medium · ${report.issueSummary.low} low`);
+    // Trust status reflects production artifacts only; documentation/test/fixture
+    // findings are real but reported separately so they are not read as live risk.
+    const prod = summary.productionIssueSummary;
+    const nonProd = summary.nonProductionIssueSummary;
+    if (prod && nonProd && nonProd.total > 0) {
+        lines.push(`  Production: ${prod.critical} critical · ${prod.high} high · ${prod.medium} medium · ${prod.low} low`);
+        lines.push(`  ${chalk.dim(`Non-production (docs/tests/fixtures): ${nonProd.critical} critical · ${nonProd.high} high · ${nonProd.medium} medium · ${nonProd.low} low — not counted toward trust`)}`);
+    } else {
+        lines.push(`  ${report.issueSummary.critical} critical · ${report.issueSummary.high} high · ${report.issueSummary.medium} medium · ${report.issueSummary.low} low`);
+    }
     lines.push(`  ${report.impactedFiles.length} impacted files · ${report.reachablePaths.length} reachable paths`);
+    const potentialOnly = report.reachablePaths.length > 0 && report.reachablePaths.every(pathItem => pathItem.confidenceLevel === 'potential');
+    if (potentialOnly) {
+        lines.push(`  ${chalk.yellow('Potential paths found · no confirmed dangerous path (structural inference only)')}`);
+    }
+    if (report.executionMap.pathsTruncated) {
+        lines.push(`  ${chalk.yellow(`⚠ Path enumeration capped at ${report.executionMap.pathEnumerationLimit} — additional paths exist but are not listed.`)}`);
+    }
+    if (summary.scanStats) {
+        const stats = summary.scanStats;
+        const skipDetail = Object.entries(stats.skipReasons).map(([reason, count]) => `${reason}: ${count}`).join(', ');
+        lines.push(`  Files: ${stats.filesConsidered} considered · ${stats.filesScanned} scanned · ${stats.filesSkipped} skipped${skipDetail ? ` (${skipDetail})` : ''}`);
+        if (stats.truncated) {
+            lines.push(`  ${chalk.yellow('⚠ Scan truncated at the file limit — results may be incomplete.')}`);
+        }
+    }
+    lines.push(report.pathValidation.valid
+        ? `  ${chalk.green(`✓ Path validation passed (${report.pathValidation.checkedPaths} paths checked)`)}`
+        : `  ${chalk.red(`✗ Path validation failed (${report.pathValidation.errors.length} errors across ${report.pathValidation.checkedPaths} paths) — see pathValidation in --json`)}`);
     lines.push('');
     lines.push(chalk.bold(`2. Top Issues (${report.issueSummary.total})`));
     for (const issue of topIssues) {
         const severity = issue.severity === 'critical' ? chalk.red(String(issue.severity).toUpperCase())
             : issue.severity === 'high' ? chalk.hex('#FF8C00')(String(issue.severity).toUpperCase())
                 : String(issue.severity).toUpperCase();
-        lines.push(`  ${severity} · ${issue.id}`);
+        const context = isProduction(issue) ? '' : chalk.dim(` [${issue.provenance} · not counted toward trust]`);
+        lines.push(`  ${severity}${context} · ${issue.id}`);
         lines.push(`    Issue: ${issue.issue}`);
         lines.push(`    Impact: ${issue.impact}`);
         lines.push(`    Files: ${issue.impactedFiles.join(', ')}`);
@@ -269,7 +302,13 @@ async function buildRepositoryReport(targetPath: string, options: CliOptions): P
         verbose: options.verbose,
         waiverFile: options.waiver
     });
-    return analyzeRepositoryExecution(targetPath, results as any);
+    const resolvedPath = path.resolve(targetPath);
+    const scanRoot = fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory()
+        ? resolvedPath
+        : path.dirname(resolvedPath);
+    return analyzeRepositoryExecution(targetPath, results as any, {
+        ignorePatterns: loadRepositoryIgnorePatterns(scanRoot),
+    });
 }
 
 function writeOrPrint(output: string, outputPath?: string): void {
@@ -1109,7 +1148,7 @@ program
                 'Never place secrets, tokens, or credentials in prompt text.',
                 'Return Markdown with a maximum of 5 bullets.',
                 'Example: User asks for refund policy -> Answer with only the documented refund steps.',
-                'Reason privately step-by-step, then return only the final concise answer.',
+                'Before returning, validate required inputs, check stated constraints, verify the Markdown format, and provide a concise verification summary.',
             ].join('\n'), 'utf-8');
         } else {
             fs.writeFileSync(promptFile, [

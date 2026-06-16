@@ -15,6 +15,8 @@ export interface McpFinding {
     workflow?: FindingWorkflow;
     evidence?: string;
     confidence_contribution?: number;
+    line?: number;
+    column?: number;
 }
 
 export type McpRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -169,6 +171,11 @@ function stableStringify(value: unknown): string {
 
 const FS_CAPABILITY_TOKENS = ['filesystem', 'file_write', 'file_read', 'disk_access', 'workspace_access', 'fs', 'files'];
 const SHELL_CAPABILITY_TOKENS = ['shell', 'bash', 'terminal', 'exec', 'spawn', 'process', 'subprocess', 'shell_exec'];
+// Launcher binaries that are shells, and interpreters that execute arbitrary
+// code when given an inline-eval flag. Kept in sync with the repository-layer
+// launcher detection in repository/analyzer.ts so both layers agree.
+const SHELL_LAUNCHER_BINARIES = new Set(['bash', 'sh', 'zsh', 'fish', 'dash', 'ksh', 'powershell', 'pwsh', 'cmd', 'cmd.exe']);
+const INLINE_EVAL_INTERPRETERS = new Set(['python', 'python2', 'python3', 'node', 'nodejs', 'ruby', 'perl']);
 const NETWORK_CAPABILITY_TOKENS = ['network', 'http', 'https', 'fetch', 'curl', 'axios', 'request', 'webhook'];
 const CREDENTIAL_KEY_TOKENS = ['api_key', 'apikey', 'secret', 'token', 'bearer', 'authorization', 'credentials', 'auth_token', 'access_token'];
 
@@ -278,16 +285,26 @@ function analyzeServerStructure(server: any): ServerStructuralAnalysis {
         if (nt) analysis.networkCapabilities.push(cap);
     }
 
-    if (typeof server.command === 'string') {
-        if (containsToken(server.command, SHELL_CAPABILITY_TOKENS)) {
-            analysis.shellCapabilities.push(`command=${server.command}`);
-        }
-    }
     const argsStrings: string[] = [];
     collectStrings(server.args, argsStrings);
+
+    if (typeof server.command === 'string') {
+        const command = server.command.trim();
+        const binary = command.split(/[\\/\s]+/).filter(Boolean).pop()?.toLowerCase() || '';
+        // A shell binary launcher is itself shell execution.
+        if (SHELL_LAUNCHER_BINARIES.has(binary) || containsToken(command, SHELL_CAPABILITY_TOKENS)) {
+            analysis.shellCapabilities.push(`command=${server.command}`);
+        }
+        // An interpreter launched with an inline-eval flag (python -c, node -e,
+        // ruby -e, perl -e) runs arbitrary code — equivalent to shell.
+        if (INLINE_EVAL_INTERPRETERS.has(binary) && argsStrings.some(arg => arg === '-c' || arg === '-e')) {
+            analysis.shellCapabilities.push(`command=${server.command} (inline eval)`);
+        }
+    }
     for (const a of argsStrings) {
-        if (/-c\b/.test(a)) {
-            // bash/sh -c form
+        // bash/sh/zsh -c form, or a shell binary referenced in an argument.
+        if ((a === '-c' || a === '/c') && argsStrings.some(arg => SHELL_LAUNCHER_BINARIES.has(arg.toLowerCase()))) {
+            analysis.shellCapabilities.push(`args=${a}`);
         }
         if (containsToken(a, SHELL_CAPABILITY_TOKENS) && /\bbash\b|\bsh\b|\bzsh\b/i.test(a)) {
             analysis.shellCapabilities.push(`args=${a}`);
@@ -402,7 +419,46 @@ function computeRiskScore(findings: McpFinding[], scopeServer?: string): McpRisk
     return { score, level: levelFromScore(score), factors };
 }
 
+// Locate the config line a finding refers to: prefer a key named in the
+// evidence (e.g. "permissions=..."), then the last JSON-path segment, then the
+// server name itself. The search is anchored at the server entry so two
+// servers with the same key resolve to their own lines.
+export function locateMcpFindingPosition(content: string, finding: Pick<McpFinding, 'path' | 'server' | 'evidence'>): { line: number; column: number } | undefined {
+    const lines = content.split(/\r?\n/);
+    const serverIndex = finding.server
+        ? lines.findIndex(line => line.includes(`"${finding.server}"`) || line.includes(`'${finding.server}'`))
+        : -1;
+
+    const candidates: string[] = [];
+    for (const match of (finding.evidence || '').matchAll(/(?:^|[\s;])([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)=/g)) {
+        candidates.push(match[1].split('.').pop()!);
+    }
+    const pathSegments = (finding.path || '').split('.').filter(Boolean);
+    const lastSegment = pathSegments[pathSegments.length - 1];
+    if (lastSegment && lastSegment !== finding.server && lastSegment !== 'mcpServers' && lastSegment !== 'servers') {
+        candidates.push(lastSegment);
+    }
+
+    for (const key of candidates) {
+        for (let index = Math.max(0, serverIndex); index < lines.length; index++) {
+            const column = lines[index].indexOf(`"${key}"`);
+            if (column >= 0) return { line: index + 1, column: column + 1 };
+        }
+    }
+    if (serverIndex >= 0) {
+        return { line: serverIndex + 1, column: Math.max(1, lines[serverIndex].indexOf(`"${finding.server}"`) + 1) };
+    }
+    return undefined;
+}
+
 function addFinding(findings: McpFinding[], finding: McpFinding, content?: string, filePath?: string): void {
+    if (content && finding.line === undefined) {
+        const position = locateMcpFindingPosition(content, finding);
+        if (position) {
+            finding.line = position.line;
+            finding.column = position.column;
+        }
+    }
     if (!finding.workflow) {
         const workflow = inferWorkflowForFinding({
             ruleId: finding.rule_id,
