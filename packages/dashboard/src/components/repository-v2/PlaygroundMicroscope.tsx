@@ -131,10 +131,38 @@ function edgeEvidence(edge: RepositoryExecutionEdge): string {
   return edge.evidence || edge.reason || "Structurally inferred relationship";
 }
 
-function evidencePreview(evidence: ReturnType<typeof buildArtifactInvestigationViewModel>["evidence"][number] | undefined): string {
-  if (!evidence) return "See evidence above.";
-  if (evidence.kind === "direct") return evidence.snippet || "Evidence location recorded without a snippet.";
-  return evidence.missingRequirement;
+type MicroscopeView = NonNullable<ReturnType<typeof buildArtifactInvestigationViewModel>>;
+
+// file:line label for the primary evidence of the selected finding, used in
+// the finding header and the copyable PR/ticket comment.
+function evidenceLocationLabel(view: MicroscopeView): string {
+  const evidence = view.evidence[0];
+  if (!evidence) return view.selectedFile;
+  if (evidence.kind === "direct") {
+    return `${evidence.filePath}${evidence.line ? `:${evidence.line}` : ""}`;
+  }
+  return `${evidence.filePath}${evidence.startLine ? `:${evidence.startLine}${evidence.endLine && evidence.endLine !== evidence.startLine ? `-${evidence.endLine}` : ""}` : ""}`;
+}
+
+// Markdown a developer or product owner can paste straight into a PR review or
+// ticket. Every field comes from the canonical finding — nothing is fabricated.
+function buildFindingComment(view: MicroscopeView): string {
+  const issue = view.issue;
+  if (!issue) return "";
+  const lines = [
+    `**PromptSonar finding · ${issue.severity.toUpperCase()} · ${issue.ruleId}**`,
+    "",
+    `**Issue:** ${issue.issue}`,
+    `**Impact:** ${issue.impact}`,
+    `**Where:** \`${evidenceLocationLabel(view)}\``,
+    "",
+    `**Fix:** ${issue.recommendedFix || issue.howToFix}`,
+  ];
+  if (issue.safePattern) {
+    lines.push("", "```", issue.safePattern, "```");
+  }
+  lines.push("", `_Effort: ${issue.effort} · Confidence: ${issue.confidence.label}_`);
+  return lines.join("\n");
 }
 
 function artifactKindFromFileName(fileName: string): ArtifactKind {
@@ -217,6 +245,7 @@ export function PlaygroundMicroscope() {
   const [fileName, setFileName] = useState("prompts/reviewer.prompt");
   const [fileText, setFileText] = useState(PROMPT_PRESETS[1].text);
   const [copiedFix, setCopiedFix] = useState(false);
+  const [copiedComment, setCopiedComment] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [graphMode, setGraphMode] = useState<"upstream" | "downstream" | "all">("all");
@@ -262,6 +291,11 @@ export function PlaygroundMicroscope() {
     pathId: focus.path,
     actionType: focus.action,
   }) : null, [focus, inputMode, report]);
+
+  // Primary evidence drives the "current code vs safe pattern" presentation in
+  // the fix block: a direct snippet shows real before/after, an absence finding
+  // shows what's missing instead of fabricating before-code.
+  const primaryEvidence = view?.evidence[0];
 
   const visibleGraph = useMemo(() => {
     if (!view) return { nodes: [], edges: [] };
@@ -496,10 +530,10 @@ export function PlaygroundMicroscope() {
             )}
 
             {view.issue ? (
-              <section className="relative overflow-hidden rounded-[22px] border border-red-300/60 bg-white/70 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
-                <span className="absolute inset-y-0 left-0 w-1 bg-red-500" />
-                <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-stone-500">Selected artifact finding</p>
+              <section className="relative overflow-hidden rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
+                {/* Finding navigation */}
+                <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-stone-500">Finding {view.issueIndex + 1} of {view.issueCount}</p>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -507,44 +541,163 @@ export function PlaygroundMicroscope() {
                       onClick={() => view.previousIssue && updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: view.previousIssue.id })}
                       className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-45"
                     >
-                      ← Previous issue
+                      ← Previous
                     </button>
-                    <span className="font-mono text-[12px] text-stone-600">{view.issueIndex + 1} of {view.issueCount}</span>
                     <button
                       type="button"
                       disabled={!view.nextIssue}
                       onClick={() => view.nextIssue && updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: view.nextIssue.id })}
                       className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-45"
                     >
-                      Next issue →
+                      Next →
                     </button>
                   </div>
                 </div>
+
+                {/* WHAT'S WRONG — the one-glance problem statement */}
                 <div className="flex flex-wrap items-center gap-2">
                   <RiskBadge risk={view.issue.severity} label={`Severity · ${view.issue.severity}`} />
                   <ConfidenceBadge confidence={view.issue.confidence.level} />
                   <span className="font-mono text-[11px] text-stone-500">{view.issue.ruleId}</span>
+                  <span className="font-mono text-[11px] text-stone-500">· {evidenceLocationLabel(view)}</span>
                 </div>
-                <h2 className="mt-4 font-playfair text-[27px] font-medium leading-tight tracking-[-0.02em]">{view.issue.issue}</h2>
+                <p className="mt-5 font-mono text-[10px] uppercase tracking-[0.2em] text-red-700">What&apos;s wrong</p>
+                <h2 className="mt-2 font-playfair text-[27px] font-medium leading-tight tracking-[-0.02em]">{view.issue.issue}</h2>
                 <p className="mt-3 max-w-3xl text-[14px] leading-6 text-stone-600">{view.issue.impact}</p>
-                <dl className="mt-4 grid gap-3 rounded-xl border border-amber-600/25 bg-amber-50/50 px-4 py-3 font-mono text-[12px] leading-5 text-stone-600 sm:grid-cols-2 lg:grid-cols-4">
-                  <div>
-                    <dt className="text-stone-500">Finding confidence</dt>
-                    <dd className="font-semibold text-stone-900">{view.issue.confidence.label}</dd>
+
+                {/* THE FIX — what a developer changes, with copy actions */}
+                <div className="mt-6 rounded-2xl border border-emerald-300/70 bg-emerald-50/40 p-5 sm:p-6">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-emerald-700">The fix</p>
+                  <p className="mt-2 max-w-3xl text-[14px] leading-7 text-stone-800">{view.issue.recommendedFix || view.issue.howToFix}</p>
+
+                  {primaryEvidence?.kind === "direct" && primaryEvidence.snippet ? (
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-red-300 bg-red-50/65 p-4">
+                        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Current code</span>
+                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-red-900">{primaryEvidence.snippet}</pre>
+                      </div>
+                      <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
+                        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">Safe pattern</span>
+                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{view.issue.safePattern || view.issue.recommendedFix}</pre>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-5 grid gap-3">
+                      {primaryEvidence?.kind === "absence" && (
+                        <div className="rounded-xl border border-amber-300 bg-amber-50/65 p-4">
+                          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-amber-700">What&apos;s missing</span>
+                          <p className="mt-2 text-[13px] leading-6 text-amber-950">{primaryEvidence.missingRequirement}</p>
+                        </div>
+                      )}
+                      {view.issue.safePattern && (
+                        <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
+                          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">Add this safe pattern</span>
+                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{view.issue.safePattern}</pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="mt-5 flex flex-wrap items-center gap-2">
+                    {view.issue.safePattern && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await navigator.clipboard?.writeText(view.issue?.safePattern || "");
+                          setCopiedFix(true);
+                          window.setTimeout(() => setCopiedFix(false), 1400);
+                        }}
+                        className="rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+                      >
+                        {copiedFix ? "Copied ✓" : "Copy fix"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await navigator.clipboard?.writeText(buildFindingComment(view));
+                        setCopiedComment(true);
+                        window.setTimeout(() => setCopiedComment(false), 1400);
+                      }}
+                      className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-[12px] font-semibold hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+                    >
+                      {copiedComment ? "Copied ✓" : "Copy as PR / ticket comment"}
+                    </button>
+                    <span className="font-mono text-[11px] text-stone-500">Effort · {view.issue.effort}</span>
                   </div>
-                  <div>
-                    <dt className="text-stone-500">Evidence items</dt>
-                    <dd className="font-semibold text-stone-900">{view.evidenceCount.total}</dd>
+                </div>
+
+                {/* SECURITY DETAILS — evidence, confidence math, and impact, collapsed by default */}
+                <details className="group mt-6 rounded-2xl border border-stone-900/10 bg-white/55">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 font-mono text-[11px] uppercase tracking-[0.18em] text-stone-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">
+                    <span>Security details — evidence, confidence &amp; impact</span>
+                    <span className="text-stone-400 transition group-open:rotate-180">▾</span>
+                  </summary>
+                  <div className="space-y-5 px-5 pb-6">
+                    <div>
+                      {sectionLabel("Why it matters")}
+                      <p className="mt-3 text-[14px] leading-7 text-stone-700">{view.whyItMatters || view.issue.whyThisMatters || "No plain-language impact was included for this selected object."}</p>
+                    </div>
+
+                    <dl className="grid gap-3 rounded-xl border border-amber-600/25 bg-amber-50/50 px-4 py-3 font-mono text-[12px] leading-5 text-stone-600 sm:grid-cols-2 lg:grid-cols-4">
+                      <div>
+                        <dt className="text-stone-500">Finding confidence</dt>
+                        <dd className="font-semibold text-stone-900">{view.issue.confidence.label}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-stone-500">Evidence items</dt>
+                        <dd className="font-semibold text-stone-900">{view.evidenceCount.total}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-stone-500">Highest related path</dt>
+                        <dd className="font-semibold capitalize text-orange-800">{view.highestRelatedPathRisk}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-stone-500">Path confidence</dt>
+                        <dd className="font-semibold text-stone-900">{view.relatedPaths[0]?.confidenceLabel || "No complete path"}</dd>
+                      </div>
+                    </dl>
+
+                    <div>
+                      {sectionLabel("Evidence")}
+                      {view.evidence.length > 0 ? (
+                        <div className="mt-3 grid gap-3">
+                          {view.evidence.map((evidence) => (
+                            <article key={evidence.id} className="rounded-2xl border border-white/75 bg-white/68 p-5 backdrop-blur-xl">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <p className="font-mono text-[12px] font-medium text-stone-700">
+                                  {evidence.filePath}
+                                  {evidence.kind === "direct" && evidence.line ? `:${evidence.line}` : ""}
+                                  {evidence.kind === "direct" && evidence.column ? `:${evidence.column}` : ""}
+                                  {evidence.kind === "absence" && evidence.startLine ? `:${evidence.startLine}${evidence.endLine && evidence.endLine !== evidence.startLine ? `-${evidence.endLine}` : ""}` : ""}
+                                </p>
+                                <span className="font-mono text-[11px] text-stone-500">{evidence.ruleId}</span>
+                              </div>
+                              {evidence.kind === "direct" ? (
+                                <>
+                                  <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Direct evidence</p>
+                                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-amber-300/60 bg-amber-50/70 p-4 font-mono text-[13px] leading-6 text-amber-950">{evidence.snippet || "Evidence location recorded without a snippet."}</pre>
+                                </>
+                              ) : (
+                                <div className="mt-4 rounded-xl border border-stone-300 bg-white/70 p-4">
+                                  <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">File-level absence finding</p>
+                                  <p className="mt-2 text-[13px] leading-6 text-stone-700">
+                                    <b>{evidence.scopeLabel}:</b> {evidence.filePath}
+                                    {evidence.startLine ? `:${evidence.startLine}${evidence.endLine && evidence.endLine !== evidence.startLine ? `-${evidence.endLine}` : ""}` : ""}
+                                  </p>
+                                  <p className="mt-2 text-[13px] leading-6 text-stone-700">PromptSonar identified an agent instruction block in this range. {evidence.missingRequirement}</p>
+                                </div>
+                              )}
+                              <div className="mt-3"><ConfidenceBadge confidence={evidence.confidence.level} /></div>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-3 rounded-2xl border border-stone-300 bg-white/55 p-6 text-[13px] text-stone-500">No renderable evidence fields were included for this selected object.</div>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <dt className="text-stone-500">Highest related path</dt>
-                    <dd className="font-semibold capitalize text-orange-800">{view.highestRelatedPathRisk}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-stone-500">Path confidence</dt>
-                    <dd className="font-semibold text-stone-900">{view.relatedPaths[0]?.confidenceLabel || "No complete path"}</dd>
-                  </div>
-                </dl>
+                </details>
               </section>
             ) : (
               <section className="rounded-2xl border border-amber-300 bg-amber-50/55 p-6">
@@ -552,94 +705,6 @@ export function PlaygroundMicroscope() {
                 <p className="mt-2 text-[13px] leading-6 text-stone-600">The selected object may participate in an execution path without carrying a file-level finding.</p>
               </section>
             )}
-
-            <section>
-              <div className="mb-5">
-                {sectionLabel("Evidence")}
-                <h2 className="mt-2 font-playfair text-[28px] font-medium tracking-tight">Exact or absence evidence for the selected finding</h2>
-              </div>
-              {view.evidence.length > 0 ? (
-                <div className="grid gap-3">
-                  {view.evidence.map((evidence) => (
-                    <article key={evidence.id} className="rounded-2xl border border-white/75 bg-white/68 p-5 backdrop-blur-xl">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="font-mono text-[12px] font-medium text-stone-700">
-                          {evidence.filePath}
-                          {evidence.kind === "direct" && evidence.line ? `:${evidence.line}` : ""}
-                          {evidence.kind === "direct" && evidence.column ? `:${evidence.column}` : ""}
-                          {evidence.kind === "absence" && evidence.startLine ? `:${evidence.startLine}${evidence.endLine && evidence.endLine !== evidence.startLine ? `-${evidence.endLine}` : ""}` : ""}
-                        </p>
-                        <span className="font-mono text-[11px] text-stone-500">{evidence.ruleId}</span>
-                      </div>
-                      {evidence.kind === "direct" ? (
-                        <>
-                          <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Direct evidence</p>
-                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-amber-300/60 bg-amber-50/70 p-4 font-mono text-[13px] leading-6 text-amber-950">{evidence.snippet || "Evidence location recorded without a snippet."}</pre>
-                        </>
-                      ) : (
-                        <div className="mt-4 rounded-xl border border-stone-300 bg-white/70 p-4">
-                          <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">File-level absence finding</p>
-                          <p className="mt-2 text-[13px] leading-6 text-stone-700">
-                            <b>{evidence.scopeLabel}:</b> {evidence.filePath}
-                            {evidence.startLine ? `:${evidence.startLine}${evidence.endLine && evidence.endLine !== evidence.startLine ? `-${evidence.endLine}` : ""}` : ""}
-                          </p>
-                          <p className="mt-2 text-[13px] leading-6 text-stone-700">PromptSonar identified an agent instruction block in this range. {evidence.missingRequirement}</p>
-                        </div>
-                      )}
-                      <div className="mt-3"><ConfidenceBadge confidence={evidence.confidence.level} /></div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-stone-300 bg-white/55 p-6 text-[13px] text-stone-500">No renderable evidence fields were included for this selected object.</div>
-              )}
-            </section>
-
-            <section className="grid gap-4 md:grid-cols-[0.8fr_1.2fr]">
-              <div className="rounded-2xl border border-white/75 bg-white/65 p-6 backdrop-blur-xl">
-                {sectionLabel("Why it matters")}
-                <p className="mt-4 text-[14px] leading-7 text-stone-700">{view.whyItMatters || "No plain-language impact was included for this selected object."}</p>
-              </div>
-              <div className="rounded-2xl border border-white/75 bg-white/65 p-6 backdrop-blur-xl">
-                {sectionLabel("Fix")}
-                {view.fix ? (
-                  <>
-                    <h2 className="mt-3 font-playfair text-[24px] font-medium tracking-tight">{view.fix.quickFix}</h2>
-                    <p className="mt-3 text-[13px] leading-6 text-stone-600">{view.fix.recommendedFix}</p>
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-xl border border-red-300 bg-red-50/65 p-4">
-                        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before</span>
-                        <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-red-900">{evidencePreview(view.evidence[0])}</pre>
-                      </div>
-                      <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
-                        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">Safe pattern</span>
-                        <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{view.fix.safePattern || view.fix.recommendedFix}</pre>
-                      </div>
-                    </div>
-                    <div className="mt-4 rounded-xl border border-stone-300 bg-white/60 p-4">
-                      <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Verification</p>
-                      <p className="mt-2 text-[13px] leading-6 text-stone-700">Apply the report&apos;s recommended constraint, then re-scan to verify the finding and related graph changed.</p>
-                      <p className="mt-2 font-mono text-[11px] text-stone-500">Effort · {view.fix.effort}</p>
-                      {view.fix.safePattern && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await navigator.clipboard?.writeText(view.fix?.safePattern || "");
-                            setCopiedFix(true);
-                            window.setTimeout(() => setCopiedFix(false), 1400);
-                          }}
-                          className="mt-3 rounded-lg border border-stone-300 bg-white px-3 py-2 text-[12px] font-semibold hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
-                        >
-                          {copiedFix ? "Copied" : "Copy safe pattern"}
-                        </button>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <p className="mt-4 text-[13px] text-stone-500">No canonical fix guidance was attached to this selected object.</p>
-                )}
-              </div>
-            </section>
 
             <section>
               <div className="mb-5">
