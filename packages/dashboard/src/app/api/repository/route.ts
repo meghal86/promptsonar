@@ -75,15 +75,23 @@ export async function POST(request: Request) {
     const upload = writeUploadedRepo(files);
     root = upload.root;
     const { written, skipped } = upload;
-    // Use the same scanner pipeline as the CLI (prompt extraction + MCP audit
-    // + dedupe + evidence locations) so Web and CLI report identical issues
-    // for the same input.
+
+    // Race the full scan against a 110 s server-side deadline so the route
+    // never hangs longer than the client's 120 s abort window.
+    const SCAN_TIMEOUT_MS = 110_000;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Scan exceeded ${SCAN_TIMEOUT_MS / 1000}s. Use the local CLI for larger repositories: npx @promptsonar/cli repo .`)), SCAN_TIMEOUT_MS)
+    );
+
     const scannerStartedAt = performance.now();
-    const scanResults = await scanFiles(root, {});
+    const scanResults = await Promise.race([scanFiles(root, {}), timeoutPromise]);
     const scannerMs = performance.now() - scannerStartedAt;
 
     const reportStartedAt = performance.now();
-    const report = analyzeRepositoryExecution(root, scanResults as any);
+    const report = await Promise.race([
+      Promise.resolve(analyzeRepositoryExecution(root, scanResults as any)),
+      timeoutPromise,
+    ]);
     const reportMs = performance.now() - reportStartedAt;
     report.scanMode = 'browser-bounded';
     report.repository = {

@@ -336,8 +336,21 @@ export function RepositoryExplorer() {
 
   async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 120_000);
-    setScanProgress(`Analyzing ${payloadFiles.length.toLocaleString()} prioritized files with the dashboard service…`);
+    const hardTimeout = window.setTimeout(() => controller.abort(), 120_000);
+
+    // Cycle through scan phases so the user sees progress, not a frozen spinner.
+    const PHASES: Array<{ label: string; afterMs: number }> = [
+      { label: `Indexing ${payloadFiles.length} files and detecting artifact types…`, afterMs: 0 },
+      { label: "Extracting prompts, skills, and tool configurations…", afterMs: 5_000 },
+      { label: "Tracing execution routes through tool routers and MCP servers…", afterMs: 15_000 },
+      { label: "Confirming path reachability and scoring risks…", afterMs: 35_000 },
+      { label: "Finalising execution map — almost done…", afterMs: 65_000 },
+    ];
+    const phaseTimers: number[] = [];
+    for (const phase of PHASES) {
+      phaseTimers.push(window.setTimeout(() => setScanProgress(phase.label), phase.afterMs));
+    }
+
     try {
       const response = await fetch("/api/repository", {
         method: "POST",
@@ -356,11 +369,12 @@ export function RepositoryExplorer() {
       }
     } catch (scanError) {
       if (scanError instanceof DOMException && scanError.name === "AbortError") {
-        throw new Error("The dashboard scan service did not finish within 120 seconds. Retry once, or use the local CLI for a complete repository scan.");
+        throw new Error("The dashboard scan service did not finish within 120 seconds. Retry once, or use the local CLI for a complete repository scan: npx @promptsonar/cli repo .");
       }
       throw scanError;
     } finally {
-      window.clearTimeout(timeout);
+      window.clearTimeout(hardTimeout);
+      for (const t of phaseTimers) window.clearTimeout(t);
     }
   }
 
