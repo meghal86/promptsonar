@@ -1,23 +1,48 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 export type ScanSource = "demo" | "github" | "zip" | "folder";
 
 const DEVICE_NOTE = "Runs entirely on this device";
 const GITHUB_NOTE = "Processed by the configured scan service";
 
+function folderName(files: File[]): string {
+  const rel = (files[0] as File & { webkitRelativePath?: string })
+    ?.webkitRelativePath;
+  return rel ? rel.split("/")[0] : "Selected files";
+}
+
 /**
  * UploadScreen — screen 1. Centered hero, a 2x2 source grid (Demo, GitHub,
- * Upload .zip, Local folder), and the CLI bar with the primary analyze
- * action.
+ * Upload, Local folder), and the CLI bar. Folder and Upload open real
+ * pickers and hand the selected files up for scanning.
  */
 export function UploadScreen({
-  onAnalyze,
+  onRunSample,
+  onScanFiles,
+  onGitHub,
+  loading = false,
+  error = null,
 }: {
-  onAnalyze?: (source: ScanSource, value?: string) => void;
+  onRunSample?: () => void;
+  onScanFiles?: (files: File[], source: ScanSource, repoName: string) => void;
+  onGitHub?: (url: string) => void;
+  loading?: boolean;
+  error?: string | null;
 }) {
   const [repoUrl, setRepoUrl] = useState("");
+  const folderInput = useRef<HTMLInputElement>(null);
+  const filesInput = useRef<HTMLInputElement>(null);
+
+  function pickFolder(list: FileList | null) {
+    const files = Array.from(list ?? []);
+    if (files.length) onScanFiles?.(files, "folder", folderName(files));
+  }
+  function pickFiles(list: FileList | null) {
+    const files = Array.from(list ?? []);
+    if (files.length) onScanFiles?.(files, "zip", folderName(files));
+  }
 
   return (
     <div className="mx-auto max-w-[920px] py-6">
@@ -31,8 +56,41 @@ export function UploadScreen({
         labeled.
       </p>
 
+      {loading && (
+        <p className="mx-auto mt-5 w-fit rounded-full border border-amber-line bg-amber-soft px-4 py-1.5 font-mono text-[12px] text-high">
+          Reading your files and analyzing…
+        </p>
+      )}
+      {error && (
+        <p className="mx-auto mt-5 w-fit max-w-[60ch] rounded-lg border border-danger-line bg-danger-soft px-4 py-2 text-center font-mono text-[12px] text-crit">
+          {error}
+        </p>
+      )}
+
+      {/* Hidden inputs for the real pickers */}
+      <input
+        ref={folderInput}
+        type="file"
+        className="sr-only"
+        onChange={(e) => pickFolder(e.target.files)}
+        {...({ webkitdirectory: "true", directory: "true" } as Record<
+          string,
+          string
+        >)}
+      />
+      <input
+        ref={filesInput}
+        type="file"
+        multiple
+        className="sr-only"
+        onChange={(e) => pickFiles(e.target.files)}
+      />
+
       {/* 2x2 source grid */}
-      <div className="mt-9 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+      <fieldset
+        disabled={loading}
+        className="mt-9 grid grid-cols-1 gap-3.5 disabled:opacity-60 sm:grid-cols-2"
+      >
         {/* Demo — primary, amber-accented */}
         <SourceCard
           primary
@@ -41,7 +99,7 @@ export function UploadScreen({
           body="See a full execution-path report on a deliberately risky AI-review repo."
           cta="Run the sample scan →"
           note={DEVICE_NOTE}
-          onClick={() => onAnalyze?.("demo")}
+          onClick={() => onRunSample?.()}
         />
 
         {/* GitHub — with text input */}
@@ -51,7 +109,7 @@ export function UploadScreen({
           body="Paste a repository URL to analyze its AI instruction wiring."
           cta="Scan repository →"
           note={GITHUB_NOTE}
-          onClick={() => onAnalyze?.("github", repoUrl)}
+          onClick={() => onGitHub?.(repoUrl)}
         >
           <input
             type="url"
@@ -63,14 +121,14 @@ export function UploadScreen({
           />
         </SourceCard>
 
-        {/* Upload .zip */}
+        {/* Upload files */}
         <SourceCard
           eyebrow="Upload"
-          heading="Upload a .zip"
-          body="Drop in an archive of your repository. Nothing leaves your browser."
-          cta="Choose a .zip →"
+          heading="Upload repository files"
+          body="Select files from your repository. Nothing leaves your browser."
+          cta="Choose files →"
           note={DEVICE_NOTE}
-          onClick={() => onAnalyze?.("zip")}
+          onClick={() => filesInput.current?.click()}
         />
 
         {/* Local folder */}
@@ -80,9 +138,9 @@ export function UploadScreen({
           body="Select a project directory and analyze it in place."
           cta="Select a folder →"
           note={DEVICE_NOTE}
-          onClick={() => onAnalyze?.("folder")}
+          onClick={() => folderInput.current?.click()}
         />
-      </div>
+      </fieldset>
 
       {/* CLI bar */}
       <div className="mt-4 flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-center">
@@ -93,8 +151,9 @@ export function UploadScreen({
         </code>
         <button
           type="button"
-          onClick={() => onAnalyze?.("demo")}
-          className="shrink-0 rounded-xl bg-ink px-5 py-3 text-[14px] font-semibold text-white transition-opacity hover:opacity-90"
+          disabled={loading}
+          onClick={() => folderInput.current?.click()}
+          className="shrink-0 rounded-xl bg-ink px-5 py-3 text-[14px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           Analyze repository →
         </button>
