@@ -6,13 +6,18 @@ import type {
   RepositoryExecutionReport,
   RepositorySensitiveAction,
 } from "@promptsonar/core";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   buildArtifactInvestigationViewModel,
   type ArtifactKind,
   type PathProjection,
 } from "@/lib/repositoryViewModel";
 import { SAMPLE_REPOSITORY_FILES } from "@/lib/repositorySample";
+import {
+  plainAction,
+  plainFindingHeadline,
+  plainRuleFamily,
+} from "@/lib/plainLanguage";
 import { ConfidenceBadge, ProvenanceBadge, RiskBadge } from "./Badges";
 import { PreviewShell } from "./PreviewShell";
 
@@ -165,6 +170,44 @@ function buildFindingComment(view: MicroscopeView): string {
   return lines.join("\n");
 }
 
+// "THE ROUTE": the aggregated execution path this file participates in —
+// the file → the tool(s) it wires → the sensitive actions those tools reach.
+// Built only from real related paths; returns null when nothing is reachable.
+function deriveRoute(view: MicroscopeView): { source: string; tools: string[]; actions: string[] } | null {
+  if (!view.relatedPaths.length) return null;
+  const source = view.artifact.repositoryRelativePath || view.artifact.name;
+  const tools = new Set<string>();
+  for (const path of view.relatedPaths) {
+    for (const node of path.nodes) {
+      if (node.type === "TOOL" || node.type === "MCP_SERVER") {
+        tools.add(node.label || node.relativePath || node.filePath || "");
+      }
+    }
+  }
+  const actions = view.sensitiveActions.length
+    ? view.sensitiveActions.map((item) => item.action)
+    : Array.from(new Set(view.relatedPaths.map((path) => path.action).filter((action): action is RepositorySensitiveAction => Boolean(action))));
+  return {
+    source,
+    tools: Array.from(tools).filter(Boolean).slice(0, 4),
+    actions,
+  };
+}
+
+// Reusable progressive-disclosure section. Deeper detail (evidence, paths,
+// graph) lives inside these, closed by default, so the fix stays front-and-centre.
+function Collapsible({ label, hint, children, defaultOpen = false }: { label: string; hint?: string; children: ReactNode; defaultOpen?: boolean }) {
+  return (
+    <details open={defaultOpen} className="group rounded-2xl border border-stone-900/10 bg-white/55 backdrop-blur-xl">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">
+        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-600">{label}{hint ? <span className="ml-2 normal-case tracking-normal text-stone-400">{hint}</span> : null}</span>
+        <span className="text-stone-400 transition group-open:rotate-180">▾</span>
+      </summary>
+      <div className="px-5 pb-6">{children}</div>
+    </details>
+  );
+}
+
 function artifactKindFromFileName(fileName: string): ArtifactKind {
   const lower = fileName.toLowerCase();
   if (lower.endsWith("skill.md") || lower.includes("/skills/")) return "skill";
@@ -296,6 +339,9 @@ export function PlaygroundMicroscope() {
   // the fix block: a direct snippet shows real before/after, an absence finding
   // shows what's missing instead of fabricating before-code.
   const primaryEvidence = view?.evidence[0];
+
+  // Aggregated file → tool → action route for the hero "THE ROUTE" row.
+  const route = view ? deriveRoute(view) : null;
 
   const visibleGraph = useMemo(() => {
     if (!view) return { nodes: [], edges: [] };
@@ -442,92 +488,18 @@ export function PlaygroundMicroscope() {
             <header>
               <a href={repositoryBackHref(report)} className="font-mono text-[11px] text-stone-500 hover:text-stone-900 hover:underline">← Back to repository map</a>
               <div className="mt-5 flex flex-wrap items-center gap-2">
-                {sectionLabel(`${inputMode === "repository" ? "Repository-selected" : "Single-input"} artifact microscope`)}
+                {sectionLabel(`${inputMode === "repository" ? "Repository" : "Single-file"} microscope`)}
+                <RiskBadge risk={view.fileFindingSeverity} label={`${view.fileFindingSeverity} risk`} />
                 <ProvenanceBadge provenance={view.provenance} />
               </div>
               <h1 className="mt-3 break-all font-mono text-[22px] font-medium tracking-[-0.02em] sm:text-[27px]">{view.artifact.repositoryRelativePath || view.artifact.name || "Selected artifact"}</h1>
-              <div className="mt-5 flex flex-wrap gap-2">
-                <span className="rounded-full border border-stone-300 bg-white/65 px-3 py-1.5 font-mono text-[10px] text-stone-600">{artifactLabel(view.artifactType)} · {view.artifact.role}</span>
-                <RiskBadge risk={view.fileFindingSeverity} label={`Selected artifact finding · ${view.fileFindingSeverity}`} />
-                <RiskBadge risk={view.highestRelatedPathRisk} label={`Highest related path · ${view.highestRelatedPathRisk}`} />
-                <span className="rounded-full border border-stone-300 bg-white/65 px-3 py-1.5 font-mono text-[11px] text-stone-600">{view.issueCount} issue{view.issueCount === 1 ? "" : "s"}</span>
-                <span className="rounded-full border border-stone-300 bg-white/65 px-3 py-1.5 font-mono text-[11px] text-stone-600">{view.relatedPathCount} artifact-related path{view.relatedPathCount === 1 ? "" : "s"}</span>
-              </div>
+              <p className="mt-2 font-mono text-[11px] text-stone-500">{artifactLabel(view.artifactType)} · {view.issueCount} finding{view.issueCount === 1 ? "" : "s"} · {view.relatedPathCount} execution route{view.relatedPathCount === 1 ? "" : "s"}</p>
               {!view.repositoryWiringAvailable && (
                 <p className="mt-4 max-w-3xl rounded-xl border border-amber-300 bg-amber-50/70 px-4 py-3 text-[13px] leading-6 text-amber-950">
                   Repository wiring is unavailable for this single-input scan. Connect or upload a repository to verify downstream execution.
                 </p>
               )}
             </header>
-
-            <section className="rounded-2xl border border-white/75 bg-white/65 p-5 backdrop-blur-xl">
-              {sectionLabel("Artifact-level finding summary")}
-              <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-stone-900/10 bg-white/55 p-4">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-stone-500">Finding severity</p>
-                  <p className="mt-2 font-playfair text-[22px] font-semibold capitalize">{view.fileFindingSeverity}</p>
-                </div>
-                <div className="rounded-xl border border-stone-900/10 bg-white/55 p-4">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-stone-500">Finding confidence</p>
-                  <p className="mt-2 font-playfair text-[22px] font-semibold">{view.issue?.confidence.label || "Not attached"}</p>
-                </div>
-                <div className="rounded-xl border border-stone-900/10 bg-white/55 p-4">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-stone-500">Evidence items</p>
-                  <p className="mt-2 font-playfair text-[22px] font-semibold">{view.evidenceCount.total}</p>
-                </div>
-              </div>
-            </section>
-
-            {view.issues.length > 0 && (
-              <section>
-                <div className="mb-5">
-                  {sectionLabel("Findings in this artifact")}
-                  <h2 className="mt-2 font-playfair text-[28px] font-medium tracking-tight">
-                    {view.issueCount} finding{view.issueCount === 1 ? "" : "s"}, separate from {view.relatedPathCount} execution path{view.relatedPathCount === 1 ? "" : "s"}
-                  </h2>
-                  <p className="mt-2 max-w-3xl text-[13px] leading-6 text-stone-500">
-                    Findings are rule violations attached to this artifact. Paths are distinct routes from an instruction source to a reachable action.
-                  </p>
-                </div>
-                <div className="max-h-[420px] overflow-y-auto rounded-2xl border border-white/75 bg-white/65 backdrop-blur-xl">
-                  {view.issues.map((item, index) => {
-                    const selected = item.id === view.issue?.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: item.id })}
-                        onKeyDown={(event) => {
-                          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-                          event.preventDefault();
-                          const nextIndex = event.key === "ArrowDown"
-                            ? Math.min(view.issues.length - 1, index + 1)
-                            : Math.max(0, index - 1);
-                          const nextIssue = view.issues[nextIndex];
-                          if (nextIssue) updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: nextIssue.id });
-                        }}
-                        aria-current={selected ? "true" : undefined}
-                        className={`grid w-full gap-4 border-l-4 border-t p-5 text-left first:border-t-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-inset md:grid-cols-[1fr_auto] md:items-center ${
-                          selected ? "border-l-amber-600 border-t-stone-900/10 bg-amber-50/90" : "border-l-transparent border-t-stone-900/10 hover:bg-white/80"
-                        }`}
-                      >
-                        <span>
-                          <span className="block text-[13px] font-medium leading-5 text-stone-900">{item.issue}</span>
-                          <span className="mt-1 block font-mono text-[11px] text-stone-500">
-                            {item.ruleId} · {item.evidence.length} evidence item{item.evidence.length === 1 ? "" : "s"}
-                          </span>
-                        </span>
-                        <span className="flex flex-wrap items-center gap-2">
-                          <RiskBadge risk={item.severity} />
-                          <ConfidenceBadge confidence={item.confidence.level} />
-                          <span className={`rounded-full px-2 py-1 font-mono text-[11px] font-medium ${selected ? "bg-amber-200 text-amber-950" : "text-stone-600"}`}>{selected ? "Selected finding" : "Inspect"}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
 
             {view.issue ? (
               <section className="relative overflow-hidden rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
@@ -554,91 +526,118 @@ export function PlaygroundMicroscope() {
                   </div>
                 </div>
 
-                {/* WHAT'S WRONG — the one-glance problem statement */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <RiskBadge risk={view.issue.severity} label={`Severity · ${view.issue.severity}`} />
-                  <ConfidenceBadge confidence={view.issue.confidence.level} />
-                  <span className="font-mono text-[11px] text-stone-500">{view.issue.ruleId}</span>
-                  <span className="font-mono text-[11px] text-stone-500">· {evidenceLocationLabel(view)}</span>
+                {/* STATUS LINE + PLAIN-LANGUAGE HEADLINE */}
+                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-red-700">
+                  {view.issue.confidence.label} · {view.issue.severity} · {plainRuleFamily(view.issue.ruleId, view.issue.issue)}
+                </p>
+                <h2 className="mt-3 max-w-[46ch] font-playfair text-[27px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[31px]">
+                  {plainFindingHeadline(view.issue.ruleId, view.issue.issue)}
+                </h2>
+
+                {/* THE ROUTE — file → tool(s) → sensitive actions */}
+                {route && (route.tools.length > 0 || route.actions.length > 0) && (
+                  <div className="mt-6 grid gap-3 border-t border-stone-900/10 pt-6 sm:grid-cols-[136px_1fr] sm:gap-6">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">The route</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-lg border border-stone-300 bg-stone-100/70 px-3 py-1.5 font-mono text-[12px] text-stone-700">{route.source}</span>
+                      {route.tools.map((tool) => (
+                        <span key={tool} className="flex items-center gap-2">
+                          <span className="text-stone-400">→</span>
+                          <span className="rounded-lg border border-sky-300/70 bg-sky-50/70 px-3 py-1.5 font-mono text-[12px] text-sky-800">{tool}</span>
+                        </span>
+                      ))}
+                      {route.actions.length > 0 && <span className="text-stone-400">→</span>}
+                      {route.actions.map((action) => (
+                        <span key={action} title={plainAction(action)} className="rounded-lg border border-red-300 bg-red-50/70 px-3 py-1.5 font-mono text-[12px] text-red-700">{action}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* WHY IT MATTERS */}
+                <div className="mt-6 grid gap-3 border-t border-stone-900/10 pt-6 sm:grid-cols-[136px_1fr] sm:gap-6">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">Why it matters</p>
+                  <p className="max-w-3xl text-[14px] leading-7 text-stone-700">{view.whyItMatters || view.issue.whyThisMatters || view.issue.impact}</p>
                 </div>
-                <p className="mt-5 font-mono text-[10px] uppercase tracking-[0.2em] text-red-700">What&apos;s wrong</p>
-                <h2 className="mt-2 font-playfair text-[27px] font-medium leading-tight tracking-[-0.02em]">{view.issue.issue}</h2>
-                <p className="mt-3 max-w-3xl text-[14px] leading-6 text-stone-600">{view.issue.impact}</p>
 
-                {/* THE FIX — what a developer changes, with copy actions */}
-                <div className="mt-6 rounded-2xl border border-emerald-300/70 bg-emerald-50/40 p-5 sm:p-6">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-emerald-700">The fix</p>
-                  <p className="mt-2 max-w-3xl text-[14px] leading-7 text-stone-800">{view.issue.recommendedFix || view.issue.howToFix}</p>
+                {/* THE FIX — plain action, before/after, outcome, and copy actions */}
+                <div className="mt-6 grid gap-3 border-t border-stone-900/10 pt-6 sm:grid-cols-[136px_1fr] sm:gap-6">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">The fix</p>
+                  <div>
+                    <p className="max-w-3xl text-[14px] font-medium leading-7 text-stone-900">{view.issue.recommendedFix || view.issue.howToFix}</p>
 
-                  {primaryEvidence?.kind === "direct" && primaryEvidence.snippet ? (
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-xl border border-red-300 bg-red-50/65 p-4">
-                        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Current code</span>
-                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-red-900">{primaryEvidence.snippet}</pre>
-                      </div>
-                      <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
-                        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">Safe pattern</span>
-                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{view.issue.safePattern || view.issue.recommendedFix}</pre>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mt-5 grid gap-3">
-                      {primaryEvidence?.kind === "absence" && (
-                        <div className="rounded-xl border border-amber-300 bg-amber-50/65 p-4">
-                          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-amber-700">What&apos;s missing</span>
-                          <p className="mt-2 text-[13px] leading-6 text-amber-950">{primaryEvidence.missingRequirement}</p>
+                    {primaryEvidence?.kind === "direct" && primaryEvidence.snippet ? (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl border border-red-300 bg-red-50/65 p-4">
+                          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before — {view.issue.severity} risk</span>
+                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-red-900">{primaryEvidence.snippet}</pre>
                         </div>
-                      )}
-                      {view.issue.safePattern && (
                         <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
-                          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">Add this safe pattern</span>
-                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{view.issue.safePattern}</pre>
+                          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — safe</span>
+                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{view.issue.safePattern || view.issue.recommendedFix}</pre>
                         </div>
-                      )}
-                    </div>
-                  )}
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid gap-3">
+                        {primaryEvidence?.kind === "absence" && (
+                          <div className="rounded-xl border border-amber-300 bg-amber-50/65 p-4">
+                            <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-amber-700">What&apos;s missing</span>
+                            <p className="mt-2 text-[13px] leading-6 text-amber-950">{primaryEvidence.missingRequirement}</p>
+                          </div>
+                        )}
+                        {view.issue.safePattern && (
+                          <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
+                            <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — safe pattern</span>
+                            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{view.issue.safePattern}</pre>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                  <div className="mt-5 flex flex-wrap items-center gap-2">
-                    {view.issue.safePattern && (
+                    {view.relatedPathCount > 0 && (
+                      <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50/70 px-4 py-2 text-[13px] font-medium text-emerald-800">
+                        <span aria-hidden>✓</span>
+                        <span>Risk drops {view.issue.severity} → Low · {view.relatedPathCount} sensitive route{view.relatedPathCount === 1 ? "" : "s"} closed</span>
+                      </div>
+                    )}
+
+                    <div className="mt-5 flex flex-wrap items-center gap-2">
+                      {view.issue.safePattern && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await navigator.clipboard?.writeText(view.issue?.safePattern || "");
+                            setCopiedFix(true);
+                            window.setTimeout(() => setCopiedFix(false), 1400);
+                          }}
+                          className="rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+                        >
+                          {copiedFix ? "Copied ✓" : "Copy fix"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={async () => {
-                          await navigator.clipboard?.writeText(view.issue?.safePattern || "");
-                          setCopiedFix(true);
-                          window.setTimeout(() => setCopiedFix(false), 1400);
+                          await navigator.clipboard?.writeText(buildFindingComment(view));
+                          setCopiedComment(true);
+                          window.setTimeout(() => setCopiedComment(false), 1400);
                         }}
-                        className="rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+                        className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-[12px] font-semibold hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
                       >
-                        {copiedFix ? "Copied ✓" : "Copy fix"}
+                        {copiedComment ? "Copied ✓" : "Copy as PR / ticket comment"}
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await navigator.clipboard?.writeText(buildFindingComment(view));
-                        setCopiedComment(true);
-                        window.setTimeout(() => setCopiedComment(false), 1400);
-                      }}
-                      className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-[12px] font-semibold hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
-                    >
-                      {copiedComment ? "Copied ✓" : "Copy as PR / ticket comment"}
-                    </button>
-                    <span className="font-mono text-[11px] text-stone-500">Effort · {view.issue.effort}</span>
+                      <span className="font-mono text-[11px] text-stone-500">Effort · {view.issue.effort}</span>
+                    </div>
                   </div>
                 </div>
 
                 {/* SECURITY DETAILS — evidence, confidence math, and impact, collapsed by default */}
                 <details className="group mt-6 rounded-2xl border border-stone-900/10 bg-white/55">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 font-mono text-[11px] uppercase tracking-[0.18em] text-stone-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">
-                    <span>Security details — evidence, confidence &amp; impact</span>
+                    <span>Security details — evidence &amp; confidence</span>
                     <span className="text-stone-400 transition group-open:rotate-180">▾</span>
                   </summary>
                   <div className="space-y-5 px-5 pb-6">
-                    <div>
-                      {sectionLabel("Why it matters")}
-                      <p className="mt-3 text-[14px] leading-7 text-stone-700">{view.whyItMatters || view.issue.whyThisMatters || "No plain-language impact was included for this selected object."}</p>
-                    </div>
-
                     <dl className="grid gap-3 rounded-xl border border-amber-600/25 bg-amber-50/50 px-4 py-3 font-mono text-[12px] leading-5 text-stone-600 sm:grid-cols-2 lg:grid-cols-4">
                       <div>
                         <dt className="text-stone-500">Finding confidence</dt>
@@ -706,33 +705,91 @@ export function PlaygroundMicroscope() {
               </section>
             )}
 
-            <section>
-              <div className="mb-5">
-                {sectionLabel("Paths supported by this finding")}
-                <h2 className="mt-2 font-playfair text-[28px] font-medium tracking-tight">Routes explicitly linked to the selected issue</h2>
-                <p className="mt-2 max-w-3xl text-[13px] leading-6 text-stone-500">
-                  This section only shows paths whose canonical report record lists the selected issue as supporting evidence.
-                </p>
-              </div>
-              {view.pathsSupportedByIssue[0] ? (
-                <EndToEndFlow
-                  path={view.pathsSupportedByIssue[0]}
-                  selectedNodeIds={view.graph.selectedNodeIds}
-                />
-              ) : (
-                <div className="rounded-2xl border border-stone-300 bg-white/55 p-6 text-[13px] leading-6 text-stone-500">
-                  No execution path is explicitly linked to the selected finding in the canonical report.
+            {view.issues.length > 1 && (
+              <Collapsible label="All findings in this file" hint={`${view.issueCount} total`}>
+                <div className="overflow-hidden rounded-xl border border-stone-900/10 bg-white/60">
+                  {view.issues.map((item, index) => {
+                    const selected = item.id === view.issue?.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: item.id })}
+                        onKeyDown={(event) => {
+                          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                          event.preventDefault();
+                          const nextIndex = event.key === "ArrowDown"
+                            ? Math.min(view.issues.length - 1, index + 1)
+                            : Math.max(0, index - 1);
+                          const nextIssue = view.issues[nextIndex];
+                          if (nextIssue) updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: nextIssue.id });
+                        }}
+                        aria-current={selected ? "true" : undefined}
+                        className={`grid w-full gap-4 border-l-4 border-t p-4 text-left first:border-t-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-inset md:grid-cols-[1fr_auto] md:items-center ${
+                          selected ? "border-l-amber-600 border-t-stone-900/10 bg-amber-50/90" : "border-l-transparent border-t-stone-900/10 hover:bg-white/80"
+                        }`}
+                      >
+                        <span>
+                          <span className="block text-[13px] font-medium leading-5 text-stone-900">{plainFindingHeadline(item.ruleId, item.issue)}</span>
+                          <span className="mt-1 block font-mono text-[11px] text-stone-500">{item.ruleId} · {plainRuleFamily(item.ruleId, item.issue)}</span>
+                        </span>
+                        <span className="flex flex-wrap items-center gap-2">
+                          <RiskBadge risk={item.severity} />
+                          <ConfidenceBadge confidence={item.confidence.level} />
+                          <span className={`rounded-full px-2 py-1 font-mono text-[11px] font-medium ${selected ? "bg-amber-200 text-amber-950" : "text-stone-600"}`}>{selected ? "Viewing" : "Open"}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
-            </section>
+              </Collapsible>
+            )}
 
-            <section>
-              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+            <Collapsible label="Execution paths" hint={`${view.relatedPathCount} route${view.relatedPathCount === 1 ? "" : "s"} through this file`}>
+              <div className="space-y-6">
                 <div>
-                  {sectionLabel("Focused graph")}
-                  <h2 className="mt-2 font-playfair text-[28px] font-medium tracking-tight">Relationships around this artifact</h2>
-                  <p className="mt-2 text-[13px] text-stone-500">The graph is capped at 18 visible nodes and never expands to the full repository by default.</p>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Route linked to this finding</p>
+                  {view.pathsSupportedByIssue[0] ? (
+                    <div className="mt-3">
+                      <EndToEndFlow path={view.pathsSupportedByIssue[0]} selectedNodeIds={view.graph.selectedNodeIds} />
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-2xl border border-stone-300 bg-white/55 p-6 text-[13px] leading-6 text-stone-500">
+                      No execution path is explicitly linked to the selected finding in the canonical report.
+                    </div>
+                  )}
                 </div>
+                {view.otherPathsInvolvingFile.length > 0 && (
+                  <div>
+                    <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Other routes that include this file</p>
+                    <div className="mt-3 overflow-hidden rounded-2xl border border-white/75 bg-white/65 backdrop-blur-xl">
+                      {view.otherPathsInvolvingFile.map((path) => {
+                        const selectedIndex = path.nodes.findIndex((node) => view.graph.selectedNodeIds.includes(node.id));
+                        const role = selectedIndex === 0 ? "Source" : selectedIndex === path.nodes.length - 1 ? "Sink" : selectedIndex > 0 ? "Intermediate" : "Related";
+                        return (
+                          <article key={path.id} className="grid gap-4 border-t border-stone-900/10 p-5 first:border-t-0 md:grid-cols-[1fr_auto] md:items-center">
+                            <div>
+                              <p className="font-mono text-[11px] leading-6 text-stone-700">
+                                {path.source?.relativePath || path.source?.label || "Source"} → {path.sink?.label || path.action || "Sensitive action"}
+                              </p>
+                              <p className="mt-1 text-[11px] text-stone-500">{role} · {path.files.length} involved file{path.files.length === 1 ? "" : "s"} · {path.provenance}</p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <RiskBadge risk={path.risk} />
+                              <ConfidenceBadge confidence={path.confidence} />
+                              <button type="button" onClick={() => updateFocus({ ...focus, artifact: view.artifact.id, path: path.id })} className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[11px] font-semibold hover:bg-stone-50">Inspect</button>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Collapsible>
+
+            <Collapsible label="Relationship graph" hint="capped at 18 nodes">
+              <div className="flex justify-end">
                 <div className="flex rounded-xl border border-stone-300 bg-white/65 p-1" aria-label="Graph direction">
                   {(["upstream", "downstream", "all"] as const).map((mode) => (
                     <button
@@ -746,8 +803,7 @@ export function PlaygroundMicroscope() {
                   ))}
                 </div>
               </div>
-
-              <div className="mt-5 rounded-[22px] border border-white/75 bg-white/68 p-5 shadow-[0_18px_55px_-42px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-7">
+              <div className="mt-4 rounded-[22px] border border-white/75 bg-white/68 p-5 shadow-[0_18px_55px_-42px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-7">
                 <GraphText
                   nodes={visibleGraph.nodes}
                   edges={visibleGraph.edges}
@@ -766,42 +822,7 @@ export function PlaygroundMicroscope() {
                   <p className="text-[13px] text-stone-500">No graph nodes match this focus and direction.</p>
                 )}
               </div>
-            </section>
-
-            <section>
-              <div className="mb-5">
-                {sectionLabel("Other paths involving this artifact")}
-                <h2 className="mt-2 font-playfair text-[28px] font-medium tracking-tight">Other routes that include this artifact</h2>
-                <p className="mt-2 max-w-3xl text-[13px] leading-6 text-stone-500">
-                  These paths involve the selected artifact, but they are not necessarily caused by the currently selected finding.
-                </p>
-              </div>
-              {view.otherPathsInvolvingFile.length > 0 ? (
-                <div className="overflow-hidden rounded-2xl border border-white/75 bg-white/65 backdrop-blur-xl">
-                  {view.otherPathsInvolvingFile.map((path) => {
-                    const selectedIndex = path.nodes.findIndex((node) => view.graph.selectedNodeIds.includes(node.id));
-                    const role = selectedIndex === 0 ? "Source" : selectedIndex === path.nodes.length - 1 ? "Sink" : selectedIndex > 0 ? "Intermediate" : "Related";
-                    return (
-                      <article key={path.id} className="grid gap-4 border-t border-stone-900/10 p-5 first:border-t-0 md:grid-cols-[1fr_auto] md:items-center">
-                        <div>
-                          <p className="font-mono text-[11px] leading-6 text-stone-700">
-                            {path.source?.relativePath || path.source?.label || "Source"} → {path.sink?.label || path.action || "Sensitive action"}
-                          </p>
-                          <p className="mt-1 text-[11px] text-stone-500">{role} · {path.files.length} involved file{path.files.length === 1 ? "" : "s"} · {path.provenance}</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <RiskBadge risk={path.risk} />
-                          <ConfidenceBadge confidence={path.confidence} />
-                          <button type="button" onClick={() => updateFocus({ ...focus, artifact: view.artifact.id, path: path.id })} className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[11px] font-semibold hover:bg-stone-50">Inspect</button>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-stone-300 bg-white/55 p-6 text-[13px] text-stone-500">No other complete execution paths involve this artifact.</div>
-              )}
-            </section>
+            </Collapsible>
 
           </div>
         )}

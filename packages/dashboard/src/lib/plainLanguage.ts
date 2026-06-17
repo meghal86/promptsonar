@@ -118,3 +118,37 @@ export function toneClasses(tone: Tone): string {
 export function severityRank(severity = ""): number {
   return ({ critical: 4, high: 3, medium: 2, low: 1 } as Record<string, number>)[severity.toLowerCase()] || 0;
 }
+
+// Short human name for a finding's family, shown in the status line
+// (e.g. "MCP tool poisoning"). Mirrors the engine's own categorization so the
+// label always matches the plain-language issue text the analyzer produced.
+const RULE_FAMILY: Array<{ test: RegExp; label: string }> = [
+  { test: /poison|mcp|wildcard|auto.?approve|auto.?execute/, label: "MCP tool poisoning" },
+  { test: /inject|jailbreak|override|evasion|rag/, label: "Prompt injection" },
+  { test: /secret|credential|api.?key|password|token|pii/, label: "Secret exposure" },
+  { test: /shell|command|exec/, label: "Command execution" },
+  { test: /memory|persist|remember|session/, label: "Memory persistence" },
+  { test: /permission|privile|escalation/, label: "Excess permissions" },
+  { test: /workflow|autonomous|routing|sink/, label: "Unsafe automation" },
+];
+export function plainRuleFamily(ruleId = "", issue = ""): string {
+  const signal = `${ruleId} ${issue}`.toLowerCase();
+  for (const entry of RULE_FAMILY) if (entry.test.test(signal)) return entry.label;
+  return "Security finding";
+}
+
+// One-line, non-technical headline for a finding. Presentation copy only — the
+// canonical issue/impact/fix still come straight from the analyzer. Falls back
+// to the analyzer's own plain-language issue text when no family matches.
+const FINDING_HEADLINE: Array<{ test: RegExp; headline: string }> = [
+  { test: /poison|mcp|wildcard|auto.?approve|auto.?execute/, headline: "This file lets a tool reach your system — and run without asking." },
+  { test: /inject|jailbreak|override|evasion|rag/, headline: "Untrusted text can change what this AI does." },
+  { test: /secret|credential|api.?key|password|token|pii/, headline: "This file can expose secrets or private data." },
+  { test: /memory|persist|remember|session/, headline: "Unsafe instructions here can persist into future runs." },
+  { test: /shell|command|exec|privile|escalation|sink|workflow|autonomous|routing/, headline: "Instructions here can trigger a real action on your system." },
+];
+export function plainFindingHeadline(ruleId = "", issue = ""): string {
+  const signal = `${ruleId} ${issue}`.toLowerCase();
+  for (const entry of FINDING_HEADLINE) if (entry.test.test(signal)) return entry.headline;
+  return issue || "This file needs a security review.";
+}
