@@ -21,6 +21,7 @@ import {
 } from "@/lib/repositorySelection";
 import { ConfidenceBadge, ProvenanceBadge, RiskBadge } from "./Badges";
 import { PreviewShell } from "./PreviewShell";
+import { ExecutionFlowGraph } from "./ExecutionFlowGraph";
 
 type ScanMeta = {
   filesReceived: number;
@@ -604,6 +605,13 @@ export function RepositoryExplorer() {
                       Skipped: {Object.entries(view.coverage.skipReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}
                     </p>
                   )}
+                </div>
+              </div>
+
+              <div className="mt-6">
+                {sectionLabel("Execution flow — sources to sensitive actions")}
+                <div className="mt-3">
+                  <ExecutionFlowGraph paths={view.paths} scanId={report.id} />
                 </div>
               </div>
             </section>
