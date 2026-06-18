@@ -289,13 +289,29 @@ function buildLlmFixPrompt(filePath: string, content: string, groups: GroupView[
   return lines.join("\n");
 }
 
-// Whole-file view: the real file with every flagged line highlighted, plus a
-// generated prompt to get a corrected file from the developer's own AI.
-//
-// PromptSonar deliberately does NOT auto-rewrite the file: a rule's safe pattern
-// is *illustrative guidance*, not a literal replacement for the exact line, so
-// applying it verbatim would corrupt the file. The only correct full rewrite
-// comes from human judgment or the AI prompt below.
+type DeterministicEditView = { fixerId: string; line: number; match: string; replacement: string; description: string };
+type FixResult = {
+  fixed: string;
+  applied: DeterministicEditView[];
+  appliedCount: number;
+  verified: boolean;
+  rescan: { before: number; after: number } | null;
+};
+
+function changedLineSet(before: string, after: string): Set<number> {
+  const a = before.split("\n");
+  const b = after.split("\n");
+  const set = new Set<number>();
+  for (let i = 0; i < b.length; i += 1) if (a[i] !== b[i]) set.add(i + 1);
+  return set;
+}
+
+// Whole-file fix view. Two tiers, both honest:
+//  • Tier 1 — deterministic, no-AI fixes computed by the engine (exact,
+//    structure-preserving edits) and proven by re-scanning the result. Shown as
+//    a real before/after with a one-click "Copy fixed file".
+//  • Tier 2 — for findings that need judgement, a generated prompt for the
+//    developer's own AI. PromptSonar itself still makes no AI call.
 function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: {
   filePath: string;
   content: string;
@@ -308,6 +324,32 @@ function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: 
   const beforeHighlight = findingHighlightLines(issues, totalLines);
   const prompt = buildLlmFixPrompt(filePath, content, groups);
   const promptKey = `${filePath}:prompt`;
+  const fixedKey = `${filePath}:fixed`;
+
+  const [fix, setFix] = useState<FixResult | null>(null);
+  const [fixState, setFixState] = useState<"loading" | "done" | "error">("loading");
+  useEffect(() => {
+    const controller = new AbortController();
+    setFix(null);
+    setFixState("loading");
+    fetch("/api/repository/fix", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: filePath, content }),
+      signal: controller.signal,
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data?.error) { setFixState("error"); return; }
+        setFix(data as FixResult);
+        setFixState("done");
+      })
+      .catch((error) => { if (!(error instanceof DOMException && error.name === "AbortError")) setFixState("error"); });
+    return () => controller.abort();
+  }, [filePath, content]);
+
+  const hasDeterministic = !!fix && fix.appliedCount > 0;
+  const changed = hasDeterministic ? changedLineSet(content, fix!.fixed) : new Set<number>();
 
   return (
     <section className="rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
@@ -319,27 +361,67 @@ function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: 
         <button
           type="button"
           onClick={() => onCopy(promptKey, prompt)}
-          className="rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+          className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-[12px] font-semibold hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
         >
           {copiedKey === promptKey ? "Copied ✓" : "Copy AI fix prompt"}
         </button>
       </div>
 
-      <p className="mt-3 max-w-3xl text-[13px] leading-6 text-stone-600">
-        PromptSonar pinpoints every issue with exact evidence, but it never rewrites your file
-        automatically — a rule&apos;s safe pattern is guidance, not a literal find-and-replace, so
-        applying it blindly would corrupt the file. To get a corrected file, copy the AI fix prompt
-        below into your own assistant, or edit by hand using each finding&apos;s safe pattern.
-      </p>
+      {fixState === "loading" && (
+        <p className="mt-3 text-[13px] text-stone-500">Checking for exact, no-AI fixes…</p>
+      )}
 
-      <div className="mt-5 rounded-xl border border-red-300 bg-red-50/50 p-3">
-        <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">The file — flagged lines highlighted</p>
-        <CodeLines code={content} highlight={beforeHighlight} tone="danger" />
-      </div>
+      {hasDeterministic ? (
+        <div className="mt-4 rounded-2xl border border-emerald-300 bg-emerald-50/40 p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[13px] font-semibold text-emerald-900">
+              ✓ {fix!.appliedCount} exact fix{fix!.appliedCount === 1 ? "" : "es"} — deterministic, no AI
+              {fix!.verified && fix!.rescan ? <span className="font-normal text-emerald-800"> · verified by re-scan: {fix!.rescan.before} → {fix!.rescan.after} findings</span> : null}
+            </p>
+            <button
+              type="button"
+              onClick={() => onCopy(fixedKey, fix!.fixed)}
+              className="rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+            >
+              {copiedKey === fixedKey ? "Copied ✓" : "Copy fixed file"}
+            </button>
+          </div>
+          <ul className="mt-3 space-y-1">
+            {fix!.applied.map((edit, index) => (
+              <li key={`${edit.fixerId}-${index}`} className="font-mono text-[11px] leading-5 text-stone-600">
+                L{edit.line} · {edit.description} <span className="text-stone-400">—</span> <span className="text-red-700">{edit.match.trim()}</span> → <span className="text-emerald-700">{edit.replacement.trim()}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border border-red-300 bg-red-50/50 p-3">
+              <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before</p>
+              <CodeLines code={content} highlight={beforeHighlight} tone="danger" />
+            </div>
+            <div className="rounded-xl border border-emerald-300 bg-emerald-50/50 p-3">
+              <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — exact fixes applied</p>
+              <CodeLines code={fix!.fixed} highlight={changed} tone="safe" />
+            </div>
+          </div>
+          <p className="mt-3 text-[12px] leading-5 text-stone-500">These are exact, structure-preserving edits — copy the fixed file as-is. Findings that need judgement aren&apos;t auto-fixed; use the AI prompt below for those.</p>
+        </div>
+      ) : fixState === "done" ? (
+        <>
+          <p className="mt-3 max-w-3xl text-[13px] leading-6 text-stone-600">
+            No exact, no-AI fix applies to this file — its findings need judgement (a rule&apos;s safe pattern is
+            guidance, not a literal find-and-replace). To get a corrected file, copy the AI fix prompt into your
+            own assistant, or edit by hand using each finding&apos;s safe pattern.
+          </p>
+          <div className="mt-4 rounded-xl border border-red-300 bg-red-50/50 p-3">
+            <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">The file — flagged lines highlighted</p>
+            <CodeLines code={content} highlight={beforeHighlight} tone="danger" />
+          </div>
+        </>
+      ) : null}
 
       <details className="group mt-5 rounded-2xl border border-stone-900/10 bg-white/55">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 font-mono text-[11px] uppercase tracking-[0.18em] text-stone-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">
-          <span>AI fix prompt — paste into your assistant to get the corrected file</span>
+          <span>AI fix prompt — paste into your assistant to fix the rest</span>
           <span className="text-stone-400 transition group-open:rotate-180">▾</span>
         </summary>
         <div className="px-5 pb-6">
