@@ -261,29 +261,6 @@ function findingHighlightLines(issues: IssueView[], totalLines: number): Set<num
   return set;
 }
 
-// Apply every fix that is provably unambiguous (a direct snippet occurring
-// exactly once in the current text) in sequence. Findings without a mechanical
-// edit (absence findings, descriptive evidence) are left untouched — never
-// guessed. Returns the corrected file plus which lines changed.
-function buildConsolidatedFix(content: string, issues: IssueView[]): { after: string; appliedCount: number; changedLines: Set<number> } {
-  let after = content;
-  let appliedCount = 0;
-  for (const issue of issues) {
-    const ev = issue.evidence[0];
-    if (ev?.kind === "direct" && ev.snippet && issue.safePattern && after.split(ev.snippet).length - 1 === 1) {
-      after = after.replace(ev.snippet, issue.safePattern);
-      appliedCount += 1;
-    }
-  }
-  const changedLines = new Set<number>();
-  if (after !== content) {
-    const before = content.split("\n");
-    const next = after.split("\n");
-    for (let i = 0; i < next.length; i += 1) if (before[i] !== next[i]) changedLines.add(i + 1);
-  }
-  return { after, appliedCount, changedLines };
-}
-
 // A copy-paste prompt the developer runs in their OWN AI assistant to get the
 // fully corrected file. PromptSonar makes no LLM call — it just assembles the
 // file plus every finding and safe pattern.
@@ -291,6 +268,7 @@ function buildLlmFixPrompt(filePath: string, content: string, groups: GroupView[
   const lines = [
     "You are fixing issues in a file flagged by PromptSonar, an AI-execution security scanner.",
     "Apply every fix listed below and return ONLY the complete corrected file — no explanation.",
+    "Keep the file's language and structure; only change what each fix requires.",
     "",
     `File: ${filePath}`,
     "```",
@@ -303,7 +281,7 @@ function buildLlmFixPrompt(filePath: string, content: string, groups: GroupView[
     const rep = group.issues[0];
     lines.push(`${index + 1}. [${group.severity.toUpperCase()}] ${rep.issue}`);
     lines.push(`   Fix: ${rep.recommendedFix || rep.howToFix}`);
-    if (rep.safePattern) lines.push(`   Safe pattern: ${rep.safePattern.replace(/\s*\n\s*/g, " ")}`);
+    if (rep.safePattern) lines.push(`   Safe pattern (illustrative): ${rep.safePattern.replace(/\s*\n\s*/g, " ")}`);
     const locations = group.issues.map((item) => issueLocationLabel(item)).filter(Boolean);
     if (locations.length) lines.push(`   Location(s): ${locations.join(", ")}`);
   });
@@ -311,9 +289,13 @@ function buildLlmFixPrompt(filePath: string, content: string, groups: GroupView[
   return lines.join("\n");
 }
 
-// One consolidated before/after for the whole file: every finding highlighted,
-// every deterministic fix applied, a one-click copy of the corrected file, and
-// a generated prompt for the developer's own AI assistant to finish the rest.
+// Whole-file view: the real file with every flagged line highlighted, plus a
+// generated prompt to get a corrected file from the developer's own AI.
+//
+// PromptSonar deliberately does NOT auto-rewrite the file: a rule's safe pattern
+// is *illustrative guidance*, not a literal replacement for the exact line, so
+// applying it verbatim would corrupt the file. The only correct full rewrite
+// comes from human judgment or the AI prompt below.
 function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: {
   filePath: string;
   content: string;
@@ -324,64 +306,40 @@ function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: 
 }) {
   const totalLines = content.split("\n").length;
   const beforeHighlight = findingHighlightLines(issues, totalLines);
-  const { after, appliedCount, changedLines } = buildConsolidatedFix(content, issues);
-  const appliedGroups = groups.filter((group) => {
-    const ev = group.issues[0].evidence[0];
-    return ev?.kind === "direct" && ev.snippet && group.issues[0].safePattern && content.split(ev.snippet).length - 1 === 1;
-  }).length;
-  const manualGroups = groups.length - appliedGroups;
   const prompt = buildLlmFixPrompt(filePath, content, groups);
-  const fixedKey = `${filePath}:fixed`;
   const promptKey = `${filePath}:prompt`;
 
   return (
     <section className="rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">Whole file · before → after</p>
-          <h2 className="mt-2 font-playfair text-[22px] font-medium tracking-tight text-stone-900 sm:text-[26px]">Apply the fixes to this file</h2>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">Whole file · {groups.length} finding{groups.length === 1 ? "" : "s"}</p>
+          <h2 className="mt-2 font-playfair text-[22px] font-medium tracking-tight text-stone-900 sm:text-[26px]">Fix this file</h2>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {appliedCount > 0 && (
-            <button
-              type="button"
-              onClick={() => onCopy(fixedKey, after)}
-              className="rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
-            >
-              {copiedKey === fixedKey ? "Copied ✓" : "Copy fixed file"}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => onCopy(promptKey, prompt)}
-            className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-[12px] font-semibold hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
-          >
-            {copiedKey === promptKey ? "Copied ✓" : "Copy AI fix prompt"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => onCopy(promptKey, prompt)}
+          className="rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+        >
+          {copiedKey === promptKey ? "Copied ✓" : "Copy AI fix prompt"}
+        </button>
       </div>
 
-      <p className="mt-3 text-[13px] leading-6 text-stone-600">
-        {appliedCount > 0
-          ? `${appliedCount} change${appliedCount === 1 ? "" : "s"} applied automatically (safe, exact edits).`
-          : "No change can be applied automatically for this file — these findings need human or AI judgment."}
-        {manualGroups > 0 && ` ${manualGroups} finding${manualGroups === 1 ? "" : "s"} need${manualGroups === 1 ? "s" : ""} a rewrite — use the AI fix prompt below or edit by hand.`}
+      <p className="mt-3 max-w-3xl text-[13px] leading-6 text-stone-600">
+        PromptSonar pinpoints every issue with exact evidence, but it never rewrites your file
+        automatically — a rule&apos;s safe pattern is guidance, not a literal find-and-replace, so
+        applying it blindly would corrupt the file. To get a corrected file, copy the AI fix prompt
+        below into your own assistant, or edit by hand using each finding&apos;s safe pattern.
       </p>
 
-      <div className="mt-5 grid gap-3 lg:grid-cols-2">
-        <div className="rounded-xl border border-red-300 bg-red-50/50 p-3">
-          <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before — flagged lines highlighted</p>
-          <CodeLines code={content} highlight={beforeHighlight} tone="danger" />
-        </div>
-        <div className="rounded-xl border border-emerald-300 bg-emerald-50/50 p-3">
-          <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — {appliedCount > 0 ? "deterministic fixes applied" : "unchanged (needs AI / manual)"}</p>
-          <CodeLines code={after} highlight={changedLines} tone="safe" />
-        </div>
+      <div className="mt-5 rounded-xl border border-red-300 bg-red-50/50 p-3">
+        <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">The file — flagged lines highlighted</p>
+        <CodeLines code={content} highlight={beforeHighlight} tone="danger" />
       </div>
 
       <details className="group mt-5 rounded-2xl border border-stone-900/10 bg-white/55">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 font-mono text-[11px] uppercase tracking-[0.18em] text-stone-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">
-          <span>Fix the rest with your AI assistant — copy-paste prompt</span>
+          <span>AI fix prompt — paste into your assistant to get the corrected file</span>
           <span className="text-stone-400 transition group-open:rotate-180">▾</span>
         </summary>
         <div className="px-5 pb-6">
@@ -451,7 +409,7 @@ function FindingCard({
                 <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-red-900">{evidence.snippet}</pre>
               </div>
               <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
-                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — safe</span>
+                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">Safe pattern (example)</span>
                 <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{issue.safePattern || issue.recommendedFix}</pre>
               </div>
             </div>
