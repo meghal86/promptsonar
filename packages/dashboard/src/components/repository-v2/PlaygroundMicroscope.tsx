@@ -247,56 +247,156 @@ function CodeLines({ code, highlight, tone }: { code: string; highlight: Set<num
   );
 }
 
-// Full-file before/after. BEFORE is always the real file with the finding's
-// lines highlighted. AFTER is a synthesized corrected file ONLY when the change
-// is provably unambiguous (a direct snippet occurring exactly once); otherwise
-// it shows the safe pattern to apply at the highlighted lines — never a guess.
-function FileDiff({ content, evidence, safePattern, severity }: {
+type GroupView = MicroscopeView["findingGroups"][number];
+
+// All file lines covered by any finding — highlighted in the "before" file.
+function findingHighlightLines(issues: IssueView[], totalLines: number): Set<number> {
+  const set = new Set<number>();
+  for (const issue of issues) {
+    const ev = issue.evidence[0];
+    const start = ev?.kind === "direct" ? ev.line : ev?.kind === "absence" ? ev.startLine : undefined;
+    const end = ev?.kind === "absence" ? (ev.endLine ?? ev.startLine) : start;
+    if (start) for (let n = start; n <= (end ?? start) && n <= totalLines; n += 1) set.add(n);
+  }
+  return set;
+}
+
+// Apply every fix that is provably unambiguous (a direct snippet occurring
+// exactly once in the current text) in sequence. Findings without a mechanical
+// edit (absence findings, descriptive evidence) are left untouched — never
+// guessed. Returns the corrected file plus which lines changed.
+function buildConsolidatedFix(content: string, issues: IssueView[]): { after: string; appliedCount: number; changedLines: Set<number> } {
+  let after = content;
+  let appliedCount = 0;
+  for (const issue of issues) {
+    const ev = issue.evidence[0];
+    if (ev?.kind === "direct" && ev.snippet && issue.safePattern && after.split(ev.snippet).length - 1 === 1) {
+      after = after.replace(ev.snippet, issue.safePattern);
+      appliedCount += 1;
+    }
+  }
+  const changedLines = new Set<number>();
+  if (after !== content) {
+    const before = content.split("\n");
+    const next = after.split("\n");
+    for (let i = 0; i < next.length; i += 1) if (before[i] !== next[i]) changedLines.add(i + 1);
+  }
+  return { after, appliedCount, changedLines };
+}
+
+// A copy-paste prompt the developer runs in their OWN AI assistant to get the
+// fully corrected file. PromptSonar makes no LLM call — it just assembles the
+// file plus every finding and safe pattern.
+function buildLlmFixPrompt(filePath: string, content: string, groups: GroupView[]): string {
+  const lines = [
+    "You are fixing issues in a file flagged by PromptSonar, an AI-execution security scanner.",
+    "Apply every fix listed below and return ONLY the complete corrected file — no explanation.",
+    "",
+    `File: ${filePath}`,
+    "```",
+    content,
+    "```",
+    "",
+    "Fixes to apply:",
+  ];
+  groups.forEach((group, index) => {
+    const rep = group.issues[0];
+    lines.push(`${index + 1}. [${group.severity.toUpperCase()}] ${rep.issue}`);
+    lines.push(`   Fix: ${rep.recommendedFix || rep.howToFix}`);
+    if (rep.safePattern) lines.push(`   Safe pattern: ${rep.safePattern.replace(/\s*\n\s*/g, " ")}`);
+    const locations = group.issues.map((item) => issueLocationLabel(item)).filter(Boolean);
+    if (locations.length) lines.push(`   Location(s): ${locations.join(", ")}`);
+  });
+  lines.push("", "Return the full corrected file only.");
+  return lines.join("\n");
+}
+
+// One consolidated before/after for the whole file: every finding highlighted,
+// every deterministic fix applied, a one-click copy of the corrected file, and
+// a generated prompt for the developer's own AI assistant to finish the rest.
+function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: {
+  filePath: string;
   content: string;
-  evidence: EvidenceView | undefined;
-  safePattern: string;
-  severity: string;
+  issues: IssueView[];
+  groups: GroupView[];
+  copiedKey: string | null;
+  onCopy: (key: string, text: string) => void;
 }) {
   const totalLines = content.split("\n").length;
-  const start = evidence?.kind === "direct" ? evidence.line : evidence?.kind === "absence" ? evidence.startLine : undefined;
-  const end = evidence?.kind === "absence" ? (evidence.endLine ?? evidence.startLine) : start;
-  const highlight = new Set<number>();
-  if (start) for (let n = start; n <= (end ?? start) && n <= totalLines; n += 1) highlight.add(n);
-
-  let afterContent: string | null = null;
-  if (evidence?.kind === "direct" && evidence.snippet && safePattern) {
-    const occurrences = content.split(evidence.snippet).length - 1;
-    if (occurrences === 1) afterContent = content.replace(evidence.snippet, safePattern);
-  }
-
-  const locationLabel = start ? `lines ${start}${end && end !== start ? `–${end}` : ""}` : "the highlighted block";
+  const beforeHighlight = findingHighlightLines(issues, totalLines);
+  const { after, appliedCount, changedLines } = buildConsolidatedFix(content, issues);
+  const appliedGroups = groups.filter((group) => {
+    const ev = group.issues[0].evidence[0];
+    return ev?.kind === "direct" && ev.snippet && group.issues[0].safePattern && content.split(ev.snippet).length - 1 === 1;
+  }).length;
+  const manualGroups = groups.length - appliedGroups;
+  const prompt = buildLlmFixPrompt(filePath, content, groups);
+  const fixedKey = `${filePath}:fixed`;
+  const promptKey = `${filePath}:prompt`;
 
   return (
-    <div className="mt-4 grid gap-3 lg:grid-cols-2">
-      <div className="rounded-xl border border-red-300 bg-red-50/50 p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before — {severity} risk</span>
-          <span className="font-mono text-[10px] text-stone-500">full file{start ? ` · ${locationLabel}` : ""}</span>
+    <section className="rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">Whole file · before → after</p>
+          <h2 className="mt-2 font-playfair text-[22px] font-medium tracking-tight text-stone-900 sm:text-[26px]">Apply the fixes to this file</h2>
         </div>
-        <CodeLines code={content} highlight={highlight} tone="danger" />
-      </div>
-      <div className="rounded-xl border border-emerald-300 bg-emerald-50/50 p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — {afterContent ? "fix applied" : "change to apply"}</span>
-          <span className="font-mono text-[10px] text-stone-500">{afterContent ? "full file" : locationLabel}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {appliedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => onCopy(fixedKey, after)}
+              className="rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+            >
+              {copiedKey === fixedKey ? "Copied ✓" : "Copy fixed file"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onCopy(promptKey, prompt)}
+            className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-[12px] font-semibold hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+          >
+            {copiedKey === promptKey ? "Copied ✓" : "Copy AI fix prompt"}
+          </button>
         </div>
-        {afterContent ? (
-          <CodeLines code={afterContent} highlight={new Set()} tone="safe" />
-        ) : (
-          <div className="space-y-2">
-            <p className="rounded-lg bg-white/70 px-3 py-2 text-[12px] leading-5 text-stone-600">
-              Apply the safe pattern at <b>{locationLabel}</b>{evidence?.kind === "absence" ? " — there is no single mechanical edit here, so this is shown as the exact change to make rather than a rewritten file." : "."}
-            </p>
-            <pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg border border-emerald-300 bg-emerald-50/70 p-3 font-mono text-[12px] leading-5 text-emerald-900">{safePattern || "See the recommended fix above."}</pre>
-          </div>
-        )}
       </div>
-    </div>
+
+      <p className="mt-3 text-[13px] leading-6 text-stone-600">
+        {appliedCount > 0
+          ? `${appliedCount} change${appliedCount === 1 ? "" : "s"} applied automatically (safe, exact edits).`
+          : "No change can be applied automatically for this file — these findings need human or AI judgment."}
+        {manualGroups > 0 && ` ${manualGroups} finding${manualGroups === 1 ? "" : "s"} need${manualGroups === 1 ? "s" : ""} a rewrite — use the AI fix prompt below or edit by hand.`}
+      </p>
+
+      <div className="mt-5 grid gap-3 lg:grid-cols-2">
+        <div className="rounded-xl border border-red-300 bg-red-50/50 p-3">
+          <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before — flagged lines highlighted</p>
+          <CodeLines code={content} highlight={beforeHighlight} tone="danger" />
+        </div>
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50/50 p-3">
+          <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — {appliedCount > 0 ? "deterministic fixes applied" : "unchanged (needs AI / manual)"}</p>
+          <CodeLines code={after} highlight={changedLines} tone="safe" />
+        </div>
+      </div>
+
+      <details className="group mt-5 rounded-2xl border border-stone-900/10 bg-white/55">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 font-mono text-[11px] uppercase tracking-[0.18em] text-stone-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">
+          <span>Fix the rest with your AI assistant — copy-paste prompt</span>
+          <span className="text-stone-400 transition group-open:rotate-180">▾</span>
+        </summary>
+        <div className="px-5 pb-6">
+          <p className="text-[13px] leading-6 text-stone-600">PromptSonar makes no AI calls. This prompt bundles the file and every finding so you can paste it into Claude, Cursor, or any assistant and get the complete corrected file back.</p>
+          <pre className="mt-3 max-h-[320px] overflow-auto whitespace-pre-wrap break-words rounded-xl border border-stone-200 bg-white/80 p-4 font-mono text-[12px] leading-5 text-stone-800">{prompt}</pre>
+          <button
+            type="button"
+            onClick={() => onCopy(promptKey, prompt)}
+            className="mt-3 rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+          >
+            {copiedKey === promptKey ? "Copied ✓" : "Copy AI fix prompt"}
+          </button>
+        </div>
+      </details>
+    </section>
   );
 }
 
@@ -306,13 +406,11 @@ function FileDiff({ content, evidence, safePattern, severity }: {
 function FindingCard({
   issue,
   locations,
-  fileContent,
   copiedKey,
   onCopy,
 }: {
   issue: IssueView;
   locations: string[];
-  fileContent: string | null;
   copiedKey: string | null;
   onCopy: (key: string, text: string) => void;
 }) {
@@ -346,9 +444,7 @@ function FindingCard({
         <div>
           <p className="max-w-3xl text-[14px] font-medium leading-7 text-stone-900">{issue.recommendedFix || issue.howToFix}</p>
 
-          {fileContent ? (
-            <FileDiff content={fileContent} evidence={evidence} safePattern={issue.safePattern} severity={issue.severity} />
-          ) : evidence?.kind === "direct" && evidence.snippet ? (
+          {evidence?.kind === "direct" && evidence.snippet ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-xl border border-red-300 bg-red-50/65 p-4">
                 <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before — {issue.severity} risk</span>
@@ -774,6 +870,18 @@ export function PlaygroundMicroscope() {
               </section>
             )}
 
+            {/* ONE consolidated before/after for the whole file + AI fix prompt */}
+            {fileContent && view.findingGroups.length > 0 && (
+              <FileFixPanel
+                filePath={view.artifact.repositoryRelativePath || view.selectedFile}
+                content={fileContent}
+                issues={view.issues}
+                groups={view.findingGroups}
+                copiedKey={copiedKey}
+                onCopy={copyFinding}
+              />
+            )}
+
             {/* EVERY FINDING, IN FULL — identical findings are grouped, nothing hidden behind a click */}
             {view.findingGroups.length > 0 ? (
               <div className="space-y-6">
@@ -788,7 +896,6 @@ export function PlaygroundMicroscope() {
                       key={group.id}
                       issue={representative}
                       locations={locations}
-                      fileContent={fileContent}
                       copiedKey={copiedKey}
                       onCopy={copyFinding}
                     />
