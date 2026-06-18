@@ -19,6 +19,7 @@ import {
   prepareRepositorySelection,
   repositoryFileDisplayName,
 } from "@/lib/repositorySelection";
+import { saveRepositoryFiles } from "@/lib/repositoryFileStore";
 import { ConfidenceBadge, ProvenanceBadge, RiskBadge } from "./Badges";
 import { PreviewShell } from "./PreviewShell";
 import { ExecutionFlowGraph } from "./ExecutionFlowGraph";
@@ -364,6 +365,9 @@ export function RepositoryExplorer() {
       setReport(data.report);
       setScanMeta(data.scan);
       saveReport(data.report);
+      // Persist the scanned file text so the file microscope can show full-file
+      // before/after context (browser session only, never re-uploaded).
+      saveRepositoryFiles(data.report?.id, payloadFiles);
       if (data.report?.id) {
         window.history.replaceState({}, "", `/repository-v2?scan=${encodeURIComponent(data.report.id)}&section=overview#overview`);
       }

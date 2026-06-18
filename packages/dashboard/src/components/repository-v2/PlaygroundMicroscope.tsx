@@ -13,6 +13,7 @@ import {
   type PathProjection,
 } from "@/lib/repositoryViewModel";
 import { SAMPLE_REPOSITORY_FILES } from "@/lib/repositorySample";
+import { lookupFileContent, readRepositoryFiles, saveRepositoryFiles } from "@/lib/repositoryFileStore";
 import {
   plainAction,
   plainFindingHeadline,
@@ -225,17 +226,93 @@ function Collapsible({ label, hint, children, defaultOpen = false }: { label: st
   );
 }
 
+// Renders file text with line numbers and a highlighted region. Used for the
+// full-file before/after; the content shown is always the real file.
+function CodeLines({ code, highlight, tone }: { code: string; highlight: Set<number>; tone: "danger" | "safe" }) {
+  const lines = code.split("\n");
+  return (
+    <pre className="max-h-[460px] overflow-auto rounded-xl border border-stone-200 bg-white/80 font-mono text-[12px] leading-5">
+      {lines.map((line, index) => {
+        const n = index + 1;
+        const hot = highlight.has(n);
+        const bg = hot ? (tone === "danger" ? "bg-red-100" : "bg-emerald-100") : "";
+        return (
+          <div key={n} className={`grid grid-cols-[3rem_1fr] ${bg}`}>
+            <span className="select-none border-r border-stone-200 px-2 text-right text-stone-400">{n}</span>
+            <code className="whitespace-pre-wrap break-words px-3 text-stone-800">{line || " "}</code>
+          </div>
+        );
+      })}
+    </pre>
+  );
+}
+
+// Full-file before/after. BEFORE is always the real file with the finding's
+// lines highlighted. AFTER is a synthesized corrected file ONLY when the change
+// is provably unambiguous (a direct snippet occurring exactly once); otherwise
+// it shows the safe pattern to apply at the highlighted lines — never a guess.
+function FileDiff({ content, evidence, safePattern, severity }: {
+  content: string;
+  evidence: EvidenceView | undefined;
+  safePattern: string;
+  severity: string;
+}) {
+  const totalLines = content.split("\n").length;
+  const start = evidence?.kind === "direct" ? evidence.line : evidence?.kind === "absence" ? evidence.startLine : undefined;
+  const end = evidence?.kind === "absence" ? (evidence.endLine ?? evidence.startLine) : start;
+  const highlight = new Set<number>();
+  if (start) for (let n = start; n <= (end ?? start) && n <= totalLines; n += 1) highlight.add(n);
+
+  let afterContent: string | null = null;
+  if (evidence?.kind === "direct" && evidence.snippet && safePattern) {
+    const occurrences = content.split(evidence.snippet).length - 1;
+    if (occurrences === 1) afterContent = content.replace(evidence.snippet, safePattern);
+  }
+
+  const locationLabel = start ? `lines ${start}${end && end !== start ? `–${end}` : ""}` : "the highlighted block";
+
+  return (
+    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+      <div className="rounded-xl border border-red-300 bg-red-50/50 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before — {severity} risk</span>
+          <span className="font-mono text-[10px] text-stone-500">full file{start ? ` · ${locationLabel}` : ""}</span>
+        </div>
+        <CodeLines code={content} highlight={highlight} tone="danger" />
+      </div>
+      <div className="rounded-xl border border-emerald-300 bg-emerald-50/50 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — {afterContent ? "fix applied" : "change to apply"}</span>
+          <span className="font-mono text-[10px] text-stone-500">{afterContent ? "full file" : locationLabel}</span>
+        </div>
+        {afterContent ? (
+          <CodeLines code={afterContent} highlight={new Set()} tone="safe" />
+        ) : (
+          <div className="space-y-2">
+            <p className="rounded-lg bg-white/70 px-3 py-2 text-[12px] leading-5 text-stone-600">
+              Apply the safe pattern at <b>{locationLabel}</b>{evidence?.kind === "absence" ? " — there is no single mechanical edit here, so this is shown as the exact change to make rather than a rewritten file." : "."}
+            </p>
+            <pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg border border-emerald-300 bg-emerald-50/70 p-3 font-mono text-[12px] leading-5 text-emerald-900">{safePattern || "See the recommended fix above."}</pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // A single finding rendered in full — what, why, and the fix — so a reader
 // never has to click through findings one at a time. Identical findings are
 // grouped upstream; `locations` lists every place this one occurs.
 function FindingCard({
   issue,
   locations,
+  fileContent,
   copiedKey,
   onCopy,
 }: {
   issue: IssueView;
   locations: string[];
+  fileContent: string | null;
   copiedKey: string | null;
   onCopy: (key: string, text: string) => void;
 }) {
@@ -269,7 +346,9 @@ function FindingCard({
         <div>
           <p className="max-w-3xl text-[14px] font-medium leading-7 text-stone-900">{issue.recommendedFix || issue.howToFix}</p>
 
-          {evidence?.kind === "direct" && evidence.snippet ? (
+          {fileContent ? (
+            <FileDiff content={fileContent} evidence={evidence} safePattern={issue.safePattern} severity={issue.severity} />
+          ) : evidence?.kind === "direct" && evidence.snippet ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-xl border border-red-300 bg-red-50/65 p-4">
                 <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before — {issue.severity} risk</span>
@@ -499,6 +578,15 @@ export function PlaygroundMicroscope() {
   // Aggregated file → tool → action route for the file-level "THE ROUTE" strip.
   const route = view ? deriveRoute(view) : null;
 
+  // Full text of the scanned files (persisted by the repository scan), used for
+  // the full-file before/after. Null when unavailable — the card falls back to
+  // the snippet view.
+  const [filesMap, setFilesMap] = useState<Record<string, string> | null>(null);
+  useEffect(() => {
+    setFilesMap(readRepositoryFiles(report?.id));
+  }, [report?.id]);
+  const fileContent = view ? lookupFileContent(filesMap, view.selectedFile) : null;
+
   const visibleGraph = useMemo(() => {
     if (!view) return { nodes: [], edges: [] };
     if (graphMode === "all" || view.graph.selectedNodeIds.length === 0) {
@@ -538,6 +626,7 @@ export function PlaygroundMicroscope() {
       if (!response.ok) throw new Error(data?.error || `Scan failed (${response.status})`);
       setReport(data.report);
       storeReport(data.report);
+      saveRepositoryFiles(data.report?.id, SAMPLE_REPOSITORY_FILES);
       setInputMode("repository");
       const firstFile = data.report.impactedFiles?.[0]?.path;
       const firstIssue = data.report.impactedFiles?.[0]?.issueIds?.[0];
@@ -565,8 +654,10 @@ export function PlaygroundMicroscope() {
       nextReport.repository = { ...nextReport.repository, name: "Pasted prompt" };
       setReport(nextReport);
       storeReport(nextReport);
+      const promptFile = nextReport.impactedFiles?.[0]?.path || nextReport.artifacts?.[0]?.relativePath || "playground.prompt";
+      saveRepositoryFiles(nextReport?.id, [{ path: promptFile, content: nextText }]);
       setInputMode("prompt");
-      const firstFile = nextReport.impactedFiles?.[0]?.path || nextReport.artifacts?.[0]?.relativePath || "playground.prompt";
+      const firstFile = promptFile;
       const firstIssue = nextReport.impactedFiles?.[0]?.issueIds?.[0] || nextReport.issues?.[0]?.id;
       setFocus({ file: firstFile, issue: firstIssue });
       window.history.replaceState({}, "", `${pathHref(nextReport, { file: firstFile, issue: firstIssue })}&mode=prompt`);
@@ -594,6 +685,7 @@ export function PlaygroundMicroscope() {
       const nextReport = data.report as RepositoryExecutionReport;
       setReport(nextReport);
       storeReport(nextReport);
+      saveRepositoryFiles(nextReport?.id, [{ path: nextName, content: nextText }]);
       setInputMode("file");
       const firstFile = nextReport.impactedFiles?.[0]?.path || nextReport.artifacts?.[0]?.relativePath || nextName;
       const firstIssue = nextReport.impactedFiles?.[0]?.issueIds?.[0] || nextReport.issues?.[0]?.id;
@@ -696,6 +788,7 @@ export function PlaygroundMicroscope() {
                       key={group.id}
                       issue={representative}
                       locations={locations}
+                      fileContent={fileContent}
                       copiedKey={copiedKey}
                       onCopy={copyFinding}
                     />
