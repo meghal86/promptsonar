@@ -17,6 +17,7 @@ import {
   plainAction,
   plainFindingHeadline,
   plainRuleFamily,
+  severityRank,
 } from "@/lib/plainLanguage";
 import { ConfidenceBadge, ProvenanceBadge, RiskBadge } from "./Badges";
 import { PreviewShell } from "./PreviewShell";
@@ -151,29 +152,31 @@ function edgeEvidence(edge: RepositoryExecutionEdge): string {
 }
 
 type MicroscopeView = NonNullable<ReturnType<typeof buildArtifactInvestigationViewModel>>;
+type IssueView = MicroscopeView["issues"][number];
+type EvidenceView = IssueView["evidence"][number];
 
-// file:line label for the primary evidence of the selected finding, used in
-// the finding header and the copyable PR/ticket comment.
-function evidenceLocationLabel(view: MicroscopeView): string {
-  const evidence = view.evidence[0];
-  if (!evidence) return view.selectedFile;
+// file:line label for a single evidence item.
+function evidenceLabel(evidence: EvidenceView | undefined, fallback: string): string {
+  if (!evidence) return fallback;
   if (evidence.kind === "direct") {
     return `${evidence.filePath}${evidence.line ? `:${evidence.line}` : ""}`;
   }
   return `${evidence.filePath}${evidence.startLine ? `:${evidence.startLine}${evidence.endLine && evidence.endLine !== evidence.startLine ? `-${evidence.endLine}` : ""}` : ""}`;
 }
 
+function issueLocationLabel(issue: IssueView, fallback = ""): string {
+  return evidenceLabel(issue.evidence[0], fallback || issue.impactedFiles[0] || "");
+}
+
 // Markdown a developer or product owner can paste straight into a PR review or
 // ticket. Every field comes from the canonical finding — nothing is fabricated.
-function buildFindingComment(view: MicroscopeView): string {
-  const issue = view.issue;
-  if (!issue) return "";
+function buildIssueComment(issue: IssueView, where: string): string {
   const lines = [
     `**PromptSonar finding · ${issue.severity.toUpperCase()} · ${issue.ruleId}**`,
     "",
     `**Issue:** ${issue.issue}`,
     `**Impact:** ${issue.impact}`,
-    `**Where:** \`${evidenceLocationLabel(view)}\``,
+    `**Where:** \`${where}\``,
     "",
     `**Fix:** ${issue.recommendedFix || issue.howToFix}`,
   ];
@@ -219,6 +222,143 @@ function Collapsible({ label, hint, children, defaultOpen = false }: { label: st
       </summary>
       <div className="px-5 pb-6">{children}</div>
     </details>
+  );
+}
+
+// A single finding rendered in full — what, why, and the fix — so a reader
+// never has to click through findings one at a time. Identical findings are
+// grouped upstream; `locations` lists every place this one occurs.
+function FindingCard({
+  issue,
+  locations,
+  copiedKey,
+  onCopy,
+}: {
+  issue: IssueView;
+  locations: string[];
+  copiedKey: string | null;
+  onCopy: (key: string, text: string) => void;
+}) {
+  const evidence = issue.evidence[0];
+  const where = issueLocationLabel(issue);
+  const routesClosed = issue.pathIds.length;
+  const fixKey = `${issue.id}:fix`;
+  const commentKey = `${issue.id}:comment`;
+  return (
+    <section className="relative overflow-hidden rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
+      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-red-700">
+        {issue.confidence.label} · {issue.severity} · {plainRuleFamily(issue.ruleId, issue.issue)}
+      </p>
+      <h2 className="mt-3 max-w-[46ch] font-playfair text-[24px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[28px]">
+        {plainFindingHeadline(issue.ruleId, issue.issue)}
+      </h2>
+      <p className="mt-2 font-mono text-[11px] text-stone-500">
+        {issue.ruleId}
+        {locations.length > 1 ? ` · ${locations.length} locations` : where ? ` · ${where}` : ""}
+      </p>
+
+      {/* WHY IT MATTERS */}
+      <div className="mt-6 grid gap-3 border-t border-stone-900/10 pt-6 sm:grid-cols-[136px_1fr] sm:gap-6">
+        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">Why it matters</p>
+        <p className="max-w-3xl text-[14px] leading-7 text-stone-700">{issue.whyThisMatters || issue.impact}</p>
+      </div>
+
+      {/* THE FIX */}
+      <div className="mt-6 grid gap-3 border-t border-stone-900/10 pt-6 sm:grid-cols-[136px_1fr] sm:gap-6">
+        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">The fix</p>
+        <div>
+          <p className="max-w-3xl text-[14px] font-medium leading-7 text-stone-900">{issue.recommendedFix || issue.howToFix}</p>
+
+          {evidence?.kind === "direct" && evidence.snippet ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-red-300 bg-red-50/65 p-4">
+                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before — {issue.severity} risk</span>
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-red-900">{evidence.snippet}</pre>
+              </div>
+              <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
+                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — safe</span>
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{issue.safePattern || issue.recommendedFix}</pre>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-3">
+              {evidence?.kind === "absence" && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50/65 p-4">
+                  <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-amber-700">What&apos;s missing</span>
+                  <p className="mt-2 text-[13px] leading-6 text-amber-950">{evidence.missingRequirement}</p>
+                </div>
+              )}
+              {issue.safePattern && (
+                <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
+                  <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — safe pattern</span>
+                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{issue.safePattern}</pre>
+                </div>
+              )}
+            </div>
+          )}
+
+          {routesClosed > 0 && (
+            <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50/70 px-4 py-2 text-[13px] font-medium text-emerald-800">
+              <span aria-hidden>✓</span>
+              <span>Risk drops {issue.severity} → Low · {routesClosed} sensitive route{routesClosed === 1 ? "" : "s"} closed</span>
+            </div>
+          )}
+
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            {issue.safePattern && (
+              <button
+                type="button"
+                onClick={() => onCopy(fixKey, issue.safePattern)}
+                className="rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+              >
+                {copiedKey === fixKey ? "Copied ✓" : "Copy fix"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onCopy(commentKey, buildIssueComment(issue, where))}
+              className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-[12px] font-semibold hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+            >
+              {copiedKey === commentKey ? "Copied ✓" : "Copy as PR / ticket comment"}
+            </button>
+            <span className="font-mono text-[11px] text-stone-500">Effort · {issue.effort}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Evidence & confidence — collapsed by default */}
+      <details className="group mt-6 rounded-2xl border border-stone-900/10 bg-white/55">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 font-mono text-[11px] uppercase tracking-[0.18em] text-stone-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">
+          <span>Evidence &amp; confidence{locations.length > 1 ? ` · ${locations.length} locations` : ""}</span>
+          <span className="text-stone-400 transition group-open:rotate-180">▾</span>
+        </summary>
+        <div className="space-y-4 px-5 pb-6">
+          {locations.length > 1 && (
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-stone-400">Occurs at</p>
+              <ul className="mt-2 grid gap-1">
+                {locations.map((location) => (
+                  <li key={location} className="font-mono text-[12px] text-stone-600">{location}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {issue.evidence.map((item) => (
+            <article key={item.id} className="rounded-xl border border-white/75 bg-white/68 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="font-mono text-[12px] font-medium text-stone-700">{evidenceLabel(item, item.filePath)}</p>
+                <ConfidenceBadge confidence={item.confidence.level} />
+              </div>
+              {item.kind === "direct" ? (
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-amber-300/60 bg-amber-50/70 p-3 font-mono text-[12px] leading-6 text-amber-950">{item.snippet || "Evidence location recorded without a snippet."}</pre>
+              ) : (
+                <p className="mt-2 text-[13px] leading-6 text-stone-700"><b>{item.scopeLabel}.</b> {item.missingRequirement}</p>
+              )}
+            </article>
+          ))}
+        </div>
+      </details>
+    </section>
   );
 }
 
@@ -301,8 +441,12 @@ export function PlaygroundMicroscope() {
   const [promptText, setPromptText] = useState(PROMPT_PRESETS[0].text);
   const [fileName, setFileName] = useState("prompts/reviewer.prompt");
   const [fileText, setFileText] = useState(PROMPT_PRESETS[1].text);
-  const [copiedFix, setCopiedFix] = useState(false);
-  const [copiedComment, setCopiedComment] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copyFinding = (key: string, text: string) => {
+    void navigator.clipboard?.writeText(text);
+    setCopiedKey(key);
+    window.setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1400);
+  };
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [graphMode, setGraphMode] = useState<"upstream" | "downstream" | "all">("all");
@@ -352,9 +496,7 @@ export function PlaygroundMicroscope() {
   // Primary evidence drives the "current code vs safe pattern" presentation in
   // the fix block: a direct snippet shows real before/after, an absence finding
   // shows what's missing instead of fabricating before-code.
-  const primaryEvidence = view?.evidence[0];
-
-  // Aggregated file → tool → action route for the hero "THE ROUTE" row.
+  // Aggregated file → tool → action route for the file-level "THE ROUTE" strip.
   const route = view ? deriveRoute(view) : null;
 
   const visibleGraph = useMemo(() => {
@@ -518,248 +660,53 @@ export function PlaygroundMicroscope() {
               )}
             </header>
 
-            {view.issue ? (
-              <section className="relative overflow-hidden rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
-                {/* Finding navigation */}
-                <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-stone-500">Finding {view.issueIndex + 1} of {view.issueCount}</p>
+            {/* FILE-LEVEL ROUTE — where this file's instructions can go */}
+            {route && (route.tools.length > 0 || route.actions.length > 0) && (
+              <section className="rounded-2xl border border-stone-900/10 bg-white/65 p-5 backdrop-blur-xl sm:p-6">
+                <div className="grid gap-3 sm:grid-cols-[136px_1fr] sm:gap-6">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">The route</p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={!view.previousIssue}
-                      onClick={() => view.previousIssue && updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: view.previousIssue.id })}
-                      className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      ← Previous
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!view.nextIssue}
-                      onClick={() => view.nextIssue && updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: view.nextIssue.id })}
-                      className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      Next →
-                    </button>
+                    <span className="rounded-lg border border-stone-300 bg-stone-100/70 px-3 py-1.5 font-mono text-[12px] text-stone-700">{route.source}</span>
+                    {route.tools.map((tool) => (
+                      <span key={tool} className="flex items-center gap-2">
+                        <span className="text-stone-400">→</span>
+                        <span className="rounded-lg border border-sky-300/70 bg-sky-50/70 px-3 py-1.5 font-mono text-[12px] text-sky-800">{tool}</span>
+                      </span>
+                    ))}
+                    {route.actions.length > 0 && <span className="text-stone-400">→</span>}
+                    {route.actions.map((action) => (
+                      <span key={action} title={plainAction(action)} className="rounded-lg border border-red-300 bg-red-50/70 px-3 py-1.5 font-mono text-[12px] text-red-700">{action}</span>
+                    ))}
                   </div>
                 </div>
-
-                {/* STATUS LINE + PLAIN-LANGUAGE HEADLINE */}
-                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-red-700">
-                  {view.issue.confidence.label} · {view.issue.severity} · {plainRuleFamily(view.issue.ruleId, view.issue.issue)}
-                </p>
-                <h2 className="mt-3 max-w-[46ch] font-playfair text-[27px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[31px]">
-                  {plainFindingHeadline(view.issue.ruleId, view.issue.issue)}
-                </h2>
-
-                {/* THE ROUTE — file → tool(s) → sensitive actions */}
-                {route && (route.tools.length > 0 || route.actions.length > 0) && (
-                  <div className="mt-6 grid gap-3 border-t border-stone-900/10 pt-6 sm:grid-cols-[136px_1fr] sm:gap-6">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">The route</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-lg border border-stone-300 bg-stone-100/70 px-3 py-1.5 font-mono text-[12px] text-stone-700">{route.source}</span>
-                      {route.tools.map((tool) => (
-                        <span key={tool} className="flex items-center gap-2">
-                          <span className="text-stone-400">→</span>
-                          <span className="rounded-lg border border-sky-300/70 bg-sky-50/70 px-3 py-1.5 font-mono text-[12px] text-sky-800">{tool}</span>
-                        </span>
-                      ))}
-                      {route.actions.length > 0 && <span className="text-stone-400">→</span>}
-                      {route.actions.map((action) => (
-                        <span key={action} title={plainAction(action)} className="rounded-lg border border-red-300 bg-red-50/70 px-3 py-1.5 font-mono text-[12px] text-red-700">{action}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* WHY IT MATTERS */}
-                <div className="mt-6 grid gap-3 border-t border-stone-900/10 pt-6 sm:grid-cols-[136px_1fr] sm:gap-6">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">Why it matters</p>
-                  <p className="max-w-3xl text-[14px] leading-7 text-stone-700">{view.whyItMatters || view.issue.whyThisMatters || view.issue.impact}</p>
-                </div>
-
-                {/* THE FIX — plain action, before/after, outcome, and copy actions */}
-                <div className="mt-6 grid gap-3 border-t border-stone-900/10 pt-6 sm:grid-cols-[136px_1fr] sm:gap-6">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">The fix</p>
-                  <div>
-                    <p className="max-w-3xl text-[14px] font-medium leading-7 text-stone-900">{view.issue.recommendedFix || view.issue.howToFix}</p>
-
-                    {primaryEvidence?.kind === "direct" && primaryEvidence.snippet ? (
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-xl border border-red-300 bg-red-50/65 p-4">
-                          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">Before — {view.issue.severity} risk</span>
-                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-red-900">{primaryEvidence.snippet}</pre>
-                        </div>
-                        <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
-                          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — safe</span>
-                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{view.issue.safePattern || view.issue.recommendedFix}</pre>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="mt-4 grid gap-3">
-                        {primaryEvidence?.kind === "absence" && (
-                          <div className="rounded-xl border border-amber-300 bg-amber-50/65 p-4">
-                            <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-amber-700">What&apos;s missing</span>
-                            <p className="mt-2 text-[13px] leading-6 text-amber-950">{primaryEvidence.missingRequirement}</p>
-                          </div>
-                        )}
-                        {view.issue.safePattern && (
-                          <div className="rounded-xl border border-emerald-300 bg-emerald-50/65 p-4">
-                            <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-700">After — safe pattern</span>
-                            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-emerald-900">{view.issue.safePattern}</pre>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {view.relatedPathCount > 0 && (
-                      <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50/70 px-4 py-2 text-[13px] font-medium text-emerald-800">
-                        <span aria-hidden>✓</span>
-                        <span>Risk drops {view.issue.severity} → Low · {view.relatedPathCount} sensitive route{view.relatedPathCount === 1 ? "" : "s"} closed</span>
-                      </div>
-                    )}
-
-                    <div className="mt-5 flex flex-wrap items-center gap-2">
-                      {view.issue.safePattern && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await navigator.clipboard?.writeText(view.issue?.safePattern || "");
-                            setCopiedFix(true);
-                            window.setTimeout(() => setCopiedFix(false), 1400);
-                          }}
-                          className="rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
-                        >
-                          {copiedFix ? "Copied ✓" : "Copy fix"}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await navigator.clipboard?.writeText(buildFindingComment(view));
-                          setCopiedComment(true);
-                          window.setTimeout(() => setCopiedComment(false), 1400);
-                        }}
-                        className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-[12px] font-semibold hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
-                      >
-                        {copiedComment ? "Copied ✓" : "Copy as PR / ticket comment"}
-                      </button>
-                      <span className="font-mono text-[11px] text-stone-500">Effort · {view.issue.effort}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* SECURITY DETAILS — evidence, confidence math, and impact, collapsed by default */}
-                <details className="group mt-6 rounded-2xl border border-stone-900/10 bg-white/55">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 font-mono text-[11px] uppercase tracking-[0.18em] text-stone-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">
-                    <span>Security details — evidence &amp; confidence</span>
-                    <span className="text-stone-400 transition group-open:rotate-180">▾</span>
-                  </summary>
-                  <div className="space-y-5 px-5 pb-6">
-                    <dl className="grid gap-3 rounded-xl border border-amber-600/25 bg-amber-50/50 px-4 py-3 font-mono text-[12px] leading-5 text-stone-600 sm:grid-cols-2 lg:grid-cols-4">
-                      <div>
-                        <dt className="text-stone-500">Finding confidence</dt>
-                        <dd className="font-semibold text-stone-900">{view.issue.confidence.label}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-stone-500">Evidence items</dt>
-                        <dd className="font-semibold text-stone-900">{view.evidenceCount.total}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-stone-500">Highest related path</dt>
-                        <dd className="font-semibold capitalize text-orange-800">{view.highestRelatedPathRisk}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-stone-500">Path confidence</dt>
-                        <dd className="font-semibold text-stone-900">{view.relatedPaths[0]?.confidenceLabel || "No complete path"}</dd>
-                      </div>
-                    </dl>
-
-                    <div>
-                      {sectionLabel("Evidence")}
-                      {view.evidence.length > 0 ? (
-                        <div className="mt-3 grid gap-3">
-                          {view.evidence.map((evidence) => (
-                            <article key={evidence.id} className="rounded-2xl border border-white/75 bg-white/68 p-5 backdrop-blur-xl">
-                              <div className="flex flex-wrap items-center justify-between gap-3">
-                                <p className="font-mono text-[12px] font-medium text-stone-700">
-                                  {evidence.filePath}
-                                  {evidence.kind === "direct" && evidence.line ? `:${evidence.line}` : ""}
-                                  {evidence.kind === "direct" && evidence.column ? `:${evidence.column}` : ""}
-                                  {evidence.kind === "absence" && evidence.startLine ? `:${evidence.startLine}${evidence.endLine && evidence.endLine !== evidence.startLine ? `-${evidence.endLine}` : ""}` : ""}
-                                </p>
-                                <span className="font-mono text-[11px] text-stone-500">{evidence.ruleId}</span>
-                              </div>
-                              {evidence.kind === "direct" ? (
-                                <>
-                                  <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Direct evidence</p>
-                                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-amber-300/60 bg-amber-50/70 p-4 font-mono text-[13px] leading-6 text-amber-950">{evidence.snippet || "Evidence location recorded without a snippet."}</pre>
-                                </>
-                              ) : (
-                                <div className="mt-4 rounded-xl border border-stone-300 bg-white/70 p-4">
-                                  <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">File-level absence finding</p>
-                                  <p className="mt-2 text-[13px] leading-6 text-stone-700">
-                                    <b>{evidence.scopeLabel}:</b> {evidence.filePath}
-                                    {evidence.startLine ? `:${evidence.startLine}${evidence.endLine && evidence.endLine !== evidence.startLine ? `-${evidence.endLine}` : ""}` : ""}
-                                  </p>
-                                  <p className="mt-2 text-[13px] leading-6 text-stone-700">PromptSonar identified an agent instruction block in this range. {evidence.missingRequirement}</p>
-                                </div>
-                              )}
-                              <div className="mt-3"><ConfidenceBadge confidence={evidence.confidence.level} /></div>
-                            </article>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="mt-3 rounded-2xl border border-stone-300 bg-white/55 p-6 text-[13px] text-stone-500">No renderable evidence fields were included for this selected object.</div>
-                      )}
-                    </div>
-                  </div>
-                </details>
-              </section>
-            ) : (
-              <section className="rounded-2xl border border-amber-300 bg-amber-50/55 p-6">
-                <h2 className="font-playfair text-[23px] font-medium">No issue is attached to this focus.</h2>
-                <p className="mt-2 text-[13px] leading-6 text-stone-600">The selected object may participate in an execution path without carrying a file-level finding.</p>
               </section>
             )}
 
-            {view.issues.length > 1 && (
-              <Collapsible label="All findings in this file" hint={`${view.issueCount} total`}>
-                <div className="overflow-hidden rounded-xl border border-stone-900/10 bg-white/60">
-                  {view.issues.map((item, index) => {
-                    const selected = item.id === view.issue?.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: item.id })}
-                        onKeyDown={(event) => {
-                          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-                          event.preventDefault();
-                          const nextIndex = event.key === "ArrowDown"
-                            ? Math.min(view.issues.length - 1, index + 1)
-                            : Math.max(0, index - 1);
-                          const nextIssue = view.issues[nextIndex];
-                          if (nextIssue) updateFocus({ artifact: view.artifact.id, file: view.selectedFile, issue: nextIssue.id });
-                        }}
-                        aria-current={selected ? "true" : undefined}
-                        className={`grid w-full gap-4 border-l-4 border-t p-4 text-left first:border-t-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-inset md:grid-cols-[1fr_auto] md:items-center ${
-                          selected ? "border-l-amber-600 border-t-stone-900/10 bg-amber-50/90" : "border-l-transparent border-t-stone-900/10 hover:bg-white/80"
-                        }`}
-                      >
-                        <span>
-                          <span className="block text-[13px] font-medium leading-5 text-stone-900">{plainFindingHeadline(item.ruleId, item.issue)}</span>
-                          <span className="mt-1 block font-mono text-[11px] text-stone-500">{item.ruleId} · {plainRuleFamily(item.ruleId, item.issue)}</span>
-                        </span>
-                        <span className="flex flex-wrap items-center gap-2">
-                          <RiskBadge risk={item.severity} />
-                          <ConfidenceBadge confidence={item.confidence.level} />
-                          <span className={`rounded-full px-2 py-1 font-mono text-[11px] font-medium ${selected ? "bg-amber-200 text-amber-950" : "text-stone-600"}`}>{selected ? "Viewing" : "Open"}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </Collapsible>
+            {/* EVERY FINDING, IN FULL — identical findings are grouped, nothing hidden behind a click */}
+            {view.findingGroups.length > 0 ? (
+              <div className="space-y-6">
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">
+                  {view.findingGroups.length} distinct finding{view.findingGroups.length === 1 ? "" : "s"}{view.issueCount > view.findingGroups.length ? ` · ${view.issueCount} total occurrences` : ""}
+                </p>
+                {view.findingGroups.map((group) => {
+                  const representative = [...group.issues].sort((a, b) => severityRank(b.severity) - severityRank(a.severity))[0] || group.issues[0];
+                  const locations = group.issues.map((item) => issueLocationLabel(item)).filter(Boolean);
+                  return (
+                    <FindingCard
+                      key={group.id}
+                      issue={representative}
+                      locations={locations}
+                      copiedKey={copiedKey}
+                      onCopy={copyFinding}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <section className="rounded-2xl border border-amber-300 bg-amber-50/55 p-6">
+                <h2 className="font-playfair text-[23px] font-medium">No finding is attached to this file.</h2>
+                <p className="mt-2 text-[13px] leading-6 text-stone-600">This file may participate in an execution path without carrying a file-level finding.</p>
+              </section>
             )}
 
             <Collapsible label="Execution paths" hint={`${view.relatedPathCount} route${view.relatedPathCount === 1 ? "" : "s"} through this file`}>
