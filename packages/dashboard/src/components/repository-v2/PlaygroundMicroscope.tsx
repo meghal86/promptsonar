@@ -112,6 +112,20 @@ function repositoryBackHref(report: RepositoryExecutionReport | null, section = 
   return `/repository-v2?${query.toString()}#${section}`;
 }
 
+// "Start over": clear cached reports so /repository-v2 reopens on its upload
+// screen instead of auto-loading the last scan, then navigate there.
+function resetToUpload() {
+  if (typeof window === "undefined") return;
+  try {
+    Object.keys(window.sessionStorage)
+      .filter((key) => key.startsWith("promptsonar:repository-report:"))
+      .forEach((key) => window.sessionStorage.removeItem(key));
+  } catch {
+    // Navigation still resets the view even if storage can't be cleared.
+  }
+  window.location.href = "/repository-v2";
+}
+
 function nodePath(node: RepositoryExecutionNode): string {
   return node.relativePath || node.filePath || node.label;
 }
@@ -486,7 +500,10 @@ export function PlaygroundMicroscope() {
         {report && view && (
           <div className="space-y-10">
             <header>
-              <a href={repositoryBackHref(report)} className="font-mono text-[11px] text-stone-500 hover:text-stone-900 hover:underline">← Back to repository map</a>
+              <div className="flex flex-wrap items-center gap-2">
+                <a href={repositoryBackHref(report)} className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white/70 px-3 py-1.5 font-mono text-[11px] font-medium text-stone-700 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">← Repository map</a>
+                <button type="button" onClick={resetToUpload} className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white/70 px-3 py-1.5 font-mono text-[11px] font-medium text-stone-700 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">↺ Start over</button>
+              </div>
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 {sectionLabel(`${inputMode === "repository" ? "Repository" : "Single-file"} microscope`)}
                 <RiskBadge risk={view.fileFindingSeverity} label={`${view.fileFindingSeverity} risk`} />
@@ -823,6 +840,14 @@ export function PlaygroundMicroscope() {
                 )}
               </div>
             </Collapsible>
+
+            <footer className="flex flex-col gap-3 border-t border-stone-900/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[12px] text-stone-500">Done reviewing this file?</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <a href={repositoryBackHref(report)} className="inline-flex items-center gap-1.5 rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">← Back to repository map</a>
+                <button type="button" onClick={resetToUpload} className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-4 py-2 text-[12px] font-semibold text-stone-700 hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900">↺ Start over (new scan)</button>
+              </div>
+            </footer>
 
           </div>
         )}
