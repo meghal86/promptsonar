@@ -328,6 +328,7 @@ function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: 
 
   const [fix, setFix] = useState<FixResult | null>(null);
   const [fixState, setFixState] = useState<"loading" | "done" | "error">("loading");
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     setFix(null);
@@ -338,18 +339,23 @@ function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: 
       body: JSON.stringify({ path: filePath, content }),
       signal: controller.signal,
     })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data?.error) { setFixState("error"); return; }
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({ error: "Bad response" }));
+        if (!response.ok || data?.error) { setFixState("error"); return; }
         setFix(data as FixResult);
         setFixState("done");
       })
       .catch((error) => { if (!(error instanceof DOMException && error.name === "AbortError")) setFixState("error"); });
     return () => controller.abort();
-  }, [filePath, content]);
+  }, [filePath, content, retry]);
 
   const hasDeterministic = !!fix && fix.appliedCount > 0;
   const changed = hasDeterministic ? changedLineSet(content, fix!.fixed) : new Set<number>();
+  // Context-aware explanation for why no exact, no-AI fix is offered.
+  const isConfigLike = /\.(json|ya?ml|toml)$/i.test(filePath) || /mcp/i.test(filePath) || /\.cursor\/|\.claude\//i.test(filePath);
+  const whyNoFix = isConfigLike
+    ? "This configuration has no known auto-fixable pattern (such as wildcard permissions or automatic approval) — its findings need judgement."
+    : "Deterministic auto-fix currently covers configuration files (e.g. MCP permissions and auto-approval). This file's findings — prose, structure, or in-context secrets — need a human or AI rewrite, so PromptSonar won't guess one.";
 
   return (
     <section className="rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
@@ -407,16 +413,30 @@ function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: 
         </div>
       ) : fixState === "done" ? (
         <>
-          <p className="mt-3 max-w-3xl text-[13px] leading-6 text-stone-600">
-            No exact, no-AI fix applies to this file — its findings need judgement (a rule&apos;s safe pattern is
-            guidance, not a literal find-and-replace). To get a corrected file, copy the AI fix prompt into your
-            own assistant, or edit by hand using each finding&apos;s safe pattern.
-          </p>
+          <div className="mt-3 rounded-xl border border-stone-300 bg-stone-50/70 p-4">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">Why no auto-fix here</p>
+            <p className="mt-2 max-w-3xl text-[13px] leading-6 text-stone-600">{whyNoFix}</p>
+            <p className="mt-2 max-w-3xl text-[13px] leading-6 text-stone-600">To get a corrected file, copy the AI fix prompt into your own assistant, or edit by hand using each finding&apos;s safe pattern below.</p>
+          </div>
           <div className="mt-4 rounded-xl border border-red-300 bg-red-50/50 p-3">
             <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-red-700">The file — flagged lines highlighted</p>
             <CodeLines code={content} highlight={beforeHighlight} tone="danger" />
           </div>
         </>
+      ) : fixState === "error" ? (
+        <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50/70 p-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-700">Couldn&apos;t check for exact fixes</p>
+          <p className="mt-2 max-w-3xl text-[13px] leading-6 text-amber-950">
+            The deterministic fix service didn&apos;t respond. This usually means the local <code className="rounded bg-white/70 px-1">@promptsonar/core</code> build is stale — rebuild core (<code className="rounded bg-white/70 px-1">npm --prefix packages/core run build</code>) and restart the dev server. You can still use the AI fix prompt below in the meantime.
+          </p>
+          <button
+            type="button"
+            onClick={() => setRetry((value) => value + 1)}
+            className="mt-3 rounded-lg border border-amber-400 bg-white px-4 py-2 text-[12px] font-semibold text-amber-900 hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
+          >
+            Retry check
+          </button>
+        </div>
       ) : null}
 
       <details className="group mt-5 rounded-2xl border border-stone-900/10 bg-white/55">
