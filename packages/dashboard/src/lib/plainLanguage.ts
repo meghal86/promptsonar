@@ -138,17 +138,58 @@ export function plainRuleFamily(ruleId = "", issue = ""): string {
 }
 
 // One-line, non-technical headline for a finding. Presentation copy only — the
-// canonical issue/impact/fix still come straight from the analyzer. Falls back
-// to the analyzer's own plain-language issue text when no family matches.
-const FINDING_HEADLINE: Array<{ test: RegExp; headline: string }> = [
-  { test: /poison|mcp|wildcard|auto.?approve|auto.?execute/, headline: "This file lets a tool reach your system — and run without asking." },
-  { test: /inject|jailbreak|override|evasion|rag/, headline: "Untrusted text can change what this AI does." },
-  { test: /secret|credential|api.?key|password|token|pii/, headline: "This file can expose secrets or private data." },
-  { test: /memory|persist|remember|session/, headline: "Unsafe instructions here can persist into future runs." },
-  { test: /shell|command|exec|privile|escalation|sink|workflow|autonomous|routing/, headline: "Instructions here can trigger a real action on your system." },
+// canonical issue/impact/fix still come straight from the analyzer.
+//
+// `active` distinguishes a known-live instruction (production + repository-
+// verified) from a standalone / documentation file. When not active we must NOT
+// state risk as a runtime fact ("this file CAN expose secrets"); we describe the
+// pattern conditionally ("contains instructions that WOULD … if used as active
+// agent instructions").
+const FINDING_HEADLINE: Array<{ test: RegExp; active: string; potential: string }> = [
+  {
+    test: /poison|mcp|wildcard|auto.?approve|auto.?execute/,
+    active: "This file lets a tool reach your system — and run without asking.",
+    potential: "Contains settings that would let a tool act without approval if used as live configuration.",
+  },
+  {
+    test: /inject|jailbreak|override|evasion|rag/,
+    active: "Untrusted text can change what this AI does.",
+    potential: "Contains patterns that would let untrusted text change the AI's behaviour if used as active agent instructions.",
+  },
+  {
+    test: /secret|credential|api.?key|password|token|pii/,
+    active: "This file can expose secrets or private data.",
+    potential: "Contains instructions that would permit or encourage secret exposure if used as active agent instructions.",
+  },
+  {
+    test: /memory|persist|remember|session/,
+    active: "Unsafe instructions here can persist into future runs.",
+    potential: "Contains patterns that would let unsafe instructions persist into future runs if used as active agent instructions.",
+  },
+  {
+    test: /shell|command|exec|privile|escalation|sink|workflow|autonomous|routing/,
+    active: "Instructions here can trigger a real action on your system.",
+    potential: "Contains instructions that would trigger a real action if used as active agent instructions.",
+  },
 ];
-export function plainFindingHeadline(ruleId = "", issue = ""): string {
+export function plainFindingHeadline(ruleId = "", issue = "", active = true): string {
   const signal = `${ruleId} ${issue}`.toLowerCase();
-  for (const entry of FINDING_HEADLINE) if (entry.test.test(signal)) return entry.headline;
-  return issue || "This file needs a security review.";
+  for (const entry of FINDING_HEADLINE) if (entry.test.test(signal)) return active ? entry.active : entry.potential;
+  return issue || (active ? "This file needs a security review." : "Contains a pattern that would need a security review if used as active agent instructions.");
 }
+
+// Group a finding into one of three lanes so the UI can filter and the fix
+// prompt can be assembled by category. Keyed off the rule signal so it stays
+// consistent with the analyzer's own categorization.
+export type FindingLane = "security" | "reliability" | "quality";
+export function findingLane(ruleId = "", issue = ""): FindingLane {
+  const signal = `${ruleId} ${issue}`.toLowerCase();
+  if (/sec_|secret|credential|api.?key|token|pii|inject|jailbreak|override|evasion|mcp|poison|wildcard|auto.?approve|shell|command|exec|privile|escalat|sink|workflow|routing/.test(signal)) return "security";
+  if (/cot|verif|validat|format|struct|consist|contradiction|schema|memory|persist/.test(signal)) return "reliability";
+  return "quality";
+}
+export const LANE_LABEL: Record<FindingLane, string> = {
+  security: "Security",
+  reliability: "Reliability",
+  quality: "Quality",
+};

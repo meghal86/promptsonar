@@ -17,8 +17,12 @@ import { lookupFileContent, readRepositoryFiles, saveRepositoryFiles } from "@/l
 import {
   plainAction,
   plainFindingHeadline,
+  plainProvenance,
   plainRuleFamily,
   severityRank,
+  findingLane,
+  LANE_LABEL,
+  type FindingLane,
 } from "@/lib/plainLanguage";
 import { ConfidenceBadge, ProvenanceBadge, RiskBadge } from "./Badges";
 import { PreviewShell } from "./PreviewShell";
@@ -322,9 +326,18 @@ function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: 
 }) {
   const totalLines = content.split("\n").length;
   const beforeHighlight = findingHighlightLines(issues, totalLines);
-  const prompt = buildLlmFixPrompt(filePath, content, groups);
   const promptKey = `${filePath}:prompt`;
   const fixedKey = `${filePath}:fixed`;
+
+  // Group findings by lane so the prompt can be assembled by category, and the
+  // user can choose what to include. Optional quality suggestions default OFF so
+  // the prompt makes safe/reliability changes first, not stylistic over-edits.
+  const laneOf = (group: GroupView) => findingLane(group.ruleId, group.title);
+  const laneCounts: Record<FindingLane, number> = { security: 0, reliability: 0, quality: 0 };
+  for (const group of groups) laneCounts[laneOf(group)] += 1;
+  const [include, setInclude] = useState<Record<FindingLane, boolean>>({ security: true, reliability: true, quality: false });
+  const selectedGroups = groups.filter((group) => include[laneOf(group)]);
+  const prompt = buildLlmFixPrompt(filePath, content, selectedGroups);
 
   const [fix, setFix] = useState<FixResult | null>(null);
   const [fixState, setFixState] = useState<"loading" | "done" | "error">("loading");
@@ -445,15 +458,45 @@ function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: 
           <span className="text-stone-400 transition group-open:rotate-180">▾</span>
         </summary>
         <div className="px-5 pb-6">
-          <p className="text-[13px] leading-6 text-stone-600">PromptSonar makes no AI calls. This prompt bundles the file and every finding so you can paste it into Claude, Cursor, or any assistant and get the complete corrected file back.</p>
-          <pre className="mt-3 max-h-[320px] overflow-auto whitespace-pre-wrap break-words rounded-xl border border-stone-200 bg-white/80 p-4 font-mono text-[12px] leading-5 text-stone-800">{prompt}</pre>
-          <button
-            type="button"
-            onClick={() => onCopy(promptKey, prompt)}
-            className="mt-3 rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
-          >
-            {copiedKey === promptKey ? "Copied ✓" : "Copy AI fix prompt"}
-          </button>
+          <p className="text-[13px] leading-6 text-stone-600">PromptSonar makes no AI calls. This prompt is assembled only from the canonical, rule-specific fixes below so you can paste it into Claude, Cursor, or any assistant and get the complete corrected file back.</p>
+
+          {/* What the prompt includes, and what to include. Quality is optional and off by default. */}
+          <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50/70 p-4">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">This fix prompt includes</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {(["security", "reliability", "quality"] as FindingLane[]).map((lane) => (
+                <label key={lane} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px] ${laneCounts[lane] === 0 ? "border-stone-200 opacity-50" : "border-stone-300"} ${include[lane] && laneCounts[lane] > 0 ? "bg-white" : "bg-stone-50"}`}>
+                  <input
+                    type="checkbox"
+                    checked={include[lane] && laneCounts[lane] > 0}
+                    disabled={laneCounts[lane] === 0}
+                    onChange={() => setInclude((current) => ({ ...current, [lane]: !current[lane] }))}
+                    className="h-4 w-4 accent-stone-900"
+                  />
+                  <span className="font-medium text-stone-800">{laneCounts[lane]} {LANE_LABEL[lane].toLowerCase()}{lane === "security" ? " correction" : " improvement"}{laneCounts[lane] === 1 ? "" : "s"}{lane === "quality" ? " (optional)" : ""}</span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 text-[12px] leading-5 text-stone-500">
+              <b>Review changes before applying.</b> PromptSonar does not modify the file automatically — the prompt only
+              proposes the fixes you&apos;ve checked above.
+            </p>
+          </div>
+
+          {selectedGroups.length > 0 ? (
+            <>
+              <pre className="mt-4 max-h-[320px] overflow-auto whitespace-pre-wrap break-words rounded-xl border border-stone-200 bg-white/80 p-4 font-mono text-[12px] leading-5 text-stone-800">{prompt}</pre>
+              <button
+                type="button"
+                onClick={() => onCopy(promptKey, prompt)}
+                className="mt-3 rounded-lg bg-stone-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+              >
+                {copiedKey === promptKey ? "Copied ✓" : "Copy AI fix prompt"}
+              </button>
+            </>
+          ) : (
+            <p className="mt-4 text-[13px] text-stone-500">Select at least one category above to build the fix prompt.</p>
+          )}
         </div>
       </details>
     </section>
@@ -469,6 +512,7 @@ function FindingCard({
   copiedKey,
   onCopy,
   standalone,
+  active,
 }: {
   issue: IssueView;
   locations: string[];
@@ -477,6 +521,9 @@ function FindingCard({
   // Standalone (single-file) mode has no verified repository graph, so we must
   // not claim closed execution routes — that reachability is unverified here.
   standalone: boolean;
+  // Active = a known-live instruction (production + repository-verified). When
+  // false (standalone or documentation), headlines use conditional phrasing.
+  active: boolean;
 }) {
   const evidence = issue.evidence[0];
   const where = issueLocationLabel(issue);
@@ -486,10 +533,10 @@ function FindingCard({
   return (
     <section className="relative overflow-hidden rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-red-700">
-        {issue.confidence.label} · {issue.severity} · {plainRuleFamily(issue.ruleId, issue.issue)}
+        {issue.confidence.label} · {issue.severity} · {plainRuleFamily(issue.ruleId, issue.issue)} · {LANE_LABEL[findingLane(issue.ruleId, issue.issue)]}
       </p>
       <h2 className="mt-3 max-w-[46ch] font-sans text-[24px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[28px]">
-        {plainFindingHeadline(issue.ruleId, issue.issue)}
+        {plainFindingHeadline(issue.ruleId, issue.issue, active)}
       </h2>
       <p className="mt-2 font-mono text-[11px] text-stone-500">
         {issue.ruleId}
@@ -686,6 +733,8 @@ export function PlaygroundMicroscope() {
     setCopiedKey(key);
     window.setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1400);
   };
+  // Which finding lanes the list shows (all on by default).
+  const [laneFilter, setLaneFilter] = useState<Set<FindingLane>>(() => new Set<FindingLane>(["security", "reliability", "quality"]));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [graphMode, setGraphMode] = useState<"upstream" | "downstream" | "all">("all");
@@ -745,6 +794,24 @@ export function PlaygroundMicroscope() {
   // present file→action relationships as confirmed execution paths or "can
   // reach" — only as capabilities the file declares or references.
   const standalone = !!view && !view.repositoryWiringAvailable;
+
+  // Provenance framing: a file is only an "active" live instruction when it is
+  // production AND repository-verified. Documentation/test/standalone files have
+  // their findings described as patterns, not runtime facts.
+  const provenanceInfo = view ? plainProvenance(view.provenance) : { label: "", isProduction: true };
+  const active = !standalone && provenanceInfo.isProduction;
+
+  // Lane (Security / Reliability / Quality) counts and the list filtered to the
+  // lanes the user has enabled.
+  const findingGroups = view?.findingGroups ?? [];
+  const laneCounts: Record<FindingLane, number> = { security: 0, reliability: 0, quality: 0 };
+  for (const group of findingGroups) laneCounts[findingLane(group.ruleId, group.title)] += 1;
+  const visibleGroups = findingGroups.filter((group) => laneFilter.has(findingLane(group.ruleId, group.title)));
+  const toggleLane = (lane: FindingLane) => setLaneFilter((current) => {
+    const next = new Set(current);
+    if (next.has(lane)) next.delete(lane); else next.add(lane);
+    return next.size === 0 ? new Set<FindingLane>(["security", "reliability", "quality"]) : next;
+  });
 
   // Full text of the scanned files (persisted by the repository scan), used for
   // the full-file before/after. Null when unavailable — the card falls back to
@@ -918,12 +985,25 @@ export function PlaygroundMicroscope() {
                   ? (view.relatedPathCount > 0 ? ` · ${view.relatedPathCount} potential downstream action${view.relatedPathCount === 1 ? "" : "s"}` : "")
                   : ` · ${view.relatedPathCount} execution route${view.relatedPathCount === 1 ? "" : "s"}`}
               </p>
-              {standalone && (
-                <p className="mt-4 max-w-3xl rounded-xl border border-amber-300 bg-amber-50/70 px-4 py-3 text-[13px] leading-6 text-amber-950">
-                  <b>Standalone scan.</b> This view shows what the file itself declares or references. Downstream
-                  reachability is <b>not verified</b> here — connect or upload the repository to confirm whether these
-                  capabilities can actually be reached.
-                </p>
+              {(standalone || !provenanceInfo.isProduction) && (
+                <div className="mt-4 max-w-3xl rounded-xl border border-amber-300 bg-amber-50/70 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!provenanceInfo.isProduction && (
+                      <span className="rounded-full border border-amber-400 bg-white/70 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-amber-800">{provenanceInfo.label}</span>
+                    )}
+                    {standalone && (
+                      <span className="rounded-full border border-amber-400 bg-white/70 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-amber-800">Standalone file</span>
+                    )}
+                    <span className="rounded-full border border-amber-400 bg-white/70 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-amber-800">Not connected to production execution</span>
+                  </div>
+                  <p className="mt-2 text-[13px] leading-6 text-amber-950">
+                    The findings below describe <b>risky instruction patterns in this file</b>. They would permit or
+                    encourage these behaviours <b>if this file were used as active agent instructions</b> — they are not
+                    established runtime facts, and they do <b>not affect a production trust verdict</b> unless this file is
+                    used by production execution.
+                    {standalone ? " Downstream reachability is not verified in standalone mode — connect or upload the repository to confirm." : ""}
+                  </p>
+                </div>
               )}
             </header>
 
@@ -991,10 +1071,28 @@ export function PlaygroundMicroscope() {
             {/* EVERY FINDING, IN FULL — identical findings are grouped, nothing hidden behind a click */}
             {view.findingGroups.length > 0 ? (
               <div className="space-y-6">
-                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">
-                  {view.findingGroups.length} distinct finding{view.findingGroups.length === 1 ? "" : "s"}{view.issueCount > view.findingGroups.length ? ` · ${view.issueCount} total occurrences` : ""}
-                </p>
-                {view.findingGroups.map((group) => {
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">
+                    {visibleGroups.length} of {view.findingGroups.length} finding{view.findingGroups.length === 1 ? "" : "s"} shown{view.issueCount > view.findingGroups.length ? ` · ${view.issueCount} total occurrences` : ""}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(["security", "reliability", "quality"] as FindingLane[]).map((lane) => {
+                      const on = laneFilter.has(lane);
+                      return (
+                        <button
+                          key={lane}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => toggleLane(lane)}
+                          className={`rounded-full border px-3 py-1.5 font-mono text-[11px] font-medium transition ${on ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 bg-white text-stone-500 hover:bg-stone-50"}`}
+                        >
+                          {LANE_LABEL[lane]} · {laneCounts[lane]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {visibleGroups.map((group) => {
                   const representative = [...group.issues].sort((a, b) => severityRank(b.severity) - severityRank(a.severity))[0] || group.issues[0];
                   const locations = group.issues.map((item) => issueLocationLabel(item)).filter(Boolean);
                   return (
@@ -1005,6 +1103,7 @@ export function PlaygroundMicroscope() {
                       copiedKey={copiedKey}
                       onCopy={copyFinding}
                       standalone={standalone}
+                      active={active}
                     />
                   );
                 })}
