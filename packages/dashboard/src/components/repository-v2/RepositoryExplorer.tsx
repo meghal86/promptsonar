@@ -915,8 +915,8 @@ export function RepositoryExplorer() {
                 }
               >
                 <WhatWhy
-                  what="The full, ranked list of production findings — each with the exact issue, the file and rule that flagged it, a before/after safe pattern, and an effort estimate."
-                  why="Work it top-down: the order reflects severity and reachability, so the first item is the highest-leverage fix."
+                  what="A to-do list of everything worth fixing, sorted most-important first. Each item says what's wrong, which file it's in, and shows the risky code next to a safer version."
+                  why="Start at the top and work down — the first item removes the most risk for the least effort."
                 />
                 {view.remediation.length > 0 ? (
                   <ol className="space-y-3">
@@ -961,8 +961,8 @@ export function RepositoryExplorer() {
                 }
               >
                 <WhatWhy
-                  what="Every traced route from an instruction source through tools and MCP servers to a sensitive action (Shell, Filesystem, Network, Secrets), filterable by file, action, severity, confidence, and provenance."
-                  why="It confirms a finding is actually reachable — not just suspicious text — and lets you jump straight to the file that owns the path. This is the proof behind the verdict."
+                  what="A step-by-step trail showing how an instruction in a file could actually end up doing something risky — like running a command, reading your files, or reaching the internet. You can filter the list to focus on what matters."
+                  why="It proves a problem is real and can actually happen, not just scary-looking text — and lets you click straight to the file where the trail starts."
                 />
                 {path && (
                   <div className="flex flex-wrap items-center gap-2 rounded-xl border border-stone-900/10 bg-white/55 p-4">
@@ -1042,8 +1042,8 @@ export function RepositoryExplorer() {
                 description="Clustered categories, not a fabricated full graph"
               >
                 <WhatWhy
-                  what="Your AI surface clustered into four layers — instruction sources, agent orchestration, the tool layer, and sensitive actions — with a node count per layer instead of a fabricated node-per-file graph."
-                  why="A one-glance inventory of what exists and how much of it can act, so you can see where capability concentrates before drilling into individual paths."
+                  what="A simple map of your AI setup in four groups: where instructions come from, what coordinates them, the tools they can use, and the risky things those tools can do — with a count for each group."
+                  why="A quick bird's-eye view of what you have and how much of it can take action, before you dig into the details."
                 />
                 <div className="grid gap-3">
                   {view.architecture.map((cluster, index) => (
@@ -1069,8 +1069,8 @@ export function RepositoryExplorer() {
                 description={`${view.evidenceCount.visible} renderable evidence item${view.evidenceCount.visible === 1 ? "" : "s"} from ${view.evidenceCount.total} canonical evidence record${view.evidenceCount.total === 1 ? "" : "s"}`}
               >
                 <WhatWhy
-                  what="The raw proof for every finding: exact file:line locations, the matched snippet (or the missing requirement for absence findings), the rule id, and confidence."
-                  why="This is the audit trail — paste a location into your editor to verify it yourself, or hand it to a reviewer. Nothing here is inferred without being labelled as such."
+                  what="The receipts. For every problem we flag, this shows the exact file and line, and the actual piece of text that triggered it."
+                  why="You can open that line in your editor and see it for yourself, or send it to a teammate. We never claim a problem without showing you where it is."
                 />
                 {view.evidence.length > 0 ? (
                   <div className="overflow-x-auto">
@@ -1117,8 +1117,8 @@ export function RepositoryExplorer() {
                 description={`${view.nonProduction.total} finding${view.nonProduction.total === 1 ? "" : "s"} · excluded from the main verdict unless connected to production execution`}
               >
                 <WhatWhy
-                  what="Findings that live in docs, tests, fixtures, or examples — shown for completeness but kept out of the production trust verdict unless a path connects them to live execution."
-                  why="Keeps the verdict honest (a risky-looking test file doesn't inflate your score) while still surfacing anything that could become real if it's wired into production."
+                  what="Problems we found in files that aren't part of your live product — things like documentation, tests, and examples."
+                  why="We list them so nothing is hidden, but we don't count them against your safety score — a scary-looking test file shouldn't make your real product look unsafe. If one is actually used by the live product, it still shows up in the trail above."
                 />
                 {view.nonProduction.total > 0 ? (
                   <div>
@@ -1144,8 +1144,8 @@ export function RepositoryExplorer() {
                 description="SARIF, HTML and JSON come from the canonical report; Markdown and the GitHub comment are generated from it client-side"
               >
                 <WhatWhy
-                  what="The same report in the formats your pipeline expects — SARIF for code-scanning dashboards, HTML for sharing, JSON and execution-map JSON for automation, plus a ready-to-paste Markdown PR comment."
-                  why="Wire PromptSonar into CI or a code review without re-running anything. SARIF/HTML/JSON are the canonical report; Markdown and the GitHub comment are generated from it client-side."
+                  what="Download the results in different formats so other tools can read them — a security-dashboard format (SARIF), a shareable web page (HTML), raw data for scripts (JSON), or a ready-to-paste comment for a pull request."
+                  why="Drop these into the tools you already use — like your build pipeline or a code review — without running the scan again."
                 />
                 <div className="flex flex-wrap gap-3">
                   {report.exports?.json && <button type="button" onClick={() => exportReport("json")} className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-[12px] font-semibold hover:bg-stone-50">Download JSON</button>}

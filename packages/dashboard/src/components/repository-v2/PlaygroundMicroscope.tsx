@@ -354,8 +354,8 @@ function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: 
   // Context-aware explanation for why no exact, no-AI fix is offered.
   const isConfigLike = /\.(json|ya?ml|toml)$/i.test(filePath) || /mcp/i.test(filePath) || /\.cursor\/|\.claude\//i.test(filePath);
   const whyNoFix = isConfigLike
-    ? "This configuration has no known auto-fixable pattern (such as wildcard permissions or automatic approval) — its findings need judgement."
-    : "Deterministic auto-fix currently covers configuration files (e.g. MCP permissions and auto-approval). This file's findings — prose, structure, or in-context secrets — need a human or AI rewrite, so PromptSonar won't guess one.";
+    ? "This settings file doesn't contain a setting we know how to fix automatically (like an open-ended permission or an auto-approve switch), so there's nothing we can safely change on our own — these problems need a person to decide."
+    : "Our one-click fix only works on settings files (where we can flip a known switch). This file's problems need real writing or judgment, so we won't guess — use the AI prompt below, or fix it by hand.";
 
   return (
     <section className="rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
@@ -974,14 +974,13 @@ export function PlaygroundMicroscope() {
                 <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-4">
                   <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">What this is</p>
                   <p className="mt-2 text-[13px] leading-6 text-stone-600">
-                    An <b>execution path</b> is a concrete chain showing how an instruction in this file can reach a
-                    sensitive action — <span className="font-mono text-[12px]">source (prompt / config) → tool or MCP server → action (Shell, Filesystem, Network, Secrets)</span>.
-                    It&apos;s the difference between &ldquo;this text looks risky&rdquo; and &ldquo;this text can actually run a command.&rdquo;
+                    A step-by-step trail showing how an instruction in this file could actually end up doing something risky —
+                    like running a command, changing your files, or reaching the internet. It&apos;s the difference between
+                    &ldquo;this looks risky&rdquo; and &ldquo;this can really happen.&rdquo;
                   </p>
                   <p className="mt-2 text-[13px] leading-6 text-stone-600">
-                    <b>Why it&apos;s useful:</b> it tells you whether a finding is reachable in practice (so you can prioritise the
-                    paths that truly end in a dangerous action), and the confidence label says how much of the chain is proven
-                    versus inferred.
+                    <b>Why it&apos;s useful:</b> it tells you whether a problem can truly be triggered, so you fix the ones that
+                    matter most. The &ldquo;confidence&rdquo; label says how sure we are.
                   </p>
                 </div>
                 <div>
@@ -1029,15 +1028,13 @@ export function PlaygroundMicroscope() {
               <div className="mb-4 rounded-xl border border-stone-200 bg-stone-50/70 p-4">
                 <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">What this is</p>
                 <p className="mt-2 text-[13px] leading-6 text-stone-600">
-                  The <b>relationship graph</b> shows what this file connects to: <b>upstream</b> = what points at it
-                  (the prompts, skills, or workflows that invoke it), and <b>downstream</b> = what it can reach (the tools,
-                  MCP servers, and sensitive actions). Each link is labelled with how it was established (referenced,
-                  routes-to, can-reach) and its confidence.
+                  A map of what this file is connected to: what <b>points to it</b> (the things that use this file) and what
+                  it <b>can reach</b> (the tools and the risky actions those tools can do).
                 </p>
                 <p className="mt-2 text-[13px] leading-6 text-stone-600">
-                  <b>Why it&apos;s useful:</b> it answers &ldquo;if I change or remove this file, what else is affected?&rdquo; and
-                  &ldquo;where did this capability actually come from?&rdquo; — the blast radius around a single artifact. It&apos;s
-                  capped at 18 nodes so it stays readable instead of exploding into the whole repository.
+                  <b>Why it&apos;s useful:</b> it answers &ldquo;if I change or delete this file, what else breaks?&rdquo; and
+                  &ldquo;where did this power actually come from?&rdquo; — basically the blast radius around this one file. We
+                  keep it to 18 items so it stays easy to read.
                 </p>
               </div>
               <div className="flex justify-end">
