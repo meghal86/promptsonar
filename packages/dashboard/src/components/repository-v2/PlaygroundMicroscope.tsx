@@ -971,6 +971,19 @@ export function PlaygroundMicroscope() {
 
             <Collapsible label="Execution paths" hint={`${view.relatedPathCount} route${view.relatedPathCount === 1 ? "" : "s"} through this file`}>
               <div className="space-y-6">
+                <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-4">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">What this is</p>
+                  <p className="mt-2 text-[13px] leading-6 text-stone-600">
+                    An <b>execution path</b> is a concrete chain showing how an instruction in this file can reach a
+                    sensitive action — <span className="font-mono text-[12px]">source (prompt / config) → tool or MCP server → action (Shell, Filesystem, Network, Secrets)</span>.
+                    It&apos;s the difference between &ldquo;this text looks risky&rdquo; and &ldquo;this text can actually run a command.&rdquo;
+                  </p>
+                  <p className="mt-2 text-[13px] leading-6 text-stone-600">
+                    <b>Why it&apos;s useful:</b> it tells you whether a finding is reachable in practice (so you can prioritise the
+                    paths that truly end in a dangerous action), and the confidence label says how much of the chain is proven
+                    versus inferred.
+                  </p>
+                </div>
                 <div>
                   <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Route linked to this finding</p>
                   {view.pathsSupportedByIssue[0] ? (
@@ -1013,6 +1026,20 @@ export function PlaygroundMicroscope() {
             </Collapsible>
 
             <Collapsible label="Relationship graph" hint="capped at 18 nodes">
+              <div className="mb-4 rounded-xl border border-stone-200 bg-stone-50/70 p-4">
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">What this is</p>
+                <p className="mt-2 text-[13px] leading-6 text-stone-600">
+                  The <b>relationship graph</b> shows what this file connects to: <b>upstream</b> = what points at it
+                  (the prompts, skills, or workflows that invoke it), and <b>downstream</b> = what it can reach (the tools,
+                  MCP servers, and sensitive actions). Each link is labelled with how it was established (referenced,
+                  routes-to, can-reach) and its confidence.
+                </p>
+                <p className="mt-2 text-[13px] leading-6 text-stone-600">
+                  <b>Why it&apos;s useful:</b> it answers &ldquo;if I change or remove this file, what else is affected?&rdquo; and
+                  &ldquo;where did this capability actually come from?&rdquo; — the blast radius around a single artifact. It&apos;s
+                  capped at 18 nodes so it stays readable instead of exploding into the whole repository.
+                </p>
+              </div>
               <div className="flex justify-end">
                 <div className="flex rounded-xl border border-stone-300 bg-white/65 p-1" aria-label="Graph direction">
                   {(["upstream", "downstream", "all"] as const).map((mode) => (
