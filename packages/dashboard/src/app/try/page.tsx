@@ -909,11 +909,11 @@ export default function TryPage() {
 
     const fix = critical && worst ? hardening(worst) : null;
 
-    // Carry the scanned prompt over to the full playground so it pre-fills and
-    // auto-scans there — the visitor keeps their exact prompt end to end.
+    // Carry the visitor's exact prompt into the unified /repository-v2 intake so
+    // single-artifact and repository analysis live in one portal.
     const playgroundHref = prompt.trim()
-      ? `/playground?prompt=${encodeURIComponent(prompt)}`
-      : "/playground";
+      ? `/repository-v2?paste=${encodeURIComponent(prompt)}&kind=prompt`
+      : "/repository-v2?example=prompt";
 
     const riskLabel = (path?.risk || (critical ? "critical" : "low")).toUpperCase();
     const sinkLabel = critical ? reachedLabel(nodeTypes, sinkType) : "None";
@@ -1347,7 +1347,7 @@ export default function TryPage() {
               const pathRiskExplanation = repositoryRiskReasons(repositoryScanResult.primaryFinding)[0];
               const pathFilesInvolved = Math.max(1, topContributors.length);
               const trustStatus = repositoryScanResult.criticalFindings > 0 ? "High Risk" : repositoryScanResult.executionPathsFound > 0 ? "Review Required" : "Trusted";
-              const playgroundRepositoryHref = `/playground?source=repository&prompt=${encodeURIComponent(repositoryPlaygroundPrompt(repositoryScanResult))}`;
+              const playgroundRepositoryHref = `/repository-v2?paste=${encodeURIComponent(repositoryPlaygroundPrompt(repositoryScanResult))}&kind=prompt`;
               return (
               <section className="grid gap-4">
                 <div className="rounded-2xl border border-[#E4E3DE] bg-white p-5 shadow-sm">

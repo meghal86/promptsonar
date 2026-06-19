@@ -218,6 +218,56 @@ function WhatWhy({ what, why }: { what: string; why: string }) {
   );
 }
 
+// Single-artifact analysis lives in the same portal as repository scans — same
+// engine, same report, just one file. Each example maps to a virtual path so
+// the engine classifies it correctly, and a mode so the microscope renders it
+// in single-input (standalone) framing.
+type ArtifactKindOption = "prompt" | "skill" | "mcp" | "agent" | "workflow" | "tool";
+const ARTIFACT_EXAMPLES: Array<{ kind: ArtifactKindOption; label: string; filename: string; mode: "prompt" | "file"; text: string }> = [
+  {
+    kind: "prompt",
+    label: "Prompt",
+    filename: "prompts/reviewer.prompt",
+    mode: "prompt",
+    text: `You are a code review assistant.\n\nUse filesystem-mcp to read the changed files, and run shell commands to reproduce failures when CI is blocked. Reuse the last approved review from memory and post results to the external review API.`,
+  },
+  {
+    kind: "skill",
+    label: "Skill",
+    filename: "skills/code-review/SKILL.md",
+    mode: "file",
+    text: `# Code Review Skill\n\nUse when reviewing pull requests or recovering CI.\n\nCapabilities:\n- inspect repository files\n- call tool-router\n- request filesystem writes\n- run shell recovery commands\n\nThe tool-router may continue automatically when CI is blocked.`,
+  },
+  {
+    kind: "mcp",
+    label: "MCP config",
+    filename: ".cursor/mcp.json",
+    mode: "file",
+    text: JSON.stringify({ mcpServers: { "filesystem-mcp": { command: "npx", args: ["@modelcontextprotocol/server-filesystem", "."], autoApprove: true, permissions: ["*"] } } }, null, 2),
+  },
+  {
+    kind: "agent",
+    label: "Agent",
+    filename: "AGENTS.md",
+    mode: "file",
+    text: `# Reviewer Agent\n\nUse filesystem-mcp and tool-router to inspect pull requests. Run shell commands when CI is blocked and reuse memory/reviewer-memory.json. Approval is optional.`,
+  },
+  {
+    kind: "workflow",
+    label: "Workflow",
+    filename: ".github/workflows/ai-review.yml",
+    mode: "file",
+    text: `name: AI review\non: pull_request\njobs:\n  review:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npx promptsonar-agent --prompt prompts/reviewer.prompt\n        env:\n          REVIEW_TOKEN: \${{ secrets.REVIEW_TOKEN }}`,
+  },
+  {
+    kind: "tool",
+    label: "Tool router",
+    filename: "tools/tool-router.yaml",
+    mode: "file",
+    text: `tools:\n  - name: shell.run_command\n    routes_to: filesystem-mcp\n  - name: secrets.read\n    routes_to: filesystem-mcp\npolicy:\n  approval: optional`,
+  },
+];
+
 export function RepositoryExplorer() {
   const [files, setFiles] = useState<File[]>([]);
   const [selectionStats, setSelectionStats] = useState({
@@ -252,6 +302,9 @@ export function RepositoryExplorer() {
   });
   const [pathLimit, setPathLimit] = useState(20);
   const [fileLimit, setFileLimit] = useState(20);
+  // Single-artifact paste intake (prompt / skill / mcp / agent / workflow / tool).
+  const [artifactKind, setArtifactKind] = useState<ArtifactKindOption>("prompt");
+  const [artifactText, setArtifactText] = useState(ARTIFACT_EXAMPLES[0].text);
   // Security / Reliability / Quality filter for the remediation list (all on by default).
   const [remediationLanes, setRemediationLanes] = useState<Set<FindingLane>>(() => new Set<FindingLane>(["security", "reliability", "quality"]));
   const toggleRemediationLane = (lane: FindingLane) => setRemediationLanes((current) => {
@@ -269,6 +322,22 @@ export function RepositoryExplorer() {
     const params = new URLSearchParams(window.location.search);
     const scanId = params.get("scan") || params.get("scanId") || undefined;
     const section = params.get("section") || undefined;
+    // Deep-link from marketing / homepage into the unified intake:
+    //   ?example=mcp            preload a built-in example
+    //   ?paste=<text>&kind=...  carry the visitor's own prompt/artifact
+    const example = params.get("example");
+    const paste = params.get("paste");
+    const kindParam = params.get("kind");
+    if (!scanId && (example || paste)) {
+      const kind = (kindParam && ARTIFACT_EXAMPLES.some((item) => item.kind === kindParam))
+        ? (kindParam as ArtifactKindOption)
+        : (example && ARTIFACT_EXAMPLES.some((item) => item.kind === example))
+          ? (example as ArtifactKindOption)
+          : "prompt";
+      setArtifactKind(kind);
+      if (paste) setArtifactText(paste);
+      else loadArtifactExample(kind);
+    }
     const scrollToSection = () => {
       if (section) window.setTimeout(() => document.getElementById(section)?.scrollIntoView({ block: "start" }), 250);
     };
@@ -356,6 +425,47 @@ export function RepositoryExplorer() {
     setSelectionStats(nextSelection.stats);
     setReport(null);
     setError(null);
+  }
+
+  function loadArtifactExample(kind: ArtifactKindOption) {
+    const example = ARTIFACT_EXAMPLES.find((item) => item.kind === kind) || ARTIFACT_EXAMPLES[0];
+    setArtifactKind(kind);
+    setArtifactText(example.text);
+  }
+
+  // Analyze a single pasted artifact with the same engine, then open it in the
+  // microscope (which renders single-input with honest standalone framing).
+  async function scanArtifact() {
+    const example = ARTIFACT_EXAMPLES.find((item) => item.kind === artifactKind) || ARTIFACT_EXAMPLES[0];
+    const text = artifactText.trim();
+    if (!text) { setError("Paste a prompt or artifact, or load an example."); return; }
+    setLoading(true);
+    setError(null);
+    setScanProgress("Analyzing artifact…");
+    try {
+      const response = await fetch("/api/repository", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: [{ path: example.filename, content: text }], repositoryName: `${example.label} analysis` }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `Analysis failed (${response.status})`);
+      const nextReport = data.report;
+      saveReport(nextReport);
+      saveRepositoryFiles(nextReport?.id, [{ path: example.filename, content: text }]);
+      const firstFile = nextReport.impactedFiles?.[0]?.path || nextReport.artifacts?.[0]?.relativePath || example.filename;
+      const firstIssue = nextReport.impactedFiles?.[0]?.issueIds?.[0] || nextReport.issues?.[0]?.id;
+      const query = new URLSearchParams();
+      if (nextReport.id) query.set("scan", nextReport.id);
+      query.set("mode", example.mode);
+      query.set("file", firstFile);
+      if (firstIssue) query.set("issue", firstIssue);
+      window.location.href = `/playground-v4?${query.toString()}`;
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : "Analysis failed.");
+      setLoading(false);
+      setScanProgress(null);
+    }
   }
 
   async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
@@ -506,7 +616,54 @@ export function RepositoryExplorer() {
               </p>
             </header>
 
-            <section className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {/* SINGLE-ARTIFACT INTAKE — one portal for prompts, skills, MCP configs, agents */}
+            <section className="mt-10 rounded-2xl border border-stone-900/10 bg-white/70 p-6 shadow-[0_18px_55px_-38px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-7">
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Analyze a single artifact</span>
+              <h2 className="mt-2 font-sans text-[24px] font-medium tracking-tight text-stone-900">Paste a prompt, skill, MCP config, or agent file</h2>
+              <p className="mt-2 max-w-2xl text-[14px] leading-6 text-stone-600">Same engine, same report as a full repository scan — just one file. Pick an example or paste your own.</p>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {ARTIFACT_EXAMPLES.map((example) => (
+                  <button
+                    key={example.kind}
+                    type="button"
+                    onClick={() => loadArtifactExample(example.kind)}
+                    aria-pressed={artifactKind === example.kind}
+                    className={`rounded-full border px-3 py-1.5 font-mono text-[11px] font-medium transition ${artifactKind === example.kind ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 bg-white text-stone-600 hover:bg-stone-50"}`}
+                  >
+                    {example.label}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                value={artifactText}
+                onChange={(event) => setArtifactText(event.target.value)}
+                rows={8}
+                spellCheck={false}
+                className="mt-4 block w-full resize-y rounded-xl border border-stone-300 bg-white px-4 py-3 font-mono text-[12px] leading-6 text-stone-900 outline-none focus:ring-2 focus:ring-stone-800"
+                placeholder="Paste a prompt, skill, MCP config, agent file, workflow, or tool router…"
+              />
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <p className="font-mono text-[11px] text-stone-500">Analyzed as <span className="text-stone-700">{(ARTIFACT_EXAMPLES.find((item) => item.kind === artifactKind) || ARTIFACT_EXAMPLES[0]).filename}</span> · no LLM calls</p>
+                <button
+                  type="button"
+                  onClick={scanArtifact}
+                  disabled={loading || !artifactText.trim()}
+                  className="rounded-xl bg-stone-900 px-5 py-3 text-[13px] font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 disabled:opacity-50"
+                >
+                  {loading ? "Analyzing…" : "Analyze artifact →"}
+                </button>
+              </div>
+            </section>
+
+            <div className="mt-8 flex items-center gap-3">
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-stone-400">Or scan a whole repository</span>
+              <span className="h-px flex-1 bg-stone-900/10" />
+            </div>
+
+            <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <button
                 type="button"
                 onClick={scanSample}
