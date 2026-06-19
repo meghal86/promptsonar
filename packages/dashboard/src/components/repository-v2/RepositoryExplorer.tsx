@@ -20,6 +20,7 @@ import {
   repositoryFileDisplayName,
 } from "@/lib/repositorySelection";
 import { saveRepositoryFiles } from "@/lib/repositoryFileStore";
+import { findingLane, LANE_LABEL, type FindingLane } from "@/lib/plainLanguage";
 import { ConfidenceBadge, ProvenanceBadge, RiskBadge } from "./Badges";
 import { PreviewShell } from "./PreviewShell";
 import { ExecutionFlowGraph } from "./ExecutionFlowGraph";
@@ -251,6 +252,13 @@ export function RepositoryExplorer() {
   });
   const [pathLimit, setPathLimit] = useState(20);
   const [fileLimit, setFileLimit] = useState(20);
+  // Security / Reliability / Quality filter for the remediation list (all on by default).
+  const [remediationLanes, setRemediationLanes] = useState<Set<FindingLane>>(() => new Set<FindingLane>(["security", "reliability", "quality"]));
+  const toggleRemediationLane = (lane: FindingLane) => setRemediationLanes((current) => {
+    const next = new Set(current);
+    if (next.has(lane)) next.delete(lane); else next.add(lane);
+    return next.size === 0 ? new Set<FindingLane>(["security", "reliability", "quality"]) : next;
+  });
 
   const view = useMemo(
     () => report ? buildRepositoryExplorerViewModel(report) : null,
@@ -921,35 +929,61 @@ export function RepositoryExplorer() {
                   what="A to-do list of everything worth fixing, sorted most-important first. Each item says what's wrong, which file it's in, and shows the risky code next to a safer version."
                   why="Start at the top and work down — the first item removes the most risk for the least effort."
                 />
-                {view.remediation.length > 0 ? (
-                  <ol className="space-y-3">
-                    {view.remediation.map((item, index) => (
-                      <li key={item.id} className="grid gap-4 rounded-2xl border border-white/75 bg-white/65 p-5 backdrop-blur-xl sm:grid-cols-[38px_1fr_auto] sm:items-start">
-                        <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-stone-900 font-mono text-[12px] text-white">{index + 1}</span>
-                        <div>
-                          <p className="text-[15px] font-semibold text-stone-900">{item.title}</p>
-                          <p className="mt-1 text-[13px] leading-6 text-stone-600">{item.description}</p>
-                          {item.currentPattern && item.safePattern ? (
-                            <CodeDiff
-                              className="mt-3"
-                              before={item.currentPattern}
-                              after={item.safePattern}
-                              beforeLabel="Before — current code"
-                              afterLabel="After — safe pattern"
-                            />
-                          ) : item.safePattern ? (
-                            <code className="mt-2 block max-w-full overflow-x-auto rounded-lg bg-stone-900/5 px-3 py-2 font-mono text-[12px] leading-5 text-stone-700">{item.safePattern}</code>
-                          ) : null}
-                          <p className="mt-2 break-all font-mono text-[11px] text-stone-500">{item.files.join(" · ")}</p>
-                          <p className="mt-1 font-mono text-[10px] text-stone-400">Rule · {item.ruleId}</p>
-                        </div>
-                        <span className="rounded-lg border border-stone-300 bg-white/65 px-3 py-2 font-mono text-[11px] text-stone-600">Effort · {item.effort}</span>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <p className="text-[13px] text-stone-500">No production remediation items were included in this report.</p>
-                )}
+                {(() => {
+                  const laneCounts: Record<FindingLane, number> = { security: 0, reliability: 0, quality: 0 };
+                  for (const item of view.remediation) laneCounts[findingLane(item.ruleId, item.title)] += 1;
+                  const visible = view.remediation.filter((item) => remediationLanes.has(findingLane(item.ruleId, item.title)));
+                  return (
+                    <>
+                      <div className="mb-4 flex flex-wrap items-center gap-2">
+                        {(["security", "reliability", "quality"] as FindingLane[]).map((lane) => {
+                          const on = remediationLanes.has(lane);
+                          return (
+                            <button
+                              key={lane}
+                              type="button"
+                              aria-pressed={on}
+                              onClick={() => toggleRemediationLane(lane)}
+                              className={`rounded-full border px-3 py-1.5 font-mono text-[11px] font-medium transition ${on ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 bg-white text-stone-500 hover:bg-stone-50"}`}
+                            >
+                              {LANE_LABEL[lane]} · {laneCounts[lane]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {visible.length > 0 ? (
+                        <ol className="space-y-3">
+                          {visible.map((item, index) => (
+                            <li key={item.id} className="grid gap-4 rounded-2xl border border-white/75 bg-white/65 p-5 backdrop-blur-xl sm:grid-cols-[38px_1fr_auto] sm:items-start">
+                              <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-stone-900 font-mono text-[12px] text-white">{index + 1}</span>
+                              <div>
+                                <span className="mb-1 inline-block rounded-full border border-stone-300 bg-white/70 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-stone-600">{LANE_LABEL[findingLane(item.ruleId, item.title)]}</span>
+                                <p className="text-[15px] font-semibold text-stone-900">{item.title}</p>
+                                <p className="mt-1 text-[13px] leading-6 text-stone-600">{item.description}</p>
+                                {item.currentPattern && item.safePattern ? (
+                                  <CodeDiff
+                                    className="mt-3"
+                                    before={item.currentPattern}
+                                    after={item.safePattern}
+                                    beforeLabel="Before — current code"
+                                    afterLabel="After — safe pattern"
+                                  />
+                                ) : item.safePattern ? (
+                                  <code className="mt-2 block max-w-full overflow-x-auto rounded-lg bg-stone-900/5 px-3 py-2 font-mono text-[12px] leading-5 text-stone-700">{item.safePattern}</code>
+                                ) : null}
+                                <p className="mt-2 break-all font-mono text-[11px] text-stone-500">{item.files.join(" · ")}</p>
+                                <p className="mt-1 font-mono text-[10px] text-stone-400">Rule · {item.ruleId}</p>
+                              </div>
+                              <span className="rounded-lg border border-stone-300 bg-white/65 px-3 py-2 font-mono text-[11px] text-stone-600">Effort · {item.effort}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="text-[13px] text-stone-500">{view.remediation.length > 0 ? "No remediation items in the selected categories." : "No production remediation items were included in this report."}</p>
+                      )}
+                    </>
+                  );
+                })()}
               </Disclosure>
             </section>
 
