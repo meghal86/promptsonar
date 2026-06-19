@@ -362,7 +362,7 @@ function FileFixPanel({ filePath, content, issues, groups, copiedKey, onCopy }: 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">Whole file · {groups.length} finding{groups.length === 1 ? "" : "s"}</p>
-          <h2 className="mt-2 font-playfair text-[22px] font-medium tracking-tight text-stone-900 sm:text-[26px]">Fix this file</h2>
+          <h2 className="mt-2 font-sans text-[22px] font-medium tracking-tight text-stone-900 sm:text-[26px]">Fix this file</h2>
         </div>
         <button
           type="button"
@@ -484,7 +484,7 @@ function FindingCard({
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-red-700">
         {issue.confidence.label} · {issue.severity} · {plainRuleFamily(issue.ruleId, issue.issue)}
       </p>
-      <h2 className="mt-3 max-w-[46ch] font-playfair text-[24px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[28px]">
+      <h2 className="mt-3 max-w-[46ch] font-sans text-[24px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[28px]">
         {plainFindingHeadline(issue.ruleId, issue.issue)}
       </h2>
       <p className="mt-2 font-mono text-[11px] text-stone-500">
@@ -964,7 +964,7 @@ export function PlaygroundMicroscope() {
               </div>
             ) : (
               <section className="rounded-2xl border border-amber-300 bg-amber-50/55 p-6">
-                <h2 className="font-playfair text-[23px] font-medium">No finding is attached to this file.</h2>
+                <h2 className="font-sans text-[23px] font-medium">No finding is attached to this file.</h2>
                 <p className="mt-2 text-[13px] leading-6 text-stone-600">This file may participate in an execution path without carrying a file-level finding.</p>
               </section>
             )}
@@ -1129,7 +1129,7 @@ function ArtifactIntake({
       {sectionLabel("Playground v4 · Artifact Microscope")}
       <div className="mt-4 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
         <div>
-          <h1 className="font-playfair text-[38px] font-medium leading-tight tracking-[-0.03em]">Analyze one artifact, then investigate it like a repository object.</h1>
+          <h1 className="font-sans text-[38px] font-medium leading-tight tracking-[-0.03em]">Analyze one artifact, then investigate it like a repository object.</h1>
           <p className="mt-4 max-w-xl text-[14px] leading-6 text-stone-600">
             Prompt, file, and repository inputs all produce canonical PromptSonar reports and open the same evidence, remediation, path, and relationship microscope.
           </p>

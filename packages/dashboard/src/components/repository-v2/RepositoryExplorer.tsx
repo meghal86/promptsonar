@@ -47,7 +47,7 @@ function SectionHeading({ label, title, help }: { label: string; title: string; 
   return (
     <header className="mb-5">
       {sectionLabel(label)}
-      <h2 className="mt-2 font-playfair text-[27px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[31px]">{title}</h2>
+      <h2 className="mt-2 font-sans text-[27px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[31px]">{title}</h2>
       {help && <p className="mt-2 max-w-2xl text-[14px] leading-6 text-stone-600">{help}</p>}
     </header>
   );
@@ -192,13 +192,25 @@ function Disclosure({
         aria-controls={id}
       >
         <span>
-          <span className="block font-playfair text-[20px] font-medium tracking-tight text-stone-900">{title}</span>
+          <span className="block font-sans text-[20px] font-medium tracking-tight text-stone-900">{title}</span>
           <span className="mt-1 block text-[13px] leading-5 text-stone-500">{description}</span>
         </span>
         <span className="font-mono text-[16px] text-stone-400 transition group-open:rotate-45" aria-hidden="true">+</span>
       </summary>
       <div id={id} className="border-t border-stone-900/10 px-5 py-6 sm:px-7">{children}</div>
     </details>
+  );
+}
+
+// Plain-language "what this is / why it helps" intro for a section, so any
+// reader — engineer, security, or PM — understands it without prior vocabulary.
+function WhatWhy({ what, why }: { what: string; why: string }) {
+  return (
+    <div className="mb-5 rounded-xl border border-stone-200 bg-stone-50/70 p-4">
+      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">What this is</p>
+      <p className="mt-2 text-[13px] leading-6 text-stone-600">{what}</p>
+      <p className="mt-2 text-[13px] leading-6 text-stone-600"><span className="font-semibold text-stone-700">Why it helps:</span> {why}</p>
+    </div>
   );
 }
 
@@ -475,7 +487,7 @@ export function RepositoryExplorer() {
           <>
             <header className="max-w-3xl">
               {sectionLabel("Repository Explorer v2")}
-              <h1 className="mt-4 max-w-[760px] font-playfair text-[40px] font-medium leading-[1.03] tracking-[-0.035em] text-stone-900 sm:text-[58px]">
+              <h1 className="mt-4 max-w-[760px] font-sans text-[40px] font-medium leading-[1.03] tracking-[-0.035em] text-stone-900 sm:text-[58px]">
                 See where AI instructions <span className="italic text-amber-700">can go.</span>
               </h1>
               <p className="mt-5 max-w-2xl text-[16px] leading-7 text-stone-600">
@@ -491,7 +503,7 @@ export function RepositoryExplorer() {
                 className="rounded-2xl border border-amber-600/30 bg-[linear-gradient(180deg,rgba(255,249,230,0.9),rgba(255,255,255,0.72))] p-7 text-left shadow-[0_18px_55px_-38px_rgba(28,25,23,0.7)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-amber-700/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 disabled:opacity-50"
               >
                 <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Built-in demo</span>
-                <span className="mt-3 block font-playfair text-[24px] font-medium tracking-tight">Run the sample repository</span>
+                <span className="mt-3 block font-sans text-[24px] font-medium tracking-tight">Run the sample repository</span>
                 <span className="mt-2 block text-[14px] leading-6 text-stone-600">A deterministic fixture with prompts, a skill, workflow, router, memory, and MCP configuration.</span>
                 <span className="mt-5 block font-mono text-[12px] font-medium text-stone-900">{loading ? "Analyzing…" : "Analyze sample →"}</span>
                 <span className="mt-3 block text-[11px] text-stone-500">Processed by this dashboard service · no LLM calls</span>
@@ -499,7 +511,7 @@ export function RepositoryExplorer() {
 
               <label className="cursor-pointer rounded-2xl border border-white/75 bg-white/65 p-7 shadow-[0_18px_55px_-38px_rgba(28,25,23,0.7)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-stone-400 focus-within:ring-2 focus-within:ring-stone-900">
                 <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Folder upload</span>
-                <span className="mt-3 block font-playfair text-[24px] font-medium tracking-tight">
+                <span className="mt-3 block font-sans text-[24px] font-medium tracking-tight">
                   {selectionStats.total
                     ? `${selectionStats.total.toLocaleString()} files selected`
                     : "Select repository folder"}
@@ -529,7 +541,7 @@ export function RepositoryExplorer() {
                   <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">GitHub repository</span>
                   <span className="rounded-full border border-stone-300 bg-white/70 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-stone-600">Coming soon</span>
                 </div>
-                <span className="mt-3 block font-playfair text-[24px] font-medium tracking-tight">Scan from a GitHub URL</span>
+                <span className="mt-3 block font-sans text-[24px] font-medium tracking-tight">Scan from a GitHub URL</span>
                 <span id="github-coming-soon" className="mt-2 block text-[14px] leading-6 text-stone-600">Connect a repository without selecting a local folder. This option is disabled until GitHub import is implemented.</span>
                 <div role="textbox" aria-disabled="true" className="mt-5 rounded-xl border border-stone-300 bg-white/55 px-3 py-3 font-mono text-[11px] text-stone-400">
                   https://github.com/your-org/your-repo
@@ -628,15 +640,15 @@ export function RepositoryExplorer() {
                 <div className="flex flex-wrap gap-3">
                   <div className="rounded-xl border border-stone-900/10 bg-white/60 px-4 py-3">
                     <span className="block font-mono text-[9px] uppercase tracking-[0.14em] text-stone-400">Overall risk</span>
-                    <span className="mt-1 block font-playfair text-[23px] font-semibold capitalize">{view.overallRisk === "none" ? "None found" : view.overallRisk}</span>
+                    <span className="mt-1 block font-sans text-[23px] font-semibold capitalize">{view.overallRisk === "none" ? "None found" : view.overallRisk}</span>
                   </div>
                   <div className="rounded-xl border border-stone-900/10 bg-white/60 px-4 py-3">
                     <span className="block font-mono text-[9px] uppercase tracking-[0.14em] text-stone-400">Trust status</span>
-                    <span className="mt-1 block font-playfair text-[21px] font-semibold">{view.trustStatus}</span>
+                    <span className="mt-1 block font-sans text-[21px] font-semibold">{view.trustStatus}</span>
                   </div>
                 </div>
 
-                <h1 id="repository-verdict" className="mt-6 max-w-3xl font-playfair text-[29px] font-medium leading-[1.12] tracking-[-0.025em] sm:text-[39px]">
+                <h1 id="repository-verdict" className="mt-6 max-w-3xl font-sans text-[29px] font-medium leading-[1.12] tracking-[-0.025em] sm:text-[39px]">
                   {path
                     ? `A ${path.risk}-risk path ${pathVerb} reach ${actionLabel(path.action)}.`
                     : "No production-relevant sensitive-action paths were found."}
@@ -659,7 +671,7 @@ export function RepositoryExplorer() {
                   <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-stone-400">Production findings by evidence</span>
                   {(["confirmed", "probable", "potential"] as RepositoryPathConfidence[]).map((confidence) => (
                     <div key={confidence} className="flex items-baseline gap-2 rounded-xl border border-stone-900/10 bg-white/55 px-3 py-2">
-                      <span className="font-playfair text-[20px] font-semibold">{view.findingConfidence[confidence]}</span>
+                      <span className="font-sans text-[20px] font-semibold">{view.findingConfidence[confidence]}</span>
                       <span className="font-mono text-[10px] capitalize text-stone-500">{confidence}</span>
                     </div>
                   ))}
@@ -707,7 +719,7 @@ export function RepositoryExplorer() {
                   <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Fix first</p>
-                      <h2 id="next-action" className="mt-2 font-playfair text-[25px] font-medium tracking-tight">
+                      <h2 id="next-action" className="mt-2 font-sans text-[25px] font-medium tracking-tight">
                         <span className="font-mono text-[17px]">{view.nextAction.file}</span>
                       </h2>
                       <p className="mt-2 text-[13px] leading-6 text-stone-600"><b className="text-stone-900">Reason:</b> {view.nextAction.reason}</p>
@@ -770,7 +782,7 @@ export function RepositoryExplorer() {
                   </div>
                   <div>
                     {sectionLabel("What this means")}
-                    <h3 className="mt-3 font-playfair text-[24px] font-medium leading-tight tracking-tight">{path.explanation}</h3>
+                    <h3 className="mt-3 font-sans text-[24px] font-medium leading-tight tracking-tight">{path.explanation}</h3>
                     {view.selectedPathImpacts.length > 0 && (
                       <div className="mt-5 grid gap-3 sm:grid-cols-2">
                         {view.selectedPathImpacts.map((impact) => (
@@ -902,6 +914,10 @@ export function RepositoryExplorer() {
                     : `${view.remediationCount.total} production finding${view.remediationCount.total === 1 ? "" : "s"}`
                 }
               >
+                <WhatWhy
+                  what="The full, ranked list of production findings — each with the exact issue, the file and rule that flagged it, a before/after safe pattern, and an effort estimate."
+                  why="Work it top-down: the order reflects severity and reachability, so the first item is the highest-leverage fix."
+                />
                 {view.remediation.length > 0 ? (
                   <ol className="space-y-3">
                     {view.remediation.map((item, index) => (
@@ -944,6 +960,10 @@ export function RepositoryExplorer() {
                     : `${view.pathCount.total} canonical path${view.pathCount.total === 1 ? "" : "s"}`
                 }
               >
+                <WhatWhy
+                  what="Every traced route from an instruction source through tools and MCP servers to a sensitive action (Shell, Filesystem, Network, Secrets), filterable by file, action, severity, confidence, and provenance."
+                  why="It confirms a finding is actually reachable — not just suspicious text — and lets you jump straight to the file that owns the path. This is the proof behind the verdict."
+                />
                 {path && (
                   <div className="flex flex-wrap items-center gap-2 rounded-xl border border-stone-900/10 bg-white/55 p-4">
                     {path.nodes.map((node, index) => (
@@ -1021,12 +1041,16 @@ export function RepositoryExplorer() {
                 title="Show architecture overview"
                 description="Clustered categories, not a fabricated full graph"
               >
+                <WhatWhy
+                  what="Your AI surface clustered into four layers — instruction sources, agent orchestration, the tool layer, and sensitive actions — with a node count per layer instead of a fabricated node-per-file graph."
+                  why="A one-glance inventory of what exists and how much of it can act, so you can see where capability concentrates before drilling into individual paths."
+                />
                 <div className="grid gap-3">
                   {view.architecture.map((cluster, index) => (
                     <div key={cluster.id}>
                       {index > 0 && <div className="mx-auto h-5 w-px bg-stone-300" aria-hidden="true" />}
                       <details className={`rounded-xl border p-4 ${cluster.id === "sensitiveActions" ? "border-red-300 bg-red-50/55" : "border-stone-300 bg-white/55"}`}>
-                        <summary className="cursor-pointer list-none font-playfair text-[18px] font-medium">
+                        <summary className="cursor-pointer list-none font-sans text-[18px] font-medium">
                           {cluster.id === "instructionSources" ? "Instruction sources" : cluster.id === "orchestration" ? "Agent orchestration" : cluster.id === "toolLayer" ? "Tool layer" : "Sensitive actions"}
                           <span className="ml-3 font-mono text-[11px] font-normal text-stone-500">{cluster.count} node{cluster.count === 1 ? "" : "s"}</span>
                         </summary>
@@ -1044,6 +1068,10 @@ export function RepositoryExplorer() {
                 title="Evidence"
                 description={`${view.evidenceCount.visible} renderable evidence item${view.evidenceCount.visible === 1 ? "" : "s"} from ${view.evidenceCount.total} canonical evidence record${view.evidenceCount.total === 1 ? "" : "s"}`}
               >
+                <WhatWhy
+                  what="The raw proof for every finding: exact file:line locations, the matched snippet (or the missing requirement for absence findings), the rule id, and confidence."
+                  why="This is the audit trail — paste a location into your editor to verify it yourself, or hand it to a reviewer. Nothing here is inferred without being labelled as such."
+                />
                 {view.evidence.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[720px] border-collapse text-left">
@@ -1088,12 +1116,16 @@ export function RepositoryExplorer() {
                 title="Non-production findings"
                 description={`${view.nonProduction.total} finding${view.nonProduction.total === 1 ? "" : "s"} · excluded from the main verdict unless connected to production execution`}
               >
+                <WhatWhy
+                  what="Findings that live in docs, tests, fixtures, or examples — shown for completeness but kept out of the production trust verdict unless a path connects them to live execution."
+                  why="Keeps the verdict honest (a risky-looking test file doesn't inflate your score) while still surfacing anything that could become real if it's wired into production."
+                />
                 {view.nonProduction.total > 0 ? (
                   <div>
                     <div className="divide-y divide-stone-900/10">
                       {Object.entries(view.nonProduction.byProvenance).map(([provenance, count]) => (
                         <div key={provenance} className="flex items-center gap-5 py-4">
-                          <span className="w-14 font-playfair text-[24px] font-semibold text-stone-500">{count}</span>
+                          <span className="w-14 font-sans text-[24px] font-semibold text-stone-500">{count}</span>
                           <div>
                             <p className="text-[14px] font-medium capitalize">{provenance} findings</p>
                             <p className="mt-1 text-[12px] text-stone-500">Visible for completeness; not counted in the production trust verdict by provenance alone.</p>
@@ -1111,6 +1143,10 @@ export function RepositoryExplorer() {
                 title="Exports"
                 description="SARIF, HTML and JSON come from the canonical report; Markdown and the GitHub comment are generated from it client-side"
               >
+                <WhatWhy
+                  what="The same report in the formats your pipeline expects — SARIF for code-scanning dashboards, HTML for sharing, JSON and execution-map JSON for automation, plus a ready-to-paste Markdown PR comment."
+                  why="Wire PromptSonar into CI or a code review without re-running anything. SARIF/HTML/JSON are the canonical report; Markdown and the GitHub comment are generated from it client-side."
+                />
                 <div className="flex flex-wrap gap-3">
                   {report.exports?.json && <button type="button" onClick={() => exportReport("json")} className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-[12px] font-semibold hover:bg-stone-50">Download JSON</button>}
                   {report.exports?.sarif && <button type="button" onClick={() => exportReport("sarif")} className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-[12px] font-semibold hover:bg-stone-50">Download SARIF</button>}
