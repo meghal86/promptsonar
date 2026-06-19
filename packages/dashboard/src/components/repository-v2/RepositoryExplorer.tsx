@@ -108,6 +108,9 @@ function readStoredReport(scanId?: string): RepositoryExecutionReport | null {
 function microscopeHref(report: RepositoryExecutionReport, params: Record<string, string | undefined>): string {
   const query = new URLSearchParams();
   if (report.id) query.set("scan", report.id);
+  // Opened from a repository scan, so the microscope must run in repository mode
+  // (real execution-path context) — not single-input/standalone mode.
+  query.set("mode", "repository");
   Object.entries(params).forEach(([key, value]) => {
     if (value) query.set(key, value);
   });

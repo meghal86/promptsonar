@@ -468,15 +468,19 @@ function FindingCard({
   locations,
   copiedKey,
   onCopy,
+  standalone,
 }: {
   issue: IssueView;
   locations: string[];
   copiedKey: string | null;
   onCopy: (key: string, text: string) => void;
+  // Standalone (single-file) mode has no verified repository graph, so we must
+  // not claim closed execution routes — that reachability is unverified here.
+  standalone: boolean;
 }) {
   const evidence = issue.evidence[0];
   const where = issueLocationLabel(issue);
-  const routesClosed = issue.pathIds.length;
+  const routesClosed = standalone ? 0 : issue.pathIds.length;
   const fixKey = `${issue.id}:fix`;
   const commentKey = `${issue.id}:comment`;
   return (
@@ -698,6 +702,9 @@ export function PlaygroundMicroscope() {
     const stored = scanId ? readStoredReport(scanId) : null;
     if (stored) {
       setReport(stored);
+      // A scan id means this is a saved repository report — default to repository
+      // mode unless the URL explicitly marks a single-input (prompt/file) scan.
+      if (scanId && mode !== "prompt" && mode !== "file") setInputMode("repository");
       return () => window.removeEventListener("popstate", handlePopState);
     }
     if (scanId) {
@@ -733,6 +740,11 @@ export function PlaygroundMicroscope() {
   // shows what's missing instead of fabricating before-code.
   // Aggregated file → tool → action route for the file-level "THE ROUTE" strip.
   const route = view ? deriveRoute(view) : null;
+
+  // Standalone (single-file) mode has no verified repository graph. We must not
+  // present file→action relationships as confirmed execution paths or "can
+  // reach" — only as capabilities the file declares or references.
+  const standalone = !!view && !view.repositoryWiringAvailable;
 
   // Full text of the scanned files (persisted by the repository scan), used for
   // the full-file before/after. Null when unavailable — the card falls back to
@@ -900,34 +912,68 @@ export function PlaygroundMicroscope() {
                 <ProvenanceBadge provenance={view.provenance} />
               </div>
               <h1 className="mt-3 break-all font-mono text-[22px] font-medium tracking-[-0.02em] sm:text-[27px]">{view.artifact.repositoryRelativePath || view.artifact.name || "Selected artifact"}</h1>
-              <p className="mt-2 font-mono text-[11px] text-stone-500">{artifactLabel(view.artifactType)} · {view.issueCount} finding{view.issueCount === 1 ? "" : "s"} · {view.relatedPathCount} execution route{view.relatedPathCount === 1 ? "" : "s"}</p>
-              {!view.repositoryWiringAvailable && (
+              <p className="mt-2 font-mono text-[11px] text-stone-500">
+                {artifactLabel(view.artifactType)} · {view.issueCount} finding{view.issueCount === 1 ? "" : "s"}
+                {standalone
+                  ? (view.relatedPathCount > 0 ? ` · ${view.relatedPathCount} potential downstream action${view.relatedPathCount === 1 ? "" : "s"}` : "")
+                  : ` · ${view.relatedPathCount} execution route${view.relatedPathCount === 1 ? "" : "s"}`}
+              </p>
+              {standalone && (
                 <p className="mt-4 max-w-3xl rounded-xl border border-amber-300 bg-amber-50/70 px-4 py-3 text-[13px] leading-6 text-amber-950">
-                  Repository wiring is unavailable for this single-input scan. Connect or upload a repository to verify downstream execution.
+                  <b>Standalone scan.</b> This view shows what the file itself declares or references. Downstream
+                  reachability is <b>not verified</b> here — connect or upload the repository to confirm whether these
+                  capabilities can actually be reached.
                 </p>
               )}
             </header>
 
-            {/* FILE-LEVEL ROUTE — where this file's instructions can go */}
+            {/* FILE-LEVEL CAPABILITY VIEW.
+                Repository mode: a verified execution route (source -> tool -> action).
+                Standalone mode: only what the file declares/references — no verified
+                reachability, so no "reaches action" claim. */}
             {route && (route.tools.length > 0 || route.actions.length > 0) && (
-              <section className="rounded-2xl border border-stone-900/10 bg-white/65 p-5 backdrop-blur-xl sm:p-6">
-                <div className="grid gap-3 sm:grid-cols-[136px_1fr] sm:gap-6">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">The route</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-lg border border-stone-300 bg-stone-100/70 px-3 py-1.5 font-mono text-[12px] text-stone-700">{route.source}</span>
-                    {route.tools.map((tool) => (
-                      <span key={tool} className="flex items-center gap-2">
-                        <span className="text-stone-400">→</span>
-                        <span className="rounded-lg border border-sky-300/70 bg-sky-50/70 px-3 py-1.5 font-mono text-[12px] text-sky-800">{tool}</span>
-                      </span>
-                    ))}
-                    {route.actions.length > 0 && <span className="text-stone-400">→</span>}
-                    {route.actions.map((action) => (
-                      <span key={action} title={plainAction(action)} className="rounded-lg border border-red-300 bg-red-50/70 px-3 py-1.5 font-mono text-[12px] text-red-700">{action}</span>
-                    ))}
+              standalone ? (
+                <section className="rounded-2xl border border-stone-900/10 bg-white/65 p-5 backdrop-blur-xl sm:p-6">
+                  <div className="grid gap-3 sm:grid-cols-[136px_1fr] sm:gap-6">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">Declared &amp; referenced</p>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-lg border border-stone-300 bg-stone-100/70 px-3 py-1.5 font-mono text-[12px] text-stone-700">{route.source}</span>
+                        <span className="font-mono text-[11px] text-stone-400">references</span>
+                        {route.tools.map((tool) => (
+                          <span key={tool} className="rounded-lg border border-sky-300/70 bg-sky-50/70 px-3 py-1.5 font-mono text-[12px] text-sky-800">{tool}</span>
+                        ))}
+                        {route.actions.map((action) => (
+                          <span key={action} title={plainAction(action)} className="rounded-lg border border-amber-300 bg-amber-50/70 px-3 py-1.5 font-mono text-[12px] text-amber-800">{action}</span>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-[12px] leading-5 text-stone-500">
+                        This file <b>mentions or declares</b> these sensitive areas. Whether they can actually be reached is
+                        <b> not verified in standalone mode</b> — connect or upload the repository to confirm downstream reachability.
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </section>
+                </section>
+              ) : (
+                <section className="rounded-2xl border border-stone-900/10 bg-white/65 p-5 backdrop-blur-xl sm:p-6">
+                  <div className="grid gap-3 sm:grid-cols-[136px_1fr] sm:gap-6">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400">The route</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-lg border border-stone-300 bg-stone-100/70 px-3 py-1.5 font-mono text-[12px] text-stone-700">{route.source}</span>
+                      {route.tools.map((tool) => (
+                        <span key={tool} className="flex items-center gap-2">
+                          <span className="text-stone-400">→</span>
+                          <span className="rounded-lg border border-sky-300/70 bg-sky-50/70 px-3 py-1.5 font-mono text-[12px] text-sky-800">{tool}</span>
+                        </span>
+                      ))}
+                      {route.actions.length > 0 && <span className="text-stone-400">→</span>}
+                      {route.actions.map((action) => (
+                        <span key={action} title={plainAction(action)} className="rounded-lg border border-red-300 bg-red-50/70 px-3 py-1.5 font-mono text-[12px] text-red-700">{action}</span>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              )
             )}
 
             {/* ONE consolidated before/after for the whole file + AI fix prompt */}
@@ -958,6 +1004,7 @@ export function PlaygroundMicroscope() {
                       locations={locations}
                       copiedKey={copiedKey}
                       onCopy={copyFinding}
+                      standalone={standalone}
                     />
                   );
                 })}
@@ -965,64 +1012,93 @@ export function PlaygroundMicroscope() {
             ) : (
               <section className="rounded-2xl border border-amber-300 bg-amber-50/55 p-6">
                 <h2 className="font-sans text-[23px] font-medium">No finding is attached to this file.</h2>
-                <p className="mt-2 text-[13px] leading-6 text-stone-600">This file may participate in an execution path without carrying a file-level finding.</p>
+                <p className="mt-2 text-[13px] leading-6 text-stone-600">{standalone ? "This file may reference a sensitive area without carrying a file-level finding." : "This file may participate in an execution path without carrying a file-level finding."}</p>
               </section>
             )}
 
-            <Collapsible label="Execution paths" hint={`${view.relatedPathCount} route${view.relatedPathCount === 1 ? "" : "s"} through this file`}>
-              <div className="space-y-6">
-                <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-4">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">What this is</p>
-                  <p className="mt-2 text-[13px] leading-6 text-stone-600">
-                    A step-by-step trail showing how an instruction in this file could actually end up doing something risky —
-                    like running a command, changing your files, or reaching the internet. It&apos;s the difference between
-                    &ldquo;this looks risky&rdquo; and &ldquo;this can really happen.&rdquo;
-                  </p>
-                  <p className="mt-2 text-[13px] leading-6 text-stone-600">
-                    <b>Why it&apos;s useful:</b> it tells you whether a problem can truly be triggered, so you fix the ones that
-                    matter most. The &ldquo;confidence&rdquo; label says how sure we are.
-                  </p>
-                </div>
-                <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Route linked to this finding</p>
-                  {view.pathsSupportedByIssue[0] ? (
-                    <div className="mt-3">
-                      <EndToEndFlow path={view.pathsSupportedByIssue[0]} selectedNodeIds={view.graph.selectedNodeIds} />
+            {standalone ? (
+              <Collapsible label="Potential downstream actions" hint="not verified in standalone mode">
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-amber-300 bg-amber-50/60 p-4">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-700">Not verified in standalone mode</p>
+                    <p className="mt-2 text-[13px] leading-6 text-amber-950">
+                      These are sensitive areas this file <b>mentions or declares</b> — not confirmed execution paths. A
+                      repository-verified execution path is <b>not available in standalone mode</b>. Connect or upload the
+                      repository to confirm whether these can actually be reached.
+                    </p>
+                  </div>
+                  {(route?.actions.length ?? 0) > 0 ? (
+                    <div>
+                      <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Sensitive areas referenced by this file</p>
+                      <ul className="mt-3 flex flex-wrap gap-2">
+                        {route!.actions.map((action) => (
+                          <li key={action} className="rounded-lg border border-amber-300 bg-amber-50/70 px-3 py-2 font-mono text-[12px] text-amber-800">
+                            {action} <span className="text-amber-600/80">· potential</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   ) : (
-                    <div className="mt-3 rounded-2xl border border-stone-300 bg-white/55 p-6 text-[13px] leading-6 text-stone-500">
-                      No execution path is explicitly linked to the selected finding in the canonical report.
+                    <p className="text-[13px] text-stone-500">No sensitive references were detected in this file.</p>
+                  )}
+                </div>
+              </Collapsible>
+            ) : (
+              <Collapsible label="Execution paths" hint={`${view.relatedPathCount} route${view.relatedPathCount === 1 ? "" : "s"} through this file`}>
+                <div className="space-y-6">
+                  <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-4">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">What this is</p>
+                    <p className="mt-2 text-[13px] leading-6 text-stone-600">
+                      A step-by-step trail showing how an instruction in this file could actually end up doing something risky —
+                      like running a command, changing your files, or reaching the internet. It&apos;s the difference between
+                      &ldquo;this looks risky&rdquo; and &ldquo;this can really happen.&rdquo;
+                    </p>
+                    <p className="mt-2 text-[13px] leading-6 text-stone-600">
+                      <b>Why it&apos;s useful:</b> it tells you whether a problem can truly be triggered, so you fix the ones that
+                      matter most. The &ldquo;confidence&rdquo; label says how sure we are.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Route linked to this finding</p>
+                    {view.pathsSupportedByIssue[0] ? (
+                      <div className="mt-3">
+                        <EndToEndFlow path={view.pathsSupportedByIssue[0]} selectedNodeIds={view.graph.selectedNodeIds} />
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-2xl border border-stone-300 bg-white/55 p-6 text-[13px] leading-6 text-stone-500">
+                        No execution path is explicitly linked to the selected finding in the canonical report.
+                      </div>
+                    )}
+                  </div>
+                  {view.otherPathsInvolvingFile.length > 0 && (
+                    <div>
+                      <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Other routes that include this file</p>
+                      <div className="mt-3 overflow-hidden rounded-2xl border border-white/75 bg-white/65 backdrop-blur-xl">
+                        {view.otherPathsInvolvingFile.map((path) => {
+                          const selectedIndex = path.nodes.findIndex((node) => view.graph.selectedNodeIds.includes(node.id));
+                          const role = selectedIndex === 0 ? "Source" : selectedIndex === path.nodes.length - 1 ? "Sink" : selectedIndex > 0 ? "Intermediate" : "Related";
+                          return (
+                            <article key={path.id} className="grid gap-4 border-t border-stone-900/10 p-5 first:border-t-0 md:grid-cols-[1fr_auto] md:items-center">
+                              <div>
+                                <p className="font-mono text-[11px] leading-6 text-stone-700">
+                                  {path.source?.relativePath || path.source?.label || "Source"} → {path.sink?.label || path.action || "Sensitive action"}
+                                </p>
+                                <p className="mt-1 text-[11px] text-stone-500">{role} · {path.files.length} involved file{path.files.length === 1 ? "" : "s"} · {path.provenance}</p>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <RiskBadge risk={path.risk} />
+                                <ConfidenceBadge confidence={path.confidence} />
+                                <button type="button" onClick={() => updateFocus({ ...focus, artifact: view.artifact.id, path: path.id })} className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[11px] font-semibold hover:bg-stone-50">Inspect</button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
-                {view.otherPathsInvolvingFile.length > 0 && (
-                  <div>
-                    <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">Other routes that include this file</p>
-                    <div className="mt-3 overflow-hidden rounded-2xl border border-white/75 bg-white/65 backdrop-blur-xl">
-                      {view.otherPathsInvolvingFile.map((path) => {
-                        const selectedIndex = path.nodes.findIndex((node) => view.graph.selectedNodeIds.includes(node.id));
-                        const role = selectedIndex === 0 ? "Source" : selectedIndex === path.nodes.length - 1 ? "Sink" : selectedIndex > 0 ? "Intermediate" : "Related";
-                        return (
-                          <article key={path.id} className="grid gap-4 border-t border-stone-900/10 p-5 first:border-t-0 md:grid-cols-[1fr_auto] md:items-center">
-                            <div>
-                              <p className="font-mono text-[11px] leading-6 text-stone-700">
-                                {path.source?.relativePath || path.source?.label || "Source"} → {path.sink?.label || path.action || "Sensitive action"}
-                              </p>
-                              <p className="mt-1 text-[11px] text-stone-500">{role} · {path.files.length} involved file{path.files.length === 1 ? "" : "s"} · {path.provenance}</p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <RiskBadge risk={path.risk} />
-                              <ConfidenceBadge confidence={path.confidence} />
-                              <button type="button" onClick={() => updateFocus({ ...focus, artifact: view.artifact.id, path: path.id })} className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-[11px] font-semibold hover:bg-stone-50">Inspect</button>
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Collapsible>
+              </Collapsible>
+            )}
 
             <Collapsible label="Relationship graph" hint="capped at 18 nodes">
               <div className="mb-4 rounded-xl border border-stone-200 bg-stone-50/70 p-4">
@@ -1036,6 +1112,12 @@ export function PlaygroundMicroscope() {
                   &ldquo;where did this power actually come from?&rdquo; — basically the blast radius around this one file. We
                   keep it to 18 items so it stays easy to read.
                 </p>
+                {standalone && (
+                  <p className="mt-2 text-[12px] leading-5 text-amber-800">
+                    In standalone mode, &ldquo;can reach&rdquo; links show what the file <b>references</b>, not verified reach —
+                    connect or upload the repository to confirm.
+                  </p>
+                )}
               </div>
               <div className="flex justify-end">
                 <div className="flex rounded-xl border border-stone-300 bg-white/65 p-1" aria-label="Graph direction">
