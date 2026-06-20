@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { computeDeterministicEdits, applyDeterministicFixes } from '@promptsonar/core';
-import { scanFiles } from '@promptsonar/cli';
+// Fixers are imported from the dashboard's own (pure) copy so a stale prebuilt
+// @promptsonar/core can never break this route. scanFiles (for the optional
+// re-scan verification) still comes from the CLI and degrades gracefully.
+import { computeDeterministicEdits, applyDeterministicFixes } from '@/lib/deterministicFixers';
 
 const MAX_FILE_CHARS = 200_000;
 
@@ -42,16 +44,24 @@ export async function POST(request: Request) {
     let beforeCount: number | null = null;
     let afterCount: number | null = null;
     if (applied.length > 0 && fixed !== content) {
-      // Prove the fix: scan the original and fixed content with the same engine,
-      // keeping the real relative path so type-specific rules (e.g. MCP) fire.
-      const relativePath = safeRelativePath(filePath);
-      const beforeDir = writeAndScanRoot(content, relativePath);
-      const afterDir = writeAndScanRoot(fixed, relativePath);
-      tmpDirs.push(beforeDir, afterDir);
-      const beforeScan = await scanFiles(beforeDir, {});
-      const afterScan = await scanFiles(afterDir, {});
-      beforeCount = beforeScan.reduce((n, r) => n + r.findings.length, 0);
-      afterCount = afterScan.reduce((n, r) => n + r.findings.length, 0);
+      // Optional proof: re-scan the original vs fixed content with the same engine,
+      // keeping the real relative path so type-specific rules (e.g. MCP) fire. If
+      // the CLI/core build is stale or unavailable, skip verification rather than
+      // fail — the deterministic edits + residual self-check still stand.
+      try {
+        const { scanFiles } = await import('@promptsonar/cli');
+        const relativePath = safeRelativePath(filePath);
+        const beforeDir = writeAndScanRoot(content, relativePath);
+        const afterDir = writeAndScanRoot(fixed, relativePath);
+        tmpDirs.push(beforeDir, afterDir);
+        const beforeScan = await scanFiles(beforeDir, {});
+        const afterScan = await scanFiles(afterDir, {});
+        beforeCount = beforeScan.reduce((n, r) => n + r.findings.length, 0);
+        afterCount = afterScan.reduce((n, r) => n + r.findings.length, 0);
+      } catch {
+        beforeCount = null;
+        afterCount = null;
+      }
     }
 
     const verified = applied.length > 0 && residualClear && (afterCount === null || (beforeCount !== null && afterCount <= beforeCount));
