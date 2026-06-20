@@ -468,6 +468,27 @@ export function RepositoryExplorer() {
     }
   }
 
+  // Clear the current report and return to the intake — works whether the report
+  // came from a live scan or was loaded from a ?scan= URL (the footer reset only
+  // appears for live scans, so the header needs its own always-visible control).
+  function startOver() {
+    setReport(null);
+    setScanMeta(null);
+    setFiles([]);
+    setSelectionStats({ total: 0, eligible: 0, queued: 0, excludedByFileLimit: 0, excludedByPayloadLimit: 0, estimatedChars: 0 });
+    setError(null);
+    setScanProgress(null);
+    try {
+      Object.keys(window.sessionStorage)
+        .filter((key) => key.startsWith("promptsonar:repository-report:"))
+        .forEach((key) => window.sessionStorage.removeItem(key));
+    } catch {
+      // Resetting the view still works even if storage can't be cleared.
+    }
+    window.history.replaceState({}, "", "/repository-v2");
+    window.scrollTo({ top: 0 });
+  }
+
   async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
     const controller = new AbortController();
     const hardTimeout = window.setTimeout(() => controller.abort(), 120_000);
@@ -776,6 +797,16 @@ export function RepositoryExplorer() {
 
         {report && view && (
           <div className="space-y-12">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="min-w-0 truncate font-mono text-[11px] text-stone-500">{report.repository?.name || "Repository report"}</p>
+              <button
+                type="button"
+                onClick={startOver}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-stone-300 bg-white/70 px-3 py-1.5 font-mono text-[11px] font-medium text-stone-700 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+              >
+                ↺ Start over (new scan)
+              </button>
+            </div>
             <nav className="sticky top-16 z-10 -mx-2 overflow-x-auto border-y border-stone-900/10 bg-[#f7f5f1]/82 px-2 py-2 backdrop-blur-xl" aria-label="Repository report sections">
               <div className="flex min-w-max gap-2">
                 {[
