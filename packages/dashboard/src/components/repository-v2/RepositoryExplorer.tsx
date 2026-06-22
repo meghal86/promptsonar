@@ -605,7 +605,7 @@ export function RepositoryExplorer() {
   }
 
   async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
-    setScanProgress(`Preparing hosted scan for ${payloadFiles.length.toLocaleString()} files…`);
+    setScanProgress(`Preparing hosted preview for ${payloadFiles.length.toLocaleString()} prioritized files…`);
     if (typeof Worker === "undefined") {
       await scanPayloadOnServer(payloadFiles, repositoryName);
       return;
