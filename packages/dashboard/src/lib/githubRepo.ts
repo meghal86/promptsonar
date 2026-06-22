@@ -8,10 +8,9 @@ import {
   MAX_BROWSER_FILES,
   MAX_BROWSER_FILE_CHARS,
   MAX_BROWSER_TOTAL_CHARS,
+  repositoryPathPriority,
+  shouldReadRepositoryPath,
 } from "./repositorySelection";
-
-const TEXT_FILE_PATTERN = /\.(prompt|ai|chat|md|mdx|txt|json|ya?ml|ts|tsx|js|jsx|py|toml|env|config|rules)$/i;
-const IGNORED_PARTS = new Set([".git", "node_modules", "dist", "build", "out", "coverage", ".next", ".turbo"]);
 
 export type GithubTarget = { owner: string; repo: string; branch?: string };
 
@@ -40,23 +39,6 @@ export function parseGithubUrl(input: string): GithubTarget | null {
   return { owner, repo: repo.replace(/\.git$/i, ""), branch };
 }
 
-function shouldRead(path: string): boolean {
-  if (path.split("/").some((part) => IGNORED_PARTS.has(part))) return false;
-  return TEXT_FILE_PATTERN.test(path);
-}
-
-// Same priority ladder as repositorySelection, evaluated on a repo-relative path.
-function pathPriority(path: string): number {
-  const name = `/${path}`.toLowerCase();
-  if (name.includes("/.cursor/") || name.includes("/.claude/") || name.endsWith("/mcp.json")) return 100;
-  if (name.endsWith("skill.md") || name.includes("/skills/")) return 90;
-  if (name.endsWith(".prompt") || name.includes("/prompts/")) return 80;
-  if (name.includes("/.github/workflows/") || name.includes("/workflows/")) return 70;
-  if (name.includes("agent") || name.includes("memory") || name.includes("tool-router")) return 60;
-  if (/\.(json|ya?ml|toml|config|rules)$/i.test(name)) return 50;
-  return 10;
-}
-
 type TreeEntry = { path: string; type: string; size?: number };
 
 function ghHeaders(token?: string): HeadersInit {
@@ -77,7 +59,14 @@ export type GithubFetchResult = {
   files: Array<{ path: string; content: string }>;
   repositoryName: string;
   branch: string;
-  stats: { totalInTree: number; eligible: number; queued: number; estimatedChars: number };
+  stats: {
+    totalInTree: number;
+    eligible: number;
+    queued: number;
+    estimatedChars: number;
+    excludedByFileLimit: number;
+    excludedByPayloadLimit: number;
+  };
 };
 
 // Resolve the branch, list the tree, prioritize, and download the chosen files
@@ -102,18 +91,19 @@ export async function fetchGithubRepoFiles(
   const totalInTree = entries.filter((entry) => entry.type === "blob").length;
 
   const eligible = entries
-    .filter((entry) => entry.type === "blob" && shouldRead(entry.path))
-    .sort((a, b) => pathPriority(b.path) - pathPriority(a.path) || a.path.localeCompare(b.path));
+    .filter((entry) => entry.type === "blob" && shouldReadRepositoryPath(entry.path))
+    .sort((a, b) => repositoryPathPriority(b.path) - repositoryPathPriority(a.path) || a.path.localeCompare(b.path));
 
   const candidates = eligible.slice(0, MAX_BROWSER_FILES);
   const files: Array<{ path: string; content: string }> = [];
   let totalChars = 0;
+  const excludedByFileLimit = Math.max(0, eligible.length - candidates.length);
 
   for (let index = 0; index < candidates.length; index += 1) {
     if (totalChars >= MAX_BROWSER_TOTAL_CHARS) break;
     const entry = candidates[index];
     if (index % 10 === 0 || index === candidates.length - 1) {
-      onProgress?.(`Downloading prioritized files… ${index + 1}/${candidates.length}`);
+      onProgress?.(`Downloading selected hosted files… ${index + 1}/${candidates.length}${excludedByFileLimit > 0 ? ` (${excludedByFileLimit.toLocaleString()} eligible files outside hosted limit)` : ""}`);
     }
     try {
       const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(branch!)}/${entry.path.split("/").map(encodeURIComponent).join("/")}`;
@@ -136,6 +126,13 @@ export async function fetchGithubRepoFiles(
     files,
     repositoryName: `${owner}/${repo}`,
     branch: branch!,
-    stats: { totalInTree, eligible: eligible.length, queued: files.length, estimatedChars: totalChars },
+    stats: {
+      totalInTree,
+      eligible: eligible.length,
+      queued: files.length,
+      estimatedChars: totalChars,
+      excludedByFileLimit,
+      excludedByPayloadLimit: Math.max(0, candidates.length - files.length),
+    },
   };
 }

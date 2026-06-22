@@ -32,6 +32,13 @@ type ScanMeta = {
   filesReceived: number;
   filesWritten: number;
   filesSkipped: number;
+  sourceKind?: "folder" | "github" | "sample";
+  sourceTotalFiles?: number;
+  sourceEligibleFiles?: number;
+  sourceQueuedFiles?: number;
+  sourceExcludedByFileLimit?: number;
+  sourceExcludedByPayloadLimit?: number;
+  sourceEstimatedChars?: number;
   findingsCount?: number;
   groupedFindingsCount?: number;
   rawIssuesCount?: number;
@@ -51,6 +58,17 @@ type RepositoryScanWorkerMessage =
   | { type: "progress"; id: string; message: string }
   | { type: "complete"; id: string; report: RepositoryExecutionReport; scan: ScanMeta }
   | { type: "error"; id: string; error: string };
+
+type SourceScanStats = Pick<
+  ScanMeta,
+  | "sourceKind"
+  | "sourceTotalFiles"
+  | "sourceEligibleFiles"
+  | "sourceQueuedFiles"
+  | "sourceExcludedByFileLimit"
+  | "sourceExcludedByPayloadLimit"
+  | "sourceEstimatedChars"
+>;
 
 function sectionLabel(children: string) {
   return <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">{children}</p>;
@@ -519,7 +537,15 @@ export function RepositoryExplorer() {
     try {
       setScanProgress(`Reading ${target.owner}/${target.repo} from GitHub…`);
       const result = await fetchGithubRepoFiles(target, (message) => setScanProgress(message));
-      await scanPayload(result.files, result.repositoryName);
+      await scanPayload(result.files, result.repositoryName, {
+        sourceKind: "github",
+        sourceTotalFiles: result.stats.totalInTree,
+        sourceEligibleFiles: result.stats.eligible,
+        sourceQueuedFiles: result.stats.queued,
+        sourceExcludedByFileLimit: result.stats.excludedByFileLimit,
+        sourceExcludedByPayloadLimit: result.stats.excludedByPayloadLimit,
+        sourceEstimatedChars: result.stats.estimatedChars,
+      });
     } catch (githubError) {
       setError(githubError instanceof Error ? githubError.message : "GitHub scan failed.");
     } finally {
@@ -528,7 +554,7 @@ export function RepositoryExplorer() {
     }
   }
 
-  async function scanPayloadOnServer(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
+  async function scanPayloadOnServer(payloadFiles: RepositoryPayloadFile[], repositoryName: string, sourceStats?: SourceScanStats) {
     const controller = new AbortController();
     const hardTimeout = window.setTimeout(() => controller.abort(), 120_000);
 
@@ -556,7 +582,7 @@ export function RepositoryExplorer() {
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `Scan failed (${response.status})`);
       setReport(data.report);
-      setScanMeta(data.scan);
+      setScanMeta({ ...data.scan, ...sourceStats });
       saveReport(data.report);
       // Persist the scanned file text so the file microscope can show full-file
       // before/after context (browser session only, never re-uploaded).
@@ -575,7 +601,7 @@ export function RepositoryExplorer() {
     }
   }
 
-  async function scanPayloadInWorker(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
+  async function scanPayloadInWorker(payloadFiles: RepositoryPayloadFile[], repositoryName: string, sourceStats?: SourceScanStats) {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const worker = new Worker(new URL("../../workers/repositoryScan.worker.ts", import.meta.url), { type: "module" });
 
@@ -599,7 +625,7 @@ export function RepositoryExplorer() {
       });
 
       setReport(result.report);
-      setScanMeta(result.scan);
+      setScanMeta({ ...result.scan, ...sourceStats });
       saveReport(result.report);
       saveRepositoryFiles(result.report?.id, payloadFiles);
       if (result.report?.id) {
@@ -610,13 +636,13 @@ export function RepositoryExplorer() {
     }
   }
 
-  async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
+  async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string, sourceStats?: SourceScanStats) {
     setScanProgress(`Preparing hosted preview for ${payloadFiles.length.toLocaleString()} prioritized files…`);
     if (typeof Worker === "undefined") {
-      await scanPayloadOnServer(payloadFiles, repositoryName);
+      await scanPayloadOnServer(payloadFiles, repositoryName, sourceStats);
       return;
     }
-    await scanPayloadInWorker(payloadFiles, repositoryName);
+    await scanPayloadInWorker(payloadFiles, repositoryName, sourceStats);
   }
 
   async function scanSelectedFiles() {
@@ -633,7 +659,15 @@ export function RepositoryExplorer() {
           setScanProgress(`Reading ${completed.toLocaleString()} of ${total.toLocaleString()} bounded files…`);
         }
       });
-      await scanPayload(payload.files, repositoryFileDisplayName(files[0]).split("/")[0] || "Uploaded repository");
+      await scanPayload(payload.files, repositoryFileDisplayName(files[0]).split("/")[0] || "Uploaded repository", {
+        sourceKind: "folder",
+        sourceTotalFiles: selectionStats.total,
+        sourceEligibleFiles: selectionStats.eligible,
+        sourceQueuedFiles: selectionStats.queued,
+        sourceExcludedByFileLimit: selectionStats.excludedByFileLimit,
+        sourceExcludedByPayloadLimit: selectionStats.excludedByPayloadLimit,
+        sourceEstimatedChars: selectionStats.estimatedChars,
+      });
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Repository scan failed.");
     } finally {
@@ -646,7 +680,13 @@ export function RepositoryExplorer() {
     setLoading(true);
     setError(null);
     try {
-      await scanPayload(SAMPLE_REPOSITORY_FILES, "Sample AI review repository");
+      await scanPayload(SAMPLE_REPOSITORY_FILES, "Sample AI review repository", {
+        sourceKind: "sample",
+        sourceTotalFiles: SAMPLE_REPOSITORY_FILES.length,
+        sourceEligibleFiles: SAMPLE_REPOSITORY_FILES.length,
+        sourceQueuedFiles: SAMPLE_REPOSITORY_FILES.length,
+        sourceEstimatedChars: SAMPLE_REPOSITORY_FILES.reduce((total, file) => total + file.content.length, 0),
+      });
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Sample scan failed.");
     } finally {
@@ -997,6 +1037,10 @@ export function RepositoryExplorer() {
                   <details className="mt-4 rounded-xl border border-stone-900/10 bg-white/50 px-4 py-3">
                     <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-stone-500">Scan diagnostics</summary>
                     <div className="mt-3 grid gap-2 font-mono text-[11px] text-stone-600 sm:grid-cols-2 lg:grid-cols-4">
+                      {scanMeta?.sourceKind && <span>source: <b className="text-stone-900">{scanMeta.sourceKind}</b></span>}
+                      {typeof scanMeta?.sourceTotalFiles === "number" && <span>source files: <b className="text-stone-900">{scanMeta.sourceTotalFiles}</b></span>}
+                      {typeof scanMeta?.sourceEligibleFiles === "number" && <span>eligible files: <b className="text-stone-900">{scanMeta.sourceEligibleFiles}</b></span>}
+                      {typeof scanMeta?.sourceQueuedFiles === "number" && <span>bounded selection: <b className="text-stone-900">{scanMeta.sourceQueuedFiles}</b></span>}
                       <span>files received: <b className="text-stone-900">{scanMeta?.filesReceived ?? view.coverage.filesConsidered}</b></span>
                       <span>files scanned: <b className="text-stone-900">{view.coverage.filesScanned}</b></span>
                       <span>engine findings: <b className="text-stone-900">{scanMeta?.findingsCount ?? rawFindingCount}</b></span>
@@ -1007,6 +1051,12 @@ export function RepositoryExplorer() {
                       <span>remediation hidden: <b className="text-stone-900">{view.remediationCount.hidden}</b></span>
                       <span>non-production: <b className="text-stone-900">{view.nonProduction.total}</b></span>
                     </div>
+                    {((scanMeta?.sourceExcludedByFileLimit || 0) > 0 || (scanMeta?.sourceExcludedByPayloadLimit || 0) > 0) && (
+                      <p className="mt-3 text-[11px] text-stone-500">
+                        Hosted bounded scan excluded {(scanMeta?.sourceExcludedByFileLimit || 0).toLocaleString()} eligible file{(scanMeta?.sourceExcludedByFileLimit || 0) === 1 ? "" : "s"} by file limit
+                        {(scanMeta?.sourceExcludedByPayloadLimit || 0) > 0 ? ` and ${(scanMeta?.sourceExcludedByPayloadLimit || 0).toLocaleString()} by payload limit` : ""}. Use the CLI for the complete repository.
+                      </p>
+                    )}
                     {Object.keys(hiddenReasons).length > 0 && (
                       <p className="mt-3 text-[11px] text-stone-500">
                         Hidden/non-production reasons: {Object.entries(hiddenReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}
