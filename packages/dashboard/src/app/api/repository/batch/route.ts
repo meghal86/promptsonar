@@ -2,7 +2,17 @@ import { NextResponse } from 'next/server';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { analyzeRepositoryExecutionFromFiles, type RepositoryExecutionReport } from '@promptsonar/core';
+import {
+  analyzeRepositoryExecutionFromFiles,
+  auditMcpConfig,
+  evaluatePrompt,
+  NON_PRODUCTION_PROVENANCE,
+  type Finding,
+  type McpFinding,
+  type RepositoryExecutionReport,
+  type RepositoryScanFinding,
+  type RepositoryScanResult,
+} from '@promptsonar/core';
 import { scanFiles, type ScanResult } from '@promptsonar/cli';
 import { cacheRepositoryReport } from '@/lib/repositoryReportCache';
 
@@ -94,6 +104,130 @@ function reportScanResult(result: ScanResult): ScanResult {
   };
 }
 
+function languageForPath(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (['.ts', '.tsx'].includes(ext)) return 'typescript';
+  if (['.js', '.jsx'].includes(ext)) return 'javascript';
+  if (ext === '.py') return 'python';
+  if (ext === '.md' || ext === '.mdx') return 'markdown';
+  if (ext === '.json') return 'json';
+  if (ext === '.yaml' || ext === '.yml') return 'yaml';
+  return 'text';
+}
+
+function locateEvidence(content: string, text?: string): { line: number; column: number; evidence: string } {
+  const lines = content.split(/\r?\n/);
+  const needle = text?.trim();
+  if (needle) {
+    const needleLine = needle.split(/\r?\n/)[0]?.trim();
+    if (needleLine) {
+      const index = lines.findIndex(line => line.includes(needleLine));
+      if (index >= 0) {
+        return {
+          line: index + 1,
+          column: Math.max(1, lines[index].indexOf(needleLine) + 1),
+          evidence: lines[index].trim().slice(0, 220),
+        };
+      }
+    }
+  }
+  const fallbackIndex = lines.findIndex(line => line.trim().length > 0);
+  return {
+    line: fallbackIndex >= 0 ? fallbackIndex + 1 : 1,
+    column: 1,
+    evidence: (lines[fallbackIndex] || text || '').trim().slice(0, 220),
+  };
+}
+
+function mapFinding(filePath: string, content: string, finding: Finding): RepositoryScanFinding {
+  const located = locateEvidence(content, finding.matchedText || finding.missingRequirement || finding.explanation);
+  const evidenceKind = finding.evidenceKind || (finding.matchedText ? 'direct' : 'absence');
+  return {
+    rule_id: finding.rule_id,
+    category: finding.category,
+    severity: finding.severity,
+    line: evidenceKind === 'absence' ? 1 : located.line,
+    column: evidenceKind === 'absence' ? 1 : located.column,
+    message: finding.explanation,
+    fix: finding.suggested_fix || '',
+    recommendation: finding.suggested_fix || '',
+    evidence: evidenceKind === 'absence'
+      ? (finding.missingRequirement || finding.explanation)
+      : located.evidence,
+    evidenceKind,
+    scopeLabel: finding.scopeLabel,
+    missingRequirement: finding.missingRequirement,
+    confidence: finding.workflow?.confidence_level || finding.workflow?.path?.confidence_level || (evidenceKind === 'direct' ? 'HIGH' : 'MEDIUM'),
+    why: finding.explanation,
+    risk: finding.explanation,
+    waived: false,
+    workflow: finding.workflow,
+  };
+}
+
+function mapMcpFinding(finding: McpFinding): RepositoryScanFinding {
+  return {
+    rule_id: finding.rule_id,
+    category: 'security',
+    severity: finding.severity,
+    line: finding.line || 1,
+    column: finding.column || 1,
+    message: finding.message,
+    fix: finding.fix,
+    recommendation: finding.fix,
+    evidence: finding.evidence || finding.path,
+    evidenceKind: 'direct',
+    confidence: 'HIGH',
+    why: finding.message,
+    risk: 'MCP configuration may expose tools, credentials, or execution capability beyond the agent workflow trust boundary.',
+    waived: false,
+    workflow: finding.workflow,
+  };
+}
+
+function isMcpConfigPath(filePath: string): boolean {
+  const normalized = normalizeRelativePath(filePath).toLowerCase();
+  const basename = path.basename(normalized);
+  return normalized.endsWith('/mcp.json') ||
+    normalized.endsWith('/mcp.yaml') ||
+    normalized.endsWith('/mcp.yml') ||
+    normalized === 'mcp.json' ||
+    normalized === 'mcp.yaml' ||
+    normalized === 'mcp.yml' ||
+    normalized.endsWith('/.cursor/mcp.json') ||
+    normalized.endsWith('/.vscode/mcp.json') ||
+    basename === 'claude_desktop_config.json';
+}
+
+function scanUploadedFiles(files: RepositoryUploadFile[]): RepositoryScanResult[] {
+  const results: RepositoryScanResult[] = [];
+  for (const file of files) {
+    const filePath = path.join(REPORT_ROOT, file.path);
+    const content = String(file.content || '');
+    const findings: RepositoryScanFinding[] = [];
+
+    if (isMcpConfigPath(file.path)) {
+      try {
+        findings.push(...auditMcpConfig(filePath, content).findings.map(mapMcpFinding));
+      } catch {
+        // Fall through to generic prompt/instruction rules.
+      }
+    }
+
+    const ruleResult = evaluatePrompt({
+      text: content,
+      language: languageForPath(file.path),
+      context: { filePath },
+    });
+    findings.push(...ruleResult.findings.map(finding => mapFinding(filePath, content, finding)));
+
+    if (findings.length > 0) {
+      results.push({ filePath, findings });
+    }
+  }
+  return results;
+}
+
 export async function POST(request: Request) {
   let root: string | undefined;
   try {
@@ -128,7 +262,7 @@ export async function POST(request: Request) {
       const bounded = boundedFiles(files);
       const scanResults = Array.isArray(body?.scanResults)
         ? (body.scanResults as ScanResult[]).map(reportScanResult)
-        : [];
+        : scanUploadedFiles(bounded.files);
       const report: RepositoryExecutionReport = analyzeRepositoryExecutionFromFiles(
         REPORT_ROOT,
         bounded.files,
@@ -140,6 +274,11 @@ export async function POST(request: Request) {
         ...report.repository,
         name: body?.repositoryName || 'Uploaded repository',
       };
+      const hiddenReasons = Object.fromEntries(
+        Object.entries(report.summary.issuesByProvenance || {}).filter(([provenance]) =>
+          NON_PRODUCTION_PROVENANCE.has(provenance as any),
+        ),
+      );
       cacheRepositoryReport(report);
 
       return NextResponse.json({
@@ -148,6 +287,12 @@ export async function POST(request: Request) {
           filesReceived: files.length,
           filesWritten: bounded.files.length,
           filesSkipped: bounded.skipped,
+          findingsCount: scanResults.reduce((total: number, result: any) => total + (result.findings?.length || 0), 0),
+          groupedFindingsCount: new Set(report.issues.map(issue => issue.ruleId)).size,
+          rawIssuesCount: report.issues.length,
+          reachablePathsCount: report.reachablePaths.length,
+          hiddenFindingsCount: Math.max(0, report.issues.length - (report.summary.productionIssueSummary?.total || 0)),
+          hiddenReasons,
           mode: 'browser-batched',
           cli: 'npx @promptsonar/cli repo . --json --output repository-report.json',
         },

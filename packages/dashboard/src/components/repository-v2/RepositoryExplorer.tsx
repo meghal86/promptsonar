@@ -32,6 +32,12 @@ type ScanMeta = {
   filesReceived: number;
   filesWritten: number;
   filesSkipped: number;
+  findingsCount?: number;
+  groupedFindingsCount?: number;
+  rawIssuesCount?: number;
+  reachablePathsCount?: number;
+  hiddenFindingsCount?: number;
+  hiddenReasons?: Record<string, number>;
   mode: string;
   cli: string;
   timings?: {
@@ -694,6 +700,11 @@ export function RepositoryExplorer() {
 
   const path = view?.highestRiskPath;
   const pathVerb = path?.confidence === "confirmed" ? "can" : "may";
+  const productionFindingCount = view?.remediationCount.total || 0;
+  const rawFindingCount = report?.issues?.length || 0;
+  const hiddenFindingCount = Math.max(0, rawFindingCount - productionFindingCount);
+  const groupedFindingCount = scanMeta?.groupedFindingsCount ?? new Set(report?.issues?.map(issue => issue.ruleId) || []).size;
+  const hiddenReasons = scanMeta?.hiddenReasons || view?.nonProduction.byProvenance || {};
 
   return (
     <PreviewShell
@@ -940,11 +951,15 @@ export function RepositoryExplorer() {
                 <h1 id="repository-verdict" className="mt-6 max-w-3xl font-sans text-[29px] font-medium leading-[1.12] tracking-[-0.025em] sm:text-[39px]">
                   {path
                     ? `A ${path.risk}-risk path ${pathVerb} reach ${actionLabel(path.action)}.`
-                    : "No production-relevant sensitive-action paths were found."}
+                    : productionFindingCount > 0
+                      ? `${productionFindingCount.toLocaleString()} production finding${productionFindingCount === 1 ? "" : "s"} need review.`
+                      : rawFindingCount > 0
+                        ? "No production issues found; filtered findings are listed below."
+                        : "No production-relevant sensitive-action paths or findings were found."}
                 </h1>
                 <p className="mt-3 max-w-3xl text-[14px] leading-6 text-stone-600">
                   {path?.explanation || (
-                    `PromptSonar scanned ${view.productionArtifactCount.toLocaleString()} production-relevant AI artifact${view.productionArtifactCount === 1 ? "" : "s"}. ${view.nonProduction.total.toLocaleString()} non-production suggestion${view.nonProduction.total === 1 ? "" : "s"} are available. This result is limited to the artifacts and relationships PromptSonar scanned; it is not a universal safety guarantee.`
+                    `PromptSonar scanned ${view.productionArtifactCount.toLocaleString()} production-relevant AI artifact${view.productionArtifactCount === 1 ? "" : "s"}. ${productionFindingCount.toLocaleString()} production finding${productionFindingCount === 1 ? "" : "s"} and ${view.nonProduction.total.toLocaleString()} non-production suggestion${view.nonProduction.total === 1 ? "" : "s"} are available. This result is limited to the artifacts and relationships PromptSonar scanned; it is not a universal safety guarantee.`
                   )}
                 </p>
 
@@ -979,6 +994,25 @@ export function RepositoryExplorer() {
                       Skipped: {Object.entries(view.coverage.skipReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}
                     </p>
                   )}
+                  <details className="mt-4 rounded-xl border border-stone-900/10 bg-white/50 px-4 py-3">
+                    <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-stone-500">Scan diagnostics</summary>
+                    <div className="mt-3 grid gap-2 font-mono text-[11px] text-stone-600 sm:grid-cols-2 lg:grid-cols-4">
+                      <span>files received: <b className="text-stone-900">{scanMeta?.filesReceived ?? view.coverage.filesConsidered}</b></span>
+                      <span>files scanned: <b className="text-stone-900">{view.coverage.filesScanned}</b></span>
+                      <span>engine findings: <b className="text-stone-900">{scanMeta?.findingsCount ?? rawFindingCount}</b></span>
+                      <span>grouped findings: <b className="text-stone-900">{groupedFindingCount}</b></span>
+                      <span>production findings: <b className="text-stone-900">{productionFindingCount}</b></span>
+                      <span>reachable paths: <b className="text-stone-900">{view.totalPathCount}</b></span>
+                      <span>hidden findings: <b className="text-stone-900">{hiddenFindingCount}</b></span>
+                      <span>remediation hidden: <b className="text-stone-900">{view.remediationCount.hidden}</b></span>
+                      <span>non-production: <b className="text-stone-900">{view.nonProduction.total}</b></span>
+                    </div>
+                    {Object.keys(hiddenReasons).length > 0 && (
+                      <p className="mt-3 text-[11px] text-stone-500">
+                        Hidden/non-production reasons: {Object.entries(hiddenReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}
+                      </p>
+                    )}
+                  </details>
                 </div>
               </div>
 
