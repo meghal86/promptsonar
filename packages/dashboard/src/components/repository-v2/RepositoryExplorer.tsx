@@ -20,6 +20,7 @@ import {
   repositoryFileDisplayName,
 } from "@/lib/repositorySelection";
 import { saveRepositoryFiles } from "@/lib/repositoryFileStore";
+import { fetchGithubRepoFiles, parseGithubUrl } from "@/lib/githubRepo";
 import { findingLane, LANE_LABEL, type FindingLane } from "@/lib/plainLanguage";
 import { ConfidenceBadge, ProvenanceBadge, RiskBadge } from "./Badges";
 import { PreviewShell } from "./PreviewShell";
@@ -305,6 +306,8 @@ export function RepositoryExplorer() {
   // Single-artifact paste intake (prompt / skill / mcp / agent / workflow / tool).
   const [artifactKind, setArtifactKind] = useState<ArtifactKindOption>("prompt");
   const [artifactText, setArtifactText] = useState(ARTIFACT_EXAMPLES[0].text);
+  // Public GitHub URL intake.
+  const [githubUrl, setGithubUrl] = useState("");
   // Security / Reliability / Quality filter for the remediation list (all on by default).
   const [remediationLanes, setRemediationLanes] = useState<Set<FindingLane>>(() => new Set<FindingLane>(["security", "reliability", "quality"]));
   const toggleRemediationLane = (lane: FindingLane) => setRemediationLanes((current) => {
@@ -325,6 +328,8 @@ export function RepositoryExplorer() {
     // Deep-link from marketing / homepage into the unified intake:
     //   ?example=mcp            preload a built-in example
     //   ?paste=<text>&kind=...  carry the visitor's own prompt/artifact
+    const repoParam = params.get("repo");
+    if (!scanId && repoParam) setGithubUrl(repoParam);
     const example = params.get("example");
     const paste = params.get("paste");
     const kindParam = params.get("kind");
@@ -487,6 +492,29 @@ export function RepositoryExplorer() {
     }
     window.history.replaceState({}, "", "/repository-v2");
     window.scrollTo({ top: 0 });
+  }
+
+  // Scan a public GitHub repository: the browser reads it via GitHub's API + raw
+  // CDN, prioritizes with the same rules as a folder upload, then runs the same
+  // bounded scan and renders the same report.
+  async function scanGithub() {
+    const target = parseGithubUrl(githubUrl);
+    if (!target) {
+      setError("Enter a GitHub URL like github.com/org/repo.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      setScanProgress(`Reading ${target.owner}/${target.repo} from GitHub…`);
+      const result = await fetchGithubRepoFiles(target, (message) => setScanProgress(message));
+      await scanPayload(result.files, result.repositoryName);
+    } catch (githubError) {
+      setError(githubError instanceof Error ? githubError.message : "GitHub scan failed.");
+    } finally {
+      setLoading(false);
+      setScanProgress(null);
+    }
   }
 
   async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
@@ -721,21 +749,34 @@ export function RepositoryExplorer() {
                 <span className="mt-3 block text-[11px] text-stone-500">For fully local analysis with no uploads, use the CLI shown below.</span>
               </label>
 
-              <div
-                aria-disabled="true"
-                aria-describedby="github-coming-soon"
-                className="rounded-2xl border border-white/75 bg-white/45 p-7 opacity-80 shadow-[0_18px_55px_-38px_rgba(28,25,23,0.55)] backdrop-blur-xl"
-              >
+              <div className="rounded-2xl border border-white/75 bg-white/65 p-7 shadow-[0_18px_55px_-38px_rgba(28,25,23,0.7)] backdrop-blur-xl">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">GitHub repository</span>
-                  <span className="rounded-full border border-stone-300 bg-white/70 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-stone-600">Coming soon</span>
+                  <span className="rounded-full border border-emerald-700/20 bg-emerald-50/75 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-emerald-800">Public</span>
                 </div>
                 <span className="mt-3 block font-sans text-[24px] font-medium tracking-tight">Scan from a GitHub URL</span>
-                <span id="github-coming-soon" className="mt-2 block text-[14px] leading-6 text-stone-600">Connect a repository without selecting a local folder. This option is disabled until GitHub import is implemented.</span>
-                <div role="textbox" aria-disabled="true" className="mt-5 rounded-xl border border-stone-300 bg-white/55 px-3 py-3 font-mono text-[11px] text-stone-400">
-                  https://github.com/your-org/your-repo
-                </div>
-                <span className="mt-3 block text-[11px] text-stone-500">Repository processing will use the configured scan service.</span>
+                <span className="mt-2 block text-[14px] leading-6 text-stone-600">Paste a public repo URL — the prioritized AI-relevant files are read from GitHub and scanned, no folder needed.</span>
+                <form
+                  onSubmit={(event) => { event.preventDefault(); if (!loading) scanGithub(); }}
+                  className="mt-5"
+                >
+                  <input
+                    type="text"
+                    value={githubUrl}
+                    onChange={(event) => setGithubUrl(event.target.value)}
+                    placeholder="https://github.com/org/repo"
+                    spellCheck={false}
+                    className="block w-full rounded-xl border border-stone-300 bg-white px-3 py-3 font-mono text-[12px] text-stone-900 outline-none focus:ring-2 focus:ring-stone-800"
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading || !githubUrl.trim()}
+                    className="mt-3 inline-flex items-center font-mono text-[12px] font-medium text-stone-900 hover:underline disabled:opacity-50"
+                  >
+                    {loading ? "Reading from GitHub…" : "Scan from GitHub →"}
+                  </button>
+                </form>
+                <span className="mt-3 block text-[11px] text-stone-500">Public repos only for now · private repos (token) coming next.</span>
               </div>
             </section>
 
