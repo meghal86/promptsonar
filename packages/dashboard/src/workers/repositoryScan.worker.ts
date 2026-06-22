@@ -28,8 +28,10 @@ type WorkerErrorMessage = {
   error: string;
 };
 
-const INITIAL_BATCH_SIZE = 8;
-const REQUEST_TIMEOUT_MS = 45_000;
+const INITIAL_BATCH_SIZE = 4;
+const MAX_CONCURRENT_BATCHES = 2;
+const REQUEST_TIMEOUT_MS = 30_000;
+const REPORT_TIMEOUT_MS = 50_000;
 
 function postProgress(id: string, message: string) {
   self.postMessage({ type: 'progress', id, message } satisfies WorkerProgressMessage);
@@ -121,14 +123,34 @@ async function runRepositoryScan({ id, files, repositoryName }: WorkerRequest) {
   const scanResults: unknown[] = [];
   let filesWritten = 0;
   let filesSkipped = 0;
+  let nextBatchIndex = 0;
+  let completedBatches = 0;
 
-  for (let index = 0; index < batches.length; index += 1) {
-    const batch = batches[index];
-    const data = await scanBatch(id, batch, `Scanning batch ${index + 1} of ${batches.length}`);
-    scanResults.push(...data.results);
-    filesWritten += data.filesWritten;
-    filesSkipped += data.filesSkipped;
+  async function runNextBatch() {
+    while (nextBatchIndex < batches.length) {
+      const index = nextBatchIndex;
+      nextBatchIndex += 1;
+      const batch = batches[index];
+      const data = await scanBatch(id, batch, `Scanning batch ${index + 1} of ${batches.length}`);
+      scanResults.push(...data.results);
+      filesWritten += data.filesWritten;
+      filesSkipped += data.filesSkipped;
+      completedBatches += 1;
+      postProgress(id, `${completedBatches} of ${batches.length} batches complete…`);
+    }
   }
+
+  const workers = Array.from(
+    { length: Math.min(MAX_CONCURRENT_BATCHES, batches.length) },
+    () => runNextBatch(),
+  );
+  await Promise.all(workers);
+
+  scanResults.sort((left, right) => {
+    const leftPath = typeof left === 'object' && left && 'filePath' in left ? String((left as { filePath?: string }).filePath || '') : '';
+    const rightPath = typeof right === 'object' && right && 'filePath' in right ? String((right as { filePath?: string }).filePath || '') : '';
+    return leftPath.localeCompare(rightPath);
+  });
 
   postProgress(id, 'Assembling repository execution report…');
   const finalData = await postJson<{ report: unknown; scan: Record<string, unknown> }>({
@@ -136,7 +158,7 @@ async function runRepositoryScan({ id, files, repositoryName }: WorkerRequest) {
     files,
     repositoryName,
     scanResults,
-  });
+  }, REPORT_TIMEOUT_MS);
 
   self.postMessage({
     type: 'complete',

@@ -572,14 +572,9 @@ export function RepositoryExplorer() {
   async function scanPayloadInWorker(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const worker = new Worker(new URL("../../workers/repositoryScan.worker.ts", import.meta.url), { type: "module" });
-    let hardTimeout: number | undefined;
 
     try {
       const result = await new Promise<{ report: RepositoryExecutionReport; scan: ScanMeta }>((resolve, reject) => {
-        hardTimeout = window.setTimeout(() => {
-          worker.terminate();
-          reject(new Error("The hosted scan did not finish in time. Try fewer files, or run the full local scan with: npx @promptsonar/cli repo ."));
-        }, 5 * 60_000);
         worker.onmessage = (event: MessageEvent<RepositoryScanWorkerMessage>) => {
           const message = event.data;
           if (message.id !== requestId) return;
@@ -605,7 +600,6 @@ export function RepositoryExplorer() {
         window.history.replaceState({}, "", `/repository-v2?scan=${encodeURIComponent(result.report.id)}&section=overview#overview`);
       }
     } finally {
-      if (hardTimeout !== undefined) window.clearTimeout(hardTimeout);
       worker.terminate();
     }
   }
