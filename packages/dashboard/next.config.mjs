@@ -22,14 +22,21 @@ const nextConfig = {
         destination: '/settings/billing',
         permanent: false,
       },
-    ];
-    if (process.env.NEXT_PUBLIC_PROMPTSONAR_REPOSITORY_V2 === 'true') {
-      redirects.push({
+      // repository-v2 is the canonical repository surface (real scan engine +
+      // scalable execution-flow graph + ported explorer UX). The earlier
+      // /repository and /repository-explorer screens are retired and always
+      // redirect here.
+      {
         source: '/repository',
         destination: '/repository-v2',
         permanent: false,
-      });
-    }
+      },
+      {
+        source: '/repository-explorer',
+        destination: '/repository-v2',
+        permanent: false,
+      },
+    ];
     if (process.env.NEXT_PUBLIC_PROMPTSONAR_PLAYGROUND_V4 !== 'false') {
       redirects.push({
         source: '/playground',

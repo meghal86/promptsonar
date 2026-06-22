@@ -3291,7 +3291,7 @@ export default function PlaygroundPage() {
                   <div className="flex-1 p-5">
                     <div className="flex flex-wrap items-center gap-3">
                       <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">From your repository scan</p>
-                      <a href="/repository" className="text-[12px] font-medium text-muted-foreground hover:text-foreground">← Back to results</a>
+                      <a href="/repository-v2" className="text-[12px] font-medium text-muted-foreground hover:text-foreground">← Back to results</a>
                     </div>
                     <h2 className="mt-2 font-mono text-[15px] font-medium tracking-tight text-foreground break-all">{repositoryObjectHandoff.file || 'Selected file'}</h2>
                     {f.explanation || f.title ? (
@@ -3653,7 +3653,7 @@ export default function PlaygroundPage() {
                       <option value="optimized">✓ Clean (Secure) Example</option>
                     </select>
                     <Link
-                      href="/repository?sample=1"
+                      href="/repository-v2"
                       className="inline-flex shrink-0 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-black text-emerald-800 shadow-3xs hover:bg-emerald-100"
                     >
                       Run sample repository →

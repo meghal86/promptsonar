@@ -866,6 +866,35 @@ function actionImpact(action: RepositorySensitiveAction): string {
   return statements[action];
 }
 
+// The current (vulnerable) code shown on the "before" side of a remediation
+// diff. Only direct evidence carries a real snippet; absence findings describe
+// a missing requirement instead, so we surface that as the before text.
+function currentPatternForIssue(issue: IssuePresentation): string | null {
+  const direct = issue.evidence.find((item) => item.kind === "direct" && item.snippet);
+  if (direct && direct.kind === "direct") return direct.snippet;
+  const absence = issue.evidence.find((item) => item.kind === "absence");
+  if (absence && absence.kind === "absence") return `Missing: ${absence.missingRequirement}`;
+  return null;
+}
+
+// Plain-language consequence cards, derived from the sensitive actions that the
+// scanned paths can actually reach (never fabricated). Highest-risk action
+// first; deduplicated and path-weighted.
+function buildBusinessImpact(
+  highestRiskPath: PathProjection | null,
+  otherActions: Array<{ action: RepositorySensitiveAction; count: number }>,
+): Array<{ title: string; description: string }> {
+  const counts = new Map<RepositorySensitiveAction, number>();
+  if (highestRiskPath?.action) counts.set(highestRiskPath.action, highestRiskPath.instanceCount || 1);
+  for (const { action, count } of otherActions) {
+    counts.set(action, (counts.get(action) || 0) + count);
+  }
+  return Array.from(counts.entries()).map(([action, count]) => ({
+    title: `${count.toLocaleString()} path${count === 1 ? "" : "s"} can reach ${action}`,
+    description: actionImpact(action),
+  }));
+}
+
 export function buildRepositoryExplorerViewModel(report: RepositoryExecutionReport) {
   const highestRiskPath = getHighestRiskPathProjection(report);
   const productionIssues = report.issues.filter((issue) => !NON_PRODUCTION.has(issue.provenance || "unknown"));
@@ -909,7 +938,10 @@ export function buildRepositoryExplorerViewModel(report: RepositoryExecutionRepo
       expectedEffect: nextIssue.impact,
       effort: nextIssue.effort,
       issueId: nextIssue.id,
+      before: currentPatternForIssue(nextIssue),
+      after: nextIssue.safePattern || null,
     } : null,
+    businessImpact: buildBusinessImpact(highestRiskPath, otherActions),
     selectedPathImpacts: (highestRiskPath?.action ? [highestRiskPath.action] : []).map((action) => ({
       action,
       statement: actionImpact(action),
@@ -922,6 +954,7 @@ export function buildRepositoryExplorerViewModel(report: RepositoryExecutionRepo
       ruleId: issue.ruleId,
       title: issue.quickFix || issue.issue,
       description: issue.recommendedFix || issue.howToFix,
+      currentPattern: currentPatternForIssue(issue),
       safePattern: issue.safePattern,
       effort: issue.effort,
       files: issue.impactedFiles,

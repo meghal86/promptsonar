@@ -6,7 +6,8 @@ import * as path from 'path';
 import chalk from 'chalk';
 import { scanFiles, generateSarif, ScanResult, scoreFromFindings, loadRepositoryIgnorePatterns } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
-import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport } from '@promptsonar/core';
+import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport, computeDeterministicEdits, applyDeterministicFixes } from '@promptsonar/core';
+import * as os from 'os';
 import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
 import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
@@ -311,6 +312,62 @@ async function buildRepositoryReport(targetPath: string, options: CliOptions): P
     });
 }
 
+// Deterministic, no-AI repository fixer. For each impacted file it applies only
+// exact, structure-preserving edits, then PROVES the fix by re-running the same
+// scanner on the result and reporting the finding delta. Files that need human
+// judgement produce no edit and are left for the AI fix prompt or manual work.
+async function applyRepositoryFixes(report: RepositoryExecutionReport, targetPath: string, options: CliOptions): Promise<void> {
+    const resolved = path.resolve(targetPath);
+    const root = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() ? resolved : path.dirname(resolved);
+    console.log(chalk.blue('\n[PromptSonar] Deterministic auto-fix (no AI) — exact, structure-preserving edits, verified by re-scan.\n'));
+
+    let fixedFiles = 0;
+    let totalEdits = 0;
+    for (const impacted of report.impactedFiles) {
+        const abs = path.resolve(root, impacted.path);
+        if (!fs.existsSync(abs)) continue;
+        const content = fs.readFileSync(abs, 'utf-8');
+        const edits = computeDeterministicEdits(impacted.path, content);
+        if (edits.length === 0) continue;
+
+        const { fixed, applied, residualClear } = applyDeterministicFixes(impacted.path, content, edits);
+        if (fixed === content || applied.length === 0) continue;
+
+        // Prove it: re-scan the original vs the fixed content with the same engine.
+        const beforeScan = await scanFiles(abs, {});
+        const beforeCount = beforeScan.reduce((n, r) => n + r.findings.length, 0);
+        const tmp = path.join(os.tmpdir(), `psonar-fix-${Date.now()}-${path.basename(abs)}`);
+        fs.writeFileSync(tmp, fixed, 'utf-8');
+        const afterScan = await scanFiles(tmp, {});
+        const afterCount = afterScan.reduce((n, r) => n + r.findings.length, 0);
+        fs.rmSync(tmp, { force: true });
+
+        console.log(chalk.bold(impacted.path));
+        for (const edit of applied) {
+            console.log(`  ${chalk.green('✓')} L${edit.line} ${edit.description}`);
+            console.log(`      ${chalk.dim(edit.match.trim())} ${chalk.dim('→')} ${chalk.cyan(edit.replacement.trim())}`);
+        }
+        const verified = residualClear && afterCount <= beforeCount;
+        console.log(`  re-scan: ${beforeCount} → ${afterCount} findings  ${verified ? chalk.green('✓ verified') : chalk.yellow('⚠ review')}`);
+
+        if (options.dryRun) {
+            console.log(chalk.yellow('  [dry-run] not written\n'));
+        } else {
+            const out = abs.replace(/(\.[^.]+)$/, '.promptsonar-fixed$1');
+            fs.writeFileSync(out, fixed, 'utf-8');
+            console.log(`  ${chalk.green('written')} ${path.relative(process.cwd(), out)} ${chalk.dim('(review, then replace the original)')}\n`);
+        }
+        fixedFiles += 1;
+        totalEdits += applied.length;
+    }
+
+    if (fixedFiles === 0) {
+        console.log(chalk.dim('  No deterministic fix applies here. Remaining findings need judgement — use the AI fix prompt or edit by hand.\n'));
+    } else {
+        console.log(chalk.bold.green(`[PromptSonar] ${totalEdits} exact fix${totalEdits === 1 ? '' : 'es'} across ${fixedFiles} file${fixedFiles === 1 ? '' : 's'}${options.dryRun ? ' (dry-run)' : ''}.\n`));
+    }
+}
+
 function writeOrPrint(output: string, outputPath?: string): void {
     if (outputPath) {
         fs.writeFileSync(path.resolve(outputPath), output, 'utf-8');
@@ -523,9 +580,16 @@ program
     .option('--html', 'Output repository report as HTML')
     .option('--output <file>', 'Write output to a file')
     .option('--waiver <file>', 'Path to a .promptsonar.json waiver file')
+    .option('--fix', 'Apply deterministic, structure-preserving fixes (no AI) and verify by re-scan')
+    .option('--dry-run', 'Preview deterministic fixes without writing files')
     .action(async (targetPath: string, options: CliOptions) => {
         try {
             const report = await buildRepositoryReport(targetPath, options);
+
+            if (options.fix) {
+                await applyRepositoryFixes(report, targetPath, options);
+            }
+
             const output = options.sarif
                 ? formatRepositoryReportSarif(report)
                 : options.html
