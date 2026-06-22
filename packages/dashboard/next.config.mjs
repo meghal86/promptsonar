@@ -1,5 +1,29 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// The repository scanner loads tree-sitter parsers from .wasm asset files at
+// runtime. On serverless (Vercel) Next's file tracing bundles the JS but not
+// these assets, so the scan fails in the cloud. Force-include the .wasm files
+// (and the built CLI/core) into the scan API functions. Globs cover both a
+// hoisted root node_modules and a local one.
+const SCAN_ASSET_INCLUDES = [
+  '../../node_modules/web-tree-sitter/*.wasm',
+  '../../node_modules/tree-sitter-wasms/out/*.wasm',
+  './node_modules/web-tree-sitter/*.wasm',
+  './node_modules/tree-sitter-wasms/out/*.wasm',
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Trace from the monorepo root so hoisted node_modules assets are found.
+  outputFileTracingRoot: path.join(__dirname, '../../'),
+  outputFileTracingIncludes: {
+    '/api/repository': SCAN_ASSET_INCLUDES,
+    '/api/repository/fix': SCAN_ASSET_INCLUDES,
+    '/api/playground': SCAN_ASSET_INCLUDES,
+  },
   // The repository scanner uses tree-sitter wasm parsers and filesystem glob
   // walking; these must load from node_modules at runtime, not be bundled.
   serverExternalPackages: [
