@@ -573,6 +573,79 @@ export function analyzeRepositoryArtifacts(rootPath: string, options: AnalyzeRep
     };
 }
 
+export type InMemoryRepositoryFile = {
+    path: string;
+    content: string;
+};
+
+function normalizeInMemoryRelativePath(value: string): string {
+    return normalizePath(value)
+        .split('/')
+        .filter(part => part && part !== '.' && part !== '..')
+        .join('/');
+}
+
+function isSupportedRepositoryTextPath(relativePath: string): boolean {
+    const lower = normalizePath(relativePath).toLowerCase();
+    const ext = path.extname(lower);
+    const basename = path.basename(lower);
+    return TEXT_EXTENSIONS.has(ext) || basename === 'agents.md' || basename === 'agent.md';
+}
+
+export function analyzeRepositoryArtifactsFromFiles(
+    rootPath: string,
+    files: InMemoryRepositoryFile[],
+    options: AnalyzeRepositoryOptions = {},
+): { artifacts: RepositoryArtifact[]; scanStats: RepositoryScanStats } {
+    const root = path.resolve(rootPath);
+    const resolvedOptions = {
+        maxFiles: options.maxFiles || DEFAULT_MAX_FILES,
+        maxFileSizeBytes: options.maxFileSizeBytes || DEFAULT_MAX_FILE_SIZE_BYTES,
+        ignorePatterns: options.ignorePatterns || [],
+    };
+    const scanStats = emptyScanStats();
+    const artifacts: RepositoryArtifact[] = [];
+    const isIgnored = (relativePath: string): boolean =>
+        resolvedOptions.ignorePatterns.some(pattern =>
+            minimatch(relativePath, pattern, { dot: true }) ||
+            minimatch(relativePath, pattern.replace(/\/\*?\*?$/, ''), { dot: true })
+        );
+
+    for (const file of files) {
+        scanStats.filesConsidered += 1;
+        const relativePath = normalizeInMemoryRelativePath(file.path);
+        if (!relativePath) {
+            noteSkip(scanStats, 'unsupported_or_unreadable');
+            continue;
+        }
+        if (isIgnored(relativePath)) {
+            noteSkip(scanStats, 'ignore_pattern');
+            continue;
+        }
+        if (scanStats.filesScanned >= resolvedOptions.maxFiles) {
+            scanStats.truncated = true;
+            noteSkip(scanStats, 'max_files_exceeded');
+            continue;
+        }
+        const content = String(file.content || '');
+        if (content.length > resolvedOptions.maxFileSizeBytes) {
+            noteSkip(scanStats, 'file_too_large');
+            continue;
+        }
+        if (!isSupportedRepositoryTextPath(relativePath)) {
+            noteSkip(scanStats, 'unsupported_or_unreadable');
+            continue;
+        }
+        scanStats.filesScanned += 1;
+        artifacts.push(...classifyFile(root, path.join(root, relativePath), content));
+    }
+
+    return {
+        artifacts: artifacts.sort((a, b) => `${a.relativePath}:${a.type}:${a.name}`.localeCompare(`${b.relativePath}:${b.type}:${b.name}`)),
+        scanStats,
+    };
+}
+
 export function analyzeRepository(rootPath: string, options: AnalyzeRepositoryOptions = {}): RepositoryArtifact[] {
     return analyzeRepositoryArtifacts(rootPath, options).artifacts;
 }
@@ -2171,6 +2244,18 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
 
 export function analyzeRepositoryExecution(rootPath: string, scanResults: RepositoryScanResult[] = [], options: AnalyzeRepositoryOptions = {}): RepositoryExecutionReport {
     const { artifacts, scanStats } = analyzeRepositoryArtifacts(rootPath, options);
+    const executionMap = buildRepositoryExecutionMap(artifacts, scanResults, rootPath);
+    const reachablePaths = analyzeReachablePaths(executionMap, artifacts, scanResults);
+    return generateRepositoryExecutionReport(rootPath, artifacts, executionMap, reachablePaths, scanResults, scanStats);
+}
+
+export function analyzeRepositoryExecutionFromFiles(
+    rootPath: string,
+    files: InMemoryRepositoryFile[],
+    scanResults: RepositoryScanResult[] = [],
+    options: AnalyzeRepositoryOptions = {},
+): RepositoryExecutionReport {
+    const { artifacts, scanStats } = analyzeRepositoryArtifactsFromFiles(rootPath, files, options);
     const executionMap = buildRepositoryExecutionMap(artifacts, scanResults, rootPath);
     const reachablePaths = analyzeReachablePaths(executionMap, artifacts, scanResults);
     return generateRepositoryExecutionReport(rootPath, artifacts, executionMap, reachablePaths, scanResults, scanStats);

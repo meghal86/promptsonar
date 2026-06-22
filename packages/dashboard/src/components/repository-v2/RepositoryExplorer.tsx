@@ -41,6 +41,11 @@ type ScanMeta = {
   };
 };
 
+type RepositoryScanWorkerMessage =
+  | { type: "progress"; id: string; message: string }
+  | { type: "complete"; id: string; report: RepositoryExecutionReport; scan: ScanMeta }
+  | { type: "error"; id: string; error: string };
+
 function sectionLabel(children: string) {
   return <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">{children}</p>;
 }
@@ -517,7 +522,7 @@ export function RepositoryExplorer() {
     }
   }
 
-  async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
+  async function scanPayloadOnServer(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
     const controller = new AbortController();
     const hardTimeout = window.setTimeout(() => controller.abort(), 120_000);
 
@@ -562,6 +567,56 @@ export function RepositoryExplorer() {
       window.clearTimeout(hardTimeout);
       for (const t of phaseTimers) window.clearTimeout(t);
     }
+  }
+
+  async function scanPayloadInWorker(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const worker = new Worker(new URL("../../workers/repositoryScan.worker.ts", import.meta.url), { type: "module" });
+    let hardTimeout: number | undefined;
+
+    try {
+      const result = await new Promise<{ report: RepositoryExecutionReport; scan: ScanMeta }>((resolve, reject) => {
+        hardTimeout = window.setTimeout(() => {
+          worker.terminate();
+          reject(new Error("The hosted scan did not finish in time. Try fewer files, or run the full local scan with: npx @promptsonar/cli repo ."));
+        }, 5 * 60_000);
+        worker.onmessage = (event: MessageEvent<RepositoryScanWorkerMessage>) => {
+          const message = event.data;
+          if (message.id !== requestId) return;
+          if (message.type === "progress") {
+            setScanProgress(message.message);
+            return;
+          }
+          if (message.type === "complete") {
+            resolve({ report: message.report, scan: message.scan });
+            return;
+          }
+          reject(new Error(message.error));
+        };
+        worker.onerror = () => reject(new Error("Repository scan worker failed."));
+        worker.postMessage({ id: requestId, files: payloadFiles, repositoryName });
+      });
+
+      setReport(result.report);
+      setScanMeta(result.scan);
+      saveReport(result.report);
+      saveRepositoryFiles(result.report?.id, payloadFiles);
+      if (result.report?.id) {
+        window.history.replaceState({}, "", `/repository-v2?scan=${encodeURIComponent(result.report.id)}&section=overview#overview`);
+      }
+    } finally {
+      if (hardTimeout !== undefined) window.clearTimeout(hardTimeout);
+      worker.terminate();
+    }
+  }
+
+  async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
+    setScanProgress(`Preparing hosted scan for ${payloadFiles.length.toLocaleString()} files…`);
+    if (typeof Worker === "undefined") {
+      await scanPayloadOnServer(payloadFiles, repositoryName);
+      return;
+    }
+    await scanPayloadInWorker(payloadFiles, repositoryName);
   }
 
   async function scanSelectedFiles() {

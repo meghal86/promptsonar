@@ -21,6 +21,7 @@ const nextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../../'),
   outputFileTracingIncludes: {
     '/api/repository': SCAN_ASSET_INCLUDES,
+    '/api/repository/batch': SCAN_ASSET_INCLUDES,
     '/api/repository/fix': SCAN_ASSET_INCLUDES,
     '/api/playground': SCAN_ASSET_INCLUDES,
   },

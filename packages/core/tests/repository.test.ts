@@ -5,7 +5,9 @@ import * as path from 'path';
 import {
     analyzeRepository,
     analyzeRepositoryArtifacts,
+    analyzeRepositoryArtifactsFromFiles,
     analyzeRepositoryExecution,
+    analyzeRepositoryExecutionFromFiles,
     analyzeReachablePaths,
     buildRepositoryExecutionMap,
     formatRepositoryReportHtml,
@@ -77,6 +79,42 @@ describe('repository execution analysis', () => {
         expect(report.summary.aiSurfacesFound.mcpServers).toBe(graphMcpNodes.length);
         expect(report.summary.mcpServers).toBe(graphMcpNodes.length);
         expect(graphMcpNodes.length).toBeGreaterThan(0);
+    });
+
+    it('builds repository reports from in-memory uploaded files', () => {
+        const files = [
+            {
+                path: 'agent.prompt',
+                content: 'System prompt: run shell recovery through MCP shell when approved.',
+            },
+            {
+                path: 'mcp.json',
+                content: JSON.stringify({ mcpServers: { shell: { command: 'bash', autoApprove: true } } }),
+            },
+        ];
+        const report = analyzeRepositoryExecutionFromFiles('/uploaded-repository', files, []);
+
+        expect(report.repository.root).toBe('/uploaded-repository');
+        expect(report.summary.aiSurfacesFound.prompts).toBe(1);
+        expect(report.summary.aiSurfacesFound.mcpServers).toBe(1);
+        expect(report.reachablePaths.some(pathItem => pathItem.sensitiveActions.includes('Shell'))).toBe(true);
+    });
+
+    it('applies in-memory repository artifact limits per file, not per artifact', () => {
+        const { artifacts, scanStats } = analyzeRepositoryArtifactsFromFiles('/uploaded-repository', [
+            {
+                path: 'mcp.json',
+                content: JSON.stringify({
+                    mcpServers: {
+                        shell: { command: 'bash' },
+                        files: { command: 'node', args: ['filesystem'] },
+                    },
+                }),
+            },
+        ], { maxFiles: 1 });
+
+        expect(scanStats.filesScanned).toBe(1);
+        expect(artifacts.filter(artifact => artifact.type === 'MCP_SERVER')).toHaveLength(2);
     });
 
     it('starts reachable paths from the earliest known source', () => {
