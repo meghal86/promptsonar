@@ -14,6 +14,14 @@ const MAX_TOTAL_CHARS = 1_000_000;
 const SCAN_TIMEOUT_MS = 110_000;
 const IGNORED_PARTS = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'coverage', '.next', '.turbo']);
 
+// Serverless (Vercel/Lambda) can't reliably spawn a child process and caps wall
+// time, so on those platforms we run in-process and keep our timeout under the
+// platform limit. `maxDuration` raises Vercel's function budget (plan-permitting).
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+const IS_SERVERLESS = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.AWS_REGION;
+const SERVERLESS_TIMEOUT_MS = 55_000;
+
 type RepositoryUploadFile = {
   path: string;
   content: string;
@@ -119,9 +127,11 @@ export async function POST(request: Request) {
     const scanStartedAt = performance.now();
     let report: RepositoryExecutionReport | undefined;
 
-    // Preferred path: run the scan in a force-killable child process so a runaway
-    // (e.g. pathological file) is terminated within the deadline instead of hanging.
-    const cliBin = resolveCliBin();
+    // Preferred path (long-running servers / local dev): run the scan in a
+    // force-killable child process so a runaway (e.g. pathological file) is
+    // terminated within the deadline instead of hanging. Skipped on serverless,
+    // where spawning a process is unreliable and the CLI isn't bundled.
+    const cliBin = IS_SERVERLESS ? null : resolveCliBin();
     if (cliBin && fs.existsSync(cliBin)) {
       try {
         report = await scanInChildProcess(cliBin, root);
@@ -136,11 +146,22 @@ export async function POST(request: Request) {
       }
     }
 
-    // Fallback: in-process scan when the child process can't run (e.g. CLI not
-    // resolvable in this environment). No hard kill, but functionally identical.
+    // In-process scan — the only option on serverless, and the fallback when the
+    // child process can't run. On serverless we race the (async) scanner against
+    // the platform budget so we return a clear error instead of a 504.
     if (!report) {
-      const scanResults = await scanFiles(root, {});
-      report = analyzeRepositoryExecution(root, scanResults as any);
+      const runScan = (async () => {
+        const scanResults = await scanFiles(root!, {});
+        return analyzeRepositoryExecution(root!, scanResults as any);
+      })();
+      if (IS_SERVERLESS) {
+        const timeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(Object.assign(new Error('serverless-timeout'), { serverlessTimeout: true })), SERVERLESS_TIMEOUT_MS),
+        );
+        report = await Promise.race([runScan, timeout]);
+      } else {
+        report = await runScan;
+      }
     }
 
     const scanMs = performance.now() - scanStartedAt;
@@ -167,6 +188,11 @@ export async function POST(request: Request) {
       },
     });
   } catch (err: any) {
+    if (err?.serverlessTimeout) {
+      return NextResponse.json({
+        error: `This scan is too large for the hosted (serverless) scanner, which has a strict time limit. Try fewer files, or run the full scan locally with the CLI — it has no size limit: npx @promptsonar/cli repo .`,
+      }, { status: 503 });
+    }
     return NextResponse.json({ error: err?.message || 'Repository analysis failed' }, { status: 500 });
   } finally {
     if (root) fs.rmSync(root, { recursive: true, force: true });

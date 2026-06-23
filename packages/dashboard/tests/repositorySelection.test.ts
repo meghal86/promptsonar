@@ -3,6 +3,7 @@ import {
   MAX_BROWSER_TOTAL_CHARS,
   buildRepositoryPayload,
   prepareRepositorySelection,
+  stripCommonRepositoryRoot,
 } from "../src/lib/repositorySelection";
 
 function mockFile(relativePath: string, type = "", size = 100): File {
@@ -54,5 +55,31 @@ describe("repository folder selection", () => {
     expect(payload.totalChars).toBe(MAX_BROWSER_TOTAL_CHARS);
     expect(payload.files).toHaveLength(50);
     expect(progress.at(-1)).toBe(50);
+  });
+
+  it("strips the selected folder name so uploads use repo-relative paths like GitHub", async () => {
+    const files = [
+      mockFile("PromptSonar/CLAUDE.md", "text/markdown", 120),
+      mockFile("PromptSonar/packages/core/src/index.ts", "text/typescript", 120),
+      mockFile("PromptSonar/docs/example.prompt", "text/plain", 120),
+    ];
+
+    const selection = prepareRepositorySelection(files);
+    const payload = await buildRepositoryPayload(selection.files);
+
+    expect(payload.files.map(file => file.path)).toEqual([
+      "docs/example.prompt",
+      "CLAUDE.md",
+      "packages/core/src/index.ts",
+    ]);
+    expect(payload.files.every(file => !file.path.startsWith("PromptSonar/"))).toBe(true);
+  });
+
+  it("does not strip paths when there is no common selected folder root", () => {
+    const stripped = stripCommonRepositoryRoot(["repo-a/CLAUDE.md", "repo-b/CLAUDE.md", "README.md"]);
+
+    expect(stripped.get("repo-a/CLAUDE.md")).toBe("repo-a/CLAUDE.md");
+    expect(stripped.get("repo-b/CLAUDE.md")).toBe("repo-b/CLAUDE.md");
+    expect(stripped.get("README.md")).toBe("README.md");
   });
 });

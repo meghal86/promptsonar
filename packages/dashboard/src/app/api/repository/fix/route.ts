@@ -7,6 +7,10 @@ import * as path from 'path';
 // re-scan verification) still comes from the CLI and degrades gracefully.
 import { computeDeterministicEdits, applyDeterministicFixes } from '@/lib/deterministicFixers';
 
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+const IS_SERVERLESS = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.AWS_REGION;
+
 const MAX_FILE_CHARS = 200_000;
 
 // Keep the file's real relative path (minus traversal) so the scanner recognizes
@@ -43,7 +47,10 @@ export async function POST(request: Request) {
 
     let beforeCount: number | null = null;
     let afterCount: number | null = null;
-    if (applied.length > 0 && fixed !== content) {
+    // Skip the re-scan verification on serverless: loading tree-sitter cold can
+    // approach the function time limit. The deterministic edits + the residual
+    // self-check still stand, so the fix is shown — just without the B->A delta.
+    if (!IS_SERVERLESS && applied.length > 0 && fixed !== content) {
       // Optional proof: re-scan the original vs fixed content with the same engine,
       // keeping the real relative path so type-specific rules (e.g. MCP) fire. If
       // the CLI/core build is stale or unavailable, skip verification rather than

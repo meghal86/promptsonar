@@ -20,6 +20,7 @@ import {
   repositoryFileDisplayName,
 } from "@/lib/repositorySelection";
 import { saveRepositoryFiles } from "@/lib/repositoryFileStore";
+import { fetchGithubRepoFiles, parseGithubUrl } from "@/lib/githubRepo";
 import { findingLane, LANE_LABEL, type FindingLane } from "@/lib/plainLanguage";
 import { ConfidenceBadge, ProvenanceBadge, RiskBadge } from "./Badges";
 import { PreviewShell } from "./PreviewShell";
@@ -31,6 +32,19 @@ type ScanMeta = {
   filesReceived: number;
   filesWritten: number;
   filesSkipped: number;
+  sourceKind?: "folder" | "github" | "sample";
+  sourceTotalFiles?: number;
+  sourceEligibleFiles?: number;
+  sourceQueuedFiles?: number;
+  sourceExcludedByFileLimit?: number;
+  sourceExcludedByPayloadLimit?: number;
+  sourceEstimatedChars?: number;
+  findingsCount?: number;
+  groupedFindingsCount?: number;
+  rawIssuesCount?: number;
+  reachablePathsCount?: number;
+  hiddenFindingsCount?: number;
+  hiddenReasons?: Record<string, number>;
   mode: string;
   cli: string;
   timings?: {
@@ -39,6 +53,22 @@ type ScanMeta = {
     totalMs: number;
   };
 };
+
+type RepositoryScanWorkerMessage =
+  | { type: "progress"; id: string; message: string }
+  | { type: "complete"; id: string; report: RepositoryExecutionReport; scan: ScanMeta }
+  | { type: "error"; id: string; error: string };
+
+type SourceScanStats = Pick<
+  ScanMeta,
+  | "sourceKind"
+  | "sourceTotalFiles"
+  | "sourceEligibleFiles"
+  | "sourceQueuedFiles"
+  | "sourceExcludedByFileLimit"
+  | "sourceExcludedByPayloadLimit"
+  | "sourceEstimatedChars"
+>;
 
 function sectionLabel(children: string) {
   return <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">{children}</p>;
@@ -305,6 +335,8 @@ export function RepositoryExplorer() {
   // Single-artifact paste intake (prompt / skill / mcp / agent / workflow / tool).
   const [artifactKind, setArtifactKind] = useState<ArtifactKindOption>("prompt");
   const [artifactText, setArtifactText] = useState(ARTIFACT_EXAMPLES[0].text);
+  // Public GitHub URL intake.
+  const [githubUrl, setGithubUrl] = useState("");
   // Security / Reliability / Quality filter for the remediation list (all on by default).
   const [remediationLanes, setRemediationLanes] = useState<Set<FindingLane>>(() => new Set<FindingLane>(["security", "reliability", "quality"]));
   const toggleRemediationLane = (lane: FindingLane) => setRemediationLanes((current) => {
@@ -325,6 +357,8 @@ export function RepositoryExplorer() {
     // Deep-link from marketing / homepage into the unified intake:
     //   ?example=mcp            preload a built-in example
     //   ?paste=<text>&kind=...  carry the visitor's own prompt/artifact
+    const repoParam = params.get("repo");
+    if (!scanId && repoParam) setGithubUrl(repoParam);
     const example = params.get("example");
     const paste = params.get("paste");
     const kindParam = params.get("kind");
@@ -489,7 +523,38 @@ export function RepositoryExplorer() {
     window.scrollTo({ top: 0 });
   }
 
-  async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
+  // Scan a public GitHub repository: the browser reads it via GitHub's API + raw
+  // CDN, prioritizes with the same rules as a folder upload, then runs the same
+  // bounded scan and renders the same report.
+  async function scanGithub() {
+    const target = parseGithubUrl(githubUrl);
+    if (!target) {
+      setError("Enter a GitHub URL like github.com/org/repo.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      setScanProgress(`Reading ${target.owner}/${target.repo} from GitHub…`);
+      const result = await fetchGithubRepoFiles(target, (message) => setScanProgress(message));
+      await scanPayload(result.files, result.repositoryName, {
+        sourceKind: "github",
+        sourceTotalFiles: result.stats.totalInTree,
+        sourceEligibleFiles: result.stats.eligible,
+        sourceQueuedFiles: result.stats.queued,
+        sourceExcludedByFileLimit: result.stats.excludedByFileLimit,
+        sourceExcludedByPayloadLimit: result.stats.excludedByPayloadLimit,
+        sourceEstimatedChars: result.stats.estimatedChars,
+      });
+    } catch (githubError) {
+      setError(githubError instanceof Error ? githubError.message : "GitHub scan failed.");
+    } finally {
+      setLoading(false);
+      setScanProgress(null);
+    }
+  }
+
+  async function scanPayloadOnServer(payloadFiles: RepositoryPayloadFile[], repositoryName: string, sourceStats?: SourceScanStats) {
     const controller = new AbortController();
     const hardTimeout = window.setTimeout(() => controller.abort(), 120_000);
 
@@ -517,7 +582,7 @@ export function RepositoryExplorer() {
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `Scan failed (${response.status})`);
       setReport(data.report);
-      setScanMeta(data.scan);
+      setScanMeta({ ...data.scan, ...sourceStats });
       saveReport(data.report);
       // Persist the scanned file text so the file microscope can show full-file
       // before/after context (browser session only, never re-uploaded).
@@ -536,6 +601,50 @@ export function RepositoryExplorer() {
     }
   }
 
+  async function scanPayloadInWorker(payloadFiles: RepositoryPayloadFile[], repositoryName: string, sourceStats?: SourceScanStats) {
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const worker = new Worker(new URL("../../workers/repositoryScan.worker.ts", import.meta.url), { type: "module" });
+
+    try {
+      const result = await new Promise<{ report: RepositoryExecutionReport; scan: ScanMeta }>((resolve, reject) => {
+        worker.onmessage = (event: MessageEvent<RepositoryScanWorkerMessage>) => {
+          const message = event.data;
+          if (message.id !== requestId) return;
+          if (message.type === "progress") {
+            setScanProgress(message.message);
+            return;
+          }
+          if (message.type === "complete") {
+            resolve({ report: message.report, scan: message.scan });
+            return;
+          }
+          reject(new Error(message.error));
+        };
+        worker.onerror = () => reject(new Error("Repository scan worker failed."));
+        worker.postMessage({ id: requestId, files: payloadFiles, repositoryName });
+      });
+
+      setReport(result.report);
+      setScanMeta({ ...result.scan, ...sourceStats });
+      saveReport(result.report);
+      saveRepositoryFiles(result.report?.id, payloadFiles);
+      if (result.report?.id) {
+        window.history.replaceState({}, "", `/repository-v2?scan=${encodeURIComponent(result.report.id)}&section=overview#overview`);
+      }
+    } finally {
+      worker.terminate();
+    }
+  }
+
+  async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string, sourceStats?: SourceScanStats) {
+    setScanProgress(`Preparing hosted preview for ${payloadFiles.length.toLocaleString()} prioritized files…`);
+    if (typeof Worker === "undefined") {
+      await scanPayloadOnServer(payloadFiles, repositoryName, sourceStats);
+      return;
+    }
+    await scanPayloadInWorker(payloadFiles, repositoryName, sourceStats);
+  }
+
   async function scanSelectedFiles() {
     if (!files.length) {
       setError("Choose a repository folder or run the built-in sample.");
@@ -550,7 +659,15 @@ export function RepositoryExplorer() {
           setScanProgress(`Reading ${completed.toLocaleString()} of ${total.toLocaleString()} bounded files…`);
         }
       });
-      await scanPayload(payload.files, repositoryFileDisplayName(files[0]).split("/")[0] || "Uploaded repository");
+      await scanPayload(payload.files, repositoryFileDisplayName(files[0]).split("/")[0] || "Uploaded repository", {
+        sourceKind: "folder",
+        sourceTotalFiles: selectionStats.total,
+        sourceEligibleFiles: selectionStats.eligible,
+        sourceQueuedFiles: selectionStats.queued,
+        sourceExcludedByFileLimit: selectionStats.excludedByFileLimit,
+        sourceExcludedByPayloadLimit: selectionStats.excludedByPayloadLimit,
+        sourceEstimatedChars: selectionStats.estimatedChars,
+      });
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Repository scan failed.");
     } finally {
@@ -563,7 +680,13 @@ export function RepositoryExplorer() {
     setLoading(true);
     setError(null);
     try {
-      await scanPayload(SAMPLE_REPOSITORY_FILES, "Sample AI review repository");
+      await scanPayload(SAMPLE_REPOSITORY_FILES, "Sample AI review repository", {
+        sourceKind: "sample",
+        sourceTotalFiles: SAMPLE_REPOSITORY_FILES.length,
+        sourceEligibleFiles: SAMPLE_REPOSITORY_FILES.length,
+        sourceQueuedFiles: SAMPLE_REPOSITORY_FILES.length,
+        sourceEstimatedChars: SAMPLE_REPOSITORY_FILES.reduce((total, file) => total + file.content.length, 0),
+      });
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Sample scan failed.");
     } finally {
@@ -617,6 +740,11 @@ export function RepositoryExplorer() {
 
   const path = view?.highestRiskPath;
   const pathVerb = path?.confidence === "confirmed" ? "can" : "may";
+  const productionFindingCount = view?.remediationCount.total || 0;
+  const rawFindingCount = report?.issues?.length || 0;
+  const hiddenFindingCount = Math.max(0, rawFindingCount - productionFindingCount);
+  const groupedFindingCount = scanMeta?.groupedFindingsCount ?? new Set(report?.issues?.map(issue => issue.ruleId) || []).size;
+  const hiddenReasons = scanMeta?.hiddenReasons || view?.nonProduction.byProvenance || {};
 
   return (
     <PreviewShell
@@ -721,21 +849,34 @@ export function RepositoryExplorer() {
                 <span className="mt-3 block text-[11px] text-stone-500">For fully local analysis with no uploads, use the CLI shown below.</span>
               </label>
 
-              <div
-                aria-disabled="true"
-                aria-describedby="github-coming-soon"
-                className="rounded-2xl border border-white/75 bg-white/45 p-7 opacity-80 shadow-[0_18px_55px_-38px_rgba(28,25,23,0.55)] backdrop-blur-xl"
-              >
+              <div className="rounded-2xl border border-white/75 bg-white/65 p-7 shadow-[0_18px_55px_-38px_rgba(28,25,23,0.7)] backdrop-blur-xl">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">GitHub repository</span>
-                  <span className="rounded-full border border-stone-300 bg-white/70 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-stone-600">Coming soon</span>
+                  <span className="rounded-full border border-emerald-700/20 bg-emerald-50/75 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-emerald-800">Public</span>
                 </div>
                 <span className="mt-3 block font-sans text-[24px] font-medium tracking-tight">Scan from a GitHub URL</span>
-                <span id="github-coming-soon" className="mt-2 block text-[14px] leading-6 text-stone-600">Connect a repository without selecting a local folder. This option is disabled until GitHub import is implemented.</span>
-                <div role="textbox" aria-disabled="true" className="mt-5 rounded-xl border border-stone-300 bg-white/55 px-3 py-3 font-mono text-[11px] text-stone-400">
-                  https://github.com/your-org/your-repo
-                </div>
-                <span className="mt-3 block text-[11px] text-stone-500">Repository processing will use the configured scan service.</span>
+                <span className="mt-2 block text-[14px] leading-6 text-stone-600">Paste a public repo URL — the prioritized AI-relevant files are read from GitHub and scanned, no folder needed.</span>
+                <form
+                  onSubmit={(event) => { event.preventDefault(); if (!loading) scanGithub(); }}
+                  className="mt-5"
+                >
+                  <input
+                    type="text"
+                    value={githubUrl}
+                    onChange={(event) => setGithubUrl(event.target.value)}
+                    placeholder="https://github.com/org/repo"
+                    spellCheck={false}
+                    className="block w-full rounded-xl border border-stone-300 bg-white px-3 py-3 font-mono text-[12px] text-stone-900 outline-none focus:ring-2 focus:ring-stone-800"
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading || !githubUrl.trim()}
+                    className="mt-3 inline-flex items-center font-mono text-[12px] font-medium text-stone-900 hover:underline disabled:opacity-50"
+                  >
+                    {loading ? "Reading from GitHub…" : "Scan from GitHub →"}
+                  </button>
+                </form>
+                <span className="mt-3 block text-[11px] text-stone-500">Public repos only for now · private repos (token) coming next.</span>
               </div>
             </section>
 
@@ -850,11 +991,15 @@ export function RepositoryExplorer() {
                 <h1 id="repository-verdict" className="mt-6 max-w-3xl font-sans text-[29px] font-medium leading-[1.12] tracking-[-0.025em] sm:text-[39px]">
                   {path
                     ? `A ${path.risk}-risk path ${pathVerb} reach ${actionLabel(path.action)}.`
-                    : "No production-relevant sensitive-action paths were found."}
+                    : productionFindingCount > 0
+                      ? `${productionFindingCount.toLocaleString()} production finding${productionFindingCount === 1 ? "" : "s"} need review.`
+                      : rawFindingCount > 0
+                        ? "No production issues found; filtered findings are listed below."
+                        : "No production-relevant sensitive-action paths or findings were found."}
                 </h1>
                 <p className="mt-3 max-w-3xl text-[14px] leading-6 text-stone-600">
                   {path?.explanation || (
-                    `PromptSonar scanned ${view.productionArtifactCount.toLocaleString()} production-relevant AI artifact${view.productionArtifactCount === 1 ? "" : "s"}. ${view.nonProduction.total.toLocaleString()} non-production suggestion${view.nonProduction.total === 1 ? "" : "s"} are available. This result is limited to the artifacts and relationships PromptSonar scanned; it is not a universal safety guarantee.`
+                    `PromptSonar scanned ${view.productionArtifactCount.toLocaleString()} production-relevant AI artifact${view.productionArtifactCount === 1 ? "" : "s"}. ${productionFindingCount.toLocaleString()} production finding${productionFindingCount === 1 ? "" : "s"} and ${view.nonProduction.total.toLocaleString()} non-production suggestion${view.nonProduction.total === 1 ? "" : "s"} are available. This result is limited to the artifacts and relationships PromptSonar scanned; it is not a universal safety guarantee.`
                   )}
                 </p>
 
@@ -889,6 +1034,35 @@ export function RepositoryExplorer() {
                       Skipped: {Object.entries(view.coverage.skipReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}
                     </p>
                   )}
+                  <details className="mt-4 rounded-xl border border-stone-900/10 bg-white/50 px-4 py-3">
+                    <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-stone-500">Scan diagnostics</summary>
+                    <div className="mt-3 grid gap-2 font-mono text-[11px] text-stone-600 sm:grid-cols-2 lg:grid-cols-4">
+                      {scanMeta?.sourceKind && <span>source: <b className="text-stone-900">{scanMeta.sourceKind}</b></span>}
+                      {typeof scanMeta?.sourceTotalFiles === "number" && <span>source files: <b className="text-stone-900">{scanMeta.sourceTotalFiles}</b></span>}
+                      {typeof scanMeta?.sourceEligibleFiles === "number" && <span>eligible files: <b className="text-stone-900">{scanMeta.sourceEligibleFiles}</b></span>}
+                      {typeof scanMeta?.sourceQueuedFiles === "number" && <span>bounded selection: <b className="text-stone-900">{scanMeta.sourceQueuedFiles}</b></span>}
+                      <span>files received: <b className="text-stone-900">{scanMeta?.filesReceived ?? view.coverage.filesConsidered}</b></span>
+                      <span>files scanned: <b className="text-stone-900">{view.coverage.filesScanned}</b></span>
+                      <span>engine findings: <b className="text-stone-900">{scanMeta?.findingsCount ?? rawFindingCount}</b></span>
+                      <span>grouped findings: <b className="text-stone-900">{groupedFindingCount}</b></span>
+                      <span>production findings: <b className="text-stone-900">{productionFindingCount}</b></span>
+                      <span>reachable paths: <b className="text-stone-900">{view.totalPathCount}</b></span>
+                      <span>hidden findings: <b className="text-stone-900">{hiddenFindingCount}</b></span>
+                      <span>remediation hidden: <b className="text-stone-900">{view.remediationCount.hidden}</b></span>
+                      <span>non-production: <b className="text-stone-900">{view.nonProduction.total}</b></span>
+                    </div>
+                    {((scanMeta?.sourceExcludedByFileLimit || 0) > 0 || (scanMeta?.sourceExcludedByPayloadLimit || 0) > 0) && (
+                      <p className="mt-3 text-[11px] text-stone-500">
+                        Hosted bounded scan excluded {(scanMeta?.sourceExcludedByFileLimit || 0).toLocaleString()} eligible file{(scanMeta?.sourceExcludedByFileLimit || 0) === 1 ? "" : "s"} by file limit
+                        {(scanMeta?.sourceExcludedByPayloadLimit || 0) > 0 ? ` and ${(scanMeta?.sourceExcludedByPayloadLimit || 0).toLocaleString()} by payload limit` : ""}. Use the CLI for the complete repository.
+                      </p>
+                    )}
+                    {Object.keys(hiddenReasons).length > 0 && (
+                      <p className="mt-3 text-[11px] text-stone-500">
+                        Hidden/non-production reasons: {Object.entries(hiddenReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}
+                      </p>
+                    )}
+                  </details>
                 </div>
               </div>
 
