@@ -6,7 +6,7 @@ import * as path from 'path';
 import chalk from 'chalk';
 import { scanFiles, generateSarif, ScanResult, scoreFromFindings, loadRepositoryIgnorePatterns } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
-import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport, computeDeterministicEdits, applyDeterministicFixes, contextualVerdictLabel, contextualVerdictToSarifLevel, severityToSarifRank, severityToSecuritySeverity, shouldIncludeIssueInSarif } from '@promptsonar/core';
+import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport, computeDeterministicEdits, applyDeterministicFixes, contextualVerdictLabel, contextualVerdictToSarifLevel, severityToSarifRank, severityToSecuritySeverity, shouldIncludeIssueInSarif, normalizeMcpAuditResultsContextual } from '@promptsonar/core';
 import * as os from 'os';
 import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
@@ -828,7 +828,7 @@ program
     .option('--output <file>', 'Write audit output to a file')
     .action((targetPath: string | undefined, options: CliOptions) => {
         try {
-            const results = auditDiscoveredMcpConfigs(targetPath);
+            const results = normalizeMcpAuditResultsContextual(auditDiscoveredMcpConfigs(targetPath));
             const selectedFormat = options.sarif ? 'sarif' : options.json ? 'json' : options.format;
             if (!['terminal', 'json', 'sarif'].includes(selectedFormat)) {
                 console.error(chalk.red(`[PromptSonar] MCP audit error: unknown format "${selectedFormat}". Use terminal, json, or sarif.`));

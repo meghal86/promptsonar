@@ -18,6 +18,7 @@ import {
     editorLineForEvidence,
     renderRepositoryFileInvestigations,
 } from './repositoryInvestigation';
+import { contextualizeMcpAuditForActiveDocument } from './mcpContextual';
 import { isScannable, isMcpConfigFile } from '../shared/detection';
 import { isPromptSonarIgnoredPath, parsePromptSonarIgnore, PromptSonarIgnoreMatcher } from '../shared/ignore';
 import { executionPathText, pickWorstWorkflowFinding, reportText } from '../shared/model';
@@ -378,15 +379,9 @@ export function activate(context: ExtensionContext) {
         let findings: any[] = [];
         let mcpAudit: any | undefined;
         if (isMcpConfigFile(document.fileName)) {
-            mcpAudit = auditMcpConfig(document.fileName, text);
-            findings = mcpAudit.findings.map((finding: any) => ({
-                rule_id: finding.rule_id,
-                category: 'security',
-                severity: finding.severity,
-                explanation: finding.message,
-                suggested_fix: finding.fix,
-                workflow: finding.workflow,
-            }));
+            const contextualMcp = contextualizeMcpAuditForActiveDocument(auditMcpConfig(document.fileName, text));
+            mcpAudit = contextualMcp.mcpAudit;
+            findings = contextualMcp.findings;
         } else {
             const prompts = await parseFile({ filePath: document.fileName, content: text, language: '' });
             for (const prompt of prompts) {
@@ -856,7 +851,7 @@ export function activate(context: ExtensionContext) {
             const findings: any[] = [];
 
             if (isMcpConfigFile(file.fsPath)) {
-                const audit = auditMcpConfig(file.fsPath, text);
+                const audit = contextualizeMcpAuditForActiveDocument(auditMcpConfig(file.fsPath, text)).mcpAudit;
                 findings.push(...audit.findings.map((finding: any) => ({
                     rule_id: finding.rule_id,
                     category: 'security',
@@ -866,6 +861,7 @@ export function activate(context: ExtensionContext) {
                     fix: finding.fix,
                     evidence: finding.evidence || finding.path,
                     workflow: finding.workflow,
+                    context: finding.context,
                     waived: false,
                 })));
             } else {

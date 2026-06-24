@@ -17,6 +17,7 @@ import {
     inferWorkflowForFinding,
     auditMcpConfig,
     McpFinding,
+    normalizeMcpFindingContextual,
     scanContentForSecrets,
     type CanonicalIssueContext,
 } from '@promptsonar/core';
@@ -690,34 +691,36 @@ function statusFromScoreAndFindings(score: number, findings: ScanFinding[]): Sca
 }
 
 function mapMcpFinding(finding: McpFinding, filePath: string): ScanFinding {
-    const recommendation = finding.fix;
-    const workflow = finding.workflow || inferWorkflowForFinding({
-        ruleId: finding.rule_id,
-        severity: finding.severity,
-        text: `${finding.message}\n${finding.fix}`,
+    const contextualFinding = normalizeMcpFindingContextual(finding);
+    const recommendation = contextualFinding.fix;
+    const workflow = contextualFinding.workflow || inferWorkflowForFinding({
+        ruleId: contextualFinding.rule_id,
+        severity: contextualFinding.severity,
+        text: `${contextualFinding.message}\n${contextualFinding.fix}`,
         filePath,
-        message: finding.message,
+        message: contextualFinding.message,
     });
     return {
-        rule_id: finding.rule_id,
+        rule_id: contextualFinding.rule_id,
         category: 'security',
-        severity: finding.severity,
-        line: finding.line || 1,
-        column: finding.column || 1,
-        message: finding.message,
+        severity: contextualFinding.severity,
+        line: contextualFinding.line || 1,
+        column: contextualFinding.column || 1,
+        message: contextualFinding.message,
         fix: recommendation,
         recommendation,
         owasp_ref: '',
         owasp: '',
-        evidence: finding.evidence
-            ? `${finding.server ? `server: ${finding.server}; ` : ''}${finding.evidence}`
-            : (finding.server ? `server: ${finding.server}; path: ${finding.path}` : finding.path),
-        confidence: getConfidenceForFinding(finding.rule_id, finding.severity),
-        why: finding.message,
+        evidence: contextualFinding.evidence
+            ? `${contextualFinding.server ? `server: ${contextualFinding.server}; ` : ''}${contextualFinding.evidence}`
+            : (contextualFinding.server ? `server: ${contextualFinding.server}; path: ${contextualFinding.path}` : contextualFinding.path),
+        confidence: getConfidenceForFinding(contextualFinding.rule_id, contextualFinding.severity),
+        why: contextualFinding.message,
         risk: 'MCP configuration may expose tools, credentials, or execution capability beyond the agent workflow trust boundary.',
-        docs_url: getRuleDocsUrl(finding.rule_id),
+        docs_url: getRuleDocsUrl(contextualFinding.rule_id),
         waived: false,
         workflow,
+        context: contextualFinding.context,
     };
 }
 

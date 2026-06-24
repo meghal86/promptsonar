@@ -626,4 +626,65 @@ describe('CLI scanner file discovery and locations (audit P0 regressions)', () =
         expect(injection?.line).toBe(2);
         expect(secret?.line).toBe(4);
     });
+
+    it('normalizes raw MCP capability-only scan findings before scoring and SARIF export', async () => {
+        const dir = makeTempDir();
+        const mcpPath = path.join(dir, 'mcp.json');
+        fs.writeFileSync(mcpPath, JSON.stringify({
+            schemaVersion: '2026-05-20',
+            mcpServers: {
+                shell: {
+                    command: 'node',
+                    args: ['server.js'],
+                    capabilities: ['shell'],
+                },
+            },
+        }), 'utf-8');
+
+        const results = await scanFiles(mcpPath, {});
+        const finding = results[0].findings.find(item => item.rule_id === 'MCP-104');
+        const sarif = JSON.parse(generateSarif(results));
+        const sarifResult = sarif.runs[0].results.find((item: any) => item.ruleId === 'MCP-104');
+
+        expect(finding).toMatchObject({ severity: 'low', context: { verdict: 'needs_more_context' } });
+        expect(finding?.context?.vulnerabilityBasis).toBeUndefined();
+        expect(results[0].overall_score).toBeGreaterThan(60);
+        expect(sarifResult.level).toBe('note');
+        expect(sarifResult.properties.contextual_verdict).toBe('needs_more_context');
+    });
+
+    it('normalizes audit-mcp JSON and SARIF consistently for capability-only MCP shell findings', () => {
+        const dir = makeTempDir();
+        const mcpPath = path.join(dir, 'mcp.json');
+        fs.writeFileSync(mcpPath, JSON.stringify({
+            schemaVersion: '2026-05-20',
+            mcpServers: {
+                shell: {
+                    command: 'node',
+                    args: ['server.js'],
+                    capabilities: ['shell'],
+                },
+            },
+        }), 'utf-8');
+
+        const jsonResult = spawnSync(process.execPath, ['-r', 'ts-node/register', 'src/cli.ts', 'audit-mcp', mcpPath, '--json'], {
+            cwd: path.resolve(__dirname, '..'),
+            encoding: 'utf-8',
+        });
+        const sarifResult = spawnSync(process.execPath, ['-r', 'ts-node/register', 'src/cli.ts', 'audit-mcp', mcpPath, '--sarif'], {
+            cwd: path.resolve(__dirname, '..'),
+            encoding: 'utf-8',
+        });
+        const json = JSON.parse(jsonResult.stdout);
+        const sarif = JSON.parse(sarifResult.stdout);
+        const jsonFinding = json[0].findings.find((finding: any) => finding.rule_id === 'MCP-104');
+        const sarifFinding = sarif.runs[0].results.find((result: any) => result.ruleId === 'MCP-104');
+
+        expect(jsonResult.status).toBe(1);
+        expect(sarifResult.status).toBe(1);
+        expect(jsonFinding).toMatchObject({ severity: 'low', context: { verdict: 'needs_more_context' } });
+        expect(jsonFinding.context.vulnerabilityBasis).toBeUndefined();
+        expect(sarifFinding.level).toBe('note');
+        expect(sarifFinding.properties.contextual_verdict).toBe(jsonFinding.context.verdict);
+    });
 });

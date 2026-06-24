@@ -24,6 +24,8 @@ import {
     inferWorkflowForFinding,
     auditMcpConfig,
     McpFinding,
+    normalizeMcpFindingContextual,
+    type CanonicalIssueContext,
 } from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
@@ -54,6 +56,7 @@ export interface ScanFinding {
     risk: string;
     waived: boolean;
     workflow?: FindingWorkflow;
+    context?: CanonicalIssueContext;
     suppression_reason?: string;
     suppression_source?: string;
 }
@@ -193,35 +196,37 @@ function statusFromFindings(findings: ScanFinding[]): ScanResult['status'] {
 }
 
 function mapMcpFinding(finding: McpFinding, filePath: string): ScanFinding {
-    const recommendation = finding.fix;
-    const workflow = finding.workflow || inferWorkflowForFinding({
-        ruleId: finding.rule_id,
-        severity: finding.severity,
-        text: `${finding.message}\n${finding.fix}`,
+    const contextualFinding = normalizeMcpFindingContextual(finding);
+    const recommendation = contextualFinding.fix;
+    const workflow = contextualFinding.workflow || inferWorkflowForFinding({
+        ruleId: contextualFinding.rule_id,
+        severity: contextualFinding.severity,
+        text: `${contextualFinding.message}\n${contextualFinding.fix}`,
         filePath,
-        message: finding.message,
+        message: contextualFinding.message,
     });
 
     return {
-        rule_id: finding.rule_id,
+        rule_id: contextualFinding.rule_id,
         category: 'security',
-        severity: finding.severity,
+        severity: contextualFinding.severity,
         line: 1,
         column: 1,
-        message: finding.message,
+        message: contextualFinding.message,
         fix: recommendation,
         owasp_ref: '',
         owasp: '',
         recommendation,
-        evidence: finding.evidence
-            ? `${finding.server ? `server: ${finding.server}; ` : ''}${finding.evidence}`
-            : (finding.server ? `server: ${finding.server}; path: ${finding.path}` : finding.path),
-        confidence: getConfidenceForFinding(finding.rule_id, finding.severity),
-        docs_url: getRuleDocsUrl(finding.rule_id),
-        why: finding.message,
-        risk: getRiskExplanation(finding.rule_id),
+        evidence: contextualFinding.evidence
+            ? `${contextualFinding.server ? `server: ${contextualFinding.server}; ` : ''}${contextualFinding.evidence}`
+            : (contextualFinding.server ? `server: ${contextualFinding.server}; path: ${contextualFinding.path}` : contextualFinding.path),
+        confidence: getConfidenceForFinding(contextualFinding.rule_id, contextualFinding.severity),
+        docs_url: getRuleDocsUrl(contextualFinding.rule_id),
+        why: contextualFinding.message,
+        risk: getRiskExplanation(contextualFinding.rule_id),
         waived: false,
         workflow,
+        context: contextualFinding.context,
     };
 }
 
@@ -557,6 +562,7 @@ export function generateSarif(results: ScanResult[]): string {
         confidence?: string;
         docs_url?: string;
         workflow?: FindingWorkflow;
+        context?: CanonicalIssueContext;
     }> = [];
     const primaryFile = results.length > 0 ? results[0].filePath : 'unknown';
 
@@ -577,6 +583,7 @@ export function generateSarif(results: ScanResult[]): string {
                 confidence: f.confidence,
                 docs_url: f.docs_url,
                 workflow: f.workflow,
+                context: f.context,
             });
         }
     }
