@@ -1,3 +1,4 @@
+import { contextualVerdictLabel } from "@promptsonar/core/dist/contextual/presentation";
 import type {
   ReachableExecutionPath,
   RepositoryArtifact,
@@ -119,6 +120,9 @@ export type IssuePresentation = {
   whyThisMatters: string;
   howToFix: string;
   severity: RepositoryExecutionIssue["severity"];
+  context?: RepositoryExecutionIssue["context"];
+  contextualVerdict: string;
+  contextualVerdictLabel: string;
   confidence: RepositoryExecutionIssue["confidence"];
   evidence: PresentedEvidence[];
   quickFix: string;
@@ -473,6 +477,9 @@ function presentIssue(report: RepositoryExecutionReport, issue: RepositoryExecut
     whyThisMatters: issue.whyThisMatters,
     howToFix: issue.howToFix,
     severity: issue.severity,
+    context: issue.context,
+    contextualVerdict: issue.context?.verdict || "uncontextualized",
+    contextualVerdictLabel: contextualVerdictLabel(issue.context?.verdict),
     confidence: issue.confidence,
     evidence: presentEvidence(report, issue),
     quickFix: issue.fix.quickFix,

@@ -6,7 +6,7 @@ import * as path from 'path';
 import chalk from 'chalk';
 import { scanFiles, generateSarif, ScanResult, scoreFromFindings, loadRepositoryIgnorePatterns } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
-import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport, computeDeterministicEdits, applyDeterministicFixes } from '@promptsonar/core';
+import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport, computeDeterministicEdits, applyDeterministicFixes, contextualVerdictLabel, contextualVerdictToSarifLevel, severityToSarifRank, severityToSecuritySeverity, shouldIncludeIssueInSarif } from '@promptsonar/core';
 import * as os from 'os';
 import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
@@ -239,6 +239,7 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
                 : String(issue.severity).toUpperCase();
         const context = isProduction(issue) ? '' : chalk.dim(` [${issue.provenance} · not counted toward trust]`);
         lines.push(`  ${severity}${context} · ${issue.id}`);
+        lines.push(`    Verdict: ${contextualVerdictLabel(issue.context?.verdict)}`);
         lines.push(`    Issue: ${issue.issue}`);
         lines.push(`    Impact: ${issue.impact}`);
         lines.push(`    Files: ${issue.impactedFiles.join(', ')}`);
@@ -677,6 +678,9 @@ function formatMcpTerminal(results: McpAuditResult[]): string {
             for (const finding of result.findings) {
                 const color = finding.severity === 'critical' ? chalk.red : finding.severity === 'high' ? chalk.hex('#FF8C00') : finding.severity === 'medium' ? chalk.yellow : chalk.blue;
                 lines.push(`${color('✗')} ${color(finding.severity.toUpperCase())} · ${chalk.bold(finding.rule_id)}${finding.server ? ` · server: "${finding.server}"` : ''}`);
+                if ((finding as any).context) {
+                    lines.push(`Verdict: ${contextualVerdictLabel((finding as any).context?.verdict)}`);
+                }
                 lines.push(`${finding.message}`);
                 lines.push(`Fix: ${finding.fix}`);
                 if (finding.workflow && (finding.severity === 'high' || finding.severity === 'critical')) {
@@ -716,8 +720,9 @@ function formatMcpSarif(results: McpAuditResult[]): string {
 
     for (const result of results) {
         const serverIndex = new Map((result.servers || []).map(s => [s.server, s]));
-        for (const finding of result.findings) {
+        for (const finding of result.findings.filter(finding => shouldIncludeIssueInSarif(finding as any))) {
             const serverSummary = finding.server ? serverIndex.get(finding.server) : undefined;
+            const contextualLevel = contextualVerdictToSarifLevel((finding as any).context?.verdict, finding.severity);
             ruleMap.set(finding.rule_id, {
                 id: finding.rule_id,
                 name: finding.rule_id,
@@ -726,10 +731,17 @@ function formatMcpSarif(results: McpAuditResult[]): string {
             });
             sarifResults.push({
                 ruleId: finding.rule_id,
-                level: finding.severity === 'critical' || finding.severity === 'high' ? 'error' : finding.severity === 'medium' ? 'warning' : 'note',
+                level: contextualLevel === 'omit'
+                    ? finding.severity === 'critical' || finding.severity === 'high' ? 'error' : finding.severity === 'medium' ? 'warning' : 'note'
+                    : contextualLevel,
+                rank: severityToSarifRank(finding.severity),
                 message: { text: `${finding.message} Fix: ${finding.fix}` },
                 properties: {
                     mcp_evidence: finding.evidence,
+                    contextual_verdict: (finding as any).context?.verdict,
+                    context: (finding as any).context,
+                    'security-severity': severityToSecuritySeverity(finding.severity),
+                    securitySeverity: severityToSecuritySeverity(finding.severity),
                     mcp_confidence_contribution: finding.confidence_contribution,
                     mcp_risk_score: serverSummary?.risk_score,
                     mcp_capabilities: serverSummary?.capabilities,

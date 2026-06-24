@@ -18,6 +18,7 @@ import {
     auditMcpConfig,
     McpFinding,
     scanContentForSecrets,
+    type CanonicalIssueContext,
 } from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
@@ -69,6 +70,7 @@ export interface ScanFinding {
     waived: boolean;
     instance_count?: number;
     workflow?: FindingWorkflow;
+    context?: CanonicalIssueContext;
     suppression_reason?: string;
     suppression_source?: string;
 }
@@ -957,6 +959,7 @@ export function generateSarif(results: ScanResult[]): string {
         confidence?: string;
         docs_url?: string;
         workflow?: FindingWorkflow;
+        context?: CanonicalIssueContext;
     }> = [];
     const primaryFile = results.length > 0 ? results[0].filePath : 'unknown';
 
@@ -977,6 +980,7 @@ export function generateSarif(results: ScanResult[]): string {
                 confidence: f.confidence,
                 docs_url: f.docs_url,
                 workflow: f.workflow,
+                context: f.context,
             });
         }
     }

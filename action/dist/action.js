@@ -26,7 +26,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var core = __toESM(require("@actions/core"));
 var fs2 = __toESM(require("fs"));
 var path2 = __toESM(require("path"));
-var import_core2 = require("@promptsonar/core");
+var import_core3 = require("@promptsonar/core");
 
 // src/scanner-bridge.ts
 var fs = __toESM(require("fs"));
@@ -483,6 +483,7 @@ async function scanFileContent(filePath, content, options) {
 }
 
 // src/repository-summary.ts
+var import_core2 = require("@promptsonar/core");
 var REPOSITORY_ARTIFACT_FILES = [
   "repository-report.json",
   "execution-map.json",
@@ -518,9 +519,9 @@ function repositorySummaryMarkdown(report) {
     "",
     "## Top Issues",
     "",
-    "| Severity | Context | Issue | Impacted Files | Quick Fix |",
-    "| --- | --- | --- | --- | --- |",
-    ...topIssues.length > 0 ? topIssues.map((issue) => `| ${markdownCell(String(issue.severity).toUpperCase())} | ${markdownCell(issue.provenance ?? "production")} | ${markdownCell(issue.issue)} | ${markdownCell(issue.impactedFiles.join(", "))} | ${markdownCell(issue.fix.quickFix)} |`) : ["| None | - | No active issues | - | - |"],
+    "| Severity | Context | Verdict | Issue | Impacted Files | Quick Fix |",
+    "| --- | --- | --- | --- | --- | --- |",
+    ...topIssues.length > 0 ? topIssues.map((issue) => `| ${markdownCell(String(issue.severity).toUpperCase())} | ${markdownCell(issue.provenance ?? "production")} | ${markdownCell((0, import_core2.contextualVerdictLabel)(issue.context?.verdict))} | ${markdownCell(issue.issue)} | ${markdownCell(issue.impactedFiles.join(", "))} | ${markdownCell(issue.fix.quickFix)} |`) : ["| None | - | - | No active issues | - | - |"],
     "",
     `## Impacted Files (${report.impactedFiles.length})`,
     "",
@@ -714,9 +715,9 @@ function pickHighestRiskWorkflowGraph(results) {
       if (f.waived) continue;
       const wf = f.workflow;
       if (!wf) continue;
-      const graph = (0, import_core2.pathToGraph)(wf.path);
+      const graph = (0, import_core3.pathToGraph)(wf.path);
       if (graph.riskScore > best.riskScore) {
-        best = { riskScore: graph.riskScore, summary: (0, import_core2.workflowPathSummary)(wf), graph };
+        best = { riskScore: graph.riskScore, summary: (0, import_core3.workflowPathSummary)(wf), graph };
       }
     }
   }
@@ -730,7 +731,7 @@ function computeWorkflowDiffForFile(args) {
   if (!beforeGraph && !afterGraph) return { introduced: false, removed: false };
   if (!beforeGraph && afterGraph) return { introduced: afterGraph.privilegedSinkReached, removed: false, afterSummary: afterPick.summary };
   if (beforeGraph && !afterGraph) return { introduced: false, removed: beforeGraph.privilegedSinkReached, beforeSummary: beforePick.summary };
-  const diff = (0, import_core2.computeWorkflowDiff)(beforeGraph, afterGraph);
+  const diff = (0, import_core3.computeWorkflowDiff)(beforeGraph, afterGraph);
   const introduced = !beforeGraph.privilegedSinkReached && afterGraph.privilegedSinkReached;
   return { diff, introduced, removed: diff.executionPathRemoved, beforeSummary: beforePick.summary, afterSummary: afterPick.summary, riskReduction: diff.riskReduction };
 }
@@ -747,7 +748,7 @@ async function run() {
       path2.join(workspace, ".promptsonar.yaml")
     ];
     const configPath = configPathCandidates.find((candidate) => fs2.existsSync(candidate));
-    const config = configPath ? (0, import_core2.parsePromptSonarPrReviewConfig)(fs2.readFileSync(configPath, "utf-8")) : failOn === "none" ? { fail_on: [] } : (0, import_core2.parsePromptSonarPrReviewConfig)(`fail_on:
+    const config = configPath ? (0, import_core3.parsePromptSonarPrReviewConfig)(fs2.readFileSync(configPath, "utf-8")) : failOn === "none" ? { fail_on: [] } : (0, import_core3.parsePromptSonarPrReviewConfig)(`fail_on:
   - ${failOn}
 `);
     const event = readGitHubEvent();
@@ -771,7 +772,7 @@ async function run() {
         if (!fs2.existsSync(abs) || fs2.statSync(abs).isDirectory()) continue;
         const content = fs2.readFileSync(abs, "utf-8");
         if (isRecognizedMcpConfig2(file.filename)) {
-          const mcp = (0, import_core2.auditMcpConfig)(file.filename, content);
+          const mcp = (0, import_core3.auditMcpConfig)(file.filename, content);
           if (typeof mcp.risk_score === "number") {
             maxMcpRiskScore = maxMcpRiskScore === void 0 ? mcp.risk_score : Math.max(maxMcpRiskScore, mcp.risk_score);
             const caps = Array.from(new Set((mcp.servers || []).flatMap((server) => server.capabilities || [])));
@@ -790,7 +791,7 @@ async function run() {
     }
     let worstScore = 100;
     for (const r of results) worstScore = Math.min(worstScore, r.overall_score);
-    const repositoryReport = (0, import_core2.analyzeRepositoryExecution)(workspace, results);
+    const repositoryReport = (0, import_core3.analyzeRepositoryExecution)(workspace, results);
     const counts = {
       critical: repositoryReport.issueSummary.critical,
       high: repositoryReport.issueSummary.high,
@@ -811,16 +812,16 @@ async function run() {
     core.setOutput("issue_count", String(repositoryReport.issueSummary.total));
     core.setOutput("issue_ids", JSON.stringify(repositoryReport.issues.map((issue) => issue.id)));
     const sarifPath = path2.join(workspace, "promptsonar-results.sarif");
-    fs2.writeFileSync(sarifPath, (0, import_core2.formatRepositoryReportSarif)(repositoryReport), "utf-8");
+    fs2.writeFileSync(sarifPath, (0, import_core3.formatRepositoryReportSarif)(repositoryReport), "utf-8");
     core.setOutput("sarif-path", sarifPath);
     const repositoryReportPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[0]);
     const executionMapPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[1]);
     const repositoryHtmlPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[2]);
     const repositorySarifPath = path2.join(workspace, REPOSITORY_ARTIFACT_FILES[3]);
-    fs2.writeFileSync(repositoryReportPath, (0, import_core2.formatRepositoryReportJson)(repositoryReport), "utf-8");
+    fs2.writeFileSync(repositoryReportPath, (0, import_core3.formatRepositoryReportJson)(repositoryReport), "utf-8");
     fs2.writeFileSync(executionMapPath, JSON.stringify(repositoryReport.executionMap, null, 2), "utf-8");
-    fs2.writeFileSync(repositoryHtmlPath, (0, import_core2.formatRepositoryReportHtml)(repositoryReport), "utf-8");
-    fs2.writeFileSync(repositorySarifPath, (0, import_core2.formatRepositoryReportSarif)(repositoryReport), "utf-8");
+    fs2.writeFileSync(repositoryHtmlPath, (0, import_core3.formatRepositoryReportHtml)(repositoryReport), "utf-8");
+    fs2.writeFileSync(repositorySarifPath, (0, import_core3.formatRepositoryReportSarif)(repositoryReport), "utf-8");
     core.setOutput("repository-report-path", repositoryReportPath);
     core.setOutput("execution-map-path", executionMapPath);
     core.setOutput("repository-html-report-path", repositoryHtmlPath);
@@ -879,7 +880,7 @@ async function run() {
           removed: diff.removed,
           riskReduction: diff.riskReduction
         });
-        const patchLines = file.patch ? (0, import_core2.extractChangedLinesFromGitHubPatch)(file.patch) : /* @__PURE__ */ new Set();
+        const patchLines = file.patch ? (0, import_core3.extractChangedLinesFromGitHubPatch)(file.patch) : /* @__PURE__ */ new Set();
         for (const issue of repositoryReport.issues) {
           if (!(issue.severity === "critical" || issue.severity === "high")) continue;
           if (!issue.impactedFiles.includes(file.filename.replace(/\\/g, "/"))) continue;
@@ -890,6 +891,8 @@ async function run() {
             path: file.filename,
             line,
             body: `**${issue.id}** (${issue.severity})
+
+**Verdict:** ${(0, import_core3.contextualVerdictLabel)(issue.context?.verdict)}
 
 **Issue:** ${issue.issue}
 
@@ -918,15 +921,15 @@ async function run() {
         }
       }
       const coreFindings = toCoreFindings(results);
-      const analysis = (0, import_core2.analyzeRootCause)(coreFindings);
+      const analysis = (0, import_core3.analyzeRootCause)(coreFindings);
       const rootCause = analysis ? {
-        name: (0, import_core2.humanRuleName)(analysis.rootCause.rule_id),
-        supporting: analysis.supportingFindings.map((f) => (0, import_core2.humanRuleName)(f.rule_id))
+        name: (0, import_core3.humanRuleName)(analysis.rootCause.rule_id),
+        supporting: analysis.supportingFindings.map((f) => (0, import_core3.humanRuleName)(f.rule_id))
       } : void 0;
       const provenanceEvidence = analysis?.rootCause.workflow?.workflow_evidence || analysis?.rootCause.workflow?.evidence?.map((e) => e.label) || [];
       const confidence = computeConfidenceSummary(results);
       const execPaths = collectExecutionPaths(results);
-      const body = (0, import_core2.buildPrReviewSummaryMarkdown)({
+      const body = (0, import_core3.buildPrReviewSummaryMarkdown)({
         filesScanned: scannableFiles.length,
         counts,
         executionPaths: execPaths,
@@ -954,7 +957,7 @@ ${body}`
       });
       core.setOutput("workflow_diff", JSON.stringify(workflowDiffEntries));
     }
-    const decision = (0, import_core2.evaluatePrReviewGates)(config, {
+    const decision = (0, import_core3.evaluatePrReviewGates)(config, {
       counts,
       workflowDiffs: workflowDiffSummaries,
       mcpRiskScore: maxMcpRiskScore

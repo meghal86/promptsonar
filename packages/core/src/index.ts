@@ -18,4 +18,5 @@ export * from './runtime';
 export * from './formatter/sarif';
 export * from './pr-review';
 export * from './repository';
+export * from './contextual';
 // export * from './security'; // Phase 2

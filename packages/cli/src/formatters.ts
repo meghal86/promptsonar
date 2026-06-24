@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { analyzeRootCause, humanRuleName } from '@promptsonar/core';
+import { analyzeRootCause, contextualVerdictLabel, humanRuleName } from '@promptsonar/core';
 import { ScanResult } from './scanner';
 
 const VERSION = '1.4.3';
@@ -161,6 +161,9 @@ export function formatTerminal(results: ScanResult[]): string {
                     }
                     if (f.risk) {
                         lines.push(`     Risk: ${f.risk}`);
+                    }
+                    if (f.context?.verdict) {
+                        lines.push(`     Verdict: ${contextualVerdictLabel(f.context.verdict)}`);
                     }
                     if (f.fix) {
                         lines.push(`     Fix: ${f.fix}`);

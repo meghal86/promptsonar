@@ -5,6 +5,7 @@ import type {
   RepositoryPathConfidence,
   RepositoryRisk,
 } from "@promptsonar/core";
+import { contextualVerdictLabel } from "@promptsonar/core/dist/contextual/presentation";
 import { useEffect, useMemo, useState } from "react";
 import { buildRepositoryExplorerViewModel } from "@/lib/repositoryViewModel";
 import {
@@ -190,6 +191,7 @@ function buildMarkdownReport(report: RepositoryExecutionReport, limit = Infinity
     lines.push("");
     for (const issue of issues) {
       lines.push(`### ${String(issue.severity || "finding").toUpperCase()} · ${issue.issue || issue.ruleId}`);
+      lines.push(`**Verdict:** ${contextualVerdictLabel(issue.context?.verdict)}`);
       if (issue.howToFix || issue.fix?.recommendedFix) lines.push(`**Fix:** ${issue.fix?.recommendedFix || issue.howToFix}`);
       const files = issue.impactedFiles || [];
       if (files.length > 0) lines.push(`**Files:** ${files.slice(0, 6).map((file) => `\`${file}\``).join(", ")}`);

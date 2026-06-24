@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { contextualVerdictLabel } from '@promptsonar/core';
 
 type RepositoryReportLike = {
     repository?: { root?: string };
@@ -115,7 +116,7 @@ export function renderRepositoryFileInvestigations(files: RepositoryFileInvestig
           <button class="source-button" data-open-file="${escapeHtml(file.absolutePath)}">Open Source</button>
         </div>
         <h4>Issues</h4>
-        ${file.issues.map(issue => `<div class="investigation-item"><strong class="risk-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)} · ${escapeHtml(issue.id)}</strong><div>${escapeHtml(issue.issue)}</div></div>`).join('') || '<div class="muted">No active issues.</div>'}
+        ${file.issues.map(issue => `<div class="investigation-item"><strong class="risk-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)} · ${escapeHtml(contextualVerdictLabel(issue.context?.verdict))} · ${escapeHtml(issue.id)}</strong><div>${escapeHtml(issue.issue)}</div></div>`).join('') || '<div class="muted">No active issues.</div>'}
         <h4>Impact</h4>
         ${file.impacts.map(impact => `<div class="investigation-item">${escapeHtml(impact)}</div>`).join('') || '<div class="muted">No impact recorded.</div>'}
         <h4>Evidence</h4>

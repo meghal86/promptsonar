@@ -1,4 +1,5 @@
 import type { Severity } from '../rules/types';
+import type { CanonicalAnalysisIssue, CanonicalIssueContext } from '../contextual/types';
 
 export type RepositoryArtifactType =
     | 'PROMPT'
@@ -244,6 +245,7 @@ export interface RepositorySummary {
 
 export interface RepositoryExecutionIssueEvidence {
     id: string;
+    ruleId?: string;
     file: string;
     line?: number;
     column?: number;
@@ -272,7 +274,7 @@ export interface RepositoryIssueFix {
     effort: RepositoryIssueFixEffort;
 }
 
-export interface RepositoryExecutionIssue {
+export interface RepositoryExecutionIssue extends CanonicalAnalysisIssue {
     id: string;
     ruleId: string;
     severity: Severity | string;
@@ -293,6 +295,7 @@ export interface RepositoryExecutionIssue {
     fixSuggestions: string[];
     pathIds: string[];
     provenance?: RepositoryProvenance;
+    context?: CanonicalIssueContext;
 }
 
 export interface RepositoryIssueSummary {
@@ -339,6 +342,7 @@ export interface RepositoryPathValidation {
 export interface RepositoryExecutionReport {
     id?: string;
     version: string;
+    schemaVersion: string;
     generated_at: string;
     scannedAt?: string;
     repository: {

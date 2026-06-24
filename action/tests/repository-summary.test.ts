@@ -79,6 +79,7 @@ describe('GitHub Action repository summary', () => {
                 id: 'issue-doc-crit',
                 severity: 'critical',
                 provenance: 'documentation',
+                context: { verdict: 'needs_more_context' },
                 issue: 'Documentation describes an injection example.',
                 impact: 'Illustrative only.',
                 fix: { quickFix: 'No action — example.', effort: 'Quick' },
@@ -87,6 +88,7 @@ describe('GitHub Action repository summary', () => {
                 id: 'issue-prod-high',
                 severity: 'high',
                 provenance: 'production',
+                context: { verdict: 'risky_configuration' },
                 issue: 'Production prompt can leak PII.',
                 impact: 'Real risk.',
                 fix: { quickFix: 'Redact PII.', effort: 'Moderate' },
@@ -101,7 +103,8 @@ describe('GitHub Action repository summary', () => {
         expect(markdown).toContain('1 production issues');
         expect(markdown).toContain('Non-production (docs/tests/fixtures): 1 critical');
         expect(markdown).toContain('not counted toward trust');
-        expect(markdown).toContain('| Severity | Context | Issue | Impacted Files | Quick Fix |');
+        expect(markdown).toContain('| Severity | Context | Verdict | Issue | Impacted Files | Quick Fix |');
+        expect(markdown).toContain('Risky configuration');
         // Production issue leads the table even though the doc issue is critical.
         expect(markdown.indexOf('Production prompt can leak PII.')).toBeLessThan(markdown.indexOf('Documentation describes an injection example.'));
         expect(markdown).toContain('documentation');
