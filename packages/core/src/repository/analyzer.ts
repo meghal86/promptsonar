@@ -26,6 +26,7 @@ import {
 import { NON_PRODUCTION_PROVENANCE } from './types';
 import type {
     AnalyzeRepositoryOptions,
+    EvaluateCanonicalFindingsInput,
     ReachableExecutionPath,
     RepositoryArtifact,
     RepositoryArtifactType,
@@ -2568,4 +2569,24 @@ export function analyzeRepositoryExecutionFromFiles(
     const executionMap = buildRepositoryExecutionMap(artifacts, scanResults, rootPath);
     const reachablePaths = analyzeReachablePaths(executionMap, artifacts, scanResults);
     return generateRepositoryExecutionReport(rootPath, artifacts, executionMap, reachablePaths, scanResults, scanStats);
+}
+
+export function evaluateCanonicalFindings(input: EvaluateCanonicalFindingsInput): RepositoryExecutionReport {
+    const scanResults = input.scanResults || [];
+    const reachablePaths = analyzeReachablePaths(input.executionGraph, input.analyzedArtifacts, scanResults);
+    const report = generateRepositoryExecutionReport(
+        input.rootPath,
+        input.analyzedArtifacts,
+        input.executionGraph,
+        reachablePaths,
+        scanResults,
+        input.scanStats,
+    );
+
+    return {
+        ...report,
+        completeness: input.scanCompleteness,
+        profileEvidence: input.profileEvidence,
+        threatModel: input.threatModel,
+    };
 }

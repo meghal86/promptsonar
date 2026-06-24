@@ -1,5 +1,5 @@
 import type { Severity } from '../rules/types';
-import type { CanonicalAnalysisIssue, CanonicalIssueContext } from '../contextual/types';
+import type { CanonicalAnalysisIssue, CanonicalIssueContext, CapabilityType } from '../contextual/types';
 
 export type RepositoryArtifactType =
     | 'PROMPT'
@@ -389,10 +389,111 @@ export interface RepositoryExecutionReport {
     pathValidation: RepositoryPathValidation;
     confidenceDefinitions: Record<RepositoryPathConfidence, string>;
     findings: RepositoryScanResult[];
+    completeness?: ScanCompleteness;
+    profileEvidence?: RepositoryProfileEvidence;
+    threatModel?: unknown;
 }
 
 export interface AnalyzeRepositoryOptions {
     maxFiles?: number;
     maxFileSizeBytes?: number;
     ignorePatterns?: string[];
+}
+
+export type RepositoryFileStatus =
+    | 'inventoried'
+    | 'selected'
+    | 'fetched'
+    | 'parsed'
+    | 'analyzed'
+    | 'graph_connected'
+    | 'skipped'
+    | 'failed';
+
+export type RepositoryFileFailureReason =
+    | 'budget_exhausted'
+    | 'api_request_budget_exhausted'
+    | 'rate_limited'
+    | 'file_too_large'
+    | 'binary'
+    | 'unsupported_type'
+    | 'fetch_failed'
+    | 'decode_failed'
+    | 'parse_failed'
+    | 'reference_unresolved'
+    | 'excluded'
+    | 'unknown';
+
+export type ScanMode = 'full' | 'bounded';
+export type CoverageStatus = 'unknown' | 'partial' | 'path_complete' | 'repository_complete';
+
+export interface ScanCompleteness {
+    mode: ScanMode;
+    coverageStatus: CoverageStatus;
+    files: {
+        inventoried: number;
+        selected: number;
+        fetched: number;
+        parsed: number;
+        analyzed: number;
+        graphConnected: number;
+    };
+    capabilities: {
+        discovered: number;
+        withControlNeighborhoodSearched: number;
+        withControlContextResolved: number;
+        unresolved: number;
+    };
+    references: {
+        discovered: number;
+        fetched: number;
+        parsed: number;
+        resolved: number;
+        unresolved: number;
+    };
+    unresolvedContext: Array<{
+        capability: CapabilityType;
+        artifactId: string;
+        missingFilesOrControls: string[];
+    }>;
+    verdictScope: 'repository_complete' | 'path_complete' | 'partial_context';
+    coverageReason: string;
+}
+
+export type RepositoryProfileSignal = {
+    signalId: string;
+    category:
+        | 'system_type'
+        | 'execution_model'
+        | 'deployment'
+        | 'capability'
+        | 'trust_source'
+        | 'control';
+    candidateValue: string;
+    source: { path: string; line?: number; evidenceId: string };
+    evidenceKind:
+        | 'executable_code'
+        | 'configuration'
+        | 'manifest'
+        | 'documentation'
+        | 'filename'
+        | 'test'
+        | 'fixture';
+    confidence: 'confirmed' | 'probable' | 'potential';
+    reason: string;
+};
+
+export type RepositoryProfileEvidence = {
+    signals: RepositoryProfileSignal[];
+};
+
+export interface EvaluateCanonicalFindingsInput {
+    rootPath: string;
+    analyzedArtifacts: RepositoryArtifact[];
+    executionGraph: RepositoryExecutionMap;
+    profileEvidence: RepositoryProfileEvidence;
+    scanCompleteness: ScanCompleteness;
+    threatModel?: unknown;
+    scanResults?: RepositoryScanResult[];
+    scanStats?: RepositoryScanStats;
 }

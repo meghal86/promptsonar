@@ -108,6 +108,7 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport, o
             properties: {
                 repository_summary: report.summary,
                 issue_summary: report.issueSummary,
+                scan_completeness: report.completeness,
                 schema_version: report.schemaVersion,
                 confidence_definitions: report.confidenceDefinitions,
                 issue_ids: includedIssues.map(issue => issue.id),
@@ -192,6 +193,13 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
       <details><summary>Show validation errors</summary>${validation.errors.slice(0, 25).map(error => `<p><code>${escapeHtml(error.code)}</code> ${escapeHtml(error.message)}</p>`).join('')}</details>
     </section>` : `<p class="label">Path validation: passed (${validation ? validation.checkedPaths : 0} paths checked)</p>`}
     ${scanStats ? `<p class="label">Files: ${scanStats.filesConsidered} considered · ${scanStats.filesScanned} scanned · ${scanStats.filesSkipped} skipped${scanStats.truncated ? ' · <strong class="risk-high">scan truncated at file limit — results may be incomplete</strong>' : ''}</p>` : ''}
+    ${report.completeness ? `<section style="margin-bottom:18px">
+      <h2>Scan Completeness</h2>
+      <p><strong>Coverage:</strong> ${escapeHtml(report.completeness.coverageStatus)} · <strong>Scope:</strong> ${escapeHtml(report.completeness.verdictScope)}</p>
+      <p class="label">${report.completeness.files.inventoried} inventoried · ${report.completeness.files.selected} selected · ${report.completeness.files.fetched} fetched · ${report.completeness.files.analyzed} analyzed · ${report.completeness.references.resolved} references resolved</p>
+      ${report.completeness.unresolvedContext.length > 0 ? `<p class="risk-medium">${report.completeness.unresolvedContext.length} privileged capabilities are missing control context.</p>` : ''}
+      <p>${escapeHtml(report.completeness.coverageReason)}</p>
+    </section>` : ''}
     ${report.executionMap.pathsTruncated ? `<p class="label"><strong class="risk-high">Path enumeration capped at ${report.executionMap.pathEnumerationLimit} — additional paths exist but are not listed.</strong></p>` : ''}
     <div class="grid">
       <div class="card"><div class="metric">${summary.aiSurfacesFound.prompts + summary.aiSurfacesFound.skills + summary.aiSurfacesFound.mcpServers + summary.aiSurfacesFound.tools + summary.aiSurfacesFound.workflows + summary.aiSurfacesFound.memorySystems}</div><div class="label">AI Surfaces</div></div>
