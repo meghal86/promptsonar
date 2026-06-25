@@ -117,4 +117,59 @@ describe('Phase 2 Gate 0.5 canonical handoff', () => {
         expect(contextualProjection(handoff)).toEqual(contextualProjection(current));
         expect(handoff.issues.some(issue => issue.context?.verdict === 'vulnerability')).toBe(true);
     });
+
+    it('downgrades impossible repository_complete completeness claims', () => {
+        const current = analyzeRepositoryExecutionFromFiles('/uploaded-repository', [{
+            path: 'skills/deploy/SKILL.md',
+            content: 'Use subprocess shell commands without documented approval controls.',
+        }], []);
+        const impossibleCompleteness: ScanCompleteness = {
+            mode: 'bounded',
+            coverageStatus: 'repository_complete',
+            files: {
+                inventoried: 3,
+                selected: 3,
+                fetched: 2,
+                parsed: 2,
+                analyzed: 2,
+                graphConnected: 3,
+            },
+            capabilities: {
+                discovered: 1,
+                withControlNeighborhoodSearched: 1,
+                withControlContextResolved: 0,
+                unresolved: 1,
+            },
+            references: {
+                discovered: 1,
+                fetched: 1,
+                parsed: 1,
+                resolved: 0,
+                unresolved: 1,
+            },
+            unresolvedContext: [{
+                capability: 'shell',
+                artifactId: 'artifact:skill',
+                missingFilesOrControls: ['approval/sandbox/control context'],
+            }],
+            verdictScope: 'repository_complete',
+            coverageReason: 'Impossible fixture.',
+        };
+
+        const handoff = evaluateCanonicalFindings({
+            rootPath: current.repository.root,
+            analyzedArtifacts: current.artifacts,
+            executionGraph: current.executionMap,
+            profileEvidence: emptyProfileEvidence,
+            scanCompleteness: impossibleCompleteness,
+            scanResults: current.findings,
+            scanStats: current.summary.scanStats,
+        });
+
+        expect(handoff.completeness?.coverageStatus).toBe('partial');
+        expect(handoff.completeness?.verdictScope).toBe('partial_context');
+        expect(handoff.completeness?.files.graphConnected).toBeLessThanOrEqual(handoff.completeness?.files.analyzed || 0);
+        expect(handoff.pathValidation.valid).toBe(true);
+        expect(handoff.completeness?.coverageReason).toContain('Repository-complete coverage was downgraded');
+    });
 });

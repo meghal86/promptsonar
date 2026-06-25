@@ -107,6 +107,7 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport, o
             results,
             properties: {
                 repository_summary: report.summary,
+                executive_summary: report.executiveSummary,
                 issue_summary: report.issueSummary,
                 scan_completeness: report.completeness,
                 schema_version: report.schemaVersion,
@@ -201,6 +202,12 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
       <p>${escapeHtml(report.completeness.coverageReason)}</p>
     </section>` : ''}
     ${report.executionMap.pathsTruncated ? `<p class="label"><strong class="risk-high">Path enumeration capped at ${report.executionMap.pathEnumerationLimit} — additional paths exist but are not listed.</strong></p>` : ''}
+    ${report.executiveSummary ? `<section style="margin-bottom:18px">
+      <h2>Executive Summary</h2>
+      <p><strong>Overall Risk:</strong> ${escapeHtml(report.executiveSummary.overallRisk)} · <strong>Estimated Fix Effort:</strong> ${escapeHtml(report.executiveSummary.estimatedFixEffort)}</p>
+      <p class="label">Findings: ${report.executiveSummary.findingCounts.critical} critical · ${report.executiveSummary.findingCounts.high} high · ${report.executiveSummary.findingCounts.medium} medium · ${report.executiveSummary.findingCounts.low} low</p>
+      <p><strong>Highest Priority:</strong> ${report.executiveSummary.highestPriorityFindings.map(item => `<code>${escapeHtml(item.ruleId)}</code> ${escapeHtml(item.impactedFiles.join(', '))}`).join('<br>') || 'None'}</p>
+    </section>` : ''}
     <div class="grid">
       <div class="card"><div class="metric">${summary.aiSurfacesFound.prompts + summary.aiSurfacesFound.skills + summary.aiSurfacesFound.mcpServers + summary.aiSurfacesFound.tools + summary.aiSurfacesFound.workflows + summary.aiSurfacesFound.memorySystems}</div><div class="label">AI Surfaces</div></div>
       <div class="card"><div class="metric">${summary.executionGraph.nodes}</div><div class="label">Execution Nodes</div></div>

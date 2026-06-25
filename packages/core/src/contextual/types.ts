@@ -1,4 +1,6 @@
 import type { Severity } from '../rules/types';
+import type { ArtifactKind } from '../artifacts';
+export type { ArtifactKind } from '../artifacts';
 
 export type CapabilityType =
     | 'shell'
@@ -69,23 +71,6 @@ export interface ControlAssessment {
     evaluations: ControlEvaluation[];
     evaluationScope: 'complete' | 'partial' | 'not_available';
 }
-
-export type ArtifactKind =
-    | 'prompt'
-    | 'agent'
-    | 'skill'
-    | 'mcp_server'
-    | 'mcp_config'
-    | 'workflow'
-    | 'memory'
-    | 'tool'
-    | 'tool_router'
-    | 'documentation'
-    | 'test'
-    | 'fixture'
-    | 'example'
-    | 'source'
-    | 'unknown';
 
 export type ContextualVerdict =
     | 'expected_capability'

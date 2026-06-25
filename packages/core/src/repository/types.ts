@@ -1,5 +1,6 @@
 import type { Severity } from '../rules/types';
 import type { CanonicalAnalysisIssue, CanonicalIssueContext, CapabilityType } from '../contextual/types';
+import type { ArtifactKind, ExecutionIntent } from '../artifacts';
 
 export type RepositoryArtifactType =
     | 'PROMPT'
@@ -147,6 +148,9 @@ export interface RepositoryScanFinding {
     risk?: string;
     waived?: boolean;
     workflow?: any;
+    context?: CanonicalIssueContext;
+    artifactKind?: ArtifactKind;
+    executionIntent?: ExecutionIntent;
 }
 
 export interface RepositoryScanResult {
@@ -306,6 +310,19 @@ export interface RepositoryIssueSummary {
     low: number;
 }
 
+export interface RepositoryExecutiveSummary {
+    overallRisk: RepositoryRisk | 'none';
+    findingCounts: RepositoryIssueSummary;
+    highestPriorityFindings: Array<{
+        id: string;
+        ruleId: string;
+        severity: Severity | string;
+        issue: string;
+        impactedFiles: string[];
+    }>;
+    estimatedFixEffort: RepositoryIssueFixEffort;
+}
+
 export type RepositoryImpactedFileType = 'SKILL.md' | 'MCP Config' | 'Workflow' | 'Prompt' | 'Other';
 
 export interface RepositoryImpactedFile {
@@ -329,7 +346,12 @@ export interface RepositoryPathValidationError {
         | 'broken-chain'
         | 'invalid-source'
         | 'invalid-sensitive-action'
-        | 'missing-evidence';
+        | 'missing-evidence'
+        | 'issue-count-mismatch'
+        | 'impacted-file-count-mismatch'
+        | 'evidence-owner-mismatch'
+        | 'completeness-count-mismatch'
+        | 'repository-complete-with-unresolved-context';
     message: string;
 }
 
@@ -383,6 +405,7 @@ export interface RepositoryExecutionReport {
     executionMap: RepositoryExecutionMap;
     reachablePaths: ReachableExecutionPath[];
     summary: RepositorySummary;
+    executiveSummary?: RepositoryExecutiveSummary;
     issues: RepositoryExecutionIssue[];
     issueSummary: RepositoryIssueSummary;
     impactedFiles: RepositoryImpactedFile[];

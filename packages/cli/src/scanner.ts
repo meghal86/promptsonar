@@ -19,6 +19,10 @@ import {
     McpFinding,
     normalizeMcpFindingContextual,
     scanContentForSecrets,
+    inferArtifactKind,
+    inferExecutionIntent,
+    type ArtifactKind,
+    type ExecutionIntent,
     type CanonicalIssueContext,
 } from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
@@ -29,12 +33,26 @@ export interface ScanResult {
     status: 'pass' | 'warn' | 'fail';
     pillar_scores: Record<string, number>;
     findings_count: number;
+    executive_summary?: ScanExecutiveSummary;
     total_findings_count?: number;
     unique_findings_count?: number;
     repeated_findings_count?: number;
     summarized_findings_count?: number;
     findings: ScanFinding[];
     scan_summary?: ScanSummary;
+}
+
+export interface ScanExecutiveSummary {
+    overall_risk: 'critical' | 'high' | 'medium' | 'low' | 'none';
+    finding_counts: Record<string, number>;
+    highest_priority_findings: Array<{
+        rule_id: string;
+        severity: string;
+        artifactKind?: ArtifactKind;
+        line: number;
+        message: string;
+    }>;
+    estimated_fix_effort: 'Quick' | 'Moderate' | 'Large';
 }
 
 export interface ScanSummary {
@@ -72,6 +90,8 @@ export interface ScanFinding {
     instance_count?: number;
     workflow?: FindingWorkflow;
     context?: CanonicalIssueContext;
+    artifactKind?: ArtifactKind;
+    executionIntent?: ExecutionIntent;
     suppression_reason?: string;
     suppression_source?: string;
 }
@@ -227,6 +247,126 @@ function truncateEvidence(line: string, maxLength: number = 180): string {
     const normalized = line.trim().replace(/\s+/g, ' ');
     if (normalized.length <= maxLength) return normalized;
     return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function artifactKindForPath(filePath: string): ArtifactKind {
+    if (isRecognizedMcpConfig(filePath)) return 'mcp_config';
+    return inferArtifactKind(filePath);
+}
+
+const WORKFLOW_SECURITY_REMEDIATION = [
+    'Restrict workflow permissions to least privilege',
+    'protect environments',
+    'avoid exposing secrets to pull_request or other untrusted triggers',
+    'scope secrets to the minimum jobs and environments',
+    'pin actions to trusted versions',
+    'and validate shell inputs before use.',
+].join(', ');
+
+const AGENT_SECURITY_REMEDIATION = [
+    'Constrain the agent instructions to approved tools and paths',
+    'require explicit approval before shell, network, filesystem, or secret access',
+    'document denied actions',
+    'and keep credentials out of the instruction file.',
+].join(', ');
+
+const AGENT_QUALITY_REMEDIATION = [
+    'Write the agent instruction with a bounded role, allowed scope, denied actions, review criteria, and a short verification checklist.',
+].join(' ');
+
+const REFERENCE_SECURITY_REMEDIATION = [
+    'Treat this as reference material: remove live secrets from the document',
+    'use placeholders in examples',
+    'and add a note that copying this into production instructions or automation would require scoped credentials and review.',
+].join(', ');
+
+function isAgentInstructionArtifact(artifactKind: ArtifactKind): boolean {
+    return artifactKind === 'claude' || artifactKind === 'agents' || artifactKind === 'agent' || artifactKind === 'skill';
+}
+
+function isPromptQualityRule(ruleId: string): boolean {
+    return /^(?:bp_|clarity_|struct_|consist_|eff_)/.test(ruleId);
+}
+
+function getRecommendationForArtifact(ruleId: string, fallback: string, artifactKind: ArtifactKind, executionIntent: ExecutionIntent): string {
+    if (executionIntent === 'reference' && /secret|credential|token|password|api.?key/i.test(`${ruleId} ${fallback}`)) {
+        return REFERENCE_SECURITY_REMEDIATION;
+    }
+    if (artifactKind === 'workflow' && (
+        ruleId.startsWith('sec_owasp_llm02') ||
+        ruleId.startsWith('sec_workflow') ||
+        /shell|privileged|sink|secret|credential|token|password/i.test(`${ruleId} ${fallback}`)
+    )) {
+        return WORKFLOW_SECURITY_REMEDIATION;
+    }
+    if (isAgentInstructionArtifact(artifactKind) && isPromptQualityRule(ruleId)) {
+        return AGENT_QUALITY_REMEDIATION;
+    }
+    if (isAgentInstructionArtifact(artifactKind) && /secret|credential|token|password|api.?key|pat|pii|shell|privileged|sink|workflow|access/i.test(`${ruleId} ${fallback}`)) {
+        return AGENT_SECURITY_REMEDIATION;
+    }
+    return getDeterministicRecommendation(ruleId, fallback);
+}
+
+function artifactDisplayName(artifactKind: ArtifactKind, executionIntent: ExecutionIntent): string {
+    if (artifactKind === 'workflow') return 'workflow YAML';
+    if (artifactKind === 'claude') return 'CLAUDE.md agent instruction file';
+    if (artifactKind === 'agents' || artifactKind === 'agent') return 'AGENTS.md agent instruction file';
+    if (artifactKind === 'skill') return 'SKILL.md skill instruction file';
+    if (artifactKind === 'mcp_config' || artifactKind === 'mcp' || artifactKind === 'mcp_server') return 'MCP configuration';
+    if (artifactKind === 'deployment_config') return 'deployment configuration';
+    if (executionIntent === 'reference') return 'reference document';
+    if (artifactKind === 'prompt') return 'executable prompt';
+    return 'source file';
+}
+
+function artifactInstructionNoun(artifactKind: ArtifactKind, executionIntent: ExecutionIntent): string {
+    if (artifactKind === 'workflow') return 'workflow YAML';
+    if (artifactKind === 'claude') return 'CLAUDE.md agent instructions';
+    if (artifactKind === 'agents' || artifactKind === 'agent') return 'AGENTS.md agent instructions';
+    if (artifactKind === 'skill') return 'SKILL.md skill instructions';
+    if (artifactKind === 'mcp_config' || artifactKind === 'mcp' || artifactKind === 'mcp_server') return 'MCP configuration';
+    if (executionIntent === 'reference') return 'reference document';
+    if (artifactKind === 'prompt') return 'prompt';
+    return 'source file';
+}
+
+function displayedRuleMessage(message: string, artifactKind: ArtifactKind, executionIntent: ExecutionIntent, category: string): string {
+    const artifact = artifactDisplayName(artifactKind, executionIntent);
+    const noun = artifactInstructionNoun(artifactKind, executionIntent);
+    let displayed = message
+        .replace(/\bfound in prompt\b/gi, `found in ${artifact}`)
+        .replace(/\bfound in source\b/gi, `found in ${artifact}`)
+        .replace(/\bprompt instructions\b/gi, noun)
+        .replace(/\bthis prompt\b/gi, `this ${noun}`)
+        .replace(/\bthe prompt\b/gi, `the ${noun}`);
+    if (artifactKind !== 'prompt' && ['clarity', 'structure', 'best_practices', 'consistency', 'efficiency'].includes(category)) {
+        const plural = /\binstructions$/.test(noun);
+        displayed = displayed
+            .replace(/^Prompt asks\b/i, `${noun} ${plural ? 'ask' : 'asks'}`)
+            .replace(/^Prompt lacks\b/i, `${noun} ${plural ? 'lack' : 'lacks'}`)
+            .replace(/^Prompt is missing\b/i, `${noun} ${plural ? 'are' : 'is'} missing`)
+            .replace(/\bprompts are\b/gi, `${noun} are`);
+        if (plural) displayed = displayed.replace(/\bbut lacks\b/gi, 'but lack');
+    }
+    return displayed;
+}
+
+function secretFindingMessage(secretName: string, artifactKind: ArtifactKind, executionIntent: ExecutionIntent): string {
+    return `Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded ${secretName} found in ${artifactDisplayName(artifactKind, executionIntent)}.`;
+}
+
+function secretFindingWhy(secretName: string, artifactKind: ArtifactKind, executionIntent: ExecutionIntent): string {
+    if (artifactKind === 'workflow') {
+        return `A hardcoded ${secretName} in workflow YAML can leak through job logs, pull request triggers, or deployment steps.`;
+    }
+    if (isAgentInstructionArtifact(artifactKind)) {
+        return `A hardcoded ${secretName} in agent instructions can be reused by coding agents, logs, shell commands, or tool calls.`;
+    }
+    if (executionIntent === 'reference') {
+        return `A live ${secretName} in reference material can be copied into production instructions, examples, or automation.`;
+    }
+    return `A hardcoded ${secretName} in source can leak through logs, prompts, responses, or repository history.`;
 }
 
 function locateEvidence(
@@ -401,6 +541,8 @@ const SUPPORTED_MARKDOWN_PROMPT_FILES = new Set([
     'skills.md',
     'agent.md',
     'agents.md',
+    'claude.md',
+    'prompt.md',
 ]);
 
 // Default ignores cover dependency, build, cache, and binary artifacts only.
@@ -541,12 +683,55 @@ async function collectCandidateFiles(resolvedPath: string, ignore: string[]): Pr
 function sortFindings(findings: ScanFinding[]): ScanFinding[] {
     const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     return [...findings].sort((a, b) => {
+        const priorityDelta = findingPriorityBand(a) - findingPriorityBand(b);
+        if (priorityDelta !== 0) return priorityDelta;
         const severityDelta = (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9);
         if (severityDelta !== 0) return severityDelta;
         const ruleDelta = a.rule_id.localeCompare(b.rule_id);
         if (ruleDelta !== 0) return ruleDelta;
         return a.line - b.line;
     });
+}
+
+function findingPriorityBand(finding: Pick<ScanFinding, 'category' | 'severity' | 'context' | 'workflow'>): number {
+    if (finding.severity === 'critical' || finding.context?.verdict === 'vulnerability') return 0;
+    if (finding.context?.verdict === 'risky_configuration' || (finding.category === 'security' && finding.severity === 'high')) return 1;
+    if (finding.context?.verdict === 'capability_review' || finding.category === 'security') return 2;
+    if (finding.context?.verdict === 'needs_more_context') return 3;
+    if (finding.context?.verdict === 'hardening_suggestion') return 4;
+    if (['clarity', 'structure', 'best_practices', 'consistency', 'efficiency'].includes(finding.category)) return 5;
+    return 4;
+}
+
+function executiveSummaryForFindings(findings: ScanFinding[]): ScanExecutiveSummary {
+    const activeFindings = findings.filter(finding => !finding.waived);
+    const severityOrder = ['critical', 'high', 'medium', 'low'];
+    const findingCounts = activeFindings.reduce((acc, finding) => {
+        acc[finding.severity] = (acc[finding.severity] || 0) + 1;
+        return acc;
+    }, {} as Record<string, number>);
+    const overallRisk = (severityOrder.find(severity => findingCounts[severity] > 0) || 'none') as ScanExecutiveSummary['overall_risk'];
+    const highestPriorityFindings = sortFindings(activeFindings).slice(0, 3).map(finding => ({
+        rule_id: finding.rule_id,
+        severity: finding.severity,
+        artifactKind: finding.artifactKind,
+        line: finding.line,
+        message: finding.message,
+    }));
+    const estimatedFixEffort: ScanExecutiveSummary['estimated_fix_effort'] = activeFindings.some(finding => finding.severity === 'critical')
+        ? 'Large'
+        : activeFindings.some(finding => finding.severity === 'high' || finding.workflow?.path?.privilegedSinkReached)
+            ? 'Moderate'
+            : activeFindings.length > 0
+                ? 'Quick'
+                : 'Quick';
+
+    return {
+        overall_risk: overallRisk,
+        finding_counts: findingCounts,
+        highest_priority_findings: highestPriorityFindings,
+        estimated_fix_effort: estimatedFixEffort,
+    };
 }
 
 function normalizedEvidence(finding: ScanFinding): string {
@@ -721,6 +906,8 @@ function mapMcpFinding(finding: McpFinding, filePath: string): ScanFinding {
         waived: false,
         workflow,
         context: contextualFinding.context,
+        artifactKind: 'mcp_config',
+        executionIntent: 'executable',
     };
 }
 
@@ -800,6 +987,8 @@ export async function scanFiles(targetPath: string, options: {
         const ext = path.extname(filePath).toLowerCase();
         const language = getLanguageForExt(ext);
         const inlineSuppressions = extractInlineSuppressions(content);
+        const artifactKind = artifactKindForPath(filePath);
+        const executionIntent = inferExecutionIntent(filePath, artifactKind);
         scanSummary.files_scanned++;
 
         try {
@@ -816,14 +1005,32 @@ export async function scanFiles(targetPath: string, options: {
             const fileFindings: ScanFinding[] = [];
 
             for (const prompt of prompts) {
+                const promptArtifactKind: ArtifactKind = artifactKind === 'source' && prompt.sourceType === 'config_file'
+                    ? 'prompt'
+                    : artifactKind;
+                const promptExecutionIntent: ExecutionIntent = executionIntent === 'unknown' && promptArtifactKind === 'prompt'
+                    ? 'executable'
+                    : executionIntent;
                 const evalResult: RuleResult = evaluatePrompt(
-                    { text: prompt.text, language, context: { filePath } }
+                    {
+                        text: prompt.text,
+                        language,
+                        context: {
+                            filePath,
+                            artifactKind: promptArtifactKind,
+                            executionIntent: promptExecutionIntent,
+                            sourceType: prompt.sourceType,
+                            hasExplicitPromptBlock: prompt.sourceType === 'config_file',
+                        },
+                    }
                 );
 
                 fileFindings.push(...evalResult.findings.map(f => {
                     const configSuppression = isFindingSuppressed(f.rule_id, filePath, activeSuppressions);
                     const owasp = getOwaspRef(f.rule_id);
-                    const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || '');
+                    const recommendation = getRecommendationForArtifact(f.rule_id, f.suggested_fix || '', promptArtifactKind, promptExecutionIntent);
+                    const category = getCategoryForRule(f.rule_id);
+                    const message = displayedRuleMessage(f.explanation, promptArtifactKind, promptExecutionIntent, category);
                     const risk = getRiskExplanation(f.rule_id);
                     const evidenceKind = evidenceKindForRule(f.rule_id, f.evidenceKind);
                     const located = locateEvidence(content, prompt.startLine, f.rule_id, f.matchedText);
@@ -843,11 +1050,11 @@ export async function scanFiles(targetPath: string, options: {
                     });
                     return {
                         rule_id: f.rule_id,
-                        category: getCategoryForRule(f.rule_id),
+                        category,
                         severity: f.severity,
                         line: evidenceLine,
                         column: evidenceColumn,
-                        message: f.explanation,
+                        message,
                         fix: recommendation,
                         recommendation,
                         owasp_ref: owasp,
@@ -863,11 +1070,13 @@ export async function scanFiles(targetPath: string, options: {
                         scopeStartLine: evidenceKind === 'absence' ? prompt.startLine : undefined,
                         scopeEndLine: evidenceKind === 'absence' ? prompt.endLine : undefined,
                         confidence: getConfidenceForFinding(f.rule_id, f.severity),
-                        why: f.explanation,
+                        why: message,
                         risk,
                         docs_url: getRuleDocsUrl(f.rule_id),
                         waived: Boolean(configSuppression || inlineSuppressed),
                         workflow,
+                        artifactKind: promptArtifactKind,
+                        executionIntent: promptExecutionIntent,
                         suppression_reason: configSuppression?.reason || (inlineSuppressed ? 'Inline promptsonar-ignore comment' : undefined),
                         suppression_source: configSuppression?.source || (inlineSuppressed ? 'inline' : undefined),
                     };
@@ -880,24 +1089,27 @@ export async function scanFiles(targetPath: string, options: {
             for (const secret of scanContentForSecrets(content)) {
                 const configSuppression = isFindingSuppressed('sec_owasp_llm02_pii', filePath, activeSuppressions);
                 const inlineSuppressed = isInlineSuppressed('sec_owasp_llm02_pii', secret.line, inlineSuppressions);
-                const recommendation = getDeterministicRecommendation('sec_owasp_llm02_pii', '');
+                const recommendation = getRecommendationForArtifact('sec_owasp_llm02_pii', '', artifactKind, executionIntent);
+                const message = secretFindingMessage(secret.name, artifactKind, executionIntent);
                 fileFindings.push({
                     rule_id: 'sec_owasp_llm02_pii',
                     category: 'security',
                     severity: 'high',
                     line: secret.line,
                     column: secret.column,
-                    message: `Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded ${secret.name} found in source.`,
+                    message,
                     fix: recommendation,
                     recommendation,
                     owasp_ref: getOwaspRef('sec_owasp_llm02_pii'),
                     owasp: getOwaspRef('sec_owasp_llm02_pii'),
                     evidence: truncateEvidence((content.split(/\r?\n/)[secret.line - 1] || secret.matchedText)),
                     confidence: getConfidenceForFinding('sec_owasp_llm02_pii', 'high'),
-                    why: `A hardcoded ${secret.name} in source can leak through logs, prompts, responses, or repository history.`,
+                    why: secretFindingWhy(secret.name, artifactKind, executionIntent),
                     risk: getRiskExplanation('sec_owasp_llm02_pii'),
                     docs_url: getRuleDocsUrl('sec_owasp_llm02_pii'),
                     waived: Boolean(configSuppression || inlineSuppressed),
+                    artifactKind,
+                    executionIntent,
                     suppression_reason: configSuppression?.reason || (inlineSuppressed ? 'Inline promptsonar-ignore comment' : undefined),
                     suppression_source: configSuppression?.source || (inlineSuppressed ? 'inline' : undefined),
                 });
@@ -937,6 +1149,7 @@ function buildScanResult(filePath: string, scanFindings: ScanFinding[], scanSumm
         status: statusFromScoreAndFindings(score, uniqueFindings),
         pillar_scores: computePillarScores(uniqueFindings),
         findings_count: uniqueFindings.length,
+        executive_summary: executiveSummaryForFindings(uniqueFindings),
         total_findings_count: scanFindings.length,
         unique_findings_count: uniqueFindings.length,
         repeated_findings_count: repeatedCount,
@@ -963,6 +1176,8 @@ export function generateSarif(results: ScanResult[]): string {
         docs_url?: string;
         workflow?: FindingWorkflow;
         context?: CanonicalIssueContext;
+        artifactKind?: ArtifactKind;
+        executionIntent?: ExecutionIntent;
     }> = [];
     const primaryFile = results.length > 0 ? results[0].filePath : 'unknown';
 
@@ -984,6 +1199,8 @@ export function generateSarif(results: ScanResult[]): string {
                 docs_url: f.docs_url,
                 workflow: f.workflow,
                 context: f.context,
+                artifactKind: f.artifactKind,
+                executionIntent: f.executionIntent,
             });
         }
     }

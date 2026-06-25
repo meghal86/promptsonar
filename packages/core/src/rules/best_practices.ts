@@ -1,12 +1,24 @@
 import { RuleInput, Finding } from './types';
 
+function needsExamples(text: string): boolean {
+    return /\b(classify|extract|transform|convert|generate|return|format|schema|json|yaml|csv|table|template)\b/i.test(text);
+}
+
+function needsDecisionCriteria(text: string): boolean {
+    return /\b(autonomous|plan|planning|delegate|delegation|multi[-\s]?step|workflow|orchestrat|execute|deploy|release|rollout|compare|assess|evaluate|risk|decision|approve|approval)\b/i.test(text);
+}
+
+function needsBoundedRole(text: string): boolean {
+    return /\b(assistant|agent|model|reviewer|operator|you are|act as|analyze|execute|deploy|review|scan|summarize|generate|classify|extract)\b/i.test(text);
+}
+
 export function checkBestPractices(input: RuleInput): Finding[] {
     const findings: Finding[] = [];
     const lowerText = input.text.toLowerCase();
 
     // 1. Missing Persona
     const personaIndictators = ["you are a", "you are an expert", "act as", "role:", "persona:"];
-    if (!personaIndictators.some(p => lowerText.includes(p))) {
+    if (needsBoundedRole(input.text) && !personaIndictators.some(p => lowerText.includes(p))) {
         findings.push({
             rule_id: "bp_missing_persona",
             category: "best_practices",
@@ -22,7 +34,7 @@ export function checkBestPractices(input: RuleInput): Finding[] {
 
     // 2. Missing Few-Shot Examples
     const exampleIndicators = ["example:", "for example", "input:", "output:"];
-    if (!exampleIndicators.some(p => lowerText.includes(p))) {
+    if (needsExamples(input.text) && !exampleIndicators.some(p => lowerText.includes(p))) {
         findings.push({
             rule_id: "bp_missing_few_shot",
             category: "best_practices",
@@ -38,7 +50,7 @@ export function checkBestPractices(input: RuleInput): Finding[] {
 
     // 3. Missing observable reasoning contract
     const reasoningIndicators = ["brief rationale", "decision criteria", "checklist", "verify each", "first,", "second,"];
-    if (input.text.length > 100 && !reasoningIndicators.some(p => lowerText.includes(p))) {
+    if (needsDecisionCriteria(input.text) && input.text.length > 80 && !reasoningIndicators.some(p => lowerText.includes(p))) {
         findings.push({
             // Keep the rule id stable for report and suppression compatibility.
             rule_id: "bp_missing_cot",

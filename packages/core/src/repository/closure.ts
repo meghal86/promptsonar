@@ -4,6 +4,7 @@ import { auditMcpConfig } from '../mcp';
 import { evaluatePrompt, scanContentForSecrets } from '../rules';
 import { inferWorkflowForFinding } from '../workflow';
 import { parseFile } from '../parser';
+import { inferArtifactKind, inferExecutionIntent } from '../artifacts';
 import {
     analyzeRepositoryArtifactsFromFiles,
     buildRepositoryExecutionMap,
@@ -332,9 +333,21 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
             })));
         }
 
+        const artifactKind = inferArtifactKind(absolutePath);
+        const executionIntent = inferExecutionIntent(absolutePath, artifactKind);
         const prompts = await parseFile({ filePath: absolutePath, content, language });
         for (const prompt of prompts) {
-            const evaluated = evaluatePrompt({ text: prompt.text, language, context: { filePath: absolutePath } });
+            const evaluated = evaluatePrompt({
+                text: prompt.text,
+                language,
+                context: {
+                    filePath: absolutePath,
+                    artifactKind,
+                    executionIntent,
+                    sourceType: prompt.sourceType,
+                    hasExplicitPromptBlock: prompt.sourceType === 'config_file',
+                },
+            });
             for (const finding of evaluated.findings) {
                 const evidenceKind = evidenceKindForRule(finding.rule_id, finding.evidenceKind);
                 const located = locateEvidence(content, prompt.startLine, finding.matchedText);
@@ -363,6 +376,8 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
                     why: finding.explanation,
                     risk: finding.explanation,
                     waived: false,
+                    artifactKind,
+                    executionIntent,
                     workflow: finding.workflow || inferWorkflowForFinding({
                         ruleId: finding.rule_id,
                         severity: finding.severity,
@@ -378,6 +393,9 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
         }
 
         for (const secret of scanContentForSecrets(content)) {
+            const secretFix = artifactKind === 'workflow'
+                ? 'Restrict workflow permissions to least privilege, protect environments, avoid exposing secrets to pull_request or other untrusted triggers, scope secrets to the minimum jobs and environments, pin actions to trusted versions, and validate shell inputs before use.'
+                : 'Move secrets to environment variables or a secret manager, rotate exposed credentials, and keep secrets out of executable instructions and checked-in configuration.';
             findings.push({
                 rule_id: 'sec_owasp_llm02_pii',
                 category: 'security',
@@ -385,13 +403,15 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
                 line: secret.line,
                 column: secret.column,
                 message: `Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded ${secret.name} found in source.`,
-                fix: 'Move secrets to environment variables or a secret manager, rotate exposed credentials, and keep only placeholders in prompt templates.',
-                recommendation: 'Move secrets to environment variables or a secret manager, rotate exposed credentials, and keep only placeholders in prompt templates.',
+                fix: secretFix,
+                recommendation: secretFix,
                 evidence: truncateEvidence((content.split(/\r?\n/)[secret.line - 1] || secret.matchedText)),
                 confidence: 'HIGH',
                 why: `A hardcoded ${secret.name} in source can leak through logs, prompts, responses, or repository history.`,
                 risk: 'Secrets or sensitive data in prompt text can leak through logs, responses, screenshots, or repository history.',
                 waived: false,
+                artifactKind,
+                executionIntent,
             });
         }
 

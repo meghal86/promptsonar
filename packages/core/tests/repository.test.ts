@@ -1233,6 +1233,10 @@ describe('repository execution analysis', () => {
                 findings: [{ rule_id: 'sec_workflow_escalation_shell_access', category: 'security', severity: 'critical', line: 1, message: 'Shell access.', evidence: 'Run shell commands' }],
             },
             {
+                filePath: path.join(root, '.github/workflows/release-macos.yml'),
+                findings: [{ rule_id: 'sec_workflow_secret_exposure', category: 'security', severity: 'high', line: 12, message: 'Workflow secret exposure.', evidence: 'GITHUB_TOKEN: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', artifactKind: 'workflow' }],
+            },
+            {
                 filePath: path.join(root, 'secrets.prompt'),
                 findings: [{ rule_id: 'sec_secret_access', category: 'security', severity: 'high', line: 1, message: 'Secret access.', evidence: 'Read secrets' }],
             },
@@ -1249,6 +1253,8 @@ describe('repository execution analysis', () => {
         expect(byRule.get('mcp_auto_approval')?.fix.safePattern).toContain('autoApprove');
         expect(byRule.get('mcp_wildcard_permissions')?.fix.safePattern).toContain('permissions');
         expect(byRule.get('sec_workflow_escalation_shell_access')?.fix.safePattern).toContain('approved');
+        expect(byRule.get('sec_workflow_secret_exposure')?.fix.safePattern).toContain('permissions: { contents: read }');
+        expect(byRule.get('sec_workflow_secret_exposure')?.fix.safePattern).not.toMatch(/rag|token.?bloat|prompt/i);
         expect(byRule.get('sec_secret_access')?.fix.safePattern).toContain('process.env');
     });
 

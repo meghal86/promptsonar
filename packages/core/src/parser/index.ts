@@ -9,7 +9,7 @@ export * from './types';
 
 const FULL_FILE_EXTENSIONS = ['.prompt', '.ai', '.chat'];
 const CONFIG_FILE_EXTENSIONS = ['.json', '.yml', '.yaml'];
-const MARKDOWN_INSTRUCTION_FILES = new Set(['skill.md', 'skills.md', 'agent.md', 'agents.md']);
+const MARKDOWN_INSTRUCTION_FILES = new Set(['skill.md', 'skills.md', 'agent.md', 'agents.md', 'claude.md', 'prompt.md']);
 
 // Module-level cache for WASM languages
 const LANGUAGE_CACHE: Record<string, any> = {};
@@ -204,6 +204,30 @@ function isWorkflowRelevantInstructionFile(filePath: string): boolean {
     );
 }
 
+function isGithubWorkflowYaml(filePath: string, ext: string): boolean {
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    return (ext === '.yml' || ext === '.yaml') && (
+        normalized.startsWith('.github/workflows/') ||
+        normalized.includes('/.github/workflows/')
+    );
+}
+
+function promptConfigFieldMatch(line: string): RegExpMatchArray | null {
+    return line.match(/^\s*(?:-\s*)?(system|user|messages|prompt|instruction|instructions)\s*:\s*(.*)$/i);
+}
+
+function indentationOf(line: string): number {
+    return line.match(/^\s*/)?.[0].length ?? 0;
+}
+
+function unquoteConfigValue(value: string): string {
+    const trimmed = value.trim();
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+        return trimmed.slice(1, -1);
+    }
+    return trimmed;
+}
+
 function isExecutablePermissionEntry(text: string): boolean {
     const normalized = text.trim().replace(/^[-\s"'[\],]+/, '');
     return (
@@ -253,9 +277,38 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
     if (CONFIG_FILE_EXTENSIONS.includes(ext) || filePath.includes('.github/workflows')) {
         // Simple regex for configs containing prompt keywords or fields
         const lines = content.split('\n');
-        let inBlock = false;
+        const isWorkflowYaml = isGithubWorkflowYaml(filePath, ext);
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const promptField = promptConfigFieldMatch(line);
+            if (!promptField) continue;
+
+            const value = promptField[2].trim();
+            const startLine = i + 1;
+            if (value === '|' || value === '>') {
+                const baseIndent = indentationOf(line);
+                const blockLines: string[] = [];
+                let endLine = startLine;
+                for (let j = i + 1; j < lines.length; j++) {
+                    if (lines[j].trim() && indentationOf(lines[j]) <= baseIndent) break;
+                    blockLines.push(lines[j]);
+                    endLine = j + 1;
+                }
+                const text = blockLines.join('\n').trim();
+                if (containsPromptKeyword(text)) {
+                    results.push({ filePath, startLine, endLine, text, sourceType: "config_file" });
+                }
+            } else {
+                const text = unquoteConfigValue(value);
+                if (containsPromptKeyword(text)) {
+                    results.push({ filePath, startLine, endLine: startLine, text, sourceType: "config_file" });
+                }
+            }
+        }
+
         // Restrict line-by-line heuristic to non-package.json config files to avoid "description" false positives
-        if (!filePath.endsWith('package.json') && !filePath.endsWith('package-lock.json')) {
+        if (!isWorkflowYaml && !filePath.endsWith('package.json') && !filePath.endsWith('package-lock.json')) {
             const lines = content.split('\n');
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];

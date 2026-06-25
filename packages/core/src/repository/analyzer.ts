@@ -18,6 +18,7 @@ import {
     type VerdictInput,
     type VulnerabilityBasis,
 } from '../contextual';
+import { inferArtifactKind, inferExecutionIntent } from '../artifacts';
 import { stripNegatedClauses } from '../workflow/analyzer';
 import {
     REPOSITORY_CONFIDENCE_DEFINITIONS,
@@ -35,6 +36,7 @@ import type {
     RepositoryExecutionMap,
     RepositoryExecutionNode,
     RepositoryExecutionNodeType,
+    RepositoryExecutiveSummary,
     RepositoryImpactedFile,
     RepositoryImpactedFileType,
     RepositoryExecutionIssue,
@@ -51,6 +53,7 @@ import type {
     RepositorySensitiveAction,
     RepositorySummary,
     RepositoryTrustStatus,
+    ScanCompleteness,
 } from './types';
 
 // Keep in lockstep with the published package version so the report version and
@@ -172,7 +175,7 @@ function safeRead(filePath: string, maxFileSizeBytes: number): string | undefine
         if (!stat.isFile() || stat.size > maxFileSizeBytes) return undefined;
         const ext = path.extname(filePath).toLowerCase();
         const basename = path.basename(filePath).toLowerCase();
-        if (!TEXT_EXTENSIONS.has(ext) && basename !== 'agents.md' && basename !== 'agent.md') return undefined;
+        if (!TEXT_EXTENSIONS.has(ext) && !['agents.md', 'agent.md', 'claude.md', 'prompt.md'].includes(basename)) return undefined;
         return fs.readFileSync(filePath, 'utf-8');
     } catch {
         return undefined;
@@ -501,7 +504,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (lower === 'agents.md' || lower === 'agent.md' || lower.startsWith('agents/') || lower.endsWith('/agents.md') || lower.endsWith('/agent.md') || lower.includes('/agents/')) {
+    if (lower === 'agents.md' || lower === 'agent.md' || lower === 'claude.md' || lower.startsWith('agents/') || lower.endsWith('/agents.md') || lower.endsWith('/agent.md') || lower.endsWith('/claude.md') || lower.includes('/agents/')) {
         add('AGENT_CONFIG', path.basename(filePath), 'Repository agent instruction file discovered.', ['agent-instructions'], [lineEvidence(content, /agent|codex|cursor|claude|instructions/i, relativePath)], {
             constraints: Array.from(content.matchAll(/\b(?:do not|never|only|must|important)[:\s-]+(.+)/gi)).map(match => match[0].trim()).slice(0, 10),
             sensitiveActions: detectSensitiveActions(content),
@@ -550,7 +553,13 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (isPromptPath || /\b(system|assistant|developer)\s+prompt\b/i.test(content) || /\{\{[^}]+}}/.test(content) || (ext === '.md' && /\b(prompt template|system instructions|assistant instructions)\b/i.test(content))) {
+    const referenceOnly = NON_PRODUCTION_PROVENANCE.has(provenance) && !isPromptPath;
+    if (!referenceOnly && (
+        isPromptPath ||
+        /\b(system|assistant|developer)\s+prompt\b/i.test(content) ||
+        /\{\{[^}]+}}/.test(content) ||
+        (ext === '.md' && /\b(prompt template|system instructions|assistant instructions)\b/i.test(content))
+    )) {
         add('PROMPT', path.basename(filePath), 'Prompt or prompt template discovered.', ['prompt-template'], [lineEvidence(content, /prompt template|system prompt|assistant prompt|developer prompt|instructions|tool|shell|filesystem|mcp|{{/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
@@ -1472,8 +1481,73 @@ function issueEvidenceKind(finding: RepositoryScanFinding): 'direct' | 'absence'
 function plainFixCandidate(finding: RepositoryScanFinding, fallback: string): string {
     const candidate = [finding.fix, finding.recommendation].find(value => value && !INTERNAL_TERMINOLOGY.test(value));
     if (!candidate || INTERNAL_TERMINOLOGY.test(candidate)) return fallback;
+    if (!fixMatchesArtifactContext(finding, candidate)) return fallback;
     return redactSecrets(candidate).trim();
 }
+
+function isWorkflowArtifactFinding(finding: RepositoryScanFinding): boolean {
+    return finding.artifactKind === 'workflow' || finding.context?.artifactKind === 'workflow';
+}
+
+function agentInstructionKind(finding: RepositoryScanFinding): ArtifactKind | undefined {
+    const kind = finding.artifactKind || finding.context?.artifactKind;
+    return kind === 'claude' || kind === 'agents' || kind === 'agent' || kind === 'skill' ? kind : undefined;
+}
+
+function fixMatchesArtifactContext(finding: RepositoryScanFinding, candidate: string): boolean {
+    const signal = `${finding.rule_id} ${finding.category || ''} ${finding.message || ''}`.toLowerCase();
+    const fix = candidate.toLowerCase();
+    const securityFinding = /secret|credential|api.?key|password|token|pii|sensitive.?data|shell|privileged|sink|escalation|workflow|autonomous|tool.?routing|access/.test(signal);
+    const promptQualityFix = /rag|retrieval|token|compress|shorten\s+the\s+prompt|few-shot|persona|bounded role|prompt template/.test(fix);
+    if (isWorkflowArtifactFinding(finding) && securityFinding) {
+        return !promptQualityFix && /workflow|permission|environment|secret|pull_request|trigger|action|shell|input|pin|least privilege/.test(fix);
+    }
+    if (agentInstructionKind(finding) && securityFinding) {
+        return !promptQualityFix && /agent|instruction|tool|approval|shell|filesystem|network|secret|credential|path|command|least privilege|scope/.test(fix);
+    }
+    if (securityFinding && promptQualityFix) return false;
+    return true;
+}
+
+const WORKFLOW_SECURITY_REMEDIATION = 'Restrict workflow permissions to least privilege, protect environments, avoid exposing secrets to pull_request or other untrusted triggers, scope secrets to the minimum jobs and environments, pin actions to trusted versions, and validate shell inputs before use.';
+
+const WORKFLOW_SECURITY_SAFE_PATTERN = [
+    'permissions: { contents: read }',
+    'environment: production',
+    'if: github.event_name != "pull_request"',
+    'uses: actions/checkout@<pinned-sha>',
+    'run: ./script.sh --input "$VALIDATED_INPUT"',
+].join('\n');
+
+const AGENT_INSTRUCTION_SAFE_PATTERNS: Record<string, string> = {
+    claude: [
+        '# CLAUDE.md',
+        'You are a repository coding agent for this project.',
+        'Allowed: read files, propose patches, and run documented verification commands.',
+        'Denied: expose secrets, bypass approvals, or run deployment/shell commands without explicit user approval.',
+        'Before acting: state the target files, validate inputs, and report verification results.',
+    ].join('\n'),
+    agents: [
+        '# AGENTS.md',
+        'Scope: this repository.',
+        'Agent role: maintain the codebase using least privilege.',
+        'Allowed tools: read, edit, and test only the files needed for the task.',
+        'Safety: do not reveal secrets; ask before destructive commands, deployment, or credential use.',
+    ].join('\n'),
+    agent: [
+        '# AGENTS.md',
+        'Scope: this repository.',
+        'Agent role: maintain the codebase using least privilege.',
+        'Safety: do not reveal secrets; ask before destructive commands, deployment, or credential use.',
+    ].join('\n'),
+    skill: [
+        '# SKILL.md',
+        'Use when: the user asks for this specific workflow.',
+        'Allowed capabilities: list the exact tools and paths required.',
+        'Controls: require approval before shell, network, filesystem writes, or secret access.',
+        'Verification: run the documented checks and report failures.',
+    ].join('\n'),
+};
 
 // Rule-specific plain-language copy for quality rules, so two different
 // clarity/structure findings do not render the identical sentence.
@@ -1549,8 +1623,59 @@ const QUALITY_ISSUE_COPY: Record<string, { issue: string; impact: string; whyThi
 function plainLanguageIssue(finding: RepositoryScanFinding): Pick<RepositoryExecutionIssue, 'issue' | 'impact' | 'whyThisMatters' | 'howToFix'> {
     const signal = `${finding.rule_id} ${finding.category || ''} ${finding.message || ''}`.toLowerCase();
     const qualityCopy = QUALITY_ISSUE_COPY[finding.rule_id];
+    const isWorkflow = isWorkflowArtifactFinding(finding);
+    const agentKind = agentInstructionKind(finding);
+
+    if (isWorkflow && /secret|credential|api.?key|password|token|pii|sensitive.?data/.test(signal)) {
+        return {
+            issue: 'Workflow secrets may be exposed or available to an unsafe workflow path.',
+            impact: 'Repository or deployment credentials could be disclosed in logs, exposed to pull requests, or used by jobs with broader permissions than required.',
+            whyThisMatters: 'GitHub Actions secrets often authorize releases, package publishing, or cloud access; an unsafe workflow can turn a YAML mistake into credential misuse.',
+            howToFix: plainFixCandidate(finding, WORKFLOW_SECURITY_REMEDIATION),
+        };
+    }
+
+    if (isWorkflow && /shell|privileged|sink|escalation|workflow|autonomous|tool.?routing/.test(signal)) {
+        return {
+            issue: 'Workflow automation can reach a sensitive shell or deployment action.',
+            impact: 'An untrusted event, input, or dependency could influence commands, release steps, or protected resources.',
+            whyThisMatters: 'CI/CD workflows bridge repository content and production credentials. They need least privilege and explicit input validation.',
+            howToFix: plainFixCandidate(finding, WORKFLOW_SECURITY_REMEDIATION),
+        };
+    }
+
+    if (agentKind && /secret|credential|api.?key|password|token|pii|sensitive.?data/.test(signal)) {
+        const fallback = 'Remove credentials from the agent instruction file, scope any required secrets to approved tools, and require explicit approval before secret access.';
+        return {
+            issue: 'Agent instructions may expose sensitive information or secret access.',
+            impact: 'The agent could leak credentials, use repository secrets outside the intended workflow, or preserve sensitive data in logs.',
+            whyThisMatters: 'CLAUDE.md, AGENTS.md, and SKILL.md files are executable operating guidance for coding agents, not passive prompt templates.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
+
+    if (agentKind && /shell|privileged|sink|escalation|workflow|autonomous|tool.?routing|access/.test(signal)) {
+        const fallback = 'Constrain allowed tools, paths, and commands; require explicit approval before shell, filesystem write, network, deployment, or secret access.';
+        return {
+            issue: 'Agent instructions grant or imply sensitive capabilities without enough operating boundaries.',
+            impact: 'A coding agent could run commands, edit files, access network services, or use secrets beyond the intended scope.',
+            whyThisMatters: 'Agent instruction files directly shape tool use. Vague or broad capability grants become operational risk when an agent acts on the repository.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
 
     if (qualityCopy) {
+        if (agentKind) {
+            const agentIssue = qualityCopy.issue.includes('prompt')
+                ? qualityCopy.issue.replace('prompt', 'agent instruction')
+                : qualityCopy.issue.replace('instruction', 'agent instruction');
+            return {
+                issue: agentIssue,
+                impact: qualityCopy.impact,
+                whyThisMatters: 'Executable agent instructions need concrete scope, allowed actions, denied actions, and verification criteria so the agent behaves consistently.',
+                howToFix: plainFixCandidate(finding, 'Add artifact-specific agent operating guidance: role, scope, allowed tools, denied actions, and verification steps.'),
+            };
+        }
         return {
             issue: qualityCopy.issue,
             impact: qualityCopy.impact,
@@ -1635,6 +1760,47 @@ function structuredIssueFix(finding: RepositoryScanFinding, recommendedFix: stri
         : finding.severity === 'high'
             ? 'Moderate'
             : 'Quick';
+
+    if (isWorkflowArtifactFinding(finding) && (
+        /secret|credential|api.?key|password|token|pii|sensitive.?data/.test(signal) ||
+        /shell|privileged|sink|escalation|workflow|autonomous|tool.?routing/.test(signal)
+    )) {
+        return {
+            quickFix: 'Reduce workflow permissions, protect the environment, and keep secrets away from untrusted triggers.',
+            recommendedFix,
+            safePattern: WORKFLOW_SECURITY_SAFE_PATTERN,
+            effort,
+        };
+    }
+
+    const agentKind = agentInstructionKind(finding);
+    if (agentKind) {
+        const safePattern = AGENT_INSTRUCTION_SAFE_PATTERNS[agentKind] || AGENT_INSTRUCTION_SAFE_PATTERNS.agent;
+        if (/secret|credential|api.?key|password|token|pii|sensitive.?data/.test(signal)) {
+            return {
+                quickFix: 'Remove secrets from the instruction file and scope any secret access to approved tools.',
+                recommendedFix,
+                safePattern,
+                effort,
+            };
+        }
+        if (/shell|privileged|sink|escalation|workflow|autonomous|tool.?routing|access/.test(signal)) {
+            return {
+                quickFix: 'Constrain allowed tools and require approval before sensitive agent actions.',
+                recommendedFix,
+                safePattern,
+                effort,
+            };
+        }
+        if (/output|format|structure|clarity|consistency|best.?practice|efficiency|token|persona|example|verification/.test(signal)) {
+            return {
+                quickFix: 'Add agent-specific role, scope, denied actions, and verification criteria.',
+                recommendedFix,
+                safePattern,
+                effort,
+            };
+        }
+    }
 
     if (finding.rule_id.startsWith('eff_') && QUALITY_ISSUE_COPY[finding.rule_id]) {
         return {
@@ -1831,7 +1997,10 @@ function artifactKindForContext(artifact: RepositoryArtifact | undefined, proven
     if (artifact.type === 'PROMPT') return 'prompt';
     if (artifact.type === 'SKILL') return 'skill';
     if (artifact.type === 'MCP_SERVER') return 'mcp_config';
-    if (artifact.type === 'AGENT_CONFIG') return 'agent';
+    if (artifact.type === 'AGENT_CONFIG') {
+        const inferred = inferArtifactKind(artifact.relativePath || artifact.filePath);
+        return inferred === 'source' ? 'agent' : inferred;
+    }
     if (artifact.type === 'MEMORY') return 'memory';
     if (artifact.type === 'TOOL') return 'tool_router';
     if (artifact.type === 'WORKFLOW' || artifact.type === 'ACTION') return 'workflow';
@@ -2124,28 +2293,36 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
         for (const finding of result.findings || []) {
             if (finding.waived) continue;
 
-            const location = refineFindingLocation(absoluteFile, finding, contentCache);
-            const id = stableId('issue', `${displayFile}:${finding.rule_id}:${location.line || 1}:${location.column || 1}`);
-            const evidenceKind = issueEvidenceKind(finding);
-            const missingRequirement = finding.missingRequirement || ABSENCE_REQUIREMENTS[finding.rule_id] || finding.message || finding.rule_id;
+            const artifact = artifactByFile.get(absoluteFile);
+            const provenance = provenanceForFile(absoluteFile);
+            const effectiveArtifactKind = finding.artifactKind || artifactKindForContext(artifact, provenance);
+            const effectiveFinding: RepositoryScanFinding = {
+                ...finding,
+                artifactKind: effectiveArtifactKind,
+                executionIntent: finding.executionIntent || inferExecutionIntent(absoluteFile, effectiveArtifactKind),
+            };
+            const location = refineFindingLocation(absoluteFile, effectiveFinding, contentCache);
+            const id = stableId('issue', `${displayFile}:${effectiveFinding.rule_id}:${location.line || 1}:${location.column || 1}`);
+            const evidenceKind = issueEvidenceKind(effectiveFinding);
+            const missingRequirement = effectiveFinding.missingRequirement || ABSENCE_REQUIREMENTS[effectiveFinding.rule_id] || effectiveFinding.message || effectiveFinding.rule_id;
             const evidenceSnippet = evidenceKind === 'absence'
                 ? ''
-                : redactSecrets(finding.evidence || finding.message || finding.rule_id);
+                : redactSecrets(effectiveFinding.evidence || effectiveFinding.message || effectiveFinding.rule_id);
             const detectedFixSuggestions = Array.from(new Set([
-                finding.fix ? redactSecrets(finding.fix) : '',
-                finding.recommendation ? redactSecrets(finding.recommendation) : '',
+                effectiveFinding.fix ? redactSecrets(effectiveFinding.fix) : '',
+                effectiveFinding.recommendation ? redactSecrets(effectiveFinding.recommendation) : '',
             ].filter(candidate => candidate && !INTERNAL_TERMINOLOGY.test(candidate))));
 
             const pathIds = reachablePaths
                 .filter(pathItem => pathItem.findings.some(pathFinding =>
-                    pathFinding.ruleId === finding.rule_id &&
+                    pathFinding.ruleId === effectiveFinding.rule_id &&
                     (path.isAbsolute(pathFinding.filePath) ? path.resolve(pathFinding.filePath) : path.resolve(root, pathFinding.filePath)) === absoluteFile
                 ))
                 .map(pathItem => pathItem.id)
                 .sort();
-            const workflowReason = finding.workflow?.path?.riskStory || finding.workflow?.path?.summary;
-            const copy = plainLanguageIssue(finding);
-            const fix = structuredIssueFix(finding, copy.howToFix);
+            const workflowReason = effectiveFinding.workflow?.path?.riskStory || effectiveFinding.workflow?.path?.summary;
+            const copy = plainLanguageIssue(effectiveFinding);
+            const fix = structuredIssueFix(effectiveFinding, copy.howToFix);
             const fixSuggestions = Array.from(new Set([
                 fix.quickFix,
                 fix.recommendedFix,
@@ -2153,37 +2330,37 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 ...detectedFixSuggestions,
             ]));
             const evidence = [{
-                id: stableId('evidence', `${displayFile}:${finding.rule_id}:${location.line || 1}:${location.column || 1}`),
-                ruleId: finding.rule_id,
+                id: stableId('evidence', `${displayFile}:${effectiveFinding.rule_id}:${location.line || 1}:${location.column || 1}`),
+                ruleId: effectiveFinding.rule_id,
                 file: displayFile,
                 line: evidenceKind === 'direct' ? location.line : undefined,
                 column: evidenceKind === 'direct' ? location.column : undefined,
                 snippet: evidenceSnippet,
                 kind: evidenceKind,
-                startLine: evidenceKind === 'absence' ? finding.scopeStartLine || location.line : undefined,
-                endLine: evidenceKind === 'absence' ? finding.scopeEndLine || finding.scopeStartLine || location.line : undefined,
-                scopeLabel: evidenceKind === 'absence' ? finding.scopeLabel || 'Instruction block' : undefined,
+                startLine: evidenceKind === 'absence' ? effectiveFinding.scopeStartLine || location.line : undefined,
+                endLine: evidenceKind === 'absence' ? effectiveFinding.scopeEndLine || effectiveFinding.scopeStartLine || location.line : undefined,
+                scopeLabel: evidenceKind === 'absence' ? effectiveFinding.scopeLabel || 'Instruction block' : undefined,
                 missingRequirement: evidenceKind === 'absence' ? redactSecrets(missingRequirement) : undefined,
                 source: workflowReason ? 'workflow' as const : 'scanner' as const,
             }];
             const contextual = contextualizeRepositoryFinding({
-                finding,
-                artifact: artifactByFile.get(absoluteFile),
-                provenance: provenanceForFile(absoluteFile),
+                finding: effectiveFinding,
+                artifact,
+                provenance,
                 pathIds,
                 reachablePaths,
                 evidenceIds: evidence.map(item => item.id),
             });
-            const applyContext = shouldApplyContextualRepositoryFinding(finding, contextual);
+            const applyContext = shouldApplyContextualRepositoryFinding(effectiveFinding, contextual);
             const confidence = applyContext
-                ? capIssueConfidence(issueConfidence(finding), contextual.decision.confidenceCeiling)
-                : issueConfidence(finding);
+                ? capIssueConfidence(issueConfidence(effectiveFinding), contextual.decision.confidenceCeiling)
+                : issueConfidence(effectiveFinding);
 
             const issue: RepositoryExecutionIssue = {
                 id,
-                ruleId: finding.rule_id,
-                severity: applyContext ? capSeverity(finding.severity, contextual.decision) : finding.severity,
-                category: finding.category || 'security',
+                ruleId: effectiveFinding.rule_id,
+                severity: applyContext ? capSeverity(effectiveFinding.severity, contextual.decision) : effectiveFinding.severity,
+                category: effectiveFinding.category || 'security',
                 ...copy,
                 fix,
                 evidence,
@@ -2196,7 +2373,7 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 impactedFiles: [displayFile],
                 fixSuggestions,
                 pathIds,
-                provenance: provenanceForFile(absoluteFile),
+                provenance,
                 context: applyContext ? contextual.context : undefined,
             };
 
@@ -2214,7 +2391,26 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
         }
     }
 
-    return Array.from(issues.values()).sort((left, right) => left.id.localeCompare(right.id));
+    return Array.from(issues.values()).sort(compareIssuesByPriority);
+}
+
+function issuePriorityBand(issue: RepositoryExecutionIssue): number {
+    if (issue.severity === 'critical' || issue.context?.verdict === 'vulnerability') return 0;
+    if (issue.context?.verdict === 'risky_configuration' || (issue.category === 'security' && issue.severity === 'high')) return 1;
+    if (issue.context?.verdict === 'capability_review' || issue.category === 'security') return 2;
+    if (issue.context?.verdict === 'needs_more_context') return 3;
+    if (issue.context?.verdict === 'hardening_suggestion') return 4;
+    if (['clarity', 'structure', 'best_practices', 'consistency', 'efficiency'].includes(issue.category)) return 5;
+    return 4;
+}
+
+function compareIssuesByPriority(left: RepositoryExecutionIssue, right: RepositoryExecutionIssue): number {
+    const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    const bandDelta = issuePriorityBand(left) - issuePriorityBand(right);
+    if (bandDelta !== 0) return bandDelta;
+    const severityDelta = (severityRank[String(left.severity)] ?? 9) - (severityRank[String(right.severity)] ?? 9);
+    if (severityDelta !== 0) return severityDelta;
+    return left.id.localeCompare(right.id);
 }
 
 function summarizeIssues(issues: RepositoryExecutionIssue[]): RepositoryIssueSummary {
@@ -2226,6 +2422,26 @@ function summarizeIssues(issues: RepositoryExecutionIssue[]): RepositoryIssueSum
         else summary.low += 1;
     }
     return summary;
+}
+
+function repositoryExecutiveSummary(summary: RepositorySummary, issueSummary: RepositoryIssueSummary, issues: RepositoryExecutionIssue[]): RepositoryExecutiveSummary {
+    const estimatedFixEffort: RepositoryExecutiveSummary['estimatedFixEffort'] = issues.some(issue => issue.fix.effort === 'Large' || issue.severity === 'critical')
+        ? 'Large'
+        : issues.some(issue => issue.fix.effort === 'Moderate' || issue.severity === 'high')
+            ? 'Moderate'
+            : 'Quick';
+    return {
+        overallRisk: summary.overallRisk ?? 'none',
+        findingCounts: issueSummary,
+        highestPriorityFindings: issues.slice(0, 5).map(issue => ({
+            id: issue.id,
+            ruleId: issue.ruleId,
+            severity: issue.severity,
+            issue: issue.issue,
+            impactedFiles: issue.impactedFiles,
+        })),
+        estimatedFixEffort,
+    };
 }
 
 function impactedFileType(file: string, artifacts: RepositoryArtifact[]): RepositoryImpactedFileType {
@@ -2306,7 +2522,7 @@ function sanitizeReachablePaths(paths: ReachableExecutionPath[]): ReachableExecu
     });
 }
 
-function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[]): RepositoryExecutionReport['evidence'] {
+function canonicalEvidence(root: string, artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[]): RepositoryExecutionReport['evidence'] {
     const evidence = new Map<string, NonNullable<RepositoryExecutionReport['evidence']>[number]>();
     for (const artifact of artifacts) {
         for (const [index, snippet] of (artifact.evidence || []).entries()) {
@@ -2343,7 +2559,7 @@ function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: Reposi
             evidence.set(id, {
                 id,
                 type: item.type || 'path',
-                file: normalizePath(item.filePath),
+                file: reportRelativeFile(root, item.filePath),
                 lineStart: item.line,
                 snippet: item.snippet ? redactSecrets(item.snippet) : redactSecrets(item.message),
                 ruleId: item.ruleId,
@@ -2360,7 +2576,7 @@ function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: Reposi
                 evidence.set(id, {
                     id,
                     type: 'finding',
-                    file: normalizePath(result.filePath),
+                    file: reportRelativeFile(root, result.filePath),
                     lineStart: finding.line,
                     snippet: finding.evidence ? redactSecrets(finding.evidence) : finding.message ? redactSecrets(finding.message) : undefined,
                     ruleId: finding.rule_id,
@@ -2372,6 +2588,129 @@ function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: Reposi
         }
     }
     return Array.from(evidence.values()).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function normalizedCompleteness(completeness: ScanCompleteness): ScanCompleteness {
+    const files = {
+        inventoried: Math.max(0, completeness.files.inventoried),
+        selected: Math.min(Math.max(0, completeness.files.selected), Math.max(0, completeness.files.inventoried)),
+        fetched: 0,
+        parsed: 0,
+        analyzed: 0,
+        graphConnected: 0,
+    };
+    files.fetched = Math.min(Math.max(0, completeness.files.fetched), files.selected);
+    files.parsed = Math.min(Math.max(0, completeness.files.parsed), files.fetched);
+    files.analyzed = Math.min(Math.max(0, completeness.files.analyzed), files.parsed);
+    files.graphConnected = Math.min(Math.max(0, completeness.files.graphConnected), files.analyzed);
+
+    const references = {
+        discovered: Math.max(0, completeness.references.discovered),
+        fetched: Math.min(Math.max(0, completeness.references.fetched), Math.max(0, completeness.references.discovered)),
+        parsed: 0,
+        resolved: 0,
+        unresolved: Math.max(0, completeness.references.unresolved),
+    };
+    references.parsed = Math.min(Math.max(0, completeness.references.parsed), references.fetched);
+    references.resolved = Math.min(Math.max(0, completeness.references.resolved), references.parsed);
+
+    const capabilities = {
+        discovered: Math.max(0, completeness.capabilities.discovered),
+        withControlNeighborhoodSearched: Math.min(Math.max(0, completeness.capabilities.withControlNeighborhoodSearched), Math.max(0, completeness.capabilities.discovered)),
+        withControlContextResolved: 0,
+        unresolved: Math.max(0, completeness.capabilities.unresolved),
+    };
+    capabilities.withControlContextResolved = Math.min(
+        Math.max(0, completeness.capabilities.withControlContextResolved),
+        capabilities.withControlNeighborhoodSearched,
+    );
+
+    const changedCounts = JSON.stringify(files) !== JSON.stringify(completeness.files) ||
+        JSON.stringify(references) !== JSON.stringify(completeness.references) ||
+        JSON.stringify(capabilities) !== JSON.stringify(completeness.capabilities);
+    const unresolved = capabilities.unresolved > 0 || references.unresolved > 0 || completeness.unresolvedContext.length > 0;
+    const failedOrIncomplete = files.selected < files.inventoried || files.fetched < files.selected || files.parsed < files.fetched || files.analyzed < files.parsed;
+    const impossibleRepositoryComplete = completeness.coverageStatus === 'repository_complete' && (changedCounts || unresolved || failedOrIncomplete);
+
+    if (!changedCounts && !impossibleRepositoryComplete) return completeness;
+
+    const coverageReason = [
+        completeness.coverageReason,
+        changedCounts ? 'Completeness counts were normalized to selected <= inventoried, fetched <= selected, parsed/analyzed <= fetched, and graphConnected <= analyzed.' : '',
+        impossibleRepositoryComplete ? 'Repository-complete coverage was downgraded because unresolved context, unresolved references, or parse/fetch gaps remain.' : '',
+    ].filter(Boolean).join(' ');
+
+    return {
+        ...completeness,
+        files,
+        capabilities,
+        references,
+        coverageStatus: impossibleRepositoryComplete ? 'partial' : completeness.coverageStatus,
+        verdictScope: impossibleRepositoryComplete ? 'partial_context' : completeness.verdictScope,
+        coverageReason,
+    };
+}
+
+function repositoryMapConsistencyErrors(input: {
+    root: string;
+    issueSummary: RepositoryIssueSummary;
+    issues: RepositoryExecutionIssue[];
+    impactedFiles: RepositoryImpactedFile[];
+    reachablePaths: ReachableExecutionPath[];
+    completeness?: ScanCompleteness;
+}): RepositoryPathValidation['errors'] {
+    const errors: RepositoryPathValidation['errors'] = [];
+    const { root, issueSummary, issues, impactedFiles, reachablePaths, completeness } = input;
+    const actualSummary = summarizeIssues(issues);
+    if (JSON.stringify(actualSummary) !== JSON.stringify(issueSummary)) {
+        errors.push({ code: 'issue-count-mismatch', message: 'Issue summary counts do not match canonical issues.' });
+    }
+    for (const impacted of impactedFiles) {
+        const actualIssueIds = issues.filter(issue => issue.impactedFiles.includes(impacted.path)).map(issue => issue.id).sort();
+        const listedIssueIds = [...impacted.issueIds].sort();
+        if (impacted.issueCount !== actualIssueIds.length || JSON.stringify(actualIssueIds) !== JSON.stringify(listedIssueIds)) {
+            errors.push({ code: 'impacted-file-count-mismatch', message: `Impacted file ${impacted.path} does not match canonical issue ownership.` });
+        }
+        const actualPathIds = new Set([
+            ...issues.filter(issue => issue.impactedFiles.includes(impacted.path)).flatMap(issue => issue.pathIds),
+            ...reachablePaths.filter(pathItem => pathItem.files.some(file => reportRelativeFile(root, file) === impacted.path)).map(pathItem => pathItem.id),
+        ]);
+        if (impacted.pathIds.some(pathId => !actualPathIds.has(pathId))) {
+            errors.push({ code: 'impacted-file-count-mismatch', message: `Impacted file ${impacted.path} lists a path that is not owned by that file.` });
+        }
+    }
+    for (const issue of issues) {
+        for (const item of issue.evidence) {
+            if (!issue.impactedFiles.includes(item.file)) {
+                errors.push({ code: 'evidence-owner-mismatch', message: `Issue ${issue.id} evidence points at ${item.file}, which is not one of its impacted files.` });
+            }
+        }
+    }
+    if (completeness) {
+        const files = completeness.files;
+        const references = completeness.references;
+        const capabilities = completeness.capabilities;
+        if (
+            files.selected > files.inventoried ||
+            files.fetched > files.selected ||
+            files.parsed > files.fetched ||
+            files.analyzed > files.parsed ||
+            files.graphConnected > files.analyzed ||
+            references.fetched > references.discovered ||
+            references.parsed > references.fetched ||
+            references.resolved > references.parsed ||
+            capabilities.withControlNeighborhoodSearched > capabilities.discovered ||
+            capabilities.withControlContextResolved > capabilities.withControlNeighborhoodSearched
+        ) {
+            errors.push({ code: 'completeness-count-mismatch', message: 'Scan completeness counters are internally inconsistent.' });
+        }
+        const unresolved = capabilities.unresolved > 0 || references.unresolved > 0 || completeness.unresolvedContext.length > 0;
+        const failedOrIncomplete = files.selected < files.inventoried || files.fetched < files.selected || files.parsed < files.fetched || files.analyzed < files.parsed;
+        if ((completeness.coverageStatus === 'repository_complete' || completeness.verdictScope === 'repository_complete') && (unresolved || failedOrIncomplete)) {
+            errors.push({ code: 'repository-complete-with-unresolved-context', message: 'repository_complete cannot be reported with unresolved controls, unresolved references, or parse/fetch gaps.' });
+        }
+    }
+    return errors;
 }
 
 export function validateRepositoryExecutionPaths(
@@ -2490,7 +2829,22 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     summary.productionIssueSummary = productionIssueSummary;
     summary.nonProductionIssueSummary = nonProductionIssueSummary;
     summary.issuesByProvenance = issuesByProvenance;
-    const pathValidation = validateRepositoryExecutionPaths(executionMap, sanitizedPaths, summary);
+    const reportEvidence = canonicalEvidence(root, sanitizedArtifacts, executionMap, sanitizedPaths, scanResults);
+    let pathValidation = validateRepositoryExecutionPaths(executionMap, sanitizedPaths, summary);
+    const consistencyErrors = repositoryMapConsistencyErrors({
+        root,
+        issueSummary,
+        issues,
+        impactedFiles,
+        reachablePaths: sanitizedPaths,
+    });
+    if (consistencyErrors.length > 0) {
+        pathValidation = {
+            ...pathValidation,
+            valid: false,
+            errors: [...pathValidation.errors, ...consistencyErrors],
+        };
+    }
 
     if (scanStats) {
         summary.scanStats = scanStats;
@@ -2520,6 +2874,7 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     }, 0);
     const currentRisk: RepositoryRisk | 'none' = summary.overallRisk ?? 'none';
     summary.overallRisk = riskOrder[Math.max(riskOrder.indexOf(currentRisk), securityIssueRank)];
+    const executiveSummary = repositoryExecutiveSummary(summary, issueSummary, issues);
 
     return {
         id: stableId('repo-report', `${root}:${generatedAt}`),
@@ -2540,13 +2895,14 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
         executionMap,
         reachablePaths: sanitizedPaths,
         summary,
+        executiveSummary,
         issues,
         issueSummary,
         impactedFiles,
         pathValidation,
         confidenceDefinitions: REPOSITORY_CONFIDENCE_DEFINITIONS,
         findings: sanitizeScanResults(scanResults),
-        evidence: canonicalEvidence(sanitizedArtifacts, executionMap, sanitizedPaths, scanResults),
+        evidence: reportEvidence,
         fixPlan: dedupeFixPlan(sanitizedPaths, executionMap),
         exports: { json: true, sarif: true, html: true, mapJson: true },
     };
@@ -2582,11 +2938,28 @@ export function evaluateCanonicalFindings(input: EvaluateCanonicalFindingsInput)
         scanResults,
         input.scanStats,
     );
+    const completeness = normalizedCompleteness(input.scanCompleteness);
+    const completenessErrors = repositoryMapConsistencyErrors({
+        root: path.resolve(input.rootPath),
+        issueSummary: report.issueSummary,
+        issues: report.issues,
+        impactedFiles: report.impactedFiles,
+        reachablePaths: report.reachablePaths,
+        completeness,
+    });
+    const pathValidation = completenessErrors.length > 0
+        ? {
+            ...report.pathValidation,
+            valid: false,
+            errors: [...report.pathValidation.errors, ...completenessErrors],
+        }
+        : report.pathValidation;
 
     return {
         ...report,
-        completeness: input.scanCompleteness,
+        completeness,
         profileEvidence: input.profileEvidence,
+        pathValidation,
         threatModel: input.threatModel,
     };
 }

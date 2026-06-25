@@ -1,5 +1,6 @@
 // Core Entry Point
 export * from './parser';
+export * from './artifacts';
 export * from './rules';
 export * from './optimizer'; // Phase 2
 export * from './waiver';
