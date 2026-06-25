@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { analyzeRepositoryExecutionFromFiles, type RepositoryExecutionReport } from '@promptsonar/core';
+import { analyzeRepositoryExecutionFromFiles, type RepositoryExecutionReport, type RepositoryScanResult } from '@promptsonar/core';
 import { scanFiles, type ScanResult } from '@promptsonar/cli';
 import { cacheRepositoryReport } from '@/lib/repositoryReportCache';
 import {
   buildRepositoryBatchScanDiagnostics,
+  buildUploadedRepositoryReport,
   normalizeRelativePath,
   REPORT_ROOT,
   scanUploadedFiles,
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const action = body?.action;
+    const useClosure = body?.useClosure === true;
     const files = Array.isArray(body?.files) ? body.files as RepositoryUploadFile[] : [];
 
     if (action === 'scan') {
@@ -122,15 +124,28 @@ export async function POST(request: Request) {
       const validationError = validateFiles(files, MAX_FILES);
       if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
       const bounded = boundedFiles(files);
-      const scanResults = Array.isArray(body?.scanResults)
-        ? (body.scanResults as ScanResult[]).map(reportScanResult)
-        : scanUploadedFiles(bounded.files);
-      const report: RepositoryExecutionReport = analyzeRepositoryExecutionFromFiles(
-        REPORT_ROOT,
-        bounded.files,
-        scanResults as any,
-        { maxFiles: MAX_FILES, maxFileSizeBytes: MAX_FILE_CHARS },
-      );
+      let scanResults: RepositoryScanResult[];
+      let report: RepositoryExecutionReport;
+      if (useClosure) {
+        const closureReport = await buildUploadedRepositoryReport(bounded.files, {
+          useClosure: true,
+          maxFiles: MAX_FILES,
+          maxFileSizeBytes: MAX_FILE_CHARS,
+          maxBytes: MAX_TOTAL_CHARS,
+        });
+        report = closureReport.report;
+        scanResults = closureReport.scanResults;
+      } else {
+        scanResults = Array.isArray(body?.scanResults)
+          ? (body.scanResults as ScanResult[]).map(reportScanResult) as unknown as RepositoryScanResult[]
+          : scanUploadedFiles(bounded.files);
+        report = analyzeRepositoryExecutionFromFiles(
+          REPORT_ROOT,
+          bounded.files,
+          scanResults as any,
+          { maxFiles: MAX_FILES, maxFileSizeBytes: MAX_FILE_CHARS },
+        );
+      }
       report.scanMode = 'browser-bounded';
       report.repository = {
         ...report.repository,
@@ -146,6 +161,7 @@ export async function POST(request: Request) {
           filesSkipped: bounded.skipped,
           scanResults,
           report,
+          useClosure,
         }),
       });
     }
