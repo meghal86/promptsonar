@@ -169,6 +169,11 @@
                     "type": "number",
                     "default": 2000,
                     "description": "Maximum number of files PromptSonar will scan in a workspace scan after ignore rules are applied."
+                },
+                "promptsonar.useClosureScan": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Use opt-in closure analysis for the existing repository execution map command."
                 }
             }
         }

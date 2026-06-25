@@ -18,6 +18,11 @@ import {
     editorLineForEvidence,
     renderRepositoryFileInvestigations,
 } from './repositoryInvestigation';
+import {
+    buildClosureRepositoryExecutionReport,
+    repositoryCompletenessHtml,
+    useClosureScanSetting,
+} from './repositoryClosure';
 import { contextualizeMcpAuditForActiveDocument } from './mcpContextual';
 import { isScannable, isMcpConfigFile } from '../shared/detection';
 import { isPromptSonarIgnoredPath, parsePromptSonarIgnore, PromptSonarIgnoreMatcher } from '../shared/ignore';
@@ -65,6 +70,14 @@ function summarizeWorkspaceScore(scores: number[], findings: any[]): { score: nu
 
 function hashContent(content: string): string {
     return crypto.createHash('md5').update(content).digest('hex');
+}
+
+function escapeHtml(value: unknown): string {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 const SUPPORTED_LANGUAGES = new Set([
@@ -679,14 +692,6 @@ export function activate(context: ExtensionContext) {
         });
     }
 
-    function escapeHtml(value: unknown): string {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
-
     function repositoryPanelHtml(report: any): string {
         const summary = report.summary;
         const nodesById = new Map(report.executionMap.nodes.map((node: any) => [node.id, node]));
@@ -753,6 +758,7 @@ export function activate(context: ExtensionContext) {
     <aside>
       <a href="#overview">Repository</a>
       <a href="#impacted-files">Impacted Files</a>
+      ${report.completeness ? '<a href="#completeness">Completeness</a>' : ''}
       <a href="#overview">Overview</a>
       <a href="#findings">Findings</a>
       <a href="#map">Execution Map</a>
@@ -763,6 +769,7 @@ export function activate(context: ExtensionContext) {
     <main>
       <h1>Files to Fix</h1>
       <div class="cards">${surfaces.map(([label, value]) => `<div class="card"><div class="metric">${escapeHtml(value)}</div><div class="label">${escapeHtml(label)}</div></div>`).join('')}</div>
+      ${repositoryCompletenessHtml(report)}
       ${renderRepositoryFileInvestigations(fileInvestigations)}
       <section id="overview">
         <h2>Repository Summary</h2>
@@ -829,6 +836,18 @@ export function activate(context: ExtensionContext) {
         }
 
         const root = workspaceFolders[0].uri.fsPath;
+        const configScope = workspace.getConfiguration('promptsonar');
+        const maxWorkspaceScanFiles = Math.max(1, configScope.get<number>('maxWorkspaceScanFiles', 2000));
+        const maxFileSizeBytes = configScope.get<number>('maxFileSizeBytes', 1048576);
+
+        if (useClosureScanSetting(configScope)) {
+            progress?.report({ message: 'Running closure scan' });
+            return buildClosureRepositoryExecutionReport(root, {
+                maxWorkspaceScanFiles,
+                maxFileSizeBytes,
+            });
+        }
+
         const workspaceIgnoreMatchers = await loadWorkspaceIgnoreMatchers(workspaceFolders);
         const sourceFiles = await workspace.findFiles(WORKSPACE_SCAN_GLOB, WORKSPACE_SCAN_EXCLUDE_GLOB);
         const markdownInstructionFiles = await workspace.findFiles('**/{SKILL.md,skills.md,AGENT.md,AGENTS.md,agent.md,agents.md}', WORKSPACE_SCAN_EXCLUDE_GLOB);
@@ -838,8 +857,7 @@ export function activate(context: ExtensionContext) {
                 !isPromptSonarIgnoredPath(file.fsPath, workspaceIgnoreMatchers)
             )
             .sort((a, b) => a.fsPath.localeCompare(b.fsPath))
-            .slice(0, Math.max(1, workspace.getConfiguration('promptsonar').get<number>('maxWorkspaceScanFiles', 2000)));
-        const maxFileSizeBytes = workspace.getConfiguration('promptsonar').get<number>('maxFileSizeBytes', 1048576);
+            .slice(0, maxWorkspaceScanFiles);
         const scanResults: any[] = [];
 
         for (let index = 0; index < files.length; index++) {
