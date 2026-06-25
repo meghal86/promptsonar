@@ -5,7 +5,7 @@ export function checkClarity(input: RuleInput): Finding[] {
     const lowerText = input.text.toLowerCase();
 
     // 1. Missing quantifiers
-    const countKeywords = ["how many", "list", "array", "give me", "output"];
+    const countKeywords = ["everything", "exhaustive", "all files", "scan repository", "entire repository", "unlimited", "no limit"];
     const quantifiers = ["exactly", "top", "maximum", "at most", "at least", "limit to", "items"];
 
     const impliesCounting = countKeywords.some(keyword => lowerText.includes(keyword));

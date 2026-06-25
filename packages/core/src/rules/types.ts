@@ -1,4 +1,5 @@
 import type { FindingWorkflow } from '../workflow/types';
+import type { ArtifactKind, ExecutionIntent } from '../artifacts';
 
 export type Severity = "low" | "medium" | "high" | "critical";
 export type FindingEvidenceKind = "direct" | "absence";
@@ -19,6 +20,10 @@ export interface Finding {
 
 export interface RuleContext {
     filePath: string;
+    artifactKind?: ArtifactKind;
+    executionIntent?: ExecutionIntent;
+    sourceType?: string;
+    hasExplicitPromptBlock?: boolean;
 }
 
 export interface RuleInput {

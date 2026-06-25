@@ -1,4 +1,4 @@
-import type { RepositoryExecutionReport } from '@promptsonar/core';
+import { contextualVerdictLabel, type RepositoryExecutionReport } from '@promptsonar/core';
 
 export const REPOSITORY_ARTIFACT_FILES = [
     'repository-report.json',
@@ -49,11 +49,11 @@ export function repositorySummaryMarkdown(report: RepositoryExecutionReport): st
         '',
         '## Top Issues',
         '',
-        '| Severity | Context | Issue | Impacted Files | Quick Fix |',
-        '| --- | --- | --- | --- | --- |',
+        '| Severity | Context | Verdict | Issue | Impacted Files | Quick Fix |',
+        '| --- | --- | --- | --- | --- | --- |',
         ...(topIssues.length > 0
-            ? topIssues.map(issue => `| ${markdownCell(String(issue.severity).toUpperCase())} | ${markdownCell(issue.provenance ?? 'production')} | ${markdownCell(issue.issue)} | ${markdownCell(issue.impactedFiles.join(', '))} | ${markdownCell(issue.fix.quickFix)} |`)
-            : ['| None | - | No active issues | - | - |']),
+            ? topIssues.map(issue => `| ${markdownCell(String(issue.severity).toUpperCase())} | ${markdownCell(issue.provenance ?? 'production')} | ${markdownCell(contextualVerdictLabel(issue.context?.verdict))} | ${markdownCell(issue.issue)} | ${markdownCell(issue.impactedFiles.join(', '))} | ${markdownCell(issue.fix.quickFix)} |`)
+            : ['| None | - | - | No active issues | - | - |']),
         '',
         `## Impacted Files (${report.impactedFiles.length})`,
         '',

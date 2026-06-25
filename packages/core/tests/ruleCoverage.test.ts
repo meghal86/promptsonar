@@ -111,4 +111,14 @@ describe('content secret scanning', () => {
     it('does not flag a file with no secrets', () => {
         expect(scanContentForSecrets('const x = 1;\nfunction f() { return x; }')).toHaveLength(0);
     });
+
+    it('treats environment secret access as a reference, not a literal secret exposure', () => {
+        const reference = 'const apiKey = process.env.OPENAI_API_KEY;';
+        const literal = 'const apiKey = "sk-proj-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";';
+
+        expect(scanContentForSecrets(reference)).toHaveLength(0);
+        expect(ruleIds(reference)).not.toContain('sec_owasp_llm02_pii');
+        expect(scanContentForSecrets(literal).some(match => match.name === 'OpenAI API Key')).toBe(true);
+        expect(ruleIds(literal)).toContain('sec_owasp_llm02_pii');
+    });
 });

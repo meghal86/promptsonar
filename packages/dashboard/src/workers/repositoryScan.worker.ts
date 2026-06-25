@@ -7,6 +7,7 @@ type WorkerRequest = {
   id: string;
   files: RepositoryPayloadFile[];
   repositoryName: string;
+  useClosure?: boolean;
 };
 
 type WorkerProgressMessage = {
@@ -68,12 +69,13 @@ async function postJson<T>(body: unknown, timeoutMs = REPORT_TIMEOUT_MS): Promis
   }
 }
 
-async function runRepositoryScan({ id, files, repositoryName }: WorkerRequest) {
+async function runRepositoryScan({ id, files, repositoryName, useClosure }: WorkerRequest) {
   postProgress(id, `Building hosted preview from ${files.length} prioritized files…`);
   const finalData = await postJson<{ report: unknown; scan: Record<string, unknown> }>({
     action: 'report',
     files,
     repositoryName,
+    ...(useClosure ? { useClosure: true } : {}),
   }, REPORT_TIMEOUT_MS);
 
   self.postMessage({

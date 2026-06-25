@@ -2,6 +2,7 @@ import {
   auditMcpConfig,
   evaluatePrompt,
   formatToSarif,
+  normalizeMcpAuditResultContextual,
   type Finding,
   type McpAuditResult,
 } from '@promptsonar/core';
@@ -75,6 +76,7 @@ function mcpFindings(mcpAudit: McpAuditResult): Finding[] {
     suggested_fix: finding.fix,
     workflow: finding.workflow,
     matchedText: finding.evidence,
+    context: finding.context,
   }));
 }
 
@@ -106,7 +108,7 @@ export function analyzeCursorDocument(
   let findings: Finding[] = [];
   let mcpAudit: McpAuditResult | undefined;
   if (isMcpConfigFile(filePath)) {
-    mcpAudit = auditMcpConfig(filePath, content);
+    mcpAudit = normalizeMcpAuditResultContextual(auditMcpConfig(filePath, content));
     findings = mcpFindings(mcpAudit);
   } else if (isPromptFile(filePath, content)) {
     findings = evaluatePrompt({ text: content, context: { filePath } }).findings;
@@ -165,4 +167,3 @@ export function cursorSarif(filePath: string, result: CursorAnalysisResult): str
   }));
   return formatToSarif(findings, filePath);
 }
-

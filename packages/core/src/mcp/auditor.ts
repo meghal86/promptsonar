@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import type { CanonicalIssueContext } from '../contextual';
 import { FindingWorkflow, inferWorkflowForFinding } from '../workflow';
+import { normalizeMcpAuditResultContextual } from './contextual';
 
 export type McpSeverity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -17,6 +19,7 @@ export interface McpFinding {
     confidence_contribution?: number;
     line?: number;
     column?: number;
+    context?: CanonicalIssueContext;
 }
 
 export type McpRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -892,13 +895,13 @@ export function auditMcpConfig(filePath: string, content: string): McpAuditResul
 
     const overallScore = computeRiskScore(findings);
 
-    return {
+    return normalizeMcpAuditResultContextual({
         filePath,
         status: statusFromFindings(findings),
         findings,
         risk_score: overallScore,
         servers: serverSummaries,
-    };
+    });
 }
 
 export function discoverMcpConfigPaths(cwd = process.cwd()): string[] {

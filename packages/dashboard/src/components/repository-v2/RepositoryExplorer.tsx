@@ -4,7 +4,9 @@ import type {
   RepositoryExecutionReport,
   RepositoryPathConfidence,
   RepositoryRisk,
+  ScanCompleteness,
 } from "@promptsonar/core";
+import { contextualVerdictLabel } from "@promptsonar/core/dist/contextual/presentation";
 import { useEffect, useMemo, useState } from "react";
 import { buildRepositoryExplorerViewModel } from "@/lib/repositoryViewModel";
 import {
@@ -47,6 +49,7 @@ type ScanMeta = {
   hiddenReasons?: Record<string, number>;
   mode: string;
   cli: string;
+  closure?: boolean;
   timings?: {
     scannerMs: number;
     reportMs: number;
@@ -69,6 +72,10 @@ type SourceScanStats = Pick<
   | "sourceExcludedByPayloadLimit"
   | "sourceEstimatedChars"
 >;
+
+function completenessLabel(value: ScanCompleteness["coverageStatus"] | ScanCompleteness["verdictScope"]): string {
+  return String(value).replaceAll("_", " ");
+}
 
 function sectionLabel(children: string) {
   return <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">{children}</p>;
@@ -190,6 +197,7 @@ function buildMarkdownReport(report: RepositoryExecutionReport, limit = Infinity
     lines.push("");
     for (const issue of issues) {
       lines.push(`### ${String(issue.severity || "finding").toUpperCase()} · ${issue.issue || issue.ruleId}`);
+      lines.push(`**Verdict:** ${contextualVerdictLabel(issue.context?.verdict)}`);
       if (issue.howToFix || issue.fix?.recommendedFix) lines.push(`**Fix:** ${issue.fix?.recommendedFix || issue.howToFix}`);
       const files = issue.impactedFiles || [];
       if (files.length > 0) lines.push(`**Files:** ${files.slice(0, 6).map((file) => `\`${file}\``).join(", ")}`);
@@ -337,6 +345,7 @@ export function RepositoryExplorer() {
   const [artifactText, setArtifactText] = useState(ARTIFACT_EXAMPLES[0].text);
   // Public GitHub URL intake.
   const [githubUrl, setGithubUrl] = useState("");
+  const [useClosure, setUseClosure] = useState(false);
   // Security / Reliability / Quality filter for the remediation list (all on by default).
   const [remediationLanes, setRemediationLanes] = useState<Set<FindingLane>>(() => new Set<FindingLane>(["security", "reliability", "quality"]));
   const toggleRemediationLane = (lane: FindingLane) => setRemediationLanes((current) => {
@@ -510,6 +519,7 @@ export function RepositoryExplorer() {
     setScanMeta(null);
     setFiles([]);
     setSelectionStats({ total: 0, eligible: 0, queued: 0, excludedByFileLimit: 0, excludedByPayloadLimit: 0, estimatedChars: 0 });
+    setUseClosure(false);
     setError(null);
     setScanProgress(null);
     try {
@@ -575,7 +585,7 @@ export function RepositoryExplorer() {
       const response = await fetch("/api/repository", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files: payloadFiles, repositoryName }),
+        body: JSON.stringify({ files: payloadFiles, repositoryName, ...(useClosure ? { useClosure: true } : {}) }),
         signal: controller.signal,
       });
       setScanProgress("Building the execution map and repository report…");
@@ -621,7 +631,7 @@ export function RepositoryExplorer() {
           reject(new Error(message.error));
         };
         worker.onerror = () => reject(new Error("Repository scan worker failed."));
-        worker.postMessage({ id: requestId, files: payloadFiles, repositoryName });
+        worker.postMessage({ id: requestId, files: payloadFiles, repositoryName, ...(useClosure ? { useClosure: true } : {}) });
       });
 
       setReport(result.report);
@@ -745,6 +755,7 @@ export function RepositoryExplorer() {
   const hiddenFindingCount = Math.max(0, rawFindingCount - productionFindingCount);
   const groupedFindingCount = scanMeta?.groupedFindingsCount ?? new Set(report?.issues?.map(issue => issue.ruleId) || []).size;
   const hiddenReasons = scanMeta?.hiddenReasons || view?.nonProduction.byProvenance || {};
+  const completeness = report?.completeness;
 
   return (
     <PreviewShell
@@ -811,6 +822,20 @@ export function RepositoryExplorer() {
               <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-stone-400">Or scan a whole repository</span>
               <span className="h-px flex-1 bg-stone-900/10" />
             </div>
+
+            <label className="mt-4 flex max-w-xl items-center justify-between gap-4 rounded-2xl border border-white/75 bg-white/65 px-5 py-4 text-left shadow-[0_18px_55px_-42px_rgba(28,25,23,0.55)] backdrop-blur-xl">
+              <span>
+                <span className="block font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Opt-in closure</span>
+                <span className="mt-1 block text-[13px] leading-5 text-stone-600">Use repository closure for this uploaded scan.</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={useClosure}
+                onChange={(event) => setUseClosure(event.target.checked)}
+                disabled={loading}
+                className="h-5 w-5 rounded border-stone-400 text-stone-900 focus:ring-stone-900"
+              />
+            </label>
 
             <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <button
@@ -1050,7 +1075,23 @@ export function RepositoryExplorer() {
                       <span>hidden findings: <b className="text-stone-900">{hiddenFindingCount}</b></span>
                       <span>remediation hidden: <b className="text-stone-900">{view.remediationCount.hidden}</b></span>
                       <span>non-production: <b className="text-stone-900">{view.nonProduction.total}</b></span>
+                      {completeness && <span>coverage: <b className="text-stone-900">{completenessLabel(completeness.coverageStatus)}</b></span>}
+                      {completeness && <span>verdict scope: <b className="text-stone-900">{completenessLabel(completeness.verdictScope)}</b></span>}
+                      {completeness && <span>closure selected: <b className="text-stone-900">{completeness.files.selected}</b></span>}
+                      {completeness && <span>closure analyzed: <b className="text-stone-900">{completeness.files.analyzed}</b></span>}
+                      {completeness && <span>references resolved: <b className="text-stone-900">{completeness.references.resolved}</b></span>}
+                      {completeness && <span>unresolved controls: <b className="text-stone-900">{completeness.capabilities.unresolved}</b></span>}
                     </div>
+                    {completeness && (
+                      <p className="mt-3 text-[11px] text-stone-500">
+                        Completeness: {completeness.coverageReason}
+                      </p>
+                    )}
+                    {completeness && completeness.unresolvedContext.length > 0 && (
+                      <p className="mt-3 text-[11px] text-amber-800">
+                        Unresolved context: {completeness.unresolvedContext.map((item) => `${item.capability} (${item.missingFilesOrControls.slice(0, 3).join(", ")})`).join(" · ")}
+                      </p>
+                    )}
                     {((scanMeta?.sourceExcludedByFileLimit || 0) > 0 || (scanMeta?.sourceExcludedByPayloadLimit || 0) > 0) && (
                       <p className="mt-3 text-[11px] text-stone-500">
                         Hosted bounded scan excluded {(scanMeta?.sourceExcludedByFileLimit || 0).toLocaleString()} eligible file{(scanMeta?.sourceExcludedByFileLimit || 0) === 1 ? "" : "s"} by file limit

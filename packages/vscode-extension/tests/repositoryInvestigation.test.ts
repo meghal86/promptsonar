@@ -80,6 +80,7 @@ describe('VS Code repository file investigation', () => {
             issues: [{
                 id: 'issue-1',
                 severity: 'high',
+                context: { verdict: 'needs_more_context' },
                 issue: 'A skill can invoke a sensitive tool.',
                 impact: 'The tool could modify repository files.',
                 evidence: [{ id: 'evidence-1', file: 'SKILL.md', line: 3, snippet: 'use shell' }],
@@ -99,6 +100,7 @@ describe('VS Code repository file investigation', () => {
         expect(html).toContain('data-open-file="/workspace/repo/SKILL.md"');
         expect(html).toContain('data-line="3"');
         expect(html).toContain('Evidence');
+        expect(html).toContain('Needs more context');
         expect(html).toContain('Quick Fix');
         expect(html).toContain('Execution Paths');
         expect(editorLineForEvidence(3)).toBe(2);

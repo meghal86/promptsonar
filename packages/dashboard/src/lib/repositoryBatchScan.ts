@@ -1,13 +1,18 @@
 import * as path from 'path';
 import {
   auditMcpConfig,
+  analyzeRepositoryExecutionFromFiles,
+  evaluateRepositoryWithClosure,
   evaluatePrompt,
+  InMemoryRepositorySource,
   NON_PRODUCTION_PROVENANCE,
   type Finding,
   type McpFinding,
+  type RepositoryFileContent,
   type RepositoryExecutionReport,
   type RepositoryScanFinding,
   type RepositoryScanResult,
+  type ScanBudget,
 } from '@promptsonar/core';
 
 export const REPORT_ROOT = '/uploaded-repository';
@@ -29,6 +34,16 @@ export type RepositoryBatchScanDiagnostics = {
   hiddenReasons: Record<string, number>;
   mode: string;
   cli: string;
+  closure?: boolean;
+};
+
+export type UploadedRepositoryReportOptions = {
+  useClosure?: boolean;
+  maxFiles?: number;
+  maxFileSizeBytes?: number;
+  maxBytes?: number;
+  maxDurationMs?: number;
+  maxReferenceDepth?: number;
 };
 
 export function normalizeRelativePath(value: string): string {
@@ -159,18 +174,69 @@ export function scanUploadedFiles(files: RepositoryUploadFile[]): RepositoryScan
   return results;
 }
 
+function toRepositoryFileContent(files: RepositoryUploadFile[]): RepositoryFileContent[] {
+  return files.map(file => {
+    const content = String(file.content || '');
+    return {
+      path: normalizeRelativePath(file.path),
+      size: Buffer.byteLength(content, 'utf-8'),
+      content,
+    };
+  });
+}
+
+function dashboardClosureBudget(files: RepositoryUploadFile[], options: UploadedRepositoryReportOptions): ScanBudget {
+  return {
+    maxFiles: options.maxFiles ?? Math.max(1, files.length),
+    maxBytes: options.maxBytes ?? files.reduce((total, file) => total + Buffer.byteLength(String(file.content || ''), 'utf-8'), 0),
+    maxCharacters: options.maxFileSizeBytes,
+    maxDurationMs: options.maxDurationMs ?? 50_000,
+    maxReferenceDepth: options.maxReferenceDepth ?? 2,
+  };
+}
+
+export async function buildUploadedRepositoryReport(
+  files: RepositoryUploadFile[],
+  options: UploadedRepositoryReportOptions = {},
+): Promise<{ report: RepositoryExecutionReport; scanResults: RepositoryScanResult[] }> {
+  if (options.useClosure) {
+    const closure = await evaluateRepositoryWithClosure({
+      rootPath: REPORT_ROOT,
+      source: new InMemoryRepositorySource(toRepositoryFileContent(files)),
+      budget: dashboardClosureBudget(files, options),
+      mode: 'bounded',
+      profileEvidence: { signals: [] },
+    });
+    return { report: closure.report, scanResults: closure.report.findings };
+  }
+
+  const scanResults = scanUploadedFiles(files);
+  const report = analyzeRepositoryExecutionFromFiles(
+    REPORT_ROOT,
+    files,
+    scanResults as any,
+    {
+      maxFiles: options.maxFiles,
+      maxFileSizeBytes: options.maxFileSizeBytes,
+    },
+  );
+  return { report, scanResults };
+}
+
 export function buildRepositoryBatchScanDiagnostics({
   filesReceived,
   filesWritten,
   filesSkipped,
   scanResults,
   report,
+  useClosure = false,
 }: {
   filesReceived: number;
   filesWritten: number;
   filesSkipped: number;
   scanResults: Array<{ findings?: unknown[] }>;
   report: RepositoryExecutionReport;
+  useClosure?: boolean;
 }): RepositoryBatchScanDiagnostics {
   const hiddenReasons = Object.fromEntries(
     Object.entries(report.summary.issuesByProvenance || {}).filter(([provenance]) =>
@@ -178,7 +244,7 @@ export function buildRepositoryBatchScanDiagnostics({
     ),
   );
 
-  return {
+  const diagnostics: RepositoryBatchScanDiagnostics = {
     filesReceived,
     filesWritten,
     filesSkipped,
@@ -191,4 +257,6 @@ export function buildRepositoryBatchScanDiagnostics({
     mode: 'browser-batched',
     cli: 'npx @promptsonar/cli repo . --json --output repository-report.json',
   };
+  if (useClosure) diagnostics.closure = true;
+  return diagnostics;
 }

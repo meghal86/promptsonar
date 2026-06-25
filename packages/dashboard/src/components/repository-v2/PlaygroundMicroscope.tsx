@@ -533,7 +533,7 @@ function FindingCard({
   return (
     <section className="relative overflow-hidden rounded-[22px] border border-stone-900/10 bg-white/75 p-6 shadow-[0_20px_60px_-43px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-8">
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-red-700">
-        {issue.confidence.label} · {issue.severity} · {plainRuleFamily(issue.ruleId, issue.issue)} · {LANE_LABEL[findingLane(issue.ruleId, issue.issue)]}
+        {issue.confidence.label} · {issue.severity} · {issue.contextualVerdictLabel} · {plainRuleFamily(issue.ruleId, issue.issue)} · {LANE_LABEL[findingLane(issue.ruleId, issue.issue)]}
       </p>
       <h2 className="mt-3 max-w-[46ch] font-sans text-[24px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[28px]">
         {plainFindingHeadline(issue.ruleId, issue.issue, active)}

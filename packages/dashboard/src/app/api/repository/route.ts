@@ -6,6 +6,7 @@ import { execFile } from 'child_process';
 import { createRequire } from 'module';
 import { analyzeRepositoryExecution, type RepositoryExecutionReport } from '@promptsonar/core';
 import { scanFiles } from '@promptsonar/cli';
+import { buildUploadedRepositoryReport } from '@/lib/repositoryBatchScan';
 import { cacheRepositoryReport, repositoryReportCache } from '@/lib/repositoryReportCache';
 
 const MAX_FILES = 200;
@@ -104,6 +105,7 @@ export async function POST(request: Request) {
   const requestStartedAt = performance.now();
   try {
     const body = await request.json();
+    const useClosure = body?.useClosure === true;
     const files = Array.isArray(body?.files) ? body.files as RepositoryUploadFile[] : [];
     if (files.length === 0) {
       return NextResponse.json({ error: 'files must be a non-empty array' }, { status: 400 });
@@ -127,12 +129,21 @@ export async function POST(request: Request) {
     const scanStartedAt = performance.now();
     let report: RepositoryExecutionReport | undefined;
 
+    if (useClosure) {
+      report = (await buildUploadedRepositoryReport(written, {
+        useClosure: true,
+        maxFiles: MAX_FILES,
+        maxFileSizeBytes: MAX_FILE_CHARS,
+        maxBytes: MAX_TOTAL_CHARS,
+      })).report;
+    }
+
     // Preferred path (long-running servers / local dev): run the scan in a
     // force-killable child process so a runaway (e.g. pathological file) is
     // terminated within the deadline instead of hanging. Skipped on serverless,
     // where spawning a process is unreliable and the CLI isn't bundled.
     const cliBin = IS_SERVERLESS ? null : resolveCliBin();
-    if (cliBin && fs.existsSync(cliBin)) {
+    if (!report && cliBin && fs.existsSync(cliBin)) {
       try {
         report = await scanInChildProcess(cliBin, root);
       } catch (childError: any) {
@@ -180,6 +191,7 @@ export async function POST(request: Request) {
         filesSkipped: skipped,
         mode: 'browser-bounded',
         cli: 'npx @promptsonar/cli repo . --json --output repository-report.json',
+        ...(useClosure ? { closure: true } : {}),
         timings: {
           scannerMs: Math.round(scanMs),
           reportMs: 0,

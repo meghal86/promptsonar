@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { analyzeRootCause, humanRuleName } from '@promptsonar/core';
+import { analyzeRootCause, contextualVerdictLabel, humanRuleName } from '@promptsonar/core';
 import { ScanResult } from './scanner';
 
 const VERSION = '1.4.3';
@@ -89,6 +89,7 @@ export function formatJson(results: ScanResult[]): string {
         overall_score: r.overall_score,
         status: r.status,
         pillar_scores: r.pillar_scores,
+        executive_summary: r.executive_summary,
         findings_count: r.findings_count,
         total_findings_count: r.total_findings_count ?? r.findings_count,
         unique_findings_count: r.unique_findings_count ?? r.findings_count,
@@ -132,6 +133,13 @@ export function formatTerminal(results: ScanResult[]): string {
     for (const result of results) {
         lines.push('');
         lines.push(chalk.bold(`PromptSonar v${VERSION}`) + ` — scanning ${chalk.underline(result.filePath)}`);
+        if (result.executive_summary) {
+            const summary = result.executive_summary;
+            lines.push(`  Overall Risk: ${summary.overall_risk}`);
+            lines.push(`  Finding Counts: ${Object.entries(summary.finding_counts).map(([severity, count]) => `${severity}=${count}`).join(', ') || 'none'}`);
+            lines.push(`  Highest Priority: ${summary.highest_priority_findings.map(finding => `${finding.rule_id}@${finding.line}`).join(', ') || 'none'}`);
+            lines.push(`  Estimated Fix Effort: ${summary.estimated_fix_effort}`);
+        }
         lines.push('');
 
         if (result.findings.length === 0) {
@@ -161,6 +169,9 @@ export function formatTerminal(results: ScanResult[]): string {
                     }
                     if (f.risk) {
                         lines.push(`     Risk: ${f.risk}`);
+                    }
+                    if (f.context?.verdict) {
+                        lines.push(`     Verdict: ${contextualVerdictLabel(f.context.verdict)}`);
                     }
                     if (f.fix) {
                         lines.push(`     Fix: ${f.fix}`);

@@ -1,4 +1,5 @@
 import { RuleInput, Finding } from '../types';
+import { redactSecretReferences } from '../../contextual/secrets';
 
 const PII_REGEXES = [
     { name: "Email Address", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i },
@@ -42,9 +43,10 @@ const PII_REGEXES = [
 
 export function checkPii(input: RuleInput): Finding[] {
     const findings: Finding[] = [];
+    const text = redactSecretReferences(input.text);
 
     for (const pii of PII_REGEXES) {
-        if (pii.pattern.test(input.text)) {
+        if (pii.pattern.test(text)) {
             findings.push({
                 rule_id: "sec_owasp_llm02_pii",
                 category: "security",
