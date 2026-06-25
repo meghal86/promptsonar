@@ -407,7 +407,7 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
 
     // Fallback: regex for triple-quoted strings + keyword search
     if (results.length === 0 && !tsLangName) {
-        const tripleQuoteRegex = /("""|'''|`)([\s\S]*?)\1/g;
+        const tripleQuoteRegex = /("""|'''|```|`)([\s\S]*?)\1/g;
         let match;
         while ((match = tripleQuoteRegex.exec(content)) !== null) {
             const matchText = match[2];

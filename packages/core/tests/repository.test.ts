@@ -1245,7 +1245,7 @@ describe('repository execution analysis', () => {
         const report = analyzeRepositoryExecution(root, findings);
         const byRule = new Map(report.issues.map(issue => [issue.ruleId, issue]));
         expect(byRule.get('sec_owasp_llm01_injection')?.fix.safePattern).toContain('<untrusted_input>');
-        expect(byRule.get('sec_owasp_llm02_pii')?.fix.safePattern).toContain('process.env');
+        expect(byRule.get('sec_owasp_llm02_pii')?.fix.safePattern).toContain('secrets.get');
         expect(byRule.get('struct_missing_format_enforcer')?.fix.safePattern).toContain('Output: <required schema>');
         expect(byRule.get('bp_missing_cot')?.fix.safePattern).toContain('Verify the final output format');
         expect(byRule.get('bp_missing_few_shot')?.fix.safePattern).toContain('Example:');
@@ -1255,7 +1255,7 @@ describe('repository execution analysis', () => {
         expect(byRule.get('sec_workflow_escalation_shell_access')?.fix.safePattern).toContain('approved');
         expect(byRule.get('sec_workflow_secret_exposure')?.fix.safePattern).toContain('permissions: { contents: read }');
         expect(byRule.get('sec_workflow_secret_exposure')?.fix.safePattern).not.toMatch(/rag|token.?bloat|prompt/i);
-        expect(byRule.get('sec_secret_access')?.fix.safePattern).toContain('process.env');
+        expect(byRule.get('sec_secret_access')?.fix.safePattern).toContain('secrets.get');
     });
 
     // P0-1: a dangerous SKILL.md must never report as Trusted with zero paths.
@@ -1479,5 +1479,31 @@ describe('repository execution analysis', () => {
         expect(html).toContain('<th>Context</th>');
         expect(sarif.runs[0].results.every((result: any) => typeof result.properties.provenance === 'string')).toBe(true);
         expect(sarif.runs[0].results.some((result: any) => result.properties.provenance === 'documentation')).toBe(true);
+    });
+
+    it('does not abort repository report generation on malformed contextual findings', () => {
+        const root = fixtureRepo({
+            'prompts/agent.prompt': 'Summarize the validated ticket in three bullets.',
+        });
+
+        const report = analyzeRepositoryExecution(root, [{
+            filePath: path.join(root, 'prompts/agent.prompt'),
+            findings: [{
+                rule_id: 'eff_token_bloat',
+                category: 'security',
+                severity: 'low',
+                line: 1,
+                message: 'Malformed fixture: efficiency rule presented as security.',
+                evidence: 'Summarize the validated ticket in three bullets.',
+            }],
+        } as any]);
+
+        expect(report.issues.length).toBe(1);
+        expect(report.issues[0].context).toBeUndefined();
+        expect(report.diagnostics?.some(diagnostic =>
+            diagnostic.level === 'warning' &&
+            diagnostic.code === 'contextual_invariant_quarantined' &&
+            diagnostic.file === 'prompts/agent.prompt'
+        )).toBe(true);
     });
 });

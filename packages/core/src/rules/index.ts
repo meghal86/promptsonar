@@ -95,6 +95,10 @@ function isPromptQualityFinding(finding: Finding): boolean {
     return ['clarity', 'structure', 'best_practices', 'consistency', 'efficiency'].includes(finding.category);
 }
 
+function isAgentInstructionArtifact(artifactKind: ArtifactKind): boolean {
+    return artifactKind === 'claude' || artifactKind === 'agents' || artifactKind === 'agent' || artifactKind === 'skill';
+}
+
 function effectiveArtifactContext(input: RuleInput): { artifactKind: ArtifactKind; executionIntent: ExecutionIntent; hasExplicitPromptBlock: boolean } {
     const inferredKind = inferArtifactKind(input.context.filePath);
     const artifactKind = input.context.artifactKind || (inferredKind === 'source' ? 'prompt' : inferredKind);
@@ -131,6 +135,16 @@ function upgradedSeverity(current: Severity, workflowRisk?: string): Severity {
     if (workflowRisk === 'high' && severityRank[current] > severityRank.high) return 'high';
     if (workflowRisk === 'medium' && severityRank[current] > severityRank.medium) return 'medium';
     return current;
+}
+
+function capSeverityForArtifact(finding: Finding, artifactKind: ArtifactKind, executionIntent: ExecutionIntent): Finding {
+    if ((executionIntent === 'reference' || executionIntent === 'test_fixture') && finding.category === 'security') {
+        return { ...finding, severity: 'low' };
+    }
+    if (isAgentInstructionArtifact(artifactKind) && finding.category === 'efficiency') {
+        return { ...finding, severity: 'low' };
+    }
+    return finding;
 }
 
 function scoreFindings(findings: Finding[]): { score: number; status: 'pass' | 'warn' | 'fail' } {
@@ -264,9 +278,10 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
                 filePath: input.context.filePath,
             })
             : undefined;
-        return workflow
+        const enriched = workflow
             ? { ...f, severity: upgradedSeverity(f.severity, workflow.risk), workflow }
             : f;
+        return capSeverityForArtifact(enriched, artifactContext.artifactKind, artifactContext.executionIntent);
     }).sort((a, b) => {
         const bandDelta = findingPriorityBand(a) - findingPriorityBand(b);
         if (bandDelta !== 0) return bandDelta;

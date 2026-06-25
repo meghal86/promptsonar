@@ -244,6 +244,10 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
     lines.push(report.pathValidation.valid
         ? `  ${chalk.green(`✓ Path validation passed (${report.pathValidation.checkedPaths} paths checked)`)}`
         : `  ${chalk.red(`✗ Path validation failed (${report.pathValidation.errors.length} errors across ${report.pathValidation.checkedPaths} paths) — see pathValidation in --json`)}`);
+    const diagnostics = (report as any).diagnostics as unknown[] | undefined;
+    if (diagnostics?.length) {
+        lines.push(`  ${chalk.yellow(`${diagnostics.length} diagnostic warning${diagnostics.length === 1 ? '' : 's'} — see diagnostics in --json`)}`);
+    }
     lines.push('');
     lines.push(chalk.bold(`2. Top Issues (${report.issueSummary.total})`));
     for (const issue of topIssues) {

@@ -412,6 +412,13 @@ export interface RepositoryExecutionReport {
     pathValidation: RepositoryPathValidation;
     confidenceDefinitions: Record<RepositoryPathConfidence, string>;
     findings: RepositoryScanResult[];
+    diagnostics?: Array<{
+        level: 'warning';
+        code: string;
+        message: string;
+        file?: string;
+        ruleId?: string;
+    }>;
     completeness?: ScanCompleteness;
     profileEvidence?: RepositoryProfileEvidence;
     threatModel?: unknown;
