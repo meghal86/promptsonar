@@ -249,6 +249,37 @@ function truncateEvidence(line: string, maxLength: number = 180): string {
     return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
+const SECRET_EVIDENCE_PATTERNS: RegExp[] = [
+    /sk-(?:live|test|proj|ant)-[A-Za-z0-9_-]{8,}/g,
+    /ghp_[A-Za-z0-9]{20,}/g,
+    /xox[baprs]-[A-Za-z0-9-]{10,}/g,
+    /Bearer\s+[A-Za-z0-9._-]{16,}/g,
+    /((?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*["']?)[A-Za-z0-9._-]{12,}/gi,
+];
+
+function redactSecretEvidenceLine(line: string, matchedText?: string): string {
+    let redacted = line;
+    if (matchedText) {
+        redacted = redacted.split(matchedText).join('[REDACTED]');
+    }
+    redacted = SECRET_EVIDENCE_PATTERNS.reduce((current, pattern) => {
+        pattern.lastIndex = 0;
+        if (pattern.source.startsWith('((?:api')) {
+            return current.replace(pattern, '$1[REDACTED]');
+        }
+        return current.replace(pattern, '[REDACTED]');
+    }, redacted);
+    return truncateEvidence(redacted);
+}
+
+function revealInvisibleUnicode(line: string): string {
+    return line
+        .replace(/\u200B/g, '[U+200B ZERO WIDTH SPACE]')
+        .replace(/\u200C/g, '[U+200C ZERO WIDTH NON-JOINER]')
+        .replace(/\u200D/g, '[U+200D ZERO WIDTH JOINER]')
+        .replace(/\uFEFF/g, '[U+FEFF ZERO WIDTH NO-BREAK SPACE]');
+}
+
 function artifactKindForPath(filePath: string): ArtifactKind {
     if (isRecognizedMcpConfig(filePath)) return 'mcp_config';
     return inferArtifactKind(filePath);
@@ -275,9 +306,15 @@ const AGENT_QUALITY_REMEDIATION = [
 ].join(' ');
 
 const REFERENCE_SECURITY_REMEDIATION = [
-    'Treat this as reference material: remove live secrets from the document',
-    'use placeholders in examples',
-    'and add a note that copying this into production instructions or automation would require scoped credentials and review.',
+    'Treat this as reference/test context, not production reachable unless wired into runtime',
+    'use placeholders for example secrets',
+    'and add a note that copying this into production instructions or automation requires scoped credentials and review.',
+].join(', ');
+
+const REFERENCE_SECURITY_OBSERVATION = [
+    'Reference/test context only: keep this example isolated from runtime prompts or automation',
+    'use placeholders for secrets',
+    'and add production controls before wiring it into executable agent instructions.',
 ].join(', ');
 
 function isAgentInstructionArtifact(artifactKind: ArtifactKind): boolean {
@@ -288,9 +325,29 @@ function isPromptQualityRule(ruleId: string): boolean {
     return /^(?:bp_|clarity_|struct_|consist_|eff_)/.test(ruleId);
 }
 
+function isReferenceOrTestIntent(executionIntent: ExecutionIntent): boolean {
+    return executionIntent === 'reference' || executionIntent === 'test_fixture';
+}
+
+function isReferenceOrTestArtifact(artifactKind: ArtifactKind, executionIntent: ExecutionIntent): boolean {
+    return isReferenceOrTestIntent(executionIntent) ||
+        artifactKind === 'documentation' ||
+        artifactKind === 'example' ||
+        artifactKind === 'test' ||
+        artifactKind === 'fixture';
+}
+
+function displayedSeverityForArtifact(severity: string, category: string, artifactKind: ArtifactKind, executionIntent: ExecutionIntent): string {
+    if (isReferenceOrTestArtifact(artifactKind, executionIntent) && category === 'security') return 'low';
+    if (isAgentInstructionArtifact(artifactKind) && category === 'efficiency') return 'low';
+    return severity;
+}
+
 function getRecommendationForArtifact(ruleId: string, fallback: string, artifactKind: ArtifactKind, executionIntent: ExecutionIntent): string {
-    if (executionIntent === 'reference' && /secret|credential|token|password|api.?key/i.test(`${ruleId} ${fallback}`)) {
-        return REFERENCE_SECURITY_REMEDIATION;
+    if (isReferenceOrTestArtifact(artifactKind, executionIntent) && /^sec_|^MCP-|secret|credential|token|password|api.?key/i.test(`${ruleId} ${fallback}`)) {
+        return /secret|credential|token|password|api.?key/i.test(`${ruleId} ${fallback}`)
+            ? REFERENCE_SECURITY_REMEDIATION
+            : REFERENCE_SECURITY_OBSERVATION;
     }
     if (artifactKind === 'workflow' && (
         ruleId.startsWith('sec_owasp_llm02') ||
@@ -315,6 +372,8 @@ function artifactDisplayName(artifactKind: ArtifactKind, executionIntent: Execut
     if (artifactKind === 'skill') return 'SKILL.md skill instruction file';
     if (artifactKind === 'mcp_config' || artifactKind === 'mcp' || artifactKind === 'mcp_server') return 'MCP configuration';
     if (artifactKind === 'deployment_config') return 'deployment configuration';
+    if (artifactKind === 'fixture') return 'fixture file';
+    if (artifactKind === 'test' || executionIntent === 'test_fixture') return 'test/spec fixture';
     if (executionIntent === 'reference') return 'reference document';
     if (artifactKind === 'prompt') return 'executable prompt';
     return 'source file';
@@ -326,6 +385,8 @@ function artifactInstructionNoun(artifactKind: ArtifactKind, executionIntent: Ex
     if (artifactKind === 'agents' || artifactKind === 'agent') return 'AGENTS.md agent instructions';
     if (artifactKind === 'skill') return 'SKILL.md skill instructions';
     if (artifactKind === 'mcp_config' || artifactKind === 'mcp' || artifactKind === 'mcp_server') return 'MCP configuration';
+    if (artifactKind === 'fixture') return 'fixture file';
+    if (artifactKind === 'test' || executionIntent === 'test_fixture') return 'test/spec fixture';
     if (executionIntent === 'reference') return 'reference document';
     if (artifactKind === 'prompt') return 'prompt';
     return 'source file';
@@ -363,8 +424,8 @@ function secretFindingWhy(secretName: string, artifactKind: ArtifactKind, execut
     if (isAgentInstructionArtifact(artifactKind)) {
         return `A hardcoded ${secretName} in agent instructions can be reused by coding agents, logs, shell commands, or tool calls.`;
     }
-    if (executionIntent === 'reference') {
-        return `A live ${secretName} in reference material can be copied into production instructions, examples, or automation.`;
+    if (isReferenceOrTestArtifact(artifactKind, executionIntent)) {
+        return `A ${secretName} in reference/test context is not production reachable unless this file is wired into runtime instructions or automation.`;
     }
     return `A hardcoded ${secretName} in source can leak through logs, prompts, responses, or repository history.`;
 }
@@ -382,8 +443,11 @@ function locateEvidence(
     if (needle) {
         const index = lines.findIndex(value => value.includes(needle));
         if (index >= 0) {
+            const line = ruleId.includes('zero_width')
+                ? revealInvisibleUnicode(lines[index])
+                : lines[index];
             return {
-                evidence: truncateEvidence(lines[index]),
+                evidence: truncateEvidence(line),
                 line: index + 1,
                 column: Math.max(1, lines[index].indexOf(needle) + 1),
             };
@@ -393,7 +457,10 @@ function locateEvidence(
     // 2. First line that looks relevant for this rule.
     const relevantIndex = lines.findIndex(value => lineLooksRelevant(value, ruleId));
     if (relevantIndex >= 0) {
-        return { evidence: truncateEvidence(lines[relevantIndex]), line: relevantIndex + 1, column: 1 };
+        const line = ruleId.includes('zero_width')
+            ? revealInvisibleUnicode(lines[relevantIndex])
+            : lines[relevantIndex];
+        return { evidence: truncateEvidence(line), line: relevantIndex + 1, column: 1 };
     }
 
     // 3. Fall back to where the prompt block starts.
@@ -1028,8 +1095,9 @@ export async function scanFiles(targetPath: string, options: {
                 fileFindings.push(...evalResult.findings.map(f => {
                     const configSuppression = isFindingSuppressed(f.rule_id, filePath, activeSuppressions);
                     const owasp = getOwaspRef(f.rule_id);
-                    const recommendation = getRecommendationForArtifact(f.rule_id, f.suggested_fix || '', promptArtifactKind, promptExecutionIntent);
                     const category = getCategoryForRule(f.rule_id);
+                    const severity = displayedSeverityForArtifact(f.severity, category, promptArtifactKind, promptExecutionIntent);
+                    const recommendation = getRecommendationForArtifact(f.rule_id, f.suggested_fix || '', promptArtifactKind, promptExecutionIntent);
                     const message = displayedRuleMessage(f.explanation, promptArtifactKind, promptExecutionIntent, category);
                     const risk = getRiskExplanation(f.rule_id);
                     const evidenceKind = evidenceKindForRule(f.rule_id, f.evidenceKind);
@@ -1051,7 +1119,7 @@ export async function scanFiles(targetPath: string, options: {
                     return {
                         rule_id: f.rule_id,
                         category,
-                        severity: f.severity,
+                        severity,
                         line: evidenceLine,
                         column: evidenceColumn,
                         message,
@@ -1063,13 +1131,13 @@ export async function scanFiles(targetPath: string, options: {
                             ? (f.missingRequirement || ABSENCE_REQUIREMENTS[f.rule_id] || f.explanation)
                             : located.evidence,
                         evidenceKind,
-                        scopeLabel: evidenceKind === 'absence' ? (f.scopeLabel || 'Instruction block') : undefined,
+                        scopeLabel: evidenceKind === 'absence' ? (f.scopeLabel || 'Instruction block (absence evidence)') : undefined,
                         missingRequirement: evidenceKind === 'absence'
                             ? (f.missingRequirement || ABSENCE_REQUIREMENTS[f.rule_id] || f.explanation)
                             : undefined,
                         scopeStartLine: evidenceKind === 'absence' ? prompt.startLine : undefined,
                         scopeEndLine: evidenceKind === 'absence' ? prompt.endLine : undefined,
-                        confidence: getConfidenceForFinding(f.rule_id, f.severity),
+                        confidence: getConfidenceForFinding(f.rule_id, severity),
                         why: message,
                         risk,
                         docs_url: getRuleDocsUrl(f.rule_id),
@@ -1089,12 +1157,13 @@ export async function scanFiles(targetPath: string, options: {
             for (const secret of scanContentForSecrets(content)) {
                 const configSuppression = isFindingSuppressed('sec_owasp_llm02_pii', filePath, activeSuppressions);
                 const inlineSuppressed = isInlineSuppressed('sec_owasp_llm02_pii', secret.line, inlineSuppressions);
+                const severity = displayedSeverityForArtifact('high', 'security', artifactKind, executionIntent);
                 const recommendation = getRecommendationForArtifact('sec_owasp_llm02_pii', '', artifactKind, executionIntent);
                 const message = secretFindingMessage(secret.name, artifactKind, executionIntent);
                 fileFindings.push({
                     rule_id: 'sec_owasp_llm02_pii',
                     category: 'security',
-                    severity: 'high',
+                    severity,
                     line: secret.line,
                     column: secret.column,
                     message,
@@ -1102,8 +1171,8 @@ export async function scanFiles(targetPath: string, options: {
                     recommendation,
                     owasp_ref: getOwaspRef('sec_owasp_llm02_pii'),
                     owasp: getOwaspRef('sec_owasp_llm02_pii'),
-                    evidence: truncateEvidence((content.split(/\r?\n/)[secret.line - 1] || secret.matchedText)),
-                    confidence: getConfidenceForFinding('sec_owasp_llm02_pii', 'high'),
+                    evidence: redactSecretEvidenceLine(content.split(/\r?\n/)[secret.line - 1] || secret.matchedText, secret.matchedText),
+                    confidence: getConfidenceForFinding('sec_owasp_llm02_pii', severity),
                     why: secretFindingWhy(secret.name, artifactKind, executionIntent),
                     risk: getRiskExplanation('sec_owasp_llm02_pii'),
                     docs_url: getRuleDocsUrl('sec_owasp_llm02_pii'),

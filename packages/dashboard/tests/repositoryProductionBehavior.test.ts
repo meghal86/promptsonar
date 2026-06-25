@@ -14,7 +14,7 @@ describe("repository v2 and playground v4 production behavior", () => {
     expect(source).toContain("Folder upload");
     expect(source).toContain("Selected eligible text files are sent to this dashboard service");
     expect(source).toContain("Copy command");
-    expect(source).toContain("aria-disabled=\"true\"");
+    expect(source).toContain("disabled={loading || !githubUrl.trim()}");
     expect(source).not.toContain("Local folder");
   });
 
@@ -27,12 +27,13 @@ describe("repository v2 and playground v4 production behavior", () => {
   it("keeps microscope investigation state and accessibility hooks wired", () => {
     const source = read("src/components/repository-v2/PlaygroundMicroscope.tsx");
     expect(source).toContain("popstate");
-    expect(source).toContain("aria-current");
-    expect(source).toContain("ArrowDown");
+    expect(source).toContain("aria-pressed");
     expect(source).toContain("repositoryBackHref(report)");
     expect(source).toContain('query.set("scan", report.id)');
-    expect(source).toContain("File-level absence finding");
-    expect(source).toContain("Other paths involving this artifact");
+    expect(source).toContain('evidence?.kind === "absence"');
+    expect(source).toContain("Potential downstream actions");
+    expect(source).toContain("RelatedArtifactList title=\"Upstream\"");
+    expect(source).toContain("RelatedArtifactList title=\"Downstream\"");
     expect(source).toContain("Relationship");
     expect(source).toContain("Structurally inferred relationship");
   });
@@ -43,7 +44,8 @@ describe("repository v2 and playground v4 production behavior", () => {
     expect(source).toContain("Analyze a prompt");
     expect(source).toContain("Analyze a file");
     expect(source).toContain("Analyze a repository");
-    expect(source).toContain("Repository wiring is unavailable for this single-input scan");
+    expect(source).toContain("repository-verified execution path is");
+    expect(source).toContain("not available in standalone mode");
     expect(source).not.toContain("Prompt analysis UI");
     expect(source).not.toContain("MCP analysis UI");
   });

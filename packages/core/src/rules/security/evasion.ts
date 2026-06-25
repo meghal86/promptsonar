@@ -39,33 +39,43 @@ export function checkEvasionPatterns(input: RuleInput): Finding[] {
     const findings: Finding[] = [];
 
     const base64Matches = input.text.match(BASE64_CANDIDATE) || [];
-    if (base64Matches.some((candidate) => candidate.length >= 64 && decodedLooksInjectable(candidate))) {
+    const injectableBase64 = base64Matches.find((candidate) => candidate.length >= 64 && decodedLooksInjectable(candidate));
+    if (injectableBase64) {
         findings.push({
             rule_id: 'sec_base64_encoded_payload',
             category: 'security',
             severity: 'high',
+            matchedText: injectableBase64,
             explanation: 'Base64-encoded payload detected. Potential jailbreak disguised as encoded data.',
             suggested_fix: 'Remove Base64 encoding from prompt strings.',
             penalty_score: 20,
         });
     }
 
-    if (CYRILLIC_HOMOGLYPHS.test(input.text) || hasMathHomoglyph(input.text)) {
+    const cyrillicHomoglyph = input.text.match(CYRILLIC_HOMOGLYPHS)?.[0];
+    const mathHomoglyph = Array.from(input.text).find((char) => {
+        const codePoint = char.codePointAt(0) || 0;
+        return codePoint >= 0x1D400 && codePoint <= 0x1D7FF;
+    });
+    if (cyrillicHomoglyph || mathHomoglyph) {
         findings.push({
             rule_id: 'sec_homoglyph_evasion',
             category: 'security',
             severity: 'high',
+            matchedText: cyrillicHomoglyph || mathHomoglyph,
             explanation: 'Unicode homoglyph substitution detected. Non-Latin characters bypass ASCII pattern matching.',
             suggested_fix: 'Use only ASCII characters in prompt strings.',
             penalty_score: 20,
         });
     }
 
-    if (ZERO_WIDTH_CHARS.test(input.text)) {
+    const zeroWidthMatch = input.text.match(ZERO_WIDTH_CHARS)?.[0];
+    if (zeroWidthMatch) {
         findings.push({
             rule_id: 'sec_zero_width_injection',
             category: 'security',
             severity: 'high',
+            matchedText: zeroWidthMatch,
             explanation: 'Zero-width character injection detected. Invisible Unicode breaks pattern matching.',
             suggested_fix: 'Remove zero-width Unicode characters.',
             penalty_score: 20,
