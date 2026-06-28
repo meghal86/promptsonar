@@ -175,7 +175,7 @@ function safeRead(filePath: string, maxFileSizeBytes: number): string | undefine
         if (!stat.isFile() || stat.size > maxFileSizeBytes) return undefined;
         const ext = path.extname(filePath).toLowerCase();
         const basename = path.basename(filePath).toLowerCase();
-        if (!TEXT_EXTENSIONS.has(ext) && !['agents.md', 'agent.md', 'claude.md', 'prompt.md'].includes(basename)) return undefined;
+        if (!TEXT_EXTENSIONS.has(ext) && !['agents.md', 'agent.md', 'claude.md', 'prompt.md', '.cursorrules'].includes(basename)) return undefined;
         return fs.readFileSync(filePath, 'utf-8');
     } catch {
         return undefined;
@@ -476,7 +476,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         });
     };
 
-    if (lower.endsWith('/mcp.json') || lower.endsWith('/mcp.yaml') || lower.endsWith('/mcp.yml') || lower === 'mcp.json' || lower === 'mcp.yaml' || lower === 'mcp.yml' || lower.endsWith('/.cursor/mcp.json') || lower.endsWith('/.vscode/mcp.json') || basename === 'claude_desktop_config.json') {
+    if (lower.endsWith('/mcp.json') || lower.endsWith('/mcp.yaml') || lower.endsWith('/mcp.yml') || lower === 'mcp.json' || lower === 'mcp.yaml' || lower === 'mcp.yml' || lower === '.mcp.json' || lower.endsWith('/.mcp.json') || lower.endsWith('/.cursor/mcp.json') || lower.endsWith('/.vscode/mcp.json') || basename === 'claude_desktop_config.json') {
         const servers = parseMcpServers(content);
         const serverArtifacts = servers.length > 0 ? servers : [{ name: path.basename(filePath), body: content }];
         const parseWarning = mcpParseWarning(relativePath, content);
@@ -504,7 +504,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (lower === 'agents.md' || lower === 'agent.md' || lower === 'claude.md' || lower.startsWith('agents/') || lower.endsWith('/agents.md') || lower.endsWith('/agent.md') || lower.endsWith('/claude.md') || lower.includes('/agents/')) {
+    if (lower === 'agents.md' || lower === 'agent.md' || lower === 'claude.md' || lower.startsWith('agents/') || lower.endsWith('/agents.md') || lower.endsWith('/agent.md') || lower.endsWith('/claude.md') || lower.includes('/agents/') || basename === '.cursorrules') {
         add('AGENT_CONFIG', path.basename(filePath), 'Repository agent instruction file discovered.', ['agent-instructions'], [lineEvidence(content, /agent|codex|cursor|claude|instructions/i, relativePath)], {
             constraints: Array.from(content.matchAll(/\b(?:do not|never|only|must|important)[:\s-]+(.+)/gi)).map(match => match[0].trim()).slice(0, 10),
             sensitiveActions: detectSensitiveActions(content),
