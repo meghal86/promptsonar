@@ -1,0 +1,347 @@
+{
+  "manifestVersion": "1.0",
+  "name": "PromptSonar Wild Evaluation Corpus",
+  "description": "Public GitHub repositories for the AISec 2026 wild-corpus scan. No ground truth; measures findings/paths in real AI-enabled projects. Existence and default branch verified via codeload (HTTP 200) on the date of authoring; not yet fetched.",
+  "fetch_note": "This environment blocks git clone and api.github.com; clone-wild.sh (Phase 2 step 5) fetches a depth-1 snapshot via codeload tarball (the working equivalent of --depth 1) using default_branch.",
+  "counts": {
+    "total": 37,
+    "mcp_server": 13,
+    "agent_framework": 12,
+    "ai_project": 12
+  },
+  "repos": [
+    {
+      "id": "wild-001",
+      "repo": "modelcontextprotocol/servers",
+      "category": "mcp_server",
+      "url": "https://github.com/modelcontextprotocol/servers",
+      "default_branch": "main",
+      "why": "Official reference MCP servers (filesystem, git, memory, fetch); canonical .mcp.json + many server tool definitions",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-002",
+      "repo": "modelcontextprotocol/python-sdk",
+      "category": "mcp_server",
+      "url": "https://github.com/modelcontextprotocol/python-sdk",
+      "default_branch": "main",
+      "why": "Official Python MCP SDK with example servers and tool/prompt definitions",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-003",
+      "repo": "modelcontextprotocol/typescript-sdk",
+      "category": "mcp_server",
+      "url": "https://github.com/modelcontextprotocol/typescript-sdk",
+      "default_branch": "main",
+      "why": "Official TypeScript MCP SDK with example servers",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-004",
+      "repo": "modelcontextprotocol/inspector",
+      "category": "mcp_server",
+      "url": "https://github.com/modelcontextprotocol/inspector",
+      "default_branch": "main",
+      "why": "MCP debugging tool; ships MCP config and tool wiring",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-005",
+      "repo": "modelcontextprotocol/quickstart-resources",
+      "category": "mcp_server",
+      "url": "https://github.com/modelcontextprotocol/quickstart-resources",
+      "default_branch": "main",
+      "why": "MCP quickstart server/client examples",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-006",
+      "repo": "github/github-mcp-server",
+      "category": "mcp_server",
+      "url": "https://github.com/github/github-mcp-server",
+      "default_branch": "main",
+      "why": "GitHub's official MCP server (Go); tool definitions for repo actions",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-007",
+      "repo": "cloudflare/mcp-server-cloudflare",
+      "category": "mcp_server",
+      "url": "https://github.com/cloudflare/mcp-server-cloudflare",
+      "default_branch": "main",
+      "why": "Cloudflare's MCP servers; remote MCP with auth + tools",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-008",
+      "repo": "sooperset/mcp-atlassian",
+      "category": "mcp_server",
+      "url": "https://github.com/sooperset/mcp-atlassian",
+      "default_branch": "main",
+      "why": "Popular community MCP server for Jira/Confluence; credentialed tools",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-009",
+      "repo": "executeautomation/mcp-playwright",
+      "category": "mcp_server",
+      "url": "https://github.com/executeautomation/mcp-playwright",
+      "default_branch": "main",
+      "why": "Playwright MCP server exposing browser/automation tools",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-010",
+      "repo": "mendableai/firecrawl-mcp-server",
+      "category": "mcp_server",
+      "url": "https://github.com/mendableai/firecrawl-mcp-server",
+      "default_branch": "main",
+      "why": "Firecrawl MCP server; network/fetch tools + API keys",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-011",
+      "repo": "upstash/context7",
+      "category": "mcp_server",
+      "url": "https://github.com/upstash/context7",
+      "default_branch": "master",
+      "why": "Context7 MCP server; widely deployed, .cursor/mcp.json usage",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-012",
+      "repo": "supabase-community/supabase-mcp",
+      "category": "mcp_server",
+      "url": "https://github.com/supabase-community/supabase-mcp",
+      "default_branch": "main",
+      "why": "Supabase MCP server; database tools + credential env",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-013",
+      "repo": "microsoft/playwright-mcp",
+      "category": "mcp_server",
+      "url": "https://github.com/microsoft/playwright-mcp",
+      "default_branch": "main",
+      "why": "Microsoft Playwright MCP server; browser automation tools",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-014",
+      "repo": "langchain-ai/langchain",
+      "category": "agent_framework",
+      "url": "https://github.com/langchain-ai/langchain",
+      "default_branch": "master",
+      "why": "Most-used agent/LLM framework; tool-calling agents and many prompts",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-015",
+      "repo": "langchain-ai/langgraph",
+      "category": "agent_framework",
+      "url": "https://github.com/langchain-ai/langgraph",
+      "default_branch": "main",
+      "why": "Stateful agent graphs; tool nodes and routing",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-016",
+      "repo": "langchain-ai/langchainjs",
+      "category": "agent_framework",
+      "url": "https://github.com/langchain-ai/langchainjs",
+      "default_branch": "main",
+      "why": "LangChain JS; agent + tool definitions",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-017",
+      "repo": "crewAIInc/crewAI",
+      "category": "agent_framework",
+      "url": "https://github.com/crewAIInc/crewAI",
+      "default_branch": "main",
+      "why": "CrewAI multi-agent framework; agent/task/tool YAML + prompts",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-018",
+      "repo": "microsoft/autogen",
+      "category": "agent_framework",
+      "url": "https://github.com/microsoft/autogen",
+      "default_branch": "main",
+      "why": "AutoGen multi-agent framework; tool use + code execution",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-019",
+      "repo": "run-llama/llama_index",
+      "category": "agent_framework",
+      "url": "https://github.com/run-llama/llama_index",
+      "default_branch": "main",
+      "why": "LlamaIndex; agents, tools, RAG pipelines",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-020",
+      "repo": "openai/openai-agents-python",
+      "category": "agent_framework",
+      "url": "https://github.com/openai/openai-agents-python",
+      "default_branch": "main",
+      "why": "OpenAI Agents SDK; tools, handoffs, guardrails; ships AGENTS.md",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-021",
+      "repo": "openai/swarm",
+      "category": "agent_framework",
+      "url": "https://github.com/openai/swarm",
+      "default_branch": "main",
+      "why": "OpenAI Swarm experimental multi-agent orchestration",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-022",
+      "repo": "pydantic/pydantic-ai",
+      "category": "agent_framework",
+      "url": "https://github.com/pydantic/pydantic-ai",
+      "default_branch": "main",
+      "why": "Pydantic AI agent framework; typed tools",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-023",
+      "repo": "microsoft/semantic-kernel",
+      "category": "agent_framework",
+      "url": "https://github.com/microsoft/semantic-kernel",
+      "default_branch": "main",
+      "why": "Semantic Kernel; planners, plugins/tools, prompts",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-024",
+      "repo": "deepset-ai/haystack",
+      "category": "agent_framework",
+      "url": "https://github.com/deepset-ai/haystack",
+      "default_branch": "main",
+      "why": "Haystack; agent + tool pipelines",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-025",
+      "repo": "e2b-dev/E2B",
+      "category": "agent_framework",
+      "url": "https://github.com/e2b-dev/E2B",
+      "default_branch": "main",
+      "why": "E2B sandboxes for AI agents executing code/shell",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-026",
+      "repo": "PatrickJS/awesome-cursorrules",
+      "category": "ai_project",
+      "url": "https://github.com/PatrickJS/awesome-cursorrules",
+      "default_branch": "main",
+      "why": "Canonical collection of real .cursorrules files",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-027",
+      "repo": "cline/cline",
+      "category": "ai_project",
+      "url": "https://github.com/cline/cline",
+      "default_branch": "main",
+      "why": "Popular VS Code AI coding agent; prompts + tool use",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-028",
+      "repo": "continuedev/continue",
+      "category": "ai_project",
+      "url": "https://github.com/continuedev/continue",
+      "default_branch": "main",
+      "why": "Open-source AI code assistant; config + prompts",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-029",
+      "repo": "Aider-AI/aider",
+      "category": "ai_project",
+      "url": "https://github.com/Aider-AI/aider",
+      "default_branch": "main",
+      "why": "AI pair-programming CLI; prompts, shell/edit tools",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-030",
+      "repo": "All-Hands-AI/OpenHands",
+      "category": "ai_project",
+      "url": "https://github.com/All-Hands-AI/OpenHands",
+      "default_branch": "main",
+      "why": "Autonomous AI software engineer; shell/file/browser tools",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-031",
+      "repo": "princeton-nlp/SWE-agent",
+      "category": "ai_project",
+      "url": "https://github.com/princeton-nlp/SWE-agent",
+      "default_branch": "main",
+      "why": "Agent that fixes GitHub issues; shell + tool config",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-032",
+      "repo": "block/goose",
+      "category": "ai_project",
+      "url": "https://github.com/block/goose",
+      "default_branch": "main",
+      "why": "On-machine AI agent; extensions/tools and agent config",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-033",
+      "repo": "anthropics/anthropic-cookbook",
+      "category": "ai_project",
+      "url": "https://github.com/anthropics/anthropic-cookbook",
+      "default_branch": "main",
+      "why": "Anthropic prompt/agent recipes; many prompts + tool use",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-034",
+      "repo": "openai/openai-cookbook",
+      "category": "ai_project",
+      "url": "https://github.com/openai/openai-cookbook",
+      "default_branch": "main",
+      "why": "OpenAI recipes; prompts, function-calling, agents",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-035",
+      "repo": "RooCodeInc/Roo-Code",
+      "category": "ai_project",
+      "url": "https://github.com/RooCodeInc/Roo-Code",
+      "default_branch": "main",
+      "why": "Roo Code AI coding agent; modes/prompts/tools",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-036",
+      "repo": "yamadashy/repomix",
+      "category": "ai_project",
+      "url": "https://github.com/yamadashy/repomix",
+      "default_branch": "main",
+      "why": "Repo packer for AI; ships AGENTS.md / agent config",
+      "clone_depth": 1
+    },
+    {
+      "id": "wild-037",
+      "repo": "anthropics/claude-code-action",
+      "category": "ai_project",
+      "url": "https://github.com/anthropics/claude-code-action",
+      "default_branch": "main",
+      "why": "GitHub Action that runs Claude (AI tool invoked from CI workflows)",
+      "clone_depth": 1
+    }
+  ]
+}
