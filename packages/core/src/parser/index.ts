@@ -253,7 +253,14 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
         }];
     }
 
-    if (ext === '.md' && MARKDOWN_INSTRUCTION_FILES.has(baseName) && containsPromptKeyword(content)) {
+    // A file literally named CLAUDE.md / AGENTS.md / SKILL.md / AGENT.md /
+    // PROMPT.md is agent instructions by definition, so its whole content is
+    // analyzed unconditionally — exactly like a .prompt file. The
+    // containsPromptKeyword gate is intentionally NOT applied here: it is
+    // injection-centric and would drop instruction files whose risk is
+    // capability invocation (e.g. "call shell_exec") rather than jailbreak
+    // phrasing, producing silent false negatives on dangerous agent configs.
+    if (ext === '.md' && MARKDOWN_INSTRUCTION_FILES.has(baseName)) {
         return [{
             filePath,
             startLine: 1,
