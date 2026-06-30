@@ -172,7 +172,25 @@ function stableStringify(value: unknown): string {
     }
 }
 
-const FS_CAPABILITY_TOKENS = ['filesystem', 'file_write', 'file_read', 'disk_access', 'workspace_access', 'fs', 'files'];
+const FS_CAPABILITY_TOKENS = [
+    'filesystem', 'file_write', 'file_read', 'disk_access', 'workspace_access', 'fs', 'files',
+    // Real MCP filesystem tools name the verb before the noun (read_file, not
+    // file_read), which the original tokens missed entirely.
+    'read_file', 'write_file', 'delete_file', 'delete_path',
+    'list_directory', 'list_files', 'read_dir', 'readdir',
+    'mkdir', 'rmdir', 'rename_file', 'move_file', 'copy_file',
+];
+// Substring fallback for filesystem tool names that don't match an exact token
+// but clearly describe a file operation (e.g. "read_user_file", "listFolder"):
+// a file/dir/path target combined with a read/write/delete/list verb. Applied to
+// structured tool/capability names only — not free-text descriptions, which
+// produce false positives on safe scoped servers ("read documentation files").
+function looksLikeFilesystemCapability(text: string): boolean {
+    const lower = text.toLowerCase();
+    const hasTarget = lower.includes('file') || lower.includes('directory') || lower.includes('folder') || lower.includes('path');
+    const hasVerb = lower.includes('read') || lower.includes('write') || lower.includes('delete') || lower.includes('list');
+    return hasTarget && hasVerb;
+}
 const SHELL_CAPABILITY_TOKENS = ['shell', 'bash', 'terminal', 'exec', 'spawn', 'process', 'subprocess', 'shell_exec'];
 // Launcher binaries that are shells, and interpreters that execute arbitrary
 // code when given an inline-eval flag. Kept in sync with the repository-layer
@@ -281,7 +299,7 @@ function analyzeServerStructure(server: any): ServerStructuralAnalysis {
     for (const c of capabilities) collectStrings(c.value, capabilityStrings);
     for (const cap of capabilityStrings) {
         const fs = containsToken(cap, FS_CAPABILITY_TOKENS);
-        if (fs) analysis.fsCapabilities.push(cap);
+        if (fs || looksLikeFilesystemCapability(cap)) analysis.fsCapabilities.push(cap);
         const sh = containsToken(cap, SHELL_CAPABILITY_TOKENS);
         if (sh) analysis.shellCapabilities.push(cap);
         const nt = containsToken(cap, NETWORK_CAPABILITY_TOKENS);
@@ -373,6 +391,13 @@ function isFalsyApproval(value: unknown): boolean {
 
 function isTruthyFlag(value: unknown): boolean {
     return value === true || value === 'true' || value === 1 || value === '1' || value === 'yes' || value === 'on';
+}
+
+// A non-empty `auto_approve` allowlist (e.g. ["read_file", "write_file"]) means
+// those tools run without per-call approval — auto-execution, like the boolean
+// form. An empty list approves nothing and is not flagged.
+function isNonEmptyApprovalList(value: unknown): boolean {
+    return Array.isArray(value) && value.length > 0;
 }
 
 const RISK_WEIGHTS: Record<string, number> = {
@@ -652,7 +677,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
     if (structure.autoExecute && isTruthyFlag(structure.autoExecute.value)) {
         autoExecuteEvidence.push(`${structure.autoExecute.key}=${stableStringify(structure.autoExecute.value)}`);
     }
-    if (structure.autoApprove && isTruthyFlag(structure.autoApprove.value)) {
+    if (structure.autoApprove && (isTruthyFlag(structure.autoApprove.value) || isNonEmptyApprovalList(structure.autoApprove.value))) {
         autoExecuteEvidence.push(`${structure.autoApprove.key}=${stableStringify(structure.autoApprove.value)}`);
     }
     if (structure.approvalRequired && isFalsyApproval(structure.approvalRequired.value)) {

@@ -447,11 +447,60 @@ function classifyRepositoryProvenance(relativePath: string, content: string): Re
     return 'production';
 }
 
+// Files that never represent an AI artifact even when their directory or name
+// would otherwise match a classifier heuristic — build, dependency, lint, test,
+// container, and project-meta files. These caused false positives (e.g. a
+// package.json under memory/ classified as MEMORY). Known AI-artifact filenames
+// are exempt (see ALWAYS_CLASSIFY_BASENAMES).
+const NON_ARTIFACT_BASENAMES = new Set([
+    'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+    'tsconfig.json',
+    'vitest.config.ts', 'vitest.config.js', 'vitest.config.mts',
+    'jest.config.ts', 'jest.config.js', 'jest.config.mjs',
+    '.eslintrc', '.eslintrc.js', '.eslintrc.json', '.eslintrc.yml',
+    '.prettierrc', '.prettierrc.js', '.prettierrc.json', '.prettierrc.yml',
+    'dockerfile', 'docker-compose.yml', 'docker-compose.yaml',
+    'makefile', 'license', 'contributing.md', 'changelog.md',
+    '.gitignore', '.gitattributes', '.editorconfig',
+    'readme.md',
+]);
+
+// Filenames that are always classified, even inside an otherwise-excluded
+// directory (e.g. AGENTS.md under __tests__/, mcp.json under .cursor/). Matched
+// on the lower-cased basename.
+const ALWAYS_CLASSIFY_BASENAMES = new Set([
+    'agents.md', 'claude.md', 'skill.md', 'mcp.json', '.mcp.json', '.cursorrules',
+]);
+
+const NON_ARTIFACT_PATH_PATTERNS = [
+    /(^|\/)__tests__\//,
+    /\.(test|spec)\.(ts|tsx|js|jsx|mts|mjs)$/,
+    /(^|\/)node_modules\//,
+    /(^|\/)\.git\//,
+    /(^|\/)dist\//,
+    /(^|\/)build\//,
+    /(^|\/)coverage\//,
+];
+
+// Exclusion layer: runs before any classification heuristic. Returns true when
+// the file must be skipped entirely and kept out of the artifact list. Known
+// AI-artifact filenames are never excluded, so AGENTS.md/CLAUDE.md/SKILL.md/
+// mcp.json/.cursorrules survive even inside a test or build directory.
+function isExcludedFromClassification(lower: string, basename: string): boolean {
+    if (ALWAYS_CLASSIFY_BASENAMES.has(basename)) return false;
+    if (NON_ARTIFACT_BASENAMES.has(basename)) return true;
+    if (/^tsconfig\..+\.json$/.test(basename)) return true; // tsconfig.*.json glob
+    return NON_ARTIFACT_PATH_PATTERNS.some(pattern => pattern.test(lower));
+}
+
 function classifyFile(root: string, filePath: string, content: string): RepositoryArtifact[] {
     const relativePath = normalizePath(path.relative(root, filePath));
     const lower = relativePath.toLowerCase();
     const basename = path.basename(lower);
     const ext = path.extname(lower);
+    if (isExcludedFromClassification(lower, basename)) {
+        return [];
+    }
     const provenance = classifyRepositoryProvenance(relativePath, content);
     const isPromptPath = lower.startsWith('prompts/') || lower.includes('/prompts/') || ['.prompt', '.ai', '.chat', '.system'].includes(ext);
     const artifacts: RepositoryArtifact[] = [];
@@ -521,7 +570,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (basename.includes('memory') || lower.includes('/memory/')) {
+    if (basename.includes('memory') || lower.startsWith('memory/') || lower.includes('/memory/')) {
         add('MEMORY', path.basename(filePath), 'Agent memory artifact discovered.', ['memory-store'], [lineEvidence(content, /memory|remember|persist|session|history/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
