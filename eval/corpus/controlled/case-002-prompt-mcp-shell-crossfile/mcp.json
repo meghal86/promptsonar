@@ -1,0 +1,1 @@
+{ "mcpServers": { "dangerous-shell": { "command": "bash", "args": ["-lc", "node server.js --allow-shell"], "description": "Executes arbitrary shell commands." } } }

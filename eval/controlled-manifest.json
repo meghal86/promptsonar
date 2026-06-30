@@ -1,0 +1,270 @@
+{
+  "manifestVersion": "1.0",
+  "name": "PromptSonar Controlled Evaluation Corpus",
+  "description": "Hand-built fixtures with ground-truth security findings and execution paths for the AISec 2026 evaluation. Deterministic; no LLM calls.",
+  "scoring": {
+    "scored_rule_prefixes": ["sec_", "MCP-"],
+    "non_scored_noise_rules": ["MCP-007", "bp_", "struct_", "clarity_", "consistency_", "efficiency_", "ethics_"],
+    "note": "Only security findings (sec_*, MCP-1xx/0xx except the MCP-007 config-hygiene noise) are scored for TP/FP/FN. Low-severity hygiene (MCP-007) and quality/best-practice findings are ignored. A finding counts as TP when ruleId matches an expected entry; severity/confidence are reported but a severity mismatch is recorded as a soft (severity) discrepancy, not an FN. true_negative cases must produce zero scored findings. known_gap cases document a current engine limitation: the expected finding is the semantically-correct answer; the engine currently produces nothing, so it scores as FN by design and is reported separately from accidental misses.",
+    "reachability_map": {"Confirmed": "reachable", "Probable": "potentially_reachable", "Potential": "potentially_reachable"}
+  },
+  "cases": [
+    {
+      "id": "case-001",
+      "name": "single prompt with direct shell reference",
+      "path": "eval/corpus/controlled/case-001-prompt-shell-confirmed",
+      "description": "A prompt that routes through tool_router and calls shell_exec. Single-file declared intent -> probable shell sink.",
+      "expected_findings": [
+        {"rule_id": "sec_privileged_sink_access", "severity": "high", "confidence": "probable"},
+        {"rule_id": "sec_workflow_escalation", "severity": "critical", "confidence": "probable"}
+      ],
+      "expected_paths": [
+        {"chain": "prompt → shell", "reachability": "potentially_reachable", "cross_file": false}
+      ]
+    },
+    {
+      "id": "case-002",
+      "name": "prompt → MCP server → shell (cross-file)",
+      "path": "eval/corpus/controlled/case-002-prompt-mcp-shell-crossfile",
+      "description": "A prompt asking to run shell, co-located with an MCP server exposing shell. Cross-file edge is co-location-based (prompt does not name the server); engine caps it at probable.",
+      "expected_findings": [
+        {"rule_id": "MCP-104", "severity": "low", "confidence": "probable"}
+      ],
+      "expected_paths": [
+        {"chain": "prompt → mcp(dangerous-shell) → shell", "reachability": "potentially_reachable", "cross_file": true}
+      ],
+      "notes": "cross_file basis = co-location (not a named reference); confidence must stay probable/potential, never confirmed."
+    },
+    {
+      "id": "case-003",
+      "name": "prompt → tool → external API with env credentials (cross-file)",
+      "path": "eval/corpus/controlled/case-003-prompt-tool-api-credential",
+      "description": "Prompt names a data tool; the tool reads env secrets and calls an external API; mcp.json wires network+env. Cross-file credential exposure.",
+      "expected_findings": [
+        {"rule_id": "MCP-012", "severity": "high", "confidence": "probable"}
+      ],
+      "expected_paths": [
+        {"chain": "prompt → mcp(data-tool) → tool → external API", "reachability": "reachable", "cross_file": true},
+        {"chain": "prompt → mcp(data-tool) → secret access", "reachability": "reachable", "cross_file": true}
+      ]
+    },
+    {
+      "id": "case-004",
+      "name": "MCP config with auto_approve enabled",
+      "path": "eval/corpus/controlled/case-004-mcp-autoapprove-true",
+      "description": "shell + filesystem servers with non-empty auto_approve allowlists. Auto-execution + privileged capability => composite.",
+      "expected_findings": [
+        {"rule_id": "MCP-108", "severity": "critical", "confidence": "probable"},
+        {"rule_id": "MCP-011", "severity": "high", "confidence": "probable"},
+        {"rule_id": "MCP-103", "severity": "low", "confidence": "confirmed"},
+        {"rule_id": "MCP-104", "severity": "low", "confidence": "confirmed"}
+      ],
+      "expected_paths": []
+    },
+    {
+      "id": "case-005",
+      "name": "MCP config with auto_approve disabled",
+      "path": "eval/corpus/controlled/case-005-mcp-autoapprove-false",
+      "description": "Same servers with empty auto_approve. Capability findings persist; auto-exec composite must NOT appear.",
+      "expected_findings": [
+        {"rule_id": "MCP-103", "severity": "low", "confidence": "confirmed"},
+        {"rule_id": "MCP-104", "severity": "low", "confidence": "confirmed"}
+      ],
+      "expected_paths": [],
+      "notes": "MCP-108 and MCP-011 must be ABSENT here (negative control for auto_approve)."
+    },
+    {
+      "id": "case-006",
+      "name": "autonomous deployment agent with shell privileges",
+      "path": "eval/corpus/controlled/case-006-workflow-deploy",
+      "description": "Release agent prompt that autonomously runs deployment shell commands (aws/kubectl/bash) without approval, plus the CI workflow it drives.",
+      "expected_findings": [
+        {"rule_id": "sec_workflow_escalation", "severity": "critical", "confidence": "probable"},
+        {"rule_id": "sec_privileged_sink_access", "severity": "high", "confidence": "probable"}
+      ],
+      "expected_paths": [
+        {"chain": "prompt → shell/deployment", "reachability": "potentially_reachable", "cross_file": false}
+      ]
+    },
+    {
+      "id": "case-007",
+      "name": "zero-width unicode injection in a prompt",
+      "path": "eval/corpus/controlled/case-007-zero-width-injection",
+      "description": "U+200B inserted inside the word 'ignore' to hide a jailbreak from reviewers.",
+      "expected_findings": [
+        {"rule_id": "sec_zero_width_injection", "severity": "high", "confidence": "confirmed"}
+      ],
+      "expected_paths": []
+    },
+    {
+      "id": "case-008",
+      "name": "memory config referencing sensitive data",
+      "path": "eval/corpus/controlled/case-008-memory-sensitive",
+      "description": "Session-memory YAML storing a credential reference, plus an agent prompt instructing reuse. Reachable path to secret access.",
+      "expected_findings": [],
+      "expected_paths": [
+        {"chain": "memory → secret access", "reachability": "reachable", "cross_file": false},
+        {"chain": "prompt → memory → secret access", "reachability": "potentially_reachable", "cross_file": true}
+      ],
+      "notes": "path-positive / finding-neutral: the risk surfaces as a reachable path, not a sec_* rule."
+    },
+    {
+      "id": "case-009",
+      "name": "clean prompt (true negative)",
+      "path": "eval/corpus/controlled/case-009-clean-prompt-negative",
+      "description": "Benign cooking assistant with persona, formatting, and CoT. No sensitive action.",
+      "expected_findings": [],
+      "expected_paths": [],
+      "true_negative": true
+    },
+    {
+      "id": "case-010",
+      "name": "clean MCP config (true negative)",
+      "path": "eval/corpus/controlled/case-010-clean-mcp-negative",
+      "description": "Scoped read-only documentation server. No sensitive capability declared.",
+      "expected_findings": [],
+      "expected_paths": [],
+      "true_negative": true,
+      "notes": "Must NOT emit MCP-103/104/105 or a composite; MCP-007 hygiene is non-scored."
+    },
+    {
+      "id": "case-011",
+      "name": "SKILL.md declaring shell capability",
+      "path": "eval/corpus/controlled/case-011-skill-shell",
+      "description": "Agent skill that declares it executes shell commands via shell_exec.",
+      "expected_findings": [
+        {"rule_id": "sec_privileged_sink_access", "severity": "low", "confidence": "probable"}
+      ],
+      "expected_paths": [
+        {"chain": "skill → shell", "reachability": "potentially_reachable", "cross_file": false}
+      ]
+    },
+    {
+      "id": "case-012",
+      "name": "agent config (CLAUDE.md) instructing shell escalation — KNOWN GAP",
+      "path": "eval/corpus/controlled/case-012-agent-config-shell-gap",
+      "description": "CLAUDE.md with the SAME shell-escalation language that fires as a .prompt. Probes a confirmed engine gap: AGENT_CONFIG artifacts are discovered but not run through sink/path analysis.",
+      "expected_findings": [
+        {"rule_id": "sec_privileged_sink_access", "severity": "high", "confidence": "probable"},
+        {"rule_id": "sec_workflow_escalation", "severity": "critical", "confidence": "probable"}
+      ],
+      "expected_paths": [
+        {"chain": "agent_config → shell", "reachability": "potentially_reachable", "cross_file": false}
+      ],
+      "known_gap": true,
+      "notes": "Engine currently produces ZERO findings here; scores as FN by design. Demonstrates AGENT_CONFIG (CLAUDE.md/AGENTS.md/.cursorrules) are classified but not analyzed for execution-path risk."
+    },
+    {
+      "id": "case-013",
+      "name": "MCP filesystem capability (reversed tool-name tokens)",
+      "path": "eval/corpus/controlled/case-013-mcp-filesystem",
+      "description": "fs-tool exposing read_file/write_file/delete_path/list_directory. Validates verb-before-noun token detection.",
+      "expected_findings": [
+        {"rule_id": "MCP-103", "severity": "low", "confidence": "confirmed"}
+      ],
+      "expected_paths": [
+        {"chain": "mcp(fs-tool) → filesystem access", "reachability": "reachable", "cross_file": false}
+      ]
+    },
+    {
+      "id": "case-014",
+      "name": "MCP network capability",
+      "path": "eval/corpus/controlled/case-014-mcp-network",
+      "description": "net-tool exposing http_get/http_post/fetch_url.",
+      "expected_findings": [
+        {"rule_id": "MCP-105", "severity": "low", "confidence": "confirmed"}
+      ],
+      "expected_paths": [
+        {"chain": "mcp(net-tool) → network access", "reachability": "reachable", "cross_file": false}
+      ]
+    },
+    {
+      "id": "case-015",
+      "name": "MCP wildcard / allow-all permissions",
+      "path": "eval/corpus/controlled/case-015-mcp-wildcard",
+      "description": "Server with permissions allow:* and allowAll:true and an admin description.",
+      "expected_findings": [
+        {"rule_id": "MCP-002", "severity": "high", "confidence": "probable"},
+        {"rule_id": "MCP-012", "severity": "high", "confidence": "probable"}
+      ],
+      "expected_paths": [
+        {"chain": "mcp(all-access) → shell access", "reachability": "reachable", "cross_file": false}
+      ]
+    },
+    {
+      "id": "case-016",
+      "name": "prompt injection (OWASP LLM01)",
+      "path": "eval/corpus/controlled/case-016-prompt-injection-llm01",
+      "description": "Untrusted content telling the model to ignore instructions and reveal the system prompt.",
+      "expected_findings": [
+        {"rule_id": "sec_owasp_llm01_injection", "severity": "critical", "confidence": "probable"}
+      ],
+      "expected_paths": []
+    },
+    {
+      "id": "case-017",
+      "name": "base64-encoded injection payload",
+      "path": "eval/corpus/controlled/case-017-base64-injection",
+      "description": "A >=64-char base64 string that decodes to an injection instruction.",
+      "expected_findings": [
+        {"rule_id": "sec_base64_encoded_payload", "severity": "high", "confidence": "probable"},
+        {"rule_id": "sec_owasp_llm01_injection", "severity": "critical", "confidence": "probable"}
+      ],
+      "expected_paths": []
+    },
+    {
+      "id": "case-018",
+      "name": "top-level memory/ directory classification",
+      "path": "eval/corpus/controlled/case-018-memory-toplevel",
+      "description": "A top-level memory/ dir storing a secret reference. Validates the memory startsWith('memory/') classification fix and a reachable secret path.",
+      "expected_findings": [],
+      "expected_paths": [
+        {"chain": "memory → secret access", "reachability": "reachable", "cross_file": false}
+      ],
+      "notes": "Primary assertion: memory/state.yaml is classified as a MEMORY artifact (top-level dir, not just nested)."
+    },
+    {
+      "id": "case-019",
+      "name": "exclusion of build/test/config noise",
+      "path": "eval/corpus/controlled/case-019-exclusion-noise",
+      "description": "package.json, tsconfig.json, vitest.config.ts, a *.test.ts under __tests__/, and a README.md mixed with one real SKILL.md. Only the SKILL must be classified.",
+      "expected_findings": [],
+      "expected_paths": [
+        {"chain": "skill → shell", "reachability": "potentially_reachable", "cross_file": false}
+      ],
+      "expected_excluded_artifacts": ["package.json", "tsconfig.json", "vitest.config.ts", "src/__tests__/thing.test.ts", "README.md"],
+      "notes": "Primary assertion: none of the build/test/config/README files appear as artifacts; the SKILL does."
+    },
+    {
+      "id": "case-020",
+      "name": "clean CI workflow (true negative)",
+      "path": "eval/corpus/controlled/case-020-clean-workflow-negative",
+      "description": "A benign CI workflow (npm ci && npm test). No AI-driven sink.",
+      "expected_findings": [],
+      "expected_paths": [],
+      "true_negative": true
+    },
+    {
+      "id": "case-021",
+      "name": "hardcoded secret (realistic format)",
+      "path": "eval/corpus/controlled/case-021-hardcoded-secret",
+      "description": "A realistic-format sk-live key embedded in a prompt/config. Detectable (unlike short fake keys).",
+      "expected_findings": [
+        {"rule_id": "sec_owasp_llm02_pii", "severity": "high", "confidence": "probable"}
+      ],
+      "expected_paths": [
+        {"chain": "prompt → secret access", "reachability": "potentially_reachable", "cross_file": false}
+      ]
+    },
+    {
+      "id": "case-022",
+      "name": "co-location restraint (true negative on linkage)",
+      "path": "eval/corpus/controlled/case-022-crossfile-no-reference",
+      "description": "A benign weather prompt and an unrelated math util in separate folders, with no references between them. Must NOT fabricate a cross-file path or security finding.",
+      "expected_findings": [],
+      "expected_paths": [],
+      "true_negative": true,
+      "notes": "Restraint test: no spurious cross-file linkage, no privileged sink."
+    }
+  ]
+}

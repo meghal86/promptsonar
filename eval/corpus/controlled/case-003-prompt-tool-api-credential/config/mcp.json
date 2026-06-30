@@ -1,0 +1,1 @@
+{ "mcpServers": { "data-tool": { "command": "node", "args": ["tools/data-tool.ts"], "permissions": { "network": "*", "env": ["BACKEND_API_KEY", "SESSION_SECRET"] } } } }
