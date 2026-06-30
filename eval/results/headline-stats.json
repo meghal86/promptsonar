@@ -1,0 +1,91 @@
+{
+  "generatedAt": "2026-06-30T18:01:46.551Z",
+  "reposScanned": 37,
+  "crossFileOnly": {
+    "reposWithCrossFilePath": 34,
+    "pctRepos": 91.9,
+    "note": "Cross-file paths span >=2 files and are not detectable by per-file scanning."
+  },
+  "categories": [
+    {
+      "risk": "shell_execution",
+      "action": "Shell",
+      "reposWithPath": 33,
+      "pctRepos": 89.2,
+      "byConfidence": {
+        "confirmed": {
+          "repos": 8,
+          "pct": 21.6
+        },
+        "probable": {
+          "repos": 32,
+          "pct": 86.5
+        },
+        "potential": {
+          "repos": 29,
+          "pct": 78.4
+        }
+      }
+    },
+    {
+      "risk": "filesystem_write",
+      "action": "Filesystem",
+      "reposWithPath": 29,
+      "pctRepos": 78.4,
+      "byConfidence": {
+        "confirmed": {
+          "repos": 3,
+          "pct": 8.1
+        },
+        "probable": {
+          "repos": 17,
+          "pct": 45.9
+        },
+        "potential": {
+          "repos": 27,
+          "pct": 73
+        }
+      }
+    },
+    {
+      "risk": "credential_access",
+      "action": "Secrets",
+      "reposWithPath": 35,
+      "pctRepos": 94.6,
+      "byConfidence": {
+        "confirmed": {
+          "repos": 7,
+          "pct": 18.9
+        },
+        "probable": {
+          "repos": 32,
+          "pct": 86.5
+        },
+        "potential": {
+          "repos": 32,
+          "pct": 86.5
+        }
+      }
+    },
+    {
+      "risk": "network_external",
+      "action": "Network",
+      "reposWithPath": 32,
+      "pctRepos": 86.5,
+      "byConfidence": {
+        "confirmed": {
+          "repos": 2,
+          "pct": 5.4
+        },
+        "probable": {
+          "repos": 15,
+          "pct": 40.5
+        },
+        "potential": {
+          "repos": 29,
+          "pct": 78.4
+        }
+      }
+    }
+  ]
+}

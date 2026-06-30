@@ -1,0 +1,579 @@
+{
+  "generatedAt": "2026-06-30T18:29:06.800Z",
+  "summary": {
+    "baseline": "SkillSpector --no-llm vs PromptSonar (wild corpus)",
+    "reposCompared": 19,
+    "skillspectorErrors": 18,
+    "coverageDiff": {
+      "promptsonarFindsSkillspectorMisses": 0,
+      "skillspectorFindsPromptsonarMisses": 2,
+      "bothFind": 17,
+      "neitherFind": 0
+    },
+    "crossFileGap": {
+      "reposWithPromptsonarCrossFilePath": 34,
+      "totalPromptsonarCrossFilePaths": 1201,
+      "skillspectorCrossFilePathsDetected": 0,
+      "note": "SkillSpector scans per-file/per-skill and has no cross-file execution-path model; all PromptSonar cross-file paths are out of its detection scope."
+    },
+    "totalSkillspectorIssues": 4767
+  },
+  "repos": [
+    {
+      "id": "wild-001",
+      "repo": "modelcontextprotocol/servers",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 129,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 6,
+        "crossFilePaths": 41,
+        "executionPaths": 44
+      },
+      "skillspectorIssues": 129
+    },
+    {
+      "id": "wild-002",
+      "repo": "modelcontextprotocol/python-sdk",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 360,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 27,
+        "crossFilePaths": 98,
+        "executionPaths": 114
+      },
+      "skillspectorIssues": 360
+    },
+    {
+      "id": "wild-003",
+      "repo": "modelcontextprotocol/typescript-sdk",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 435,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 11,
+        "crossFilePaths": 98,
+        "executionPaths": 103
+      },
+      "skillspectorIssues": 435
+    },
+    {
+      "id": "wild-004",
+      "repo": "modelcontextprotocol/inspector",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 237,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 3,
+        "crossFilePaths": 102,
+        "executionPaths": 102
+      },
+      "skillspectorIssues": 237
+    },
+    {
+      "id": "wild-005",
+      "repo": "modelcontextprotocol/quickstart-resources",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 28,
+        "severity": "HIGH",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 0,
+        "crossFilePaths": 4,
+        "executionPaths": 4
+      },
+      "skillspectorIssues": 28
+    },
+    {
+      "id": "wild-006",
+      "repo": "github/github-mcp-server",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 282,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 26,
+        "crossFilePaths": 99,
+        "executionPaths": 102
+      },
+      "skillspectorIssues": 282
+    },
+    {
+      "id": "wild-007",
+      "repo": "cloudflare/mcp-server-cloudflare",
+      "category": "mcp_server",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 5,
+        "crossFilePaths": 100,
+        "executionPaths": 102
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-008",
+      "repo": "sooperset/mcp-atlassian",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 428,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 7,
+        "crossFilePaths": 95,
+        "executionPaths": 102
+      },
+      "skillspectorIssues": 428
+    },
+    {
+      "id": "wild-009",
+      "repo": "executeautomation/mcp-playwright",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 97,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 3,
+        "crossFilePaths": 12,
+        "executionPaths": 16
+      },
+      "skillspectorIssues": 97
+    },
+    {
+      "id": "wild-010",
+      "repo": "mendableai/firecrawl-mcp-server",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 48,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 2,
+        "crossFilePaths": 0,
+        "executionPaths": 7
+      },
+      "skillspectorIssues": 48
+    },
+    {
+      "id": "wild-011",
+      "repo": "upstash/context7",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 337,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 28,
+        "crossFilePaths": 105,
+        "executionPaths": 109
+      },
+      "skillspectorIssues": 337
+    },
+    {
+      "id": "wild-012",
+      "repo": "supabase-community/supabase-mcp",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 69,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 1,
+        "crossFilePaths": 45,
+        "executionPaths": 45
+      },
+      "skillspectorIssues": 69
+    },
+    {
+      "id": "wild-013",
+      "repo": "microsoft/playwright-mcp",
+      "category": "mcp_server",
+      "skillspector": {
+        "issues": 41,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 4,
+        "crossFilePaths": 9,
+        "executionPaths": 14
+      },
+      "skillspectorIssues": 41
+    },
+    {
+      "id": "wild-014",
+      "repo": "langchain-ai/langchain",
+      "category": "agent_framework",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 83,
+        "crossFilePaths": 101,
+        "executionPaths": 123
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-015",
+      "repo": "langchain-ai/langgraph",
+      "category": "agent_framework",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 58,
+        "crossFilePaths": 100,
+        "executionPaths": 108
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-016",
+      "repo": "langchain-ai/langchainjs",
+      "category": "agent_framework",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 88,
+        "crossFilePaths": 97,
+        "executionPaths": 115
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-017",
+      "repo": "crewAIInc/crewAI",
+      "category": "agent_framework",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 175,
+        "crossFilePaths": 28,
+        "executionPaths": 115
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-018",
+      "repo": "microsoft/autogen",
+      "category": "agent_framework",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 79,
+        "crossFilePaths": 100,
+        "executionPaths": 143
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-019",
+      "repo": "run-llama/llama_index",
+      "category": "agent_framework",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 58,
+        "crossFilePaths": 100,
+        "executionPaths": 119
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-020",
+      "repo": "openai/openai-agents-python",
+      "category": "agent_framework",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 128,
+        "crossFilePaths": 99,
+        "executionPaths": 155
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-021",
+      "repo": "openai/swarm",
+      "category": "agent_framework",
+      "skillspector": {
+        "issues": 28,
+        "severity": "HIGH",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 12,
+        "crossFilePaths": 0,
+        "executionPaths": 18
+      },
+      "skillspectorIssues": 28
+    },
+    {
+      "id": "wild-022",
+      "repo": "pydantic/pydantic-ai",
+      "category": "agent_framework",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 226,
+        "crossFilePaths": 100,
+        "executionPaths": 151
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-023",
+      "repo": "microsoft/semantic-kernel",
+      "category": "agent_framework",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 456,
+        "crossFilePaths": 100,
+        "executionPaths": 171
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-024",
+      "repo": "deepset-ai/haystack",
+      "category": "agent_framework",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 772,
+        "crossFilePaths": 100,
+        "executionPaths": 762
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-025",
+      "repo": "e2b-dev/E2B",
+      "category": "agent_framework",
+      "skillspector": {
+        "issues": 328,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 44,
+        "crossFilePaths": 97,
+        "executionPaths": 105
+      },
+      "skillspectorIssues": 328
+    },
+    {
+      "id": "wild-026",
+      "repo": "PatrickJS/awesome-cursorrules",
+      "category": "ai_project",
+      "skillspector": {
+        "issues": 112,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 0,
+        "crossFilePaths": 0,
+        "executionPaths": 0
+      },
+      "skillspectorIssues": 112
+    },
+    {
+      "id": "wild-027",
+      "repo": "cline/cline",
+      "category": "ai_project",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 114,
+        "crossFilePaths": 100,
+        "executionPaths": 126
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-028",
+      "repo": "continuedev/continue",
+      "category": "ai_project",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 70,
+        "crossFilePaths": 101,
+        "executionPaths": 129
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-029",
+      "repo": "Aider-AI/aider",
+      "category": "ai_project",
+      "skillspector": {
+        "issues": 593,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 84,
+        "crossFilePaths": 100,
+        "executionPaths": 127
+      },
+      "skillspectorIssues": 593
+    },
+    {
+      "id": "wild-030",
+      "repo": "All-Hands-AI/OpenHands",
+      "category": "ai_project",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 59,
+        "crossFilePaths": 98,
+        "executionPaths": 123
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-031",
+      "repo": "princeton-nlp/SWE-agent",
+      "category": "ai_project",
+      "skillspector": {
+        "issues": 125,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 31,
+        "crossFilePaths": 99,
+        "executionPaths": 110
+      },
+      "skillspectorIssues": 125
+    },
+    {
+      "id": "wild-032",
+      "repo": "block/goose",
+      "category": "ai_project",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 270,
+        "crossFilePaths": 99,
+        "executionPaths": 215
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-033",
+      "repo": "anthropics/anthropic-cookbook",
+      "category": "ai_project",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 65,
+        "crossFilePaths": 99,
+        "executionPaths": 122
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-034",
+      "repo": "openai/openai-cookbook",
+      "category": "ai_project",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 88,
+        "crossFilePaths": 100,
+        "executionPaths": 162
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-035",
+      "repo": "RooCodeInc/Roo-Code",
+      "category": "ai_project",
+      "skillspector": {
+        "error": "timeout"
+      },
+      "promptsonar": {
+        "findings": 70,
+        "crossFilePaths": 100,
+        "executionPaths": 119
+      },
+      "skillspectorIssues": null
+    },
+    {
+      "id": "wild-036",
+      "repo": "yamadashy/repomix",
+      "category": "ai_project",
+      "skillspector": {
+        "issues": 932,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 232,
+        "crossFilePaths": 100,
+        "executionPaths": 215
+      },
+      "skillspectorIssues": 932
+    },
+    {
+      "id": "wild-037",
+      "repo": "anthropics/claude-code-action",
+      "category": "ai_project",
+      "skillspector": {
+        "issues": 158,
+        "severity": "CRITICAL",
+        "scanSeconds": 0
+      },
+      "promptsonar": {
+        "findings": 70,
+        "crossFilePaths": 97,
+        "executionPaths": 111
+      },
+      "skillspectorIssues": 158
+    }
+  ]
+}
