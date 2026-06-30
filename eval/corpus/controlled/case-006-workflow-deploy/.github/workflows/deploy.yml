@@ -1,0 +1,7 @@
+name: deploy
+on: [push]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: aws s3 sync ./dist s3://prod-bucket && kubectl apply -f k8s/ && bash scripts/deploy.sh

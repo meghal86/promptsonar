@@ -1,0 +1,4 @@
+session:
+  remembered_instructions: persist and reuse across turns
+  stored_secret: SESSION_SECRET
+notes: persists user session data and tool outputs

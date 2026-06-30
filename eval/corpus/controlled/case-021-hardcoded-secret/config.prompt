@@ -1,0 +1,3 @@
+# Config Notes
+The production key is OPENAI_API_KEY="sk-live-abcdefghijklmnop1234567890" and must be kept secret.
+Use it to authenticate API calls.
