@@ -46,9 +46,12 @@ repo is logged and skipped, never crashes the run). All times are seconds (1 dp)
 Install once: `git clone https://github.com/NVIDIA/SkillSpector` (or fetch the
 tarball), then `uv venv .venv && uv sync`. The binary is `.venv/bin/skillspector`.
 SkillSpector is skill/file-level; for repo-level cross-file/MCP/memory cases the
-controlled harness records `out_of_scope` rather than scoring it zero. On large
-wild repos its OSV dependency lookups make it slow (and it timed out on 18/37 in
-this environment) — those are recorded as errors, not silently dropped.
+controlled harness records `out_of_scope` rather than scoring it zero. On the wild
+corpus it does not scale to full monorepos — whole-repo scans time out regardless
+of OSV settings (measured) — so `run-baselines-wild.ts` defaults to `SS_SCOPE=ai`:
+it scans each repo's extracted AI-artifact surface (the same prompt/skill/agent/
+MCP files PromptSonar analyzes), which is fair and completes all 37 repos.
+`SS_SCOPE=full` reverts to whole-repo scanning (slow; times out on large repos).
 
 ## Determinism
 PromptSonar runs are deterministic (`run-headline` and tables reproduce exactly

@@ -49,23 +49,24 @@ Cross-file path (per-file--invisible) & 91.9\% & \multicolumn{3}{c}{34/37 repos}
 ## Table 4 — Cross-File Detection Gap
 
 ```latex
-\begin{table}[t]\centering\caption{Cross-file execution paths found by PromptSonar vs.\ findings from the per-file baseline (SkillSpector $\neg$LLM) on the same repositories. SkillSpector has no cross-file path model.}\label{tab:crossfile}
+\begin{table}[t]\centering\caption{Cross-file execution paths reconstructed by PromptSonar, and what the per-file baseline (SkillSpector $\neg$LLM) detects on the same repositories. SkillSpector analyzes files independently and has no cross-file execution-path model, so it detects zero cross-file paths; its per-file issues (dependency/static-pattern findings) are a different category, shown for context.}\label{tab:crossfile}
 \begin{tabular}{lrrr}\toprule
-Repository & PS cross-file & SkillSpector & Gap \\\midrule
-\texttt{upstash/context7} & 105 & 337 & 105 \\
-\texttt{modelcontextprotocol/inspector} & 102 & 237 & 102 \\
-\texttt{langchain-ai/langchain} & 101 & 0 & 101 \\
-\texttt{continuedev/continue} & 101 & 0 & 101 \\
-\texttt{cloudflare/mcp-server-cloudflare} & 100 & 0 & 100 \\
-\texttt{langchain-ai/langgraph} & 100 & 0 & 100 \\
-\texttt{microsoft/autogen} & 100 & 0 & 100 \\
-\texttt{run-llama/llama\_index} & 100 & 0 & 100 \\
-\texttt{pydantic/pydantic-ai} & 100 & 0 & 100 \\
-\texttt{microsoft/semantic-kernel} & 100 & 0 & 100 \\
+Repository & \multicolumn{2}{c}{Cross-file paths} & SkillSpector \\
+\cmidrule(lr){2-3} & PromptSonar & SkillSpector & per-file issues \\\midrule
+\texttt{upstash/context7} & 105 & 0 & 2 \\
+\texttt{modelcontextprotocol/inspector} & 102 & 0 & 0 \\
+\texttt{langchain-ai/langchain} & 101 & 0 & 0 \\
+\texttt{continuedev/continue} & 101 & 0 & 6 \\
+\texttt{cloudflare/mcp-server-cloudflare} & 100 & 0 & 0 \\
+\texttt{langchain-ai/langgraph} & 100 & 0 & 0 \\
+\texttt{microsoft/autogen} & 100 & 0 & 0 \\
+\texttt{run-llama/llama\_index} & 100 & 0 & 0 \\
+\texttt{pydantic/pydantic-ai} & 100 & 0 & 12 \\
+\texttt{microsoft/semantic-kernel} & 100 & 0 & 0 \\
 \midrule
-\textbf{Total} & 1201 & 4767 & 1201 \\
+\textbf{Total (compared repos)} & 2923 & 0 & 219 \\
 \bottomrule\end{tabular}
-\\[2pt]\footnotesize SkillSpector scans per-file/per-skill and has no cross-file execution-path model; all PromptSonar cross-file paths are out of its detection scope.
+\\[2pt]\footnotesize SkillSpector scans per-file/per-skill and has no cross-file execution-path model; all PromptSonar cross-file paths are out of its detection scope. Compared on 37 repos where SkillSpector completed; it timed out on 0 large repos (recorded, not dropped). The "per-file issues" column is SkillSpector's total finding count (mostly dependency CVEs / single-file patterns) and is \emph{not} a cross-file count.
 \end{table}
 ```
 

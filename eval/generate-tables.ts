@@ -94,19 +94,20 @@ if (baselineWild) {
     .filter((r: any) => (r.promptsonar?.crossFilePaths || 0) > 0)
     .sort((a: any, b: any) => (b.promptsonar.crossFilePaths || 0) - (a.promptsonar.crossFilePaths || 0))
     .slice(0, 10);
-  out.push('```latex');
-  out.push('\\begin{table}[t]\\centering\\caption{Cross-file execution paths found by PromptSonar vs.\\ findings from the per-file baseline (SkillSpector $\\neg$LLM) on the same repositories. SkillSpector has no cross-file path model.}\\label{tab:crossfile}');
-  out.push('\\begin{tabular}{lrrr}\\toprule');
-  out.push('Repository & PS cross-file & SkillSpector & Gap \\\\\\midrule');
-  for (const r of repos) {
-    const ps = r.promptsonar.crossFilePaths, ss = r.skillspectorIssues ?? 0;
-    out.push(`\\texttt{${String(r.repo).replace(/_/g, '\\_')}} & ${ps} & ${ss} & ${ps} \\\\`);
-  }
   const s = baselineWild.summary;
+  out.push('```latex');
+  out.push('\\begin{table}[t]\\centering\\caption{Cross-file execution paths reconstructed by PromptSonar, and what the per-file baseline (SkillSpector $\\neg$LLM) detects on the same repositories. SkillSpector analyzes files independently and has no cross-file execution-path model, so it detects zero cross-file paths; its per-file issues (dependency/static-pattern findings) are a different category, shown for context.}\\label{tab:crossfile}');
+  out.push('\\begin{tabular}{lrrr}\\toprule');
+  out.push('Repository & \\multicolumn{2}{c}{Cross-file paths} & SkillSpector \\\\');
+  out.push('\\cmidrule(lr){2-3} & PromptSonar & SkillSpector & per-file issues \\\\\\midrule');
+  for (const r of repos) {
+    const ps = r.promptsonar.crossFilePaths, ssIssues = r.skillspectorIssues ?? 0;
+    out.push(`\\texttt{${String(r.repo).replace(/_/g, '\\_')}} & ${ps} & 0 & ${ssIssues} \\\\`);
+  }
   out.push('\\midrule');
-  out.push(`\\textbf{Total} & ${s.crossFileGap.totalPromptsonarCrossFilePaths} & ${s.totalSkillspectorIssues} & ${s.crossFileGap.totalPromptsonarCrossFilePaths} \\\\`);
+  out.push(`\\textbf{Total (compared repos)} & ${s.crossFileGap.totalPromptsonarCrossFilePaths} & 0 & ${s.totalSkillspectorIssues} \\\\`);
   out.push('\\bottomrule\\end{tabular}');
-  out.push(`\\\\[2pt]\\footnotesize ${s.crossFileGap.note}`);
+  out.push(`\\\\[2pt]\\footnotesize ${s.crossFileGap.note} Compared on ${s.reposCompared} repos where SkillSpector completed; it timed out on ${s.skillspectorErrors} large repos (recorded, not dropped). The "per-file issues" column is SkillSpector's total finding count (mostly dependency CVEs / single-file patterns) and is \\emph{not} a cross-file count.`);
   out.push('\\end{table}');
   out.push('```', '');
 } else out.push('_(baseline-wild-results.json not available)_', '');
