@@ -22,12 +22,12 @@ SkillSpector (+LLM) & -- & -- & -- & -- & -- & -- & -- \\
 \begin{table}[t]\centering\caption{Wild corpus: aggregate over 37 public AI repositories.}\label{tab:wild}
 \begin{tabular}{lr}\toprule Metric & Value \\\midrule
 Repositories scanned & 37 / 37 \\
-Total findings & 3455 \\
-\quad critical / high / medium / low & 0 / 30 / 15 / 3410 \\
-\quad confirmed / probable / potential & 25 / 722 / 2708 \\
-Execution paths & 4508 \\
-Cross-file paths & 2923 \\
-Mean / median / max scan time (s) & 10.9 / 5 / 34.1 \\
+Total findings & 2002 \\
+\quad critical / high / medium / low & 0 / 30 / 15 / 1957 \\
+\quad confirmed / probable / potential & 25 / 386 / 1591 \\
+Execution paths & 2650 \\
+Cross-file paths & 722 \\
+Mean / median / max scan time (s) & 14 / 7 / 56.6 \\
 \bottomrule\end{tabular}\end{table}
 ```
 
@@ -37,12 +37,12 @@ Mean / median / max scan time (s) & 10.9 / 5 / 34.1 \\
 \begin{table}[t]\centering\caption{Share of wild repositories with at least one reachable path to each sensitive action, by confidence tier.}\label{tab:headline}
 \begin{tabular}{lrrrr}\toprule
 Risk category & \% repos & Confirmed & Probable & Potential \\\midrule
-Shell execution & 89.2\% & 21.6\% & 86.5\% & 78.4\% \\
-Filesystem write & 78.4\% & 8.1\% & 45.9\% & 73\% \\
-Credential access & 94.6\% & 18.9\% & 86.5\% & 86.5\% \\
-Network / external & 86.5\% & 5.4\% & 40.5\% & 78.4\% \\
+Shell execution & 89.2\% & 64.9\% & 86.5\% & 0\% \\
+Filesystem write & 78.4\% & 67.6\% & 48.6\% & 0\% \\
+Credential access & 94.6\% & 81.1\% & 81.1\% & 0\% \\
+Network / external & 83.8\% & 78.4\% & 32.4\% & 0\% \\
 \midrule
-Cross-file path (per-file--invisible) & 91.9\% & \multicolumn{3}{c}{34/37 repos} \\
+Cross-file path (per-file--invisible) & 51.4\% & \multicolumn{3}{c}{19/37 repos} \\
 \bottomrule\end{tabular}\end{table}
 ```
 
@@ -76,7 +76,7 @@ Repository & \multicolumn{2}{c}{Cross-file paths} & SkillSpector \\
 \begin{table}[t]\centering\caption{Scan performance (seconds). Deterministic, single-threaded, no LLM calls.}\label{tab:perf}
 \begin{tabular}{lrrrr}\toprule Corpus & Cases & Mean & Median & Max \\\midrule
 Controlled & 22 & 0.4 & 0.2 & 1.6 \\
-Wild & 37 & 10.9 & 5 & 34.1 \\
+Wild & 37 & 14 & 7 & 56.6 \\
 \bottomrule\end{tabular}\end{table}
 ```
 

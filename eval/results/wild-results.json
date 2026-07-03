@@ -1,28 +1,28 @@
 {
-  "generatedAt": "2026-06-30T17:59:46.548Z",
+  "generatedAt": "2026-07-03T06:14:26.893Z",
   "aggregate": {
     "reposListed": 37,
     "reposScanned": 37,
     "reposSkipped": 0,
     "reposFailed": 0,
-    "totalFindings": 3455,
+    "totalFindings": 2002,
     "findingsBySeverity": {
       "critical": 0,
       "high": 30,
       "medium": 15,
-      "low": 3410
+      "low": 1957
     },
     "findingsByConfidence": {
       "confirmed": 25,
-      "probable": 722,
-      "potential": 2708
+      "probable": 386,
+      "potential": 1591
     },
-    "totalExecutionPaths": 4508,
-    "totalCrossFilePaths": 2923,
+    "totalExecutionPaths": 2650,
+    "totalCrossFilePaths": 722,
     "scanSeconds": {
-      "mean": 10.9,
-      "median": 5,
-      "max": 34.1
+      "mean": 14,
+      "median": 7,
+      "max": 56.6
     }
   },
   "repos": [
@@ -31,7 +31,7 @@
       "repo": "modelcontextprotocol/servers",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 1.6,
+      "scanSeconds": 2.4,
       "findingsBySeverity": {
         "critical": 0,
         "high": 1,
@@ -44,22 +44,22 @@
         "probable": 5,
         "potential": 1
       },
-      "executionPaths": 44,
-      "crossFilePaths": 41,
+      "executionPaths": 8,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
+        "External APIs",
         "Network",
         "Secrets",
-        "Shell",
-        "External APIs"
+        "Shell"
       ],
       "actionStats": {
         "Shell": {
-          "total": 7,
+          "total": 2,
           "confirmed": 0,
           "probable": 2,
-          "potential": 5,
-          "crossFile": 6
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
           "total": 0,
@@ -69,25 +69,25 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 11,
-          "confirmed": 0,
-          "probable": 1,
-          "potential": 10,
-          "crossFile": 11
+          "total": 1,
+          "confirmed": 1,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 12,
-          "confirmed": 0,
-          "probable": 2,
-          "potential": 10,
-          "crossFile": 11
+          "total": 2,
+          "confirmed": 1,
+          "probable": 1,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 15,
-          "confirmed": 0,
-          "probable": 5,
-          "potential": 10,
-          "crossFile": 14
+          "total": 4,
+          "confirmed": 3,
+          "probable": 1,
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -104,64 +104,64 @@
       "repo": "modelcontextprotocol/python-sdk",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 5,
+      "scanSeconds": 7,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 27
+        "low": 23
       },
-      "findingsTotal": 27,
+      "findingsTotal": 23,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 4,
-        "potential": 23
+        "probable": 2,
+        "potential": 21
       },
-      "executionPaths": 114,
-      "crossFilePaths": 98,
+      "executionPaths": 79,
+      "crossFilePaths": 7,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
+        "Filesystem",
         "Network",
-        "External APIs",
         "Secrets",
-        "Filesystem"
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 18,
-          "confirmed": 0,
-          "probable": 7,
-          "potential": 11,
-          "crossFile": 12
+          "total": 11,
+          "confirmed": 2,
+          "probable": 9,
+          "potential": 0,
+          "crossFile": 2
         },
         "Filesystem": {
-          "total": 15,
-          "confirmed": 0,
+          "total": 5,
+          "confirmed": 4,
           "probable": 1,
-          "potential": 14,
-          "crossFile": 14
+          "potential": 0,
+          "crossFile": 1
         },
         "Network": {
-          "total": 29,
-          "confirmed": 0,
-          "probable": 1,
-          "potential": 28,
-          "crossFile": 29
+          "total": 25,
+          "confirmed": 23,
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 2
         },
         "Secrets": {
-          "total": 26,
-          "confirmed": 0,
-          "probable": 8,
-          "potential": 18,
-          "crossFile": 18
+          "total": 17,
+          "confirmed": 10,
+          "probable": 7,
+          "potential": 0,
+          "crossFile": 1
         },
         "External APIs": {
-          "total": 36,
-          "confirmed": 0,
-          "probable": 11,
-          "potential": 25,
-          "crossFile": 25
+          "total": 29,
+          "confirmed": 16,
+          "probable": 13,
+          "potential": 0,
+          "crossFile": 2
         }
       },
       "artifactsByType": {
@@ -179,64 +179,64 @@
       "repo": "modelcontextprotocol/typescript-sdk",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 10.2,
+      "scanSeconds": 15.4,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 11
+        "low": 8
       },
-      "findingsTotal": 11,
+      "findingsTotal": 8,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 0,
-        "potential": 11
+        "potential": 8
       },
-      "executionPaths": 103,
-      "crossFilePaths": 98,
+      "executionPaths": 32,
+      "crossFilePaths": 4,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "Secrets",
-        "External APIs",
         "Filesystem",
-        "Network"
+        "Network",
+        "Secrets",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 18,
-          "confirmed": 0,
-          "probable": 6,
-          "potential": 12,
-          "crossFile": 13
+          "total": 11,
+          "confirmed": 3,
+          "probable": 8,
+          "potential": 0,
+          "crossFile": 1
         },
         "Filesystem": {
-          "total": 10,
-          "confirmed": 0,
+          "total": 2,
+          "confirmed": 2,
           "probable": 0,
-          "potential": 10,
-          "crossFile": 10
+          "potential": 0,
+          "crossFile": 1
         },
         "Network": {
-          "total": 28,
-          "confirmed": 0,
+          "total": 8,
+          "confirmed": 8,
           "probable": 0,
-          "potential": 28,
-          "crossFile": 28
+          "potential": 0,
+          "crossFile": 1
         },
         "Secrets": {
-          "total": 24,
-          "confirmed": 0,
-          "probable": 1,
-          "potential": 23,
-          "crossFile": 23
+          "total": 6,
+          "confirmed": 4,
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 1
         },
         "External APIs": {
-          "total": 28,
-          "confirmed": 0,
-          "probable": 5,
-          "potential": 23,
-          "crossFile": 24
+          "total": 10,
+          "confirmed": 6,
+          "probable": 4,
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -253,7 +253,7 @@
       "repo": "modelcontextprotocol/inspector",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 2.9,
+      "scanSeconds": 4.3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 1,
@@ -266,8 +266,8 @@
         "probable": 3,
         "potential": 0
       },
-      "executionPaths": 102,
-      "crossFilePaths": 102,
+      "executionPaths": 5,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 3,
       "sensitiveActionTypes": [
         "External APIs",
@@ -290,25 +290,25 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 33,
-          "confirmed": 0,
-          "probable": 2,
-          "potential": 31,
-          "crossFile": 33
+          "total": 1,
+          "confirmed": 1,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 33,
-          "confirmed": 0,
-          "probable": 2,
-          "potential": 31,
-          "crossFile": 33
+          "total": 1,
+          "confirmed": 1,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 36,
-          "confirmed": 0,
-          "probable": 2,
-          "potential": 34,
-          "crossFile": 36
+          "total": 3,
+          "confirmed": 3,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -325,7 +325,7 @@
       "repo": "modelcontextprotocol/quickstart-resources",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 1.2,
+      "scanSeconds": 1.9,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -338,8 +338,8 @@
         "probable": 0,
         "potential": 0
       },
-      "executionPaths": 4,
-      "crossFilePaths": 4,
+      "executionPaths": 2,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 2,
       "sensitiveActionTypes": [
         "Filesystem",
@@ -354,11 +354,11 @@
           "crossFile": 0
         },
         "Filesystem": {
-          "total": 2,
-          "confirmed": 0,
+          "total": 1,
+          "confirmed": 1,
           "probable": 0,
-          "potential": 2,
-          "crossFile": 2
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
           "total": 0,
@@ -368,11 +368,11 @@
           "crossFile": 0
         },
         "Secrets": {
-          "total": 2,
-          "confirmed": 0,
+          "total": 1,
+          "confirmed": 1,
           "probable": 0,
-          "potential": 2,
-          "crossFile": 2
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
           "total": 0,
@@ -393,64 +393,64 @@
       "repo": "github/github-mcp-server",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 2.1,
+      "scanSeconds": 3.3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 2,
-        "low": 24
+        "low": 13
       },
-      "findingsTotal": 26,
+      "findingsTotal": 15,
       "findingsByConfidence": {
         "confirmed": 2,
         "probable": 2,
-        "potential": 22
+        "potential": 11
       },
-      "executionPaths": 102,
-      "crossFilePaths": 99,
+      "executionPaths": 35,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
-        "Secrets",
         "Shell",
-        "External APIs",
+        "Network",
+        "Secrets",
         "Filesystem",
-        "Network"
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
           "total": 6,
-          "confirmed": 0,
-          "probable": 3,
-          "potential": 3,
-          "crossFile": 3
+          "confirmed": 1,
+          "probable": 5,
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 9,
-          "confirmed": 0,
+          "total": 3,
+          "confirmed": 3,
           "probable": 0,
-          "potential": 9,
-          "crossFile": 9
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 36,
-          "confirmed": 0,
+          "total": 11,
+          "confirmed": 11,
           "probable": 0,
-          "potential": 36,
-          "crossFile": 36
+          "potential": 0,
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 22,
-          "confirmed": 0,
-          "probable": 1,
-          "potential": 21,
-          "crossFile": 21
+          "total": 8,
+          "confirmed": 6,
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 32,
-          "confirmed": 0,
+          "total": 10,
+          "confirmed": 8,
           "probable": 2,
-          "potential": 30,
-          "crossFile": 30
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -467,64 +467,64 @@
       "repo": "cloudflare/mcp-server-cloudflare",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 5.1,
+      "scanSeconds": 7.6,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 5
+        "low": 3
       },
-      "findingsTotal": 5,
+      "findingsTotal": 3,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 0,
-        "potential": 5
+        "potential": 3
       },
-      "executionPaths": 102,
-      "crossFilePaths": 100,
+      "executionPaths": 32,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
-        "External APIs",
         "Shell",
         "Network",
         "Secrets",
-        "Filesystem"
+        "Filesystem",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 1,
+          "total": 2,
           "confirmed": 0,
-          "probable": 1,
+          "probable": 2,
           "potential": 0,
           "crossFile": 0
         },
         "Filesystem": {
-          "total": 5,
-          "confirmed": 0,
+          "total": 1,
+          "confirmed": 1,
           "probable": 0,
-          "potential": 5,
-          "crossFile": 5
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 38,
-          "confirmed": 0,
+          "total": 11,
+          "confirmed": 11,
           "probable": 0,
-          "potential": 38,
-          "crossFile": 38
+          "potential": 0,
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 33,
-          "confirmed": 0,
+          "total": 10,
+          "confirmed": 10,
           "probable": 0,
-          "potential": 33,
-          "crossFile": 33
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 26,
-          "confirmed": 0,
+          "total": 9,
+          "confirmed": 7,
           "probable": 2,
-          "potential": 24,
-          "crossFile": 24
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -540,7 +540,7 @@
       "repo": "sooperset/mcp-atlassian",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 2.3,
+      "scanSeconds": 3.2,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -550,16 +550,16 @@
       "findingsTotal": 7,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 3,
-        "potential": 4
+        "probable": 4,
+        "potential": 3
       },
-      "executionPaths": 102,
-      "crossFilePaths": 95,
+      "executionPaths": 12,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
         "Shell",
-        "Secrets",
         "Filesystem",
+        "Secrets",
         "External APIs"
       ],
       "actionStats": {
@@ -568,14 +568,14 @@
           "confirmed": 0,
           "probable": 4,
           "potential": 0,
-          "crossFile": 1
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 23,
-          "confirmed": 0,
-          "probable": 3,
-          "potential": 20,
-          "crossFile": 21
+          "total": 3,
+          "confirmed": 1,
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
           "total": 0,
@@ -585,18 +585,18 @@
           "crossFile": 0
         },
         "Secrets": {
-          "total": 76,
-          "confirmed": 0,
-          "probable": 6,
-          "potential": 70,
-          "crossFile": 72
+          "total": 8,
+          "confirmed": 3,
+          "probable": 5,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 4,
+          "total": 2,
           "confirmed": 0,
-          "probable": 4,
+          "probable": 2,
           "potential": 0,
-          "crossFile": 1
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -612,62 +612,62 @@
       "repo": "executeautomation/mcp-playwright",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 1.4,
+      "scanSeconds": 2,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 3
+        "low": 2
       },
-      "findingsTotal": 3,
+      "findingsTotal": 2,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 0,
-        "potential": 3
+        "potential": 2
       },
-      "executionPaths": 16,
-      "crossFilePaths": 12,
+      "executionPaths": 6,
+      "crossFilePaths": 3,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "External APIs",
-        "Secrets",
         "Filesystem",
-        "Network"
+        "Network",
+        "Secrets",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 5,
-          "confirmed": 0,
+          "total": 3,
+          "confirmed": 1,
           "probable": 2,
-          "potential": 3,
-          "crossFile": 3
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 3,
-          "confirmed": 0,
+          "total": 1,
+          "confirmed": 1,
           "probable": 0,
-          "potential": 3,
-          "crossFile": 3
+          "potential": 0,
+          "crossFile": 1
         },
         "Network": {
-          "total": 3,
-          "confirmed": 0,
+          "total": 1,
+          "confirmed": 1,
           "probable": 0,
-          "potential": 3,
-          "crossFile": 3
+          "potential": 0,
+          "crossFile": 1
         },
         "Secrets": {
-          "total": 4,
-          "confirmed": 0,
-          "probable": 1,
-          "potential": 3,
-          "crossFile": 3
+          "total": 1,
+          "confirmed": 1,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 1
         },
         "External APIs": {
-          "total": 3,
+          "total": 1,
           "confirmed": 0,
-          "probable": 3,
+          "probable": 1,
           "potential": 0,
           "crossFile": 0
         }
@@ -683,7 +683,7 @@
       "repo": "mendableai/firecrawl-mcp-server",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 1.2,
+      "scanSeconds": 2,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -753,35 +753,35 @@
       "repo": "upstash/context7",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 2.1,
+      "scanSeconds": 3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 2,
         "medium": 4,
-        "low": 22
+        "low": 21
       },
-      "findingsTotal": 28,
+      "findingsTotal": 27,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 14,
+        "probable": 13,
         "potential": 14
       },
       "executionPaths": 109,
-      "crossFilePaths": 105,
+      "crossFilePaths": 93,
       "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
-        "External APIs",
         "Network",
         "Secrets",
+        "External APIs",
         "Shell"
       ],
       "actionStats": {
         "Shell": {
-          "total": 21,
+          "total": 5,
           "confirmed": 0,
-          "probable": 3,
-          "potential": 18,
-          "crossFile": 18
+          "probable": 5,
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
           "total": 0,
@@ -791,25 +791,25 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 27,
-          "confirmed": 8,
-          "probable": 0,
-          "potential": 19,
-          "crossFile": 27
+          "total": 42,
+          "confirmed": 1,
+          "probable": 41,
+          "potential": 0,
+          "crossFile": 34
         },
         "Secrets": {
-          "total": 31,
-          "confirmed": 8,
-          "probable": 3,
-          "potential": 20,
-          "crossFile": 28
+          "total": 22,
+          "confirmed": 0,
+          "probable": 22,
+          "potential": 0,
+          "crossFile": 18
         },
         "External APIs": {
-          "total": 34,
-          "confirmed": 13,
-          "probable": 1,
-          "potential": 20,
-          "crossFile": 33
+          "total": 44,
+          "confirmed": 1,
+          "probable": 43,
+          "potential": 0,
+          "crossFile": 41
         }
       },
       "artifactsByType": {
@@ -826,7 +826,7 @@
       "repo": "supabase-community/supabase-mcp",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 1.6,
+      "scanSeconds": 2.4,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -839,12 +839,12 @@
         "probable": 0,
         "potential": 1
       },
-      "executionPaths": 45,
-      "crossFilePaths": 45,
+      "executionPaths": 5,
+      "crossFilePaths": 3,
       "uniqueSensitiveActionTypes": 3,
       "sensitiveActionTypes": [
-        "Secrets",
         "Network",
+        "Secrets",
         "External APIs"
       ],
       "actionStats": {
@@ -863,25 +863,25 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 17,
-          "confirmed": 0,
+          "total": 2,
+          "confirmed": 2,
           "probable": 0,
-          "potential": 17,
-          "crossFile": 17
+          "potential": 0,
+          "crossFile": 1
         },
         "Secrets": {
-          "total": 17,
-          "confirmed": 0,
+          "total": 2,
+          "confirmed": 2,
           "probable": 0,
-          "potential": 17,
-          "crossFile": 17
+          "potential": 0,
+          "crossFile": 2
         },
         "External APIs": {
-          "total": 11,
-          "confirmed": 0,
+          "total": 1,
+          "confirmed": 1,
           "probable": 0,
-          "potential": 11,
-          "crossFile": 11
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -896,7 +896,7 @@
       "repo": "microsoft/playwright-mcp",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 1.1,
+      "scanSeconds": 1.9,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -909,8 +909,8 @@
         "probable": 4,
         "potential": 0
       },
-      "executionPaths": 14,
-      "crossFilePaths": 9,
+      "executionPaths": 8,
+      "crossFilePaths": 3,
       "uniqueSensitiveActionTypes": 3,
       "sensitiveActionTypes": [
         "Shell",
@@ -919,11 +919,11 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 7,
+          "total": 5,
           "confirmed": 0,
-          "probable": 4,
-          "potential": 3,
-          "crossFile": 3
+          "probable": 5,
+          "potential": 0,
+          "crossFile": 2
         },
         "Filesystem": {
           "total": 0,
@@ -933,11 +933,11 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 4,
+          "total": 2,
           "confirmed": 0,
-          "probable": 1,
-          "potential": 3,
-          "crossFile": 3
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 1
         },
         "Secrets": {
           "total": 0,
@@ -947,11 +947,11 @@
           "crossFile": 0
         },
         "External APIs": {
-          "total": 5,
+          "total": 3,
           "confirmed": 0,
-          "probable": 2,
-          "potential": 3,
-          "crossFile": 3
+          "probable": 3,
+          "potential": 0,
+          "crossFile": 1
         }
       },
       "artifactsByType": {
@@ -966,64 +966,64 @@
       "repo": "langchain-ai/langchain",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 13.3,
+      "scanSeconds": 14.9,
       "findingsBySeverity": {
         "critical": 0,
         "high": 2,
         "medium": 2,
-        "low": 79
+        "low": 72
       },
-      "findingsTotal": 83,
+      "findingsTotal": 76,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 16,
-        "potential": 67
+        "probable": 14,
+        "potential": 62
       },
-      "executionPaths": 123,
-      "crossFilePaths": 101,
+      "executionPaths": 113,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
+        "External APIs",
         "Network",
         "Secrets",
-        "External APIs",
         "Shell",
         "Filesystem"
       ],
       "actionStats": {
         "Shell": {
-          "total": 24,
-          "confirmed": 0,
-          "probable": 8,
-          "potential": 16,
-          "crossFile": 17
+          "total": 19,
+          "confirmed": 9,
+          "probable": 10,
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 16,
-          "confirmed": 0,
+          "total": 5,
+          "confirmed": 4,
           "probable": 1,
-          "potential": 15,
-          "crossFile": 15
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 22,
-          "confirmed": 0,
-          "probable": 2,
-          "potential": 20,
-          "crossFile": 22
+          "total": 28,
+          "confirmed": 28,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 34,
-          "confirmed": 0,
-          "probable": 14,
-          "potential": 20,
-          "crossFile": 22
+          "total": 30,
+          "confirmed": 22,
+          "probable": 8,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 43,
-          "confirmed": 0,
-          "probable": 22,
-          "potential": 21,
-          "crossFile": 26
+          "total": 45,
+          "confirmed": 31,
+          "probable": 14,
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -1042,64 +1042,64 @@
       "repo": "langchain-ai/langgraph",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 4.4,
+      "scanSeconds": 6.2,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 58
+        "low": 52
       },
-      "findingsTotal": 58,
+      "findingsTotal": 52,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 2,
-        "potential": 56
+        "potential": 50
       },
-      "executionPaths": 108,
-      "crossFilePaths": 100,
+      "executionPaths": 34,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "External APIs",
-        "Secrets",
         "Network",
-        "Filesystem"
+        "Secrets",
+        "Filesystem",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 27,
-          "confirmed": 0,
+          "total": 8,
+          "confirmed": 7,
           "probable": 1,
-          "potential": 26,
-          "crossFile": 26
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 3,
-          "confirmed": 0,
+          "total": 1,
+          "confirmed": 1,
           "probable": 0,
-          "potential": 3,
-          "crossFile": 3
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 25,
-          "confirmed": 0,
+          "total": 8,
+          "confirmed": 7,
           "probable": 1,
-          "potential": 24,
-          "crossFile": 24
+          "potential": 0,
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 28,
-          "confirmed": 0,
-          "probable": 5,
-          "potential": 23,
-          "crossFile": 23
+          "total": 8,
+          "confirmed": 5,
+          "probable": 3,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 29,
-          "confirmed": 0,
-          "probable": 5,
-          "potential": 24,
-          "crossFile": 24
+          "total": 11,
+          "confirmed": 7,
+          "probable": 4,
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -1117,64 +1117,64 @@
       "repo": "langchain-ai/langchainjs",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 26.1,
+      "scanSeconds": 37.1,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 88
+        "low": 45
       },
-      "findingsTotal": 88,
+      "findingsTotal": 45,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 10,
-        "potential": 78
+        "probable": 7,
+        "potential": 38
       },
-      "executionPaths": 115,
+      "executionPaths": 110,
       "crossFilePaths": 97,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
+        "Network",
         "Secrets",
         "External APIs",
-        "Filesystem",
-        "Network"
+        "Filesystem"
       ],
       "actionStats": {
         "Shell": {
-          "total": 26,
-          "confirmed": 0,
-          "probable": 6,
-          "potential": 20,
-          "crossFile": 20
+          "total": 5,
+          "confirmed": 1,
+          "probable": 4,
+          "potential": 0,
+          "crossFile": 1
         },
         "Filesystem": {
-          "total": 13,
+          "total": 1,
           "confirmed": 0,
           "probable": 1,
-          "potential": 12,
-          "crossFile": 12
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 22,
-          "confirmed": 0,
+          "total": 2,
+          "confirmed": 2,
           "probable": 0,
-          "potential": 22,
-          "crossFile": 22
+          "potential": 0,
+          "crossFile": 2
         },
         "Secrets": {
-          "total": 32,
-          "confirmed": 0,
-          "probable": 11,
-          "potential": 21,
-          "crossFile": 21
+          "total": 55,
+          "confirmed": 4,
+          "probable": 51,
+          "potential": 0,
+          "crossFile": 49
         },
         "External APIs": {
-          "total": 34,
-          "confirmed": 0,
-          "probable": 12,
-          "potential": 22,
-          "crossFile": 22
+          "total": 57,
+          "confirmed": 2,
+          "probable": 55,
+          "potential": 0,
+          "crossFile": 48
         }
       },
       "artifactsByType": {
@@ -1192,36 +1192,35 @@
       "repo": "crewAIInc/crewAI",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 34.1,
+      "scanSeconds": 56.6,
       "findingsBySeverity": {
         "critical": 0,
         "high": 1,
         "medium": 0,
-        "low": 174
+        "low": 145
       },
-      "findingsTotal": 175,
+      "findingsTotal": 146,
       "findingsByConfidence": {
         "confirmed": 1,
         "probable": 1,
-        "potential": 173
+        "potential": 144
       },
-      "executionPaths": 115,
-      "crossFilePaths": 28,
-      "uniqueSensitiveActionTypes": 5,
+      "executionPaths": 63,
+      "crossFilePaths": 0,
+      "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
         "Shell",
         "Secrets",
         "External APIs",
-        "Filesystem",
-        "Network"
+        "Filesystem"
       ],
       "actionStats": {
         "Shell": {
-          "total": 34,
+          "total": 19,
           "confirmed": 0,
-          "probable": 20,
-          "potential": 14,
-          "crossFile": 14
+          "probable": 19,
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
           "total": 1,
@@ -1231,25 +1230,25 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 1,
+          "total": 0,
           "confirmed": 0,
-          "probable": 1,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Secrets": {
-          "total": 50,
+          "total": 23,
           "confirmed": 0,
-          "probable": 50,
+          "probable": 23,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 72,
+          "total": 45,
           "confirmed": 0,
-          "probable": 58,
-          "potential": 14,
-          "crossFile": 14
+          "probable": 45,
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -1263,64 +1262,64 @@
       "repo": "microsoft/autogen",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 13.1,
+      "scanSeconds": 18.6,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 79
+        "low": 71
       },
-      "findingsTotal": 79,
+      "findingsTotal": 71,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 39,
-        "potential": 40
+        "probable": 36,
+        "potential": 35
       },
-      "executionPaths": 143,
-      "crossFilePaths": 100,
+      "executionPaths": 135,
+      "crossFilePaths": 30,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "Secrets",
         "Filesystem",
-        "External APIs",
-        "Network"
+        "Network",
+        "Secrets",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 52,
-          "confirmed": 4,
+          "total": 56,
+          "confirmed": 28,
           "probable": 28,
-          "potential": 20,
-          "crossFile": 20
+          "potential": 0,
+          "crossFile": 9
         },
         "Filesystem": {
-          "total": 13,
-          "confirmed": 1,
-          "probable": 2,
-          "potential": 10,
-          "crossFile": 10
+          "total": 7,
+          "confirmed": 4,
+          "probable": 3,
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 25,
-          "confirmed": 0,
+          "total": 24,
+          "confirmed": 23,
           "probable": 1,
-          "potential": 24,
-          "crossFile": 24
+          "potential": 0,
+          "crossFile": 10
         },
         "Secrets": {
-          "total": 59,
-          "confirmed": 4,
-          "probable": 21,
-          "potential": 34,
-          "crossFile": 34
+          "total": 49,
+          "confirmed": 34,
+          "probable": 15,
+          "potential": 0,
+          "crossFile": 2
         },
         "External APIs": {
-          "total": 50,
-          "confirmed": 1,
-          "probable": 26,
-          "potential": 23,
-          "crossFile": 23
+          "total": 52,
+          "confirmed": 28,
+          "probable": 24,
+          "potential": 0,
+          "crossFile": 10
         }
       },
       "artifactsByType": {
@@ -1337,64 +1336,64 @@
       "repo": "run-llama/llama_index",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 8.4,
+      "scanSeconds": 10.8,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 58
+        "low": 46
       },
-      "findingsTotal": 58,
+      "findingsTotal": 46,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 2,
-        "potential": 56
+        "probable": 0,
+        "potential": 46
       },
-      "executionPaths": 119,
-      "crossFilePaths": 100,
+      "executionPaths": 110,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
-        "Secrets",
         "Shell",
-        "External APIs",
+        "Secrets",
+        "Network",
         "Filesystem",
-        "Network"
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 24,
-          "confirmed": 0,
-          "probable": 8,
-          "potential": 16,
-          "crossFile": 16
+          "total": 11,
+          "confirmed": 6,
+          "probable": 5,
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 14,
-          "confirmed": 0,
+          "total": 1,
+          "confirmed": 1,
           "probable": 0,
-          "potential": 14,
-          "crossFile": 14
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 23,
-          "confirmed": 0,
+          "total": 26,
+          "confirmed": 26,
           "probable": 0,
-          "potential": 23,
-          "crossFile": 23
+          "potential": 0,
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 39,
-          "confirmed": 0,
-          "probable": 13,
-          "potential": 26,
-          "crossFile": 26
+          "total": 47,
+          "confirmed": 41,
+          "probable": 6,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 40,
-          "confirmed": 0,
-          "probable": 17,
-          "potential": 23,
-          "crossFile": 23
+          "total": 35,
+          "confirmed": 24,
+          "probable": 11,
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -1411,64 +1410,64 @@
       "repo": "openai/openai-agents-python",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 10.9,
+      "scanSeconds": 10.4,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 128
+        "low": 88
       },
-      "findingsTotal": 128,
+      "findingsTotal": 88,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 59,
-        "potential": 69
+        "probable": 30,
+        "potential": 58
       },
-      "executionPaths": 155,
-      "crossFilePaths": 99,
+      "executionPaths": 113,
+      "crossFilePaths": 20,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
+        "Shell",
+        "Filesystem",
         "Network",
         "Secrets",
-        "Shell",
-        "External APIs",
-        "Filesystem"
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 40,
-          "confirmed": 1,
-          "probable": 19,
-          "potential": 20,
-          "crossFile": 20
+          "total": 41,
+          "confirmed": 15,
+          "probable": 26,
+          "potential": 0,
+          "crossFile": 4
         },
         "Filesystem": {
-          "total": 21,
-          "confirmed": 0,
-          "probable": 1,
-          "potential": 20,
-          "crossFile": 20
+          "total": 17,
+          "confirmed": 15,
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 3
         },
         "Network": {
-          "total": 21,
-          "confirmed": 0,
-          "probable": 2,
-          "potential": 19,
-          "crossFile": 20
+          "total": 15,
+          "confirmed": 14,
+          "probable": 1,
+          "potential": 0,
+          "crossFile": 5
         },
         "Secrets": {
-          "total": 55,
-          "confirmed": 1,
-          "probable": 34,
-          "potential": 20,
-          "crossFile": 20
+          "total": 35,
+          "confirmed": 17,
+          "probable": 18,
+          "potential": 0,
+          "crossFile": 6
         },
         "External APIs": {
-          "total": 49,
-          "confirmed": 1,
-          "probable": 27,
-          "potential": 21,
-          "crossFile": 21
+          "total": 27,
+          "confirmed": 14,
+          "probable": 13,
+          "potential": 0,
+          "crossFile": 5
         }
       },
       "artifactsByType": {
@@ -1485,28 +1484,28 @@
       "repo": "openai/swarm",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 0.9,
+      "scanSeconds": 1.1,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 12
+        "low": 8
       },
-      "findingsTotal": 12,
+      "findingsTotal": 8,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 0,
-        "potential": 12
+        "potential": 8
       },
-      "executionPaths": 18,
+      "executionPaths": 10,
       "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
         "Network",
         "Filesystem",
-        "Secrets",
-        "External APIs"
+        "External APIs",
+        "Secrets"
       ],
       "actionStats": {
         "Shell": {
@@ -1531,16 +1530,16 @@
           "crossFile": 0
         },
         "Secrets": {
-          "total": 8,
+          "total": 2,
           "confirmed": 0,
-          "probable": 8,
+          "probable": 2,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 12,
+          "total": 6,
           "confirmed": 0,
-          "probable": 12,
+          "probable": 6,
           "potential": 0,
           "crossFile": 0
         }
@@ -1555,64 +1554,64 @@
       "repo": "pydantic/pydantic-ai",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 30.1,
+      "scanSeconds": 39.6,
       "findingsBySeverity": {
         "critical": 0,
         "high": 21,
         "medium": 0,
-        "low": 205
+        "low": 198
       },
-      "findingsTotal": 226,
+      "findingsTotal": 219,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 33,
-        "potential": 193
+        "potential": 186
       },
-      "executionPaths": 151,
-      "crossFilePaths": 100,
+      "executionPaths": 157,
+      "crossFilePaths": 57,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Secrets",
         "Shell",
         "External APIs",
-        "Filesystem",
-        "Network"
+        "Network",
+        "Filesystem"
       ],
       "actionStats": {
         "Shell": {
-          "total": 48,
-          "confirmed": 13,
-          "probable": 14,
-          "potential": 21,
-          "crossFile": 21
+          "total": 38,
+          "confirmed": 19,
+          "probable": 19,
+          "potential": 0,
+          "crossFile": 5
         },
         "Filesystem": {
-          "total": 21,
-          "confirmed": 0,
-          "probable": 1,
-          "potential": 20,
-          "crossFile": 20
+          "total": 3,
+          "confirmed": 1,
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 21,
-          "confirmed": 0,
-          "probable": 1,
-          "potential": 20,
-          "crossFile": 20
-        },
-        "Secrets": {
-          "total": 63,
+          "total": 38,
           "confirmed": 12,
-          "probable": 33,
-          "potential": 18,
+          "probable": 26,
+          "potential": 0,
           "crossFile": 21
         },
+        "Secrets": {
+          "total": 69,
+          "confirmed": 31,
+          "probable": 38,
+          "potential": 0,
+          "crossFile": 13
+        },
         "External APIs": {
-          "total": 61,
-          "confirmed": 10,
-          "probable": 32,
-          "potential": 19,
-          "crossFile": 20
+          "total": 79,
+          "confirmed": 35,
+          "probable": 44,
+          "potential": 0,
+          "crossFile": 18
         }
       },
       "artifactsByType": {
@@ -1631,64 +1630,64 @@
       "repo": "microsoft/semantic-kernel",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 28.2,
+      "scanSeconds": 23.5,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 1,
-        "low": 455
+        "low": 58
       },
-      "findingsTotal": 456,
+      "findingsTotal": 59,
       "findingsByConfidence": {
         "confirmed": 1,
-        "probable": 166,
-        "potential": 289
+        "probable": 8,
+        "potential": 50
       },
-      "executionPaths": 171,
-      "crossFilePaths": 100,
+      "executionPaths": 104,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
-        "Secrets",
         "Shell",
-        "External APIs",
         "Network",
-        "Filesystem"
+        "Secrets",
+        "Filesystem",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 7,
-          "confirmed": 0,
+          "total": 5,
+          "confirmed": 1,
           "probable": 4,
-          "potential": 3,
-          "crossFile": 3
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 10,
-          "confirmed": 0,
+          "total": 2,
+          "confirmed": 2,
           "probable": 0,
-          "potential": 10,
-          "crossFile": 10
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 28,
-          "confirmed": 0,
+          "total": 32,
+          "confirmed": 32,
           "probable": 0,
-          "potential": 28,
-          "crossFile": 28
+          "potential": 0,
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 81,
-          "confirmed": 0,
-          "probable": 48,
-          "potential": 33,
-          "crossFile": 33
+          "total": 42,
+          "confirmed": 40,
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 56,
-          "confirmed": 0,
-          "probable": 29,
-          "potential": 27,
-          "crossFile": 27
+          "total": 27,
+          "confirmed": 24,
+          "probable": 3,
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -1706,64 +1705,64 @@
       "repo": "deepset-ai/haystack",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 25,
+      "scanSeconds": 11.1,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 772
+        "low": 106
       },
-      "findingsTotal": 772,
+      "findingsTotal": 106,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 163,
-        "potential": 609
+        "probable": 35,
+        "potential": 71
       },
-      "executionPaths": 762,
-      "crossFilePaths": 100,
+      "executionPaths": 142,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "External APIs",
         "Secrets",
         "Network",
-        "Filesystem"
+        "Filesystem",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 21,
-          "confirmed": 0,
-          "probable": 15,
-          "potential": 6,
-          "crossFile": 6
+          "total": 2,
+          "confirmed": 1,
+          "probable": 1,
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 15,
-          "confirmed": 0,
+          "total": 3,
+          "confirmed": 3,
           "probable": 0,
-          "potential": 15,
-          "crossFile": 15
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 25,
-          "confirmed": 0,
+          "total": 18,
+          "confirmed": 18,
           "probable": 0,
-          "potential": 25,
-          "crossFile": 25
+          "potential": 0,
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 694,
-          "confirmed": 0,
-          "probable": 648,
-          "potential": 46,
-          "crossFile": 46
+          "total": 81,
+          "confirmed": 19,
+          "probable": 62,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 665,
-          "confirmed": 0,
-          "probable": 640,
-          "potential": 25,
-          "crossFile": 25
+          "total": 88,
+          "confirmed": 17,
+          "probable": 71,
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -1780,42 +1779,42 @@
       "repo": "e2b-dev/E2B",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 6.3,
+      "scanSeconds": 9.3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 44
+        "low": 31
       },
-      "findingsTotal": 44,
+      "findingsTotal": 31,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 2,
-        "potential": 42
+        "potential": 29
       },
-      "executionPaths": 105,
-      "crossFilePaths": 97,
+      "executionPaths": 14,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
         "Shell",
-        "Filesystem",
         "Secrets",
+        "Filesystem",
         "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 30,
+          "total": 9,
           "confirmed": 0,
-          "probable": 7,
-          "potential": 23,
-          "crossFile": 23
+          "probable": 9,
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 25,
+          "total": 1,
           "confirmed": 0,
           "probable": 1,
-          "potential": 24,
-          "crossFile": 24
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
           "total": 0,
@@ -1825,11 +1824,11 @@
           "crossFile": 0
         },
         "Secrets": {
-          "total": 54,
-          "confirmed": 0,
-          "probable": 4,
-          "potential": 50,
-          "crossFile": 50
+          "total": 8,
+          "confirmed": 2,
+          "probable": 6,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
           "total": 1,
@@ -1918,64 +1917,64 @@
       "repo": "cline/cline",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 31.5,
+      "scanSeconds": 45.1,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 114
+        "low": 97
       },
-      "findingsTotal": 114,
+      "findingsTotal": 97,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 10,
-        "potential": 104
+        "potential": 87
       },
-      "executionPaths": 126,
-      "crossFilePaths": 100,
+      "executionPaths": 125,
+      "crossFilePaths": 88,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "Secrets",
-        "External APIs",
+        "Filesystem",
         "Network",
-        "Filesystem"
+        "Secrets",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 39,
-          "confirmed": 0,
-          "probable": 20,
-          "potential": 19,
-          "crossFile": 21
+          "total": 36,
+          "confirmed": 7,
+          "probable": 29,
+          "potential": 0,
+          "crossFile": 15
         },
         "Filesystem": {
-          "total": 21,
-          "confirmed": 0,
-          "probable": 1,
-          "potential": 20,
-          "crossFile": 20
+          "total": 14,
+          "confirmed": 5,
+          "probable": 9,
+          "potential": 0,
+          "crossFile": 13
         },
         "Network": {
-          "total": 24,
-          "confirmed": 0,
-          "probable": 4,
-          "potential": 20,
-          "crossFile": 20
+          "total": 26,
+          "confirmed": 13,
+          "probable": 13,
+          "potential": 0,
+          "crossFile": 21
         },
         "Secrets": {
-          "total": 38,
-          "confirmed": 0,
-          "probable": 22,
-          "potential": 16,
-          "crossFile": 20
+          "total": 47,
+          "confirmed": 16,
+          "probable": 31,
+          "potential": 0,
+          "crossFile": 23
         },
         "External APIs": {
-          "total": 36,
-          "confirmed": 0,
-          "probable": 19,
-          "potential": 17,
-          "crossFile": 20
+          "total": 34,
+          "confirmed": 8,
+          "probable": 26,
+          "potential": 0,
+          "crossFile": 16
         }
       },
       "artifactsByType": {
@@ -1993,64 +1992,64 @@
       "repo": "continuedev/continue",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 30.2,
+      "scanSeconds": 44.3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 3,
-        "low": 67
+        "low": 39
       },
-      "findingsTotal": 70,
+      "findingsTotal": 42,
       "findingsByConfidence": {
         "confirmed": 1,
-        "probable": 11,
-        "potential": 58
+        "probable": 10,
+        "potential": 31
       },
-      "executionPaths": 129,
-      "crossFilePaths": 101,
+      "executionPaths": 116,
+      "crossFilePaths": 92,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
-        "Network",
-        "External APIs",
-        "Secrets",
         "Shell",
+        "External APIs",
+        "Network",
+        "Secrets",
         "Filesystem"
       ],
       "actionStats": {
         "Shell": {
-          "total": 18,
+          "total": 12,
           "confirmed": 0,
-          "probable": 13,
-          "potential": 5,
-          "crossFile": 5
+          "probable": 12,
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 8,
+          "total": 2,
           "confirmed": 0,
           "probable": 2,
-          "potential": 6,
-          "crossFile": 6
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 42,
-          "confirmed": 0,
-          "probable": 1,
-          "potential": 41,
-          "crossFile": 42
+          "total": 47,
+          "confirmed": 47,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 46
         },
         "Secrets": {
-          "total": 22,
+          "total": 9,
           "confirmed": 0,
-          "probable": 17,
-          "potential": 5,
-          "crossFile": 5
+          "probable": 9,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 55,
-          "confirmed": 0,
-          "probable": 14,
-          "potential": 41,
-          "crossFile": 43
+          "total": 56,
+          "confirmed": 48,
+          "probable": 8,
+          "potential": 0,
+          "crossFile": 46
         }
       },
       "artifactsByType": {
@@ -2069,7 +2068,7 @@
       "repo": "Aider-AI/aider",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 3.4,
+      "scanSeconds": 4.3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -2079,54 +2078,54 @@
       "findingsTotal": 84,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 8,
-        "potential": 76
+        "probable": 7,
+        "potential": 77
       },
-      "executionPaths": 127,
-      "crossFilePaths": 100,
+      "executionPaths": 100,
+      "crossFilePaths": 20,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
-        "Secrets",
         "Shell",
-        "External APIs",
+        "Network",
         "Filesystem",
-        "Network"
+        "Secrets",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 37,
-          "confirmed": 0,
-          "probable": 21,
-          "potential": 16,
-          "crossFile": 16
+          "total": 42,
+          "confirmed": 9,
+          "probable": 33,
+          "potential": 0,
+          "crossFile": 4
         },
         "Filesystem": {
-          "total": 21,
-          "confirmed": 0,
-          "probable": 3,
-          "potential": 18,
-          "crossFile": 18
+          "total": 12,
+          "confirmed": 8,
+          "probable": 4,
+          "potential": 0,
+          "crossFile": 4
         },
         "Network": {
-          "total": 24,
-          "confirmed": 0,
+          "total": 10,
+          "confirmed": 10,
           "probable": 0,
-          "potential": 24,
-          "crossFile": 24
+          "potential": 0,
+          "crossFile": 4
         },
         "Secrets": {
-          "total": 36,
-          "confirmed": 0,
-          "probable": 14,
-          "potential": 22,
-          "crossFile": 22
+          "total": 32,
+          "confirmed": 10,
+          "probable": 22,
+          "potential": 0,
+          "crossFile": 4
         },
         "External APIs": {
-          "total": 46,
-          "confirmed": 0,
-          "probable": 22,
-          "potential": 24,
-          "crossFile": 24
+          "total": 40,
+          "confirmed": 10,
+          "probable": 30,
+          "potential": 0,
+          "crossFile": 4
         }
       },
       "artifactsByType": {
@@ -2141,64 +2140,64 @@
       "repo": "All-Hands-AI/OpenHands",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 24.3,
+      "scanSeconds": 35.7,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 59
+        "low": 41
       },
-      "findingsTotal": 59,
+      "findingsTotal": 41,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 9,
-        "potential": 50
+        "probable": 7,
+        "potential": 34
       },
-      "executionPaths": 123,
-      "crossFilePaths": 98,
+      "executionPaths": 105,
+      "crossFilePaths": 9,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "Secrets",
-        "External APIs",
+        "Filesystem",
         "Network",
-        "Filesystem"
+        "Secrets",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 17,
-          "confirmed": 0,
-          "probable": 4,
-          "potential": 13,
-          "crossFile": 13
+          "total": 16,
+          "confirmed": 5,
+          "probable": 11,
+          "potential": 0,
+          "crossFile": 4
         },
         "Filesystem": {
-          "total": 18,
-          "confirmed": 0,
-          "probable": 0,
-          "potential": 18,
-          "crossFile": 18
+          "total": 16,
+          "confirmed": 14,
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 32,
-          "confirmed": 0,
+          "total": 33,
+          "confirmed": 29,
           "probable": 4,
-          "potential": 28,
-          "crossFile": 28
+          "potential": 0,
+          "crossFile": 4
         },
         "Secrets": {
-          "total": 47,
-          "confirmed": 0,
-          "probable": 21,
-          "potential": 26,
-          "crossFile": 26
+          "total": 30,
+          "confirmed": 21,
+          "probable": 9,
+          "potential": 0,
+          "crossFile": 1
         },
         "External APIs": {
-          "total": 26,
-          "confirmed": 0,
+          "total": 19,
+          "confirmed": 9,
           "probable": 10,
-          "potential": 16,
-          "crossFile": 16
+          "potential": 0,
+          "crossFile": 1
         }
       },
       "artifactsByType": {
@@ -2217,7 +2216,7 @@
       "repo": "princeton-nlp/SWE-agent",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 2.2,
+      "scanSeconds": 3.6,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -2230,51 +2229,51 @@
         "probable": 12,
         "potential": 19
       },
-      "executionPaths": 110,
-      "crossFilePaths": 99,
+      "executionPaths": 52,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
-        "Secrets",
         "Shell",
-        "External APIs",
         "Filesystem",
-        "Network"
+        "Secrets",
+        "Network",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 44,
-          "confirmed": 0,
-          "probable": 9,
-          "potential": 35,
-          "crossFile": 35
+          "total": 29,
+          "confirmed": 13,
+          "probable": 16,
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 33,
-          "confirmed": 0,
+          "total": 11,
+          "confirmed": 11,
           "probable": 0,
-          "potential": 33,
-          "crossFile": 33
+          "potential": 0,
+          "crossFile": 0
         },
         "Network": {
-          "total": 10,
-          "confirmed": 0,
+          "total": 2,
+          "confirmed": 2,
           "probable": 0,
-          "potential": 10,
-          "crossFile": 10
+          "potential": 0,
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 18,
-          "confirmed": 0,
-          "probable": 4,
-          "potential": 14,
-          "crossFile": 14
+          "total": 11,
+          "confirmed": 4,
+          "probable": 7,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 19,
-          "confirmed": 0,
-          "probable": 9,
-          "potential": 10,
-          "crossFile": 10
+          "total": 12,
+          "confirmed": 2,
+          "probable": 10,
+          "potential": 0,
+          "crossFile": 0
         }
       },
       "artifactsByType": {
@@ -2291,21 +2290,21 @@
       "repo": "block/goose",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 20.2,
+      "scanSeconds": 27.6,
       "findingsBySeverity": {
         "critical": 0,
         "high": 1,
         "medium": 0,
-        "low": 269
+        "low": 224
       },
-      "findingsTotal": 270,
+      "findingsTotal": 225,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 73,
-        "potential": 197
+        "probable": 66,
+        "potential": 159
       },
-      "executionPaths": 215,
-      "crossFilePaths": 99,
+      "executionPaths": 177,
+      "crossFilePaths": 56,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Secrets",
@@ -2316,39 +2315,39 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 96,
-          "confirmed": 2,
-          "probable": 75,
-          "potential": 19,
-          "crossFile": 19
+          "total": 95,
+          "confirmed": 17,
+          "probable": 78,
+          "potential": 0,
+          "crossFile": 18
         },
         "Filesystem": {
-          "total": 33,
-          "confirmed": 3,
+          "total": 30,
+          "confirmed": 17,
           "probable": 13,
-          "potential": 17,
-          "crossFile": 17
+          "potential": 0,
+          "crossFile": 12
         },
         "Network": {
-          "total": 22,
-          "confirmed": 0,
+          "total": 14,
+          "confirmed": 14,
           "probable": 0,
-          "potential": 22,
-          "crossFile": 22
+          "potential": 0,
+          "crossFile": 13
         },
         "Secrets": {
-          "total": 71,
-          "confirmed": 6,
-          "probable": 46,
-          "potential": 19,
-          "crossFile": 19
+          "total": 50,
+          "confirmed": 9,
+          "probable": 41,
+          "potential": 0,
+          "crossFile": 1
         },
         "External APIs": {
-          "total": 96,
-          "confirmed": 7,
-          "probable": 66,
-          "potential": 23,
-          "crossFile": 23
+          "total": 81,
+          "confirmed": 23,
+          "probable": 58,
+          "potential": 0,
+          "crossFile": 15
         }
       },
       "artifactsByType": {
@@ -2367,64 +2366,64 @@
       "repo": "anthropics/anthropic-cookbook",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 4.9,
+      "scanSeconds": 6.2,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 65
+        "low": 60
       },
-      "findingsTotal": 65,
+      "findingsTotal": 60,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 29,
-        "potential": 36
+        "probable": 32,
+        "potential": 28
       },
-      "executionPaths": 122,
-      "crossFilePaths": 99,
+      "executionPaths": 108,
+      "crossFilePaths": 21,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "Secrets",
+        "Filesystem",
         "Network",
-        "External APIs",
-        "Filesystem"
+        "Secrets",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 39,
-          "confirmed": 3,
-          "probable": 20,
-          "potential": 16,
-          "crossFile": 20
+          "total": 42,
+          "confirmed": 9,
+          "probable": 33,
+          "potential": 0,
+          "crossFile": 2
         },
         "Filesystem": {
-          "total": 21,
-          "confirmed": 0,
-          "probable": 2,
-          "potential": 19,
-          "crossFile": 19
+          "total": 15,
+          "confirmed": 6,
+          "probable": 9,
+          "potential": 0,
+          "crossFile": 4
         },
         "Network": {
-          "total": 28,
-          "confirmed": 0,
-          "probable": 4,
-          "potential": 24,
-          "crossFile": 24
+          "total": 22,
+          "confirmed": 6,
+          "probable": 16,
+          "potential": 0,
+          "crossFile": 6
         },
         "Secrets": {
-          "total": 40,
-          "confirmed": 3,
-          "probable": 16,
-          "potential": 21,
-          "crossFile": 23
+          "total": 38,
+          "confirmed": 6,
+          "probable": 32,
+          "potential": 0,
+          "crossFile": 4
         },
         "External APIs": {
-          "total": 35,
-          "confirmed": 0,
-          "probable": 13,
-          "potential": 22,
-          "crossFile": 23
+          "total": 29,
+          "confirmed": 5,
+          "probable": 24,
+          "potential": 0,
+          "crossFile": 5
         }
       },
       "artifactsByType": {
@@ -2442,64 +2441,64 @@
       "repo": "openai/openai-cookbook",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 3.9,
+      "scanSeconds": 5.2,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 88
+        "low": 42
       },
-      "findingsTotal": 88,
+      "findingsTotal": 42,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 3,
-        "potential": 85
+        "probable": 2,
+        "potential": 40
       },
-      "executionPaths": 162,
-      "crossFilePaths": 100,
+      "executionPaths": 87,
+      "crossFilePaths": 19,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
-        "Filesystem",
-        "Secrets",
         "Shell",
-        "External APIs",
-        "Network"
+        "Secrets",
+        "Network",
+        "Filesystem",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 22,
-          "confirmed": 0,
-          "probable": 4,
-          "potential": 18,
-          "crossFile": 19
+          "total": 16,
+          "confirmed": 9,
+          "probable": 7,
+          "potential": 0,
+          "crossFile": 4
         },
         "Filesystem": {
-          "total": 19,
-          "confirmed": 0,
-          "probable": 6,
-          "potential": 13,
-          "crossFile": 14
+          "total": 11,
+          "confirmed": 4,
+          "probable": 7,
+          "potential": 0,
+          "crossFile": 1
         },
         "Network": {
-          "total": 23,
-          "confirmed": 0,
+          "total": 11,
+          "confirmed": 11,
           "probable": 0,
-          "potential": 23,
-          "crossFile": 23
+          "potential": 0,
+          "crossFile": 5
         },
         "Secrets": {
-          "total": 79,
-          "confirmed": 0,
-          "probable": 58,
-          "potential": 21,
-          "crossFile": 22
+          "total": 36,
+          "confirmed": 9,
+          "probable": 27,
+          "potential": 0,
+          "crossFile": 5
         },
         "External APIs": {
-          "total": 37,
-          "confirmed": 0,
-          "probable": 13,
-          "potential": 24,
-          "crossFile": 24
+          "total": 28,
+          "confirmed": 13,
+          "probable": 15,
+          "potential": 0,
+          "crossFile": 5
         }
       },
       "artifactsByType": {
@@ -2516,64 +2515,64 @@
       "repo": "RooCodeInc/Roo-Code",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 33.6,
+      "scanSeconds": 36.8,
       "findingsBySeverity": {
         "critical": 0,
         "high": 1,
         "medium": 0,
-        "low": 69
+        "low": 59
       },
-      "findingsTotal": 70,
+      "findingsTotal": 60,
       "findingsByConfidence": {
         "confirmed": 18,
         "probable": 14,
-        "potential": 38
+        "potential": 28
       },
-      "executionPaths": 119,
-      "crossFilePaths": 100,
+      "executionPaths": 118,
+      "crossFilePaths": 79,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
         "External APIs",
         "Secrets",
-        "Filesystem",
-        "Network"
+        "Network",
+        "Filesystem"
       ],
       "actionStats": {
         "Shell": {
-          "total": 33,
-          "confirmed": 1,
-          "probable": 11,
-          "potential": 21,
-          "crossFile": 21
+          "total": 40,
+          "confirmed": 21,
+          "probable": 19,
+          "potential": 0,
+          "crossFile": 25
         },
         "Filesystem": {
-          "total": 26,
-          "confirmed": 0,
-          "probable": 4,
-          "potential": 22,
-          "crossFile": 22
+          "total": 31,
+          "confirmed": 15,
+          "probable": 16,
+          "potential": 0,
+          "crossFile": 26
         },
         "Network": {
-          "total": 11,
-          "confirmed": 0,
+          "total": 10,
+          "confirmed": 10,
           "probable": 0,
-          "potential": 11,
-          "crossFile": 11
+          "potential": 0,
+          "crossFile": 10
         },
         "Secrets": {
-          "total": 29,
-          "confirmed": 0,
+          "total": 20,
+          "confirmed": 15,
           "probable": 5,
-          "potential": 24,
-          "crossFile": 24
+          "potential": 0,
+          "crossFile": 7
         },
         "External APIs": {
-          "total": 31,
-          "confirmed": 1,
-          "probable": 6,
-          "potential": 24,
-          "crossFile": 24
+          "total": 28,
+          "confirmed": 21,
+          "probable": 7,
+          "potential": 0,
+          "crossFile": 11
         }
       },
       "artifactsByType": {
@@ -2592,64 +2591,64 @@
       "repo": "yamadashy/repomix",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 7.4,
+      "scanSeconds": 10.4,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 1,
-        "low": 231
+        "low": 226
       },
-      "findingsTotal": 232,
+      "findingsTotal": 227,
       "findingsByConfidence": {
         "confirmed": 2,
         "probable": 19,
-        "potential": 211
+        "potential": 206
       },
-      "executionPaths": 215,
-      "crossFilePaths": 100,
+      "executionPaths": 192,
+      "crossFilePaths": 21,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
-        "Secrets",
         "Shell",
-        "External APIs",
         "Filesystem",
-        "Network"
+        "Secrets",
+        "Network",
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 128,
-          "confirmed": 2,
-          "probable": 109,
-          "potential": 17,
-          "crossFile": 18
+          "total": 129,
+          "confirmed": 4,
+          "probable": 125,
+          "potential": 0,
+          "crossFile": 1
         },
         "Filesystem": {
-          "total": 28,
-          "confirmed": 0,
-          "probable": 3,
-          "potential": 25,
-          "crossFile": 25
+          "total": 23,
+          "confirmed": 15,
+          "probable": 8,
+          "potential": 0,
+          "crossFile": 8
         },
         "Network": {
-          "total": 17,
-          "confirmed": 0,
-          "probable": 0,
-          "potential": 17,
-          "crossFile": 17
+          "total": 8,
+          "confirmed": 1,
+          "probable": 7,
+          "potential": 0,
+          "crossFile": 2
         },
         "Secrets": {
-          "total": 85,
-          "confirmed": 2,
-          "probable": 57,
-          "potential": 26,
-          "crossFile": 26
+          "total": 80,
+          "confirmed": 17,
+          "probable": 63,
+          "potential": 0,
+          "crossFile": 8
         },
         "External APIs": {
-          "total": 121,
-          "confirmed": 0,
-          "probable": 102,
-          "potential": 19,
-          "crossFile": 19
+          "total": 114,
+          "confirmed": 1,
+          "probable": 113,
+          "potential": 0,
+          "crossFile": 2
         }
       },
       "artifactsByType": {
@@ -2669,21 +2668,21 @@
       "repo": "anthropics/claude-code-action",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 2.4,
+      "scanSeconds": 3.3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 70
+        "low": 45
       },
-      "findingsTotal": 70,
+      "findingsTotal": 45,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 6,
-        "potential": 64
+        "potential": 39
       },
-      "executionPaths": 111,
-      "crossFilePaths": 97,
+      "executionPaths": 25,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 3,
       "sensitiveActionTypes": [
         "Shell",
@@ -2692,11 +2691,11 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 59,
-          "confirmed": 0,
-          "probable": 12,
-          "potential": 47,
-          "crossFile": 48
+          "total": 17,
+          "confirmed": 1,
+          "probable": 16,
+          "potential": 0,
+          "crossFile": 0
         },
         "Filesystem": {
           "total": 0,
@@ -2713,16 +2712,16 @@
           "crossFile": 0
         },
         "Secrets": {
-          "total": 56,
-          "confirmed": 0,
-          "probable": 8,
-          "potential": 48,
-          "crossFile": 49
+          "total": 11,
+          "confirmed": 1,
+          "probable": 10,
+          "potential": 0,
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 10,
+          "total": 9,
           "confirmed": 0,
-          "probable": 10,
+          "probable": 9,
           "potential": 0,
           "crossFile": 0
         }

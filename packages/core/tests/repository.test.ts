@@ -1015,19 +1015,20 @@ describe('repository execution analysis', () => {
     });
 
     it('surfaces path enumeration truncation in the map and summary', () => {
-        // Many prompts that name shell/fs/network, plus MCP servers exposing
-        // those actions, create a cross-product fan-out past the 100-path cap.
+        // Many prompts that each reference three MCP servers by name, each server
+        // exposing shell/fs/network, create a real-reference fan-out past the
+        // 100-path cap (30 prompts x 3 servers x 3 actions).
         const files: Record<string, string> = {
             'mcp.json': JSON.stringify({
                 mcpServers: {
-                    a: { command: 'bash', args: ['-c'], permissions: ['shell.execute', 'filesystem.write', 'network.fetch'] },
-                    b: { command: 'sh', args: ['-c'], permissions: ['shell.execute', 'filesystem.write', 'network.fetch'] },
-                    c: { command: 'zsh', args: ['-c'], permissions: ['shell.execute', 'filesystem.write', 'network.fetch'] },
+                    alpha: { command: 'bash', args: ['-c'], permissions: ['shell.execute', 'filesystem.write', 'network.fetch'] },
+                    bravo: { command: 'sh', args: ['-c'], permissions: ['shell.execute', 'filesystem.write', 'network.fetch'] },
+                    charlie: { command: 'zsh', args: ['-c'], permissions: ['shell.execute', 'filesystem.write', 'network.fetch'] },
                 },
             }),
         };
         for (let i = 0; i < 30; i++) {
-            files[`prompts/p${i}.prompt`] = 'System prompt: run shell commands via bash, read all files, and fetch network resources.';
+            files[`prompts/p${i}.prompt`] = 'System prompt: use servers alpha, bravo, and charlie to run shell commands via bash, read all files, and fetch network resources.';
         }
         const root = fixtureRepo(files);
         const report = analyzeRepositoryExecution(root, []);
@@ -1059,18 +1060,35 @@ describe('repository execution analysis', () => {
         expect((report.fixPlan || []).some(item => /Shell path/.test(item.title))).toBe(true);
     });
 
-    it('labels structural cross-product edges Potential and real references Confirmed via provenance', () => {
+    it('grades edges by reference kind and never connects co-located-only artifacts', () => {
         const root = fixtureRepo({
-            'agent.prompt': 'System prompt: summarize tickets. See skills/deploy for deployment steps.',
+            'agent.prompt': 'System prompt: load skills/deploy for deployment. Also use the runner MCP server.',
             'skills/deploy/SKILL.md': '# deploy\nCapabilities: route jobs to tools.',
+            'mcp.json': JSON.stringify({ mcpServers: { runner: { command: 'bash', args: ['-c'] } } }),
+            // Co-located but never referenced by the prompt — must not connect.
+            'unused-tool.ts': 'export const tools = { thing: () => {} };',
         });
         const artifacts = analyzeRepository(root);
         const map = buildRepositoryExecutionMap(artifacts, [], root);
-        const referenceEdge = map.edges.find(edge => edge.type === 'REFERENCES');
-        const crossProductEdge = map.edges.find(edge => edge.provenance === 'structural');
-        expect(referenceEdge?.provenance).toBe('direct');
-        expect(referenceEdge?.confidenceLabel).toBe('Confirmed');
-        expect(crossProductEdge?.confidenceLabel).toBe('Potential');
+        const nodeById = new Map(map.nodes.map(node => [node.id, node]));
+        const edgeTo = (relSuffix: string) =>
+            map.edges.find(edge => nodeById.get(edge.to)?.relativePath?.endsWith(relSuffix)
+                && nodeById.get(edge.from)?.relativePath === 'agent.prompt');
+
+        // A resolved path/dir reference is direct evidence -> Confirmed.
+        const skillEdge = edgeTo('skills/deploy/SKILL.md');
+        expect(skillEdge?.provenance).toBe('direct');
+        expect(skillEdge?.confidenceLabel).toBe('Confirmed');
+
+        // Naming a configured MCP server is a real but weaker reference -> Probable.
+        const serverEdge = edgeTo('mcp.json');
+        expect(serverEdge?.provenance).toBe('connected');
+        expect(serverEdge?.confidenceLabel).toBe('Probable');
+
+        // Co-location alone (a same-repo tool the prompt never references) is not
+        // a reference: there must be NO structural edge, at any confidence.
+        expect(map.edges.some(edge => edge.provenance === 'structural')).toBe(false);
+        expect(edgeTo('unused-tool.ts')).toBeUndefined();
     });
 
     it('keeps deep file paths from colliding into shared node or edge ids', () => {

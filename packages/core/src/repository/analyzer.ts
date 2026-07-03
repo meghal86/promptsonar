@@ -271,6 +271,58 @@ function extractReferences(content: string): string[] {
     return Array.from(references).slice(0, 25);
 }
 
+// Path-qualified references from a file to other repo files, resolved to
+// repo-relative paths. Captures import/require/from specifiers, markdown link
+// targets, and explicit slash-qualified path strings. A token must contain a
+// path separator to count — a bare filename (e.g. one line of an ASCII directory
+// tree, or a prose word) is NOT a reference and must never synthesize an edge.
+// Relative specifiers are resolved against the source file's directory so the
+// edge builder can require a real path link rather than name similarity.
+function extractReferencePaths(content: string, sourceDir: string): string[] {
+    const out = new Set<string>();
+    const baseDir = normalizePath(sourceDir) === '.' ? '' : normalizePath(sourceDir);
+    const consider = (raw: string): void => {
+        if (!raw || raw.length > 400 || out.size >= 60) return;
+        let spec = raw.trim().replace(/^['"`<]+|['"`>]+$/g, '').split(/[?#]/)[0].trim();
+        if (!spec) return;
+        // Skip URLs and non-path protocol specifiers; only in-repo paths matter.
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(spec) || spec.startsWith('mailto:')) return;
+        // Must be path-qualified: a separator distinguishes a reference from a
+        // bare filename mention (which is co-location noise, not a reference).
+        if (!spec.includes('/')) return;
+        const resolved = spec.startsWith('/')
+            ? normalizePath(spec.replace(/^\/+/, ''))
+            : normalizePath(path.posix.join(baseDir, spec));
+        const cleaned = resolved.replace(/^(\.\.\/)+/, '');
+        if (cleaned) out.add(cleaned.toLowerCase());
+    };
+    const patterns: RegExp[] = [
+        // import ... from '...'; require('...'); include '...'
+        /(?:\bfrom|\bimport|\brequire|\binclude|\bsource)\s*\(?\s*["'`]([^"'`\n]+)["'`]/gi,
+        // markdown links: [text](target) and reference-style [id]: target
+        /\]\(\s*<?([^)\s>]+)>?[^)]*\)/g,
+        /\]:\s*([^\s]+)/g,
+    ];
+    for (const pattern of patterns) {
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(content)) !== null) {
+            if (match[1]) consider(match[1]);
+        }
+    }
+    // Explicit slash-qualified path tokens. Tokenize LINEARLY on characters that
+    // cannot appear in a path reference, then keep the slash-qualified tokens —
+    // a nested-quantifier path regex would risk catastrophic backtracking on
+    // minified or data-heavy files. Overlong lines carry no real reference.
+    for (const line of content.split('\n')) {
+        if (line.length > 4000 || out.size >= 60) continue;
+        if (line.indexOf('/') === -1) continue;
+        for (const token of line.split(/[^\w./@\\-]+/)) {
+            if (token.indexOf('/') !== -1) consider(token);
+        }
+    }
+    return Array.from(out).slice(0, 60);
+}
+
 function detectSensitiveActions(text: string): RepositorySensitiveAction[] {
     const normalized = stripNegatedClauses(text).replace(/[_-]/g, ' ');
     const actions = new Set<RepositorySensitiveAction>();
@@ -503,6 +555,10 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     }
     const provenance = classifyRepositoryProvenance(relativePath, content);
     const isPromptPath = lower.startsWith('prompts/') || lower.includes('/prompts/') || ['.prompt', '.ai', '.chat', '.system'].includes(ext);
+    // Resolved path-qualified references this file makes to other repo files.
+    // Shared by every artifact classified from the file so the execution-graph
+    // builder can gate cross-file edges on a real reference.
+    const referencePaths = extractReferencePaths(content, path.dirname(relativePath));
     const artifacts: RepositoryArtifact[] = [];
     const add = (type: RepositoryArtifactType, name: string, description: string, signals: string[], evidence: string[], metadata?: RepositoryArtifact['metadata']) => {
         artifacts.push({
@@ -515,13 +571,14 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
             evidence: sanitizeStringArray(evidence) || [],
             provenance,
             signals,
-            metadata: metadata ? {
-                ...metadata,
-                capabilities: sanitizeStringArray(metadata.capabilities),
-                constraints: sanitizeStringArray(metadata.constraints),
-                permissions: sanitizeStringArray(metadata.permissions),
-                references: sanitizeStringArray(metadata.references),
-            } : undefined,
+            metadata: {
+                ...(metadata || {}),
+                capabilities: sanitizeStringArray(metadata?.capabilities),
+                constraints: sanitizeStringArray(metadata?.constraints),
+                permissions: sanitizeStringArray(metadata?.permissions),
+                references: sanitizeStringArray(metadata?.references),
+                referencePaths,
+            },
         });
     };
 
@@ -772,17 +829,66 @@ function addEdge(edges: Map<string, RepositoryExecutionEdge>, from: string, to: 
     });
 }
 
-function artifactText(artifact: RepositoryArtifact): string {
+// Content-derived text of a source artifact, EXCLUDING its own name and path.
+// Used for name-reference matching so a file whose *filename* coincides with a
+// target's name (e.g. `context7.ts` and an MCP server named `context7`) is not
+// mistaken for a reference — only the file's actual content counts.
+function referenceNameHaystack(artifact: RepositoryArtifact): string {
     return [
-        artifact.name,
-        artifact.relativePath,
         artifact.description,
         ...(artifact.evidence || []),
         ...(artifact.signals || []),
         ...(artifact.metadata?.references || []),
-        ...(artifact.metadata?.tools || []),
-        ...(artifact.metadata?.servers || []),
     ].join(' ').toLowerCase();
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// True when `name` appears as a standalone token in `haystack` (word-boundaried
+// by any non-alphanumeric, so `my-server` and `shell` match but `preshell` and
+// `max_tokens`→`token` do not). Generic 1-2 char names never match.
+function containsNameToken(haystack: string, name: string): boolean {
+    const token = name.trim().toLowerCase();
+    if (token.length < 3) return false;
+    return new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(token)}(?:$|[^a-z0-9])`, 'i').test(haystack);
+}
+
+// True when the source's resolved path references include the target file: an
+// exact path match, an extension-insensitive match, or a directory reference
+// naming the target's containing folder (e.g. `skills/deploy` -> that skill).
+function referencePathMatchesTarget(sourceRefPaths: string[], targetRelPath: string): boolean {
+    const target = normalizePath(targetRelPath).toLowerCase();
+    if (!target) return false;
+    const targetNoExt = target.replace(/\.[a-z0-9]+$/i, '');
+    const targetDir = target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : '';
+    for (const raw of sourceRefPaths) {
+        const ref = raw.toLowerCase();
+        if (!ref) continue;
+        const refNoExt = ref.replace(/\.[a-z0-9]+$/i, '');
+        if (ref === target || ref === targetNoExt || refNoExt === targetNoExt) return true;
+        if (targetDir && (ref === targetDir || refNoExt === targetDir)) return true;
+    }
+    return false;
+}
+
+// Prose / orchestration artifacts may reference a configured MCP server by its
+// declared name (a real config-key reference). Code artifacts (TOOL, MCP_SERVER)
+// may not — a bare name collision between two code files is co-location, not a
+// reference, and must not create an edge.
+const NAME_REFERENCE_SOURCE_TYPES = new Set<RepositoryArtifactType>([
+    'PROMPT', 'AGENT_CONFIG', 'SKILL', 'WORKFLOW', 'ACTION', 'MEMORY',
+]);
+
+function edgeTypeForTarget(targetType: RepositoryArtifactType): RepositoryExecutionEdge['type'] {
+    switch (targetType) {
+        case 'MEMORY': return 'READS';
+        case 'TOOL': return 'ROUTES_TO';
+        case 'SKILL':
+        case 'MCP_SERVER': return 'INVOKES';
+        default: return 'REFERENCES';
+    }
 }
 
 // Node types that actually *execute* a sensitive action (a configured MCP
@@ -882,66 +988,45 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
         }
     }
 
-    const byType = (type: RepositoryArtifactType) => artifacts.filter(artifact => artifact.type === type);
-    const prompts = artifacts.filter(artifact => artifact.type === 'PROMPT' || artifact.type === 'AGENT_CONFIG');
-    const skills = byType('SKILL');
-    const tools = byType('TOOL');
-    const mcps = byType('MCP_SERVER');
-    const memories = byType('MEMORY');
-    const workflows = byType('WORKFLOW').concat(byType('ACTION'));
-
+    // Cross-file execution edges are created ONLY when the source artifact makes
+    // a REAL reference to the target — never from capability-word co-location.
+    // A reference is one of:
+    //   (1) a resolved import/require, markdown link, or explicit path-qualified
+    //       string that points at the target file (or its containing folder), or
+    //   (2) a prose/orchestration file naming a configured MCP server by its
+    //       declared name.
+    // Two files that merely both mention "shell", or share a filename, are NOT
+    // connected. This keeps Potential/Probable meaning "a reference exists but
+    // reachability is not certain" rather than "co-located in the same repo".
     for (const source of artifacts) {
         const sourceNode = nodeIdByArtifact.get(source.id);
         if (!sourceNode) continue;
-        const sourceText = artifactText(source);
+        const sourceRefPaths = source.metadata?.referencePaths || [];
+        const canNameReference = NAME_REFERENCE_SOURCE_TYPES.has(source.type);
+        const nameHaystack = canNameReference ? referenceNameHaystack(source) : '';
         for (const target of artifacts) {
             if (source.id === target.id) continue;
             const targetNode = nodeIdByArtifact.get(target.id);
             if (!targetNode) continue;
-            const targetName = target.name.toLowerCase();
-            const targetBase = path.basename(target.relativePath).toLowerCase();
-            if (sourceText.includes(targetName) || sourceText.includes(target.relativePath.toLowerCase()) || (targetBase.length > 4 && sourceText.includes(targetBase))) {
-                addEdge(edges, sourceNode, targetNode, 'REFERENCES', `${source.name} references ${target.name}.`, source.evidence[0], 75, 'direct');
+
+            // (1) Resolved path / import / markdown-link reference -> Confirmed.
+            if (referencePathMatchesTarget(sourceRefPaths, target.relativePath)) {
+                addEdge(edges, sourceNode, targetNode, edgeTypeForTarget(target.type), `${source.name} references ${target.relativePath} by path.`, source.evidence[0], 80, 'direct');
+                continue;
+            }
+
+            // (2) Named reference to a configured MCP server -> Probable. Servers
+            // are invoked by their config-declared name; other artifact kinds must
+            // be referenced by path (a bare name match is co-location noise).
+            if (canNameReference && target.type === 'MCP_SERVER') {
+                const serverNames = (target.metadata?.servers && target.metadata.servers.length > 0)
+                    ? target.metadata.servers
+                    : [target.name];
+                if (serverNames.some(name => containsNameToken(nameHaystack, name))) {
+                    addEdge(edges, sourceNode, targetNode, 'INVOKES', `${source.name} references configured MCP server "${target.name}" by name.`, source.evidence[0], 70, 'connected');
+                }
             }
         }
-    }
-
-    for (const prompt of prompts) {
-        const sourceNode = nodeIdByArtifact.get(prompt.id);
-        if (!sourceNode) continue;
-        for (const memory of memories) addEdge(edges, sourceNode, nodeIdByArtifact.get(memory.id)!, 'READS', 'Prompt or agent config can read repository memory context.', prompt.evidence[0], 55, 'structural');
-        for (const skill of skills) addEdge(edges, sourceNode, nodeIdByArtifact.get(skill.id)!, 'INVOKES', 'Prompt or agent config can invoke discovered agent skills.', prompt.evidence[0], 60, 'structural');
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'ROUTES_TO', 'Prompt or agent config can route work to tool definitions.', prompt.evidence[0], 60, 'structural');
-        for (const mcp of mcps) {
-            const promptActions = prompt.metadata?.sensitiveActions || [];
-            const mcpActions = mcp.metadata?.sensitiveActions || [];
-            if (promptActions.some(action => mcpActions.includes(action))) {
-                // Capability overlap (prompt names an action the MCP exposes) is
-                // strong structural evidence, not a confirmed reference.
-                addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Prompt names a sensitive action exposed by a configured MCP server.', prompt.evidence[0], 80, 'connected');
-            }
-        }
-    }
-
-    for (const skill of skills) {
-        const sourceNode = nodeIdByArtifact.get(skill.id);
-        if (!sourceNode) continue;
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'ROUTES_TO', 'Skill can route instructions to a tool surface.', skill.evidence[0], 65, 'structural');
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Skill can invoke MCP server capabilities.', skill.evidence[0], 60, 'structural');
-    }
-
-    for (const tool of tools) {
-        const sourceNode = nodeIdByArtifact.get(tool.id);
-        if (!sourceNode) continue;
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'ROUTES_TO', 'Tool surface can route to MCP server capability.', tool.evidence[0], 70, 'structural');
-    }
-
-    for (const workflow of workflows) {
-        const sourceNode = nodeIdByArtifact.get(workflow.id);
-        if (!sourceNode) continue;
-        for (const prompt of prompts) addEdge(edges, sourceNode, nodeIdByArtifact.get(prompt.id)!, 'REFERENCES', 'Workflow can reference prompt or agent instructions.', workflow.evidence[0], 55, 'structural');
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'INVOKES', 'Workflow can invoke tool definitions.', workflow.evidence[0], 65, 'structural');
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Workflow can invoke MCP server configuration.', workflow.evidence[0], 65, 'structural');
     }
 
     for (const result of scanResults) {
