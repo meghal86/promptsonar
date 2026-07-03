@@ -484,16 +484,34 @@ function classifyRepositoryProvenance(relativePath: string, content: string): Re
         /\b(intentional(?:ly)? vulnerable|test fixture|do not fix|fixture only|vulnerable fixture|suppression_reason)\b/i.test(content)) {
         return 'fixture';
     }
-    if (hasSegment('tests', 'test', '__tests__', '__test__', 'spec', '__mocks__') ||
-        /\.(?:test|spec)\.[a-z]+$/.test(basename)) {
+    if (hasSegment('tests', 'test', '__tests__', '__test__', 'spec', 'specs', '__mocks__',
+            'unittests', 'unittest', 'e2e', 'testing') ||
+        /(?:^|[_.])test[_.]/.test(basename) ||               // test_foo.py
+        /[_.](?:test|spec)s?\.[a-z0-9]+$/.test(basename) ||  // foo.test.ts, foo_test.go, foo.spec.rb
+        /tests?\.(?:cs|java|kt|scala|rb|php)$/.test(basename)) { // PascalCase FooTests.cs / FooTest.java
         return 'test';
     }
-    if (hasSegment('docs', 'doc', 'documentation', 'wiki') ||
-        basename === 'readme.md' || basename === 'changelog.md' || basename === 'contributing.md' ||
-        /\.mdx?$/.test(basename) && hasSegment('docs', 'doc')) {
+    // Documentation is detected by LOCATION (doc directories) and by well-known
+    // doc filenames — not by markdown extension alone, since agent memory,
+    // instructions, and prompts also live in markdown. This keeps illustrative
+    // security content in READMEs, guides, tutorials, blogs, and API-reference
+    // docs (```bash examples, sample emails, doctest output) out of production
+    // findings, while leaving real AI-instruction markdown classified. Known
+    // AI-instruction surfaces under a doc directory are exempted.
+    const isAiInstructionSurface =
+        ['agents.md', 'agent.md', 'claude.md', 'skill.md', '.cursorrules'].includes(basename) ||
+        hasSegment('prompts', 'skills', '.claude', '.cursor', '.agents', '.codex');
+    if (!isAiInstructionSurface && (
+        hasSegment('docs', 'doc', 'documentation', 'wiki', 'wikis', 'blog', 'blogs',
+            'website', 'site', 'tutorial', 'tutorials', 'guide', 'guides', 'man', 'manual', 'handbook') ||
+        segments.some(segment => segment.startsWith('docs') || segment.startsWith('documentation')) ||
+        ['readme.md', 'readme.mdx', 'changelog.md', 'contributing.md', 'code_of_conduct.md', 'security.md', 'history.md', 'authors.md', 'notice.md'].includes(basename)
+    )) {
         return 'documentation';
     }
-    if (hasSegment('examples', 'example', 'demo', 'demos', 'scratch', 'evidence', 'benchmarks', 'research', 'results', 'tmp', 'output')) {
+    if (hasSegment('examples', 'example', 'demo', 'demos', 'scratch', 'evidence', 'benchmarks',
+            'research', 'results', 'tmp', 'output', 'sample', 'samples', 'cookbook', 'cookbooks',
+            'recipes', 'playground', 'quickstart', 'quickstarts')) {
         return 'example';
     }
     return 'production';
@@ -555,6 +573,13 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     }
     const provenance = classifyRepositoryProvenance(relativePath, content);
     const isPromptPath = lower.startsWith('prompts/') || lower.includes('/prompts/') || ['.prompt', '.ai', '.chat', '.system'].includes(ext);
+    // Documentation, examples, tests, fixtures, and generated files are not
+    // executable execution surfaces. They must not be classified as heuristic
+    // executor artifacts (TOOL/MEMORY/WORKFLOW/PROMPT) — a docs guide mentioning
+    // `tool_dispatcher` is not a tool, and a bash example in a tutorial is not a
+    // reachable sink. Explicit named AI artifacts (mcp.json, SKILL.md,
+    // AGENTS.md/CLAUDE.md) are still classified by their dedicated branches.
+    const nonProductionArtifact = NON_PRODUCTION_PROVENANCE.has(provenance);
     // Resolved path-qualified references this file makes to other repo files.
     // Shared by every artifact classified from the file so the execution-graph
     // builder can gate cross-file edges on a real reference.
@@ -627,7 +652,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (basename.includes('memory') || lower.startsWith('memory/') || lower.includes('/memory/')) {
+    if (!nonProductionArtifact && (basename.includes('memory') || lower.startsWith('memory/') || lower.includes('/memory/'))) {
         add('MEMORY', path.basename(filePath), 'Agent memory artifact discovered.', ['memory-store'], [lineEvidence(content, /memory|remember|persist|session|history/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
@@ -642,7 +667,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     const isGithubWorkflow = lower.startsWith('.github/workflows/') || lower.includes('/.github/workflows/');
     const isActionManifest = basename === 'action.yml' || basename === 'action.yaml';
     const isWorkflowConfigName = (basename.includes('workflow') || basename.includes('pipeline')) && WORKFLOW_CONFIG_EXTENSIONS.has(ext);
-    if (isGithubWorkflow || isActionManifest || isWorkflowConfigName) {
+    if (!nonProductionArtifact && (isGithubWorkflow || isActionManifest || isWorkflowConfigName)) {
         add(basename.startsWith('action.') ? 'ACTION' : 'WORKFLOW', path.basename(filePath), 'Workflow or action orchestration file discovered.', ['workflow-config'], [lineEvidence(content, /workflow|jobs|steps|uses|run|tool|prompt|mcp/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
@@ -650,7 +675,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (!isPromptPath && (basename.includes('tool') || basename.includes('router') || basename.includes('registry') || /\b(tool router|tool_registry|function call|tools\s*[:=]|toolDefinitions)\b/i.test(content))) {
+    if (!nonProductionArtifact && !isPromptPath && (basename.includes('tool') || basename.includes('router') || basename.includes('registry') || /\b(tool router|tool_registry|function call|tools\s*[:=]|toolDefinitions)\b/i.test(content))) {
         add('TOOL', path.basename(filePath), 'Tool registry or tool-routing artifact discovered.', ['tool-definition'], [lineEvidence(content, /tool|router|function call|execute|invoke/i, relativePath)], {
             tools: Array.from(content.matchAll(/\b(?:tool|name|function)\s*[:=]\s*["'`]?([A-Za-z0-9_.-]{3,})/gi)).map(match => match[1]).slice(0, 20),
             sensitiveActions: detectSensitiveActions(content),
@@ -1203,6 +1228,17 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
     const findingsByFileForEvidence = new Map(scanResults.map(result => [path.resolve(result.filePath), result.findings || []]));
     const fileProvenance = (filePath: string): RepositoryProvenance =>
         artifactProvenance.get(path.resolve(filePath)) || classifyRepositoryProvenance(path.resolve(filePath), '');
+    // Provenance for a graph node. Classified artifacts carry their provenance
+    // (computed from the repo-relative path); for others, classify on the node's
+    // repo-RELATIVE path — never the absolute path, whose ambient prefix (a
+    // `/tmp/...` scratch dir, an `.../corpus/...` clone root) would otherwise leak
+    // segments like `tmp`/`corpus` and mis-mark real files as non-production.
+    const nodeProvenance = (nodeId: string): RepositoryProvenance | undefined => {
+        const node = nodesById.get(nodeId);
+        if (!node?.filePath) return undefined;
+        return artifactProvenance.get(path.resolve(node.filePath))
+            || classifyRepositoryProvenance(node.relativePath || path.basename(node.filePath), '');
+    };
     // A path is live production risk only when its whole chain is production. If
     // any node it traverses (e.g. a fixture MCP that supplies the sink) is
     // non-production, the path is non-production — a production-sourced prompt
@@ -1210,9 +1246,8 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
     // shippable vulnerability. Source provenance is used only as the fallback.
     const pathProvenance = (nodeIds: string[], fallbackFile?: string): RepositoryProvenance => {
         const chain = nodeIds
-            .map(id => nodesById.get(id)?.filePath)
-            .filter(Boolean)
-            .map(file => fileProvenance(file as string));
+            .map(id => nodeProvenance(id))
+            .filter((provenance): provenance is RepositoryProvenance => Boolean(provenance));
         const nonProduction = chain.find(provenance => NON_PRODUCTION_PROVENANCE.has(provenance));
         if (nonProduction) return nonProduction;
         if (chain.length > 0) return chain[0];
@@ -1385,6 +1420,11 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
 
     const seen = new Set<string>();
     return paths.filter(pathItem => {
+        // A path whose chain runs through documentation, an example, a test, or a
+        // fixture is not a production execution path — the illustrative content
+        // that produced it is not a shippable vulnerability. Excluded rather than
+        // emitted as a low-confidence path (which the audit still counted noise).
+        if (NON_PRODUCTION_PROVENANCE.has(pathItem.provenance ?? 'production')) return false;
         const key = `${pathItem.risk}:${pathItem.files.join(',')}:${pathItem.sensitiveActions.join(',')}:${pathItem.explanation}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -2549,9 +2589,11 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
     const artifactByFile = new Map<string, RepositoryArtifact>(
         artifacts.map(artifact => [path.resolve(artifact.filePath), artifact]),
     );
-    const provenanceForFile = (absoluteFile: string): RepositoryProvenance =>
-        artifactProvenance.get(absoluteFile) || classifyRepositoryProvenance(absoluteFile, '');
     const root = path.resolve(rootPath);
+    // Classified artifacts carry provenance; for others classify on the repo-
+    // RELATIVE path so an ambient absolute prefix (tmp/, corpus/) cannot leak.
+    const provenanceForFile = (absoluteFile: string): RepositoryProvenance =>
+        artifactProvenance.get(absoluteFile) || classifyRepositoryProvenance(normalizePath(path.relative(root, absoluteFile)), '');
     const issues = new Map<string, RepositoryExecutionIssue>();
     const diagnostics: NonNullable<RepositoryExecutionReport['diagnostics']> = [];
     const contentCache = new Map<string, string | null>();
@@ -2566,6 +2608,13 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
 
             const artifact = artifactByFile.get(absoluteFile);
             const provenance = provenanceForFile(absoluteFile);
+            // Security findings are reported only on production execution surfaces.
+            // Documentation, examples, tests, and fixtures routinely contain
+            // illustrative unsafe content (```bash examples, sample emails,
+            // doctest output, intentional test vectors); flagging them as security
+            // issues is noise, so they are excluded rather than emitted-and-downranked.
+            const isSecurityFinding = finding.category === 'security' || /^(?:sec_|MCP-)/.test(finding.rule_id || '');
+            if (isSecurityFinding && NON_PRODUCTION_PROVENANCE.has(provenance)) continue;
             const effectiveArtifactKind = finding.artifactKind || artifactKindForContext(artifact, provenance);
             const effectiveFinding: RepositoryScanFinding = {
                 ...finding,
