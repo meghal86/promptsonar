@@ -392,7 +392,7 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
             }
         }
 
-        for (const secret of scanContentForSecrets(content)) {
+        for (const secret of scanContentForSecrets(content, absolutePath)) {
             const secretFix = artifactKind === 'workflow'
                 ? 'Restrict workflow permissions to least privilege, protect environments, avoid exposing secrets to pull_request or other untrusted triggers, scope secrets to the minimum jobs and environments, pin actions to trusted versions, and validate shell inputs before use.'
                 : 'Move secrets to environment variables or a secret manager, rotate exposed credentials, and keep secrets out of executable instructions and checked-in configuration.';

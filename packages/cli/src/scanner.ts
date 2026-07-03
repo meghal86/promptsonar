@@ -1154,7 +1154,7 @@ export async function scanFiles(targetPath: string, options: {
             // Whole-content secret scan: catches hardcoded secrets in any
             // string literal (not only prompt-shaped ones) and at the source
             // line where an interpolated secret is actually assigned.
-            for (const secret of scanContentForSecrets(content)) {
+            for (const secret of scanContentForSecrets(content, filePath)) {
                 const configSuppression = isFindingSuppressed('sec_owasp_llm02_pii', filePath, activeSuppressions);
                 const inlineSuppressed = isInlineSuppressed('sec_owasp_llm02_pii', secret.line, inlineSuppressions);
                 const severity = displayedSeverityForArtifact('high', 'security', artifactKind, executionIntent);
