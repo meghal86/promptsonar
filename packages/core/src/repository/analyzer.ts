@@ -323,16 +323,25 @@ function extractReferencePaths(content: string, sourceDir: string): string[] {
     return Array.from(out).slice(0, 60);
 }
 
-function detectSensitiveActions(text: string): RepositorySensitiveAction[] {
+export function detectSensitiveActions(text: string): RepositorySensitiveAction[] {
     const normalized = stripNegatedClauses(text).replace(/[_-]/g, ' ');
     const actions = new Set<RepositorySensitiveAction>();
     // "command" alone is not shell evidence (it appears in every MCP config and
     // most prose); require an execution verb or an actual shell term.
     if (/\b(shell|bash|terminal|exec|spawn|subprocess|run\s+(?:any\s+|all\s+)?commands?|execute\s+(?:any\s+|all\s+)?commands?)\b/i.test(normalized)) actions.add('Shell');
     if (/\b(filesystem|file\s*(read|write)|read\s+file|write\s+file|read\s+all\s+files|write\s+all\s+files|workspace|directory)\b/i.test(normalized)) actions.add('Filesystem');
-    if (/\b(network|http|https|fetch|curl|webhook|internal api|network\s+request)\b/i.test(normalized)) actions.add('Network');
-    if (/\b(secret|secrets|read\s+secret|token|api\s*key|password|credential|credentials|bearer)\b/i.test(normalized)) actions.add('Secrets');
-    if (/https?:\/\/|\bexternal\s+api\b|\bapi\./i.test(text)) actions.add('External APIs');
+    // Network requires a network verb/idiom (or an explicit "network" mention) —
+    // a bare URL literal (e.g. a spec link in a comment or a default endpoint
+    // string) is not itself a network call.
+    if (/\b(network|fetch|curl|webhook|internal\s+api|network\s+requests?|https?\s+requests?|websocket)\b/i.test(normalized)) actions.add('Network');
+    // Secrets requires a credential-shaped identifier — NOT bare "token", which
+    // matches LLM token counts (max_tokens, token_limit) and control tokens
+    // (cancellation_token). Mirrors the tightened HARDCODED_SECRET patterns.
+    if (/\b(secrets?|read\s+secret|api\s?keys?|access\s?tokens?|auth\s?tokens?|passwords?|credentials?|bearer)\b/i.test(normalized)) actions.add('Secrets');
+    // External API requires an actual outbound call idiom (fetch/axios/requests/
+    // http client) or an explicit "external api" mention — NOT a bare URL literal
+    // or an "api." property access (e.g. self.api.foo, a validator's spec URL).
+    if (/\bfetch\s*\(|\b(?:axios|httpx|urllib2?|superagent|node[-_]?fetch)\b|\brequests\.(?:get|post|put|delete|patch|head|request|session)\b|\bhttp2?\.(?:get|post|request|client|Agent)\b|\bhttps\.(?:get|request)\b|\bXMLHttpRequest\b|\bWebSocket\b|\bcurl\s+-|\bexternal\s+apis?\b/i.test(text)) actions.add('External APIs');
     return Array.from(actions);
 }
 
