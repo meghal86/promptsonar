@@ -1,0 +1,9 @@
+\begin{table}[t]\centering\caption{Controlled corpus: detection accuracy on 22 ground-truthed cases.}\label{tab:controlled}
+\begin{tabular}{lrrrrrrr}\toprule
+Tool & Cases & TP & FP & FN & Prec. & Rec. & F1 \\\midrule
+\sysname{} & 22 & 25 & 0 & 0 & 1.00 & 1.00 & 1.00 \\
+Baseline ($\neg$LLM) & 12$^{a}$ & 4 & 0 & 5 & 1.00 & 0.44 & 0.62 \\
+Baseline (+LLM) & -- & -- & -- & -- & -- & -- & -- \\
+\bottomrule\end{tabular}
+\\[2pt]\footnotesize $^{a}$The baseline is skill/file-level; 10/22 cases (cross-file, MCP-config, memory) are out of its scope and excluded. (+LLM) not run: requires an API key and would violate the deterministic, no-cost constraint.
+\end{table}

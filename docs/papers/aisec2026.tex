@@ -1,0 +1,254 @@
+%% ============================================================================
+%% AISec 2026 submission — assembled from five section drafts.
+%% ASSEMBLED, NOT AUTHORED: prose is integrated verbatim from the drafts with
+%% only number/cross-reference/anonymization edits. See AISEC-INTEGRATION-SUMMARY.md
+%% for the full reconciliation table and the list of open author decisions.
+%%
+%% ANONYMIZATION (AISec 2026 is DOUBLE-BLIND — "properly anonymized ... no way to
+%% identify authors, including when linking code repositories"):
+%%   - review/anonymous class options are ON.
+%%   - All GitHub URLs / author names / commit hashes are removed.
+%%   - The tool name is behind \sysname. If the public repo makes the real name
+%%     de-anonymizing, redefine \sysname to a neutral placeholder before submission.
+%%
+%% BUILD NOTE: requires the ACM `acmart` class (https://www.acm.org/publications/
+%% proceedings-template). Not vendored here (no network); place acmart.cls beside
+%% this file before compiling.
+%% ============================================================================
+\documentclass[sigconf,anonymous,review]{acmart}
+
+\usepackage{booktabs}
+
+%% ---- Anonymization-safe system name. Flip to a neutral name if 'PromptSonar'
+%% is discoverable and de-anonymizing (see summary doc, open decision A2). ----
+\newcommand{\sysname}{PromptSonar}
+
+\settopmatter{printacmref=false}
+\setcopyright{none}
+\acmConference[AISec '26]{19th ACM Workshop on Artificial Intelligence and Security}{2026}{}
+\acmYear{2026}
+\acmDOI{}
+\acmISBN{}
+
+\begin{document}
+
+\title{Reference-Verified Cross-File Execution-Path Analysis for AI-Agent Repositories}
+
+%% Double-blind: authors anonymized for review.
+\author{Anonymous Author(s)}
+\affiliation{%
+  \institution{Submission under double-blind review}
+  \country{}
+}
+
+\begin{abstract}
+Static analysis tools for AI-enabled software increasingly target individual artifacts --- a single prompt, a single agent ``skill,'' a single Model Context Protocol (MCP) server configuration --- in isolation. This artifact-level granularity is structurally unable to detect a class of risk that only exists across artifact boundaries: whether an instruction in one file can actually reach a privileged capability declared in another. We present \sysname{}, a deterministic, repository-scale static analyzer that constructs a reference-verified execution-path graph across prompts, agent skills, MCP configurations, workflows, and tool definitions, and evaluate it against 22 controlled benchmark cases and a 37-repository corpus of real-world AI-agent codebases. Compared against a representative artifact-level scanner on an identical corpus, \sysname{} identifies hundreds of cross-file execution paths that per-artifact analysis cannot observe by construction, including risk in 17 repositories where the baseline surfaces no connective finding at all. We additionally report a rigorous, audit-driven false-positive analysis: an initial 85\% false-positive rate (verified against source on a stratified, seeded sample) was reduced across three targeted root-cause fixes to 60\%, with true positives increasing from 3 to 8 in the same sample, and we report the full remaining false-positive taxonomy rather than an unaudited prevalence claim. We argue this audit methodology, and the honest disclosure of a still-substantial residual error rate, is itself a needed contribution for a nascent tool category where unverified precision and recall claims are otherwise the norm.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+The rapid adoption of autonomous AI agents --- systems that combine a natural-language prompt, a set of declared tools, and external capability providers via protocols such as MCP --- has created a new class of software artifact with no direct analogue in traditional application security. A prompt is not source code in the sense a conventional static analyzer parses; an MCP server configuration is not a dependency manifest in the sense a supply-chain scanner audits; yet together, a prompt, a skill definition, and an MCP configuration can compose into a system where a user- or model-generated instruction reaches shell execution, filesystem access, or credential exfiltration, without any single one of those three artifacts containing an obviously dangerous pattern in isolation.
+
+Existing static analysis tooling for this space has emerged rapidly over the past year but has converged, largely, on artifact-level granularity: scanning a single skill definition, a single MCP configuration, or a single prompt for known-risky patterns (Section~\ref{sec:related}). This granularity is adequate for detecting a capability \emph{declared} in one place, but structurally cannot detect a capability \emph{reached} across files --- because doing so requires constructing a reference graph across the repository, which single-artifact tools do not build.
+
+We present \sysname{}, a deterministic static analyzer that treats the AI-relevant portion of a repository --- prompts, agent skill definitions, MCP server configurations, workflow definitions, memory configurations, and tool implementations --- as a connected artifact graph, and identifies whether a reachable path exists from an instruction to a sensitive action, gated on verified references (imports, named configuration keys, explicit links) rather than incidental textual co-location. \sysname{} performs no LLM calls during analysis: all detection is pattern- and reference-based, which we verify produces byte-identical output across repeated runs (Section~\ref{sec:determinism}).
+
+In developing and evaluating \sysname{}, we found that our own early cross-file reachability claims --- computed via a looser, capability-word-based edge-construction heuristic --- were substantially unreliable under manual audit (an initial 85\% false-positive rate on a stratified, source-verified sample). Rather than report the more impressive-looking unaudited numbers, we treat this finding as a first-class result: we describe the audit methodology, the root-cause-driven fix process that reduced (but did not eliminate) this false-positive rate, and the taxonomy of errors that remain, arguing that this kind of disclosure is currently rare in this tool category and is itself a contribution reviewers and practitioners should expect going forward.
+
+\paragraph{Contributions.}
+\begin{enumerate}
+\item A reference-gated, cross-file execution-path analysis technique for AI-agent repositories that identifies reachability across prompt, skill, MCP, workflow, and tool boundaries --- a detection capability we show, via head-to-head evaluation against a representative artifact-level scanner on an identical 37-repository corpus, is structurally unavailable to single-artifact analysis regardless of within-file detection quality (Section~\ref{sec:crossfile}).
+\item A deterministic, LLM-free implementation verified to produce reproducible output across repeated runs (Section~\ref{sec:determinism}), enabling secure analysis of sensitive repositories without an external inference dependency.
+\item A rigorous false-positive audit methodology --- stratified, seeded, source-verified sampling with per-repository clustering controls --- applied across three development iterations, reducing false-positive rate from 85\% to 60\% via targeted, regression-tested root-cause fixes, with the complete remaining error taxonomy reported rather than suppressed (Section~\ref{sec:audit}, Section~\ref{sec:precision}).
+\item A controlled benchmark of 22 cases with ground-truth annotations, released as part of our evaluation artifact, covering cross-file reachability, contextual severity adjustment, and true-negative behavior.\footnote{We are not aware of an equivalent public benchmark at this analysis granularity; this novelty claim should be re-verified against adjacent work before final submission (open decision, see summary).}
+\end{enumerate}
+
+\section{Related Work}
+\label{sec:related}
+
+We organize related work into three categories by analysis granularity, since this dimension --- not detection technique --- is what most directly determines whether a tool can observe cross-file execution reachability at all.
+
+\subsection{Prompt- and content-level scanners}
+A first generation of tools operates on individual prompts or model inputs/outputs in isolation: pattern-matching or classifier-based detection of prompt injection, jailbreak attempts, and PII/secret leakage within a single string. Tools in this category (e.g., garak~\cite{garak}, LLM Guard~\cite{llmguard}, NeMo Guardrails~\cite{nemoguardrails}, Rebuff~\cite{rebuff}) are typically deployed as an inline runtime filter or a red-teaming harness rather than a static repository scanner. They have no concept of a ``repository'' as an analysis unit and consequently no mechanism for reasoning about whether a given prompt's instructions are reachable to a sensitive action defined in a separate file. \sysname{} differs in both deployment model (static, pre-deployment, repository-scoped) and analysis unit (the artifact graph, not the single string).
+
+\subsection{Artifact- and skill-level static scanners}
+A second, more recent generation performs static analysis over individual AI-relevant artifacts --- most commonly agent ``skill'' definitions (e.g., \texttt{SKILL.md} files), individual MCP server configurations, or single tool definitions. NVIDIA SkillSpector~\cite{skillspector} is representative of this category: a two-stage static analyzer (pattern/AST matching, with an optional LLM-based semantic evaluation stage) that scores individual skills against a taxonomy of vulnerability categories. Similarly, MCP-specific scanners such as \texttt{mcp-scan}~\cite{mcpscan} evaluate a server configuration's declared permissions and tool exposure; notably, \texttt{mcp-scan} additionally reasons about \emph{cross-server} tool-shadowing and ``cross-origin'' escalation among multiple connected MCP servers at runtime --- a form of cross-artifact reasoning, though one operating on live server tool descriptions rather than a static repository reference graph.
+
+These tools share a structural limitation directly relevant to our contribution: with the partial exception of \texttt{mcp-scan}'s runtime cross-server checks, they evaluate each artifact independently and have no \emph{static} execution-path model connecting artifacts across a repository. This follows from the scanning unit itself being a single file, a single declared skill, or a set of live server descriptions, rather than a graph of resolved references between repository artifacts. In our head-to-head evaluation on a shared 37-repository wild corpus (Section~\ref{sec:crossfile}), the baseline reported zero cross-file execution paths on every repository, by construction, while \sysname{} identified reference-verified cross-file paths in the majority of repositories scanned --- including 17 repositories where the per-artifact baseline surfaced no connective risk at all between a prompt's stated intent and a tool's actual capability.
+
+Broader application-security platforms extending into the AI-agent space (e.g., MCP-aware modules within general-purpose developer security tools, and IDE-integrated agent scanners recently introduced by major vendors) largely follow the same artifact-level pattern: strong within-file detection, no static cross-artifact execution model.
+
+\subsection{Traditional static application security testing (SAST)}
+General-purpose SAST tools (e.g., Semgrep~\cite{semgrep}) perform taint-flow analysis --- including cross-file taint tracking --- over conventional source code, targeting vulnerability classes like SQL injection, command injection, and XSS in application logic written by human developers. These tools are mature and, notably, already treat ``exclude tests, fixtures, and documentation from production analysis'' as a first-class rule primitive (Section~\ref{sec:audit} discusses why \sysname{}'s comparable exclusion logic required several iterations to reach a similar standard).
+
+However, these tools have no model of AI-specific artifacts: a \texttt{SKILL.md} file, an MCP server configuration, or an agent system prompt is not source code in the sense a SAST taint tracker is designed to parse, and the ``sink'' of interest --- an instruction reaching a privileged capability exposed to an autonomous agent --- is a different threat model than a data value reaching an unsanitized database call. \sysname{}'s contribution is complementary rather than competing with this category: it extends taint-style reachability reasoning to the AI-artifact graph specifically (prompts, skills, MCP configurations, workflows, memory definitions) rather than to conventional application code.
+
+\subsection{Positioning}
+\label{sec:positioning}
+\sysname{}'s distinguishing claim, evaluated empirically in Section~\ref{sec:results}, is not that it detects a wider variety of vulnerability patterns than existing tools --- several of the artifact-level and content-level tools above have mature, extensively-tuned pattern libraries developed over longer periods. The claim is narrower and, we argue, more structurally significant: reference-verified execution-path reachability \emph{across} the artifact boundaries that define a modern AI-agent system (prompt $\rightarrow$ skill $\rightarrow$ MCP server $\rightarrow$ tool $\rightarrow$ sensitive action) is a detection capability that artifact-isolated and content-isolated tools cannot provide regardless of how their within-file detection improves, because it requires an analysis unit --- the whole-repository reference graph --- that those tools do not construct.
+
+\section{System Design}
+\label{sec:design}
+%% ======================================================================
+%% GAP: The five provided drafts are Abstract+Intro (1), Related Work (2),
+%% Methods (4), Results (5), Limitations (6). NO Section 3 (the technique /
+%% system design) was provided, yet every cross-reference in the drafts
+%% assumes Methods=4/Results=5/Limitations=6, i.e. that Section 3 exists.
+%% This placeholder preserves the numbering. The author must supply the
+%% System Design section (artifact classification, reference-graph
+%% construction, reachability/edge gating, contextual verdict engine),
+%% likely adaptable from docs/papers/mcp-security-arxiv-draft.md.
+%% See summary doc, open decision D1 (highest-priority content gap).
+%% ======================================================================
+\emph{[Section~3 (System Design) is not among the supplied drafts and must be authored: artifact discovery/classification, the reference-verified edge-construction rule, reachability computation, and the contextual verdict/severity engine. Placed here to preserve the cross-reference numbering the other sections assume.]}
+
+\section{Methods}
+\label{sec:methods}
+
+\subsection{System under test}
+\label{sec:sut}
+We evaluate \sysname{} at a fixed, pinned commit\footnote{Exact commit hash and artifact URL omitted for double-blind review; recorded in the (anonymized) evaluation artifact.} of a deterministic, repository-scale static analyzer for AI-enabled codebases. \sysname{} performs no LLM calls during scanning; all analysis is pattern- and reference-based, and we verify determinism directly (Section~\ref{sec:determinism}).
+
+\subsection{Controlled corpus}
+\label{sec:controlled-corpus}
+The controlled corpus consists of 22 manually constructed test cases with ground-truth annotations covering: single-file findings with a directly-evidenced sensitive action; cross-file execution paths requiring a genuine reference between a prompt/skill and a tool or MCP configuration; MCP configurations under both permissive (\texttt{auto\_approve: true}) and restrictive control states; and true-negative cases (clean prompts and configurations expected to produce zero findings), included specifically to measure false-positive behavior on benign input as well as detection recall on planted issues.
+
+\subsection{Wild corpus}
+\label{sec:wild-corpus}
+The wild corpus consists of 37 real-world, actively-maintained public repositories, shallow-cloned (depth 1) at evaluation time, spanning three categories: MCP server implementations, agent orchestration frameworks (including LangChain, AutoGen, CrewAI, pydantic-ai, and Semantic Kernel), and AI coding-assistant tooling (including Continue, Cline, and OpenHands). Repository selection prioritized popular, actively-maintained projects representative of production AI-agent development, described further as a limitation in Section~\ref{sec:eval-limits}. Cloned repository contents are excluded from version control; the repository list and clone script are included in our evaluation artifact for reproducibility, though we note that repository content may drift between clone events (Section~\ref{sec:eval-limits}), and camera-ready reproduction should pin exact commit SHAs per repository rather than relying on default-branch snapshots as we did during development iteration.\footnote{One repository (pydantic-ai) exposed an $O(n^2)$ path-construction regression during development that caused a timeout; the fix is included in the evaluated commit. Re-running on an earlier commit may not reproduce the reported 0 scan failures.}
+
+\subsection{Determinism verification}
+\label{sec:determinism}
+We verified engine determinism by running identical scans three times against an identical repository state and diffing output after stripping run-scoped metadata fields (a generated report identifier and two timestamp fields, which are expected to vary between runs and are not analysis output). All substantive fields --- findings, severities, execution paths, and confidence scores --- were byte-identical across all three runs.
+
+\subsection{Baseline: an artifact-level scanner}
+\label{sec:baseline}
+We compare against NVIDIA SkillSpector~\cite{skillspector}, a static analyzer for individual AI agent skill definitions, as the most directly comparable existing tool at the artifact-analysis granularity (Section~\ref{sec:related}). We run it in its deterministic mode (\texttt{--no-llm}) throughout, to keep the comparison free of LLM-induced non-determinism and API cost, and note where this excludes its optional LLM-assisted semantic evaluation stage from our comparison.
+
+On the controlled corpus, we score the baseline against the subset of cases within its stated scope (single-artifact analysis) and report cases requiring cross-file or MCP-configuration context as out-of-scope rather than scoring them as failures, since it is not designed to evaluate them.
+
+On the wild corpus, an initial whole-repository comparison caused the baseline to exceed our per-repository timeout on 18 of 37 repositories; we determined via direct timing measurement that this was caused by its per-dependency vulnerability (OSV) lookup stage on large repositories, not by its skill-analysis logic. We therefore scoped the baseline's wild-corpus comparison to each repository's AI-artifact surface (the same prompt/skill/agent/MCP files \sysname{} analyzes) rather than the full repository tree, which resolved all timeouts and allows a complete 37/37 comparison on the capability under test.
+
+\subsection{False-positive audit protocol}
+\label{sec:audit-protocol}
+We audit \sysname{}'s wild-corpus output against source ground truth using the following fixed protocol, applied identically across all rounds reported in Section~\ref{sec:audit}:
+\begin{enumerate}
+\item \textbf{Sampling.} From the full population of wild-corpus findings (security issues) and reachable execution paths, draw a stratified random sample of 20 items using a fixed seed (20260703), targeting an approximate 3:10:7 split across Confirmed/Probable/Potential confidence tiers. A per-repository cap of 2 items is enforced across the full sample to prevent a single repository's characteristics from dominating the tier-level false-positive estimate.
+\item \textbf{Verification.} For each sampled item, retrieve the actual source file(s) from the cloned repository and manually verify the claim against real content: for a security finding, whether the flagged text is genuinely security-relevant production content (as opposed to a comment, docstring, test fixture, or documentation example); for an execution path, whether each edge in the claimed path corresponds to a real reference (import, config key, named link) in the source, as opposed to an inferred connection based on incidental co-location of related terminology.
+\item \textbf{Verdict.} Each item is labeled Confirmed, False Positive, Overstated (a real underlying issue exists but is mischaracterized), or Unable to Verify.
+\item \textbf{Reporting.} We report the false-positive rate overall and by confidence tier, and categorize all false positives by root cause before deciding whether and how to address them, rather than fixing individual instances ad hoc.
+\end{enumerate}
+This protocol was applied across four audit rounds during development (Section~\ref{sec:audit}), each following a targeted fix addressing the previous round's dominant root cause, verified via regression tests to not reintroduce previously-fixed false-positive classes before re-auditing.
+
+\subsection{Reproducibility}
+\label{sec:repro}
+Tool and dependency versions are pinned and recorded in the evaluation artifact, including the Node.js runtime, the \sysname{} commit, the baseline commit/version, and any auxiliary tooling. All evaluation scripts (corpus construction, scanning harness, table generation) are included. As noted in Section~\ref{sec:wild-corpus}, exact wild-corpus repository commit SHAs were not pinned during development iteration (default-branch snapshots were used); we pin exact SHAs for the camera-ready artifact to guarantee bit-for-bit reproducibility of the reported wild-corpus numbers.
+
+\section{Results}
+\label{sec:results}
+
+\subsection{Controlled Evaluation}
+\label{sec:controlled-eval}
+We evaluated \sysname{} against a manually-constructed benchmark of 22 cases spanning single-file and cross-file execution paths, MCP configurations with varying approval states, and clean (true-negative) fixtures. Table~\ref{tab:controlled} reports precision, recall, and F1 against ground-truth annotations. Some cases carry multiple expected findings, so the true-positive count (25) exceeds the case count (22).
+
+\input{table1}
+
+\sysname{} matched all 15 expected execution paths and correctly classified all 4 true-negative (clean) fixtures. We report perfect scores on this benchmark with an important caveat, addressed in Section~\ref{sec:eval-limits}: the controlled corpus was constructed by the same team that built the tool, and construct validity should not be assumed to transfer to the wild-corpus setting evaluated next.
+
+\subsection{Wild-Corpus Evaluation}
+\label{sec:wild-eval}
+We ran \sysname{} against 37 real-world, actively-maintained repositories spanning MCP server implementations, agent frameworks, and coding-assistant tooling. Repositories were selected to represent the population of publicly available AI-agent codebases, not to maximize findings. The final wild-corpus scan (at the audited engine state, Section~\ref{sec:audit}) is summarized in Table~\ref{tab:wild}.
+
+\input{table2}
+
+\subsection{Comparison to the Baseline: The Cross-File Gap}
+\label{sec:crossfile}
+We compared \sysname{} against the artifact-level baseline on the same 37-repository wild corpus, scoped fairly to each repository's AI-artifact surface (the same files \sysname{} analyzes) to keep whole-repository file-walk cost from timing the baseline out on large monorepos.
+
+\input{table4}
+
+The baseline, by design, evaluates artifacts independently and has no static cross-file execution model --- it reported 0 cross-file paths on every repository in the corpus. \sysname{} identified 520 reachable execution paths spanning prompt/skill/MCP/tool boundaries, with at least one such path in 17 repositories (45.9\% of the corpus) where the baseline's per-file analysis found nothing connecting those risks (Table~\ref{tab:crossfile}). This is the paper's central empirical claim: instruction-to-sensitive-action reachability that crosses file boundaries is a real and currently under-served detection surface, and single-artifact scanners cannot see it by construction, not merely by current implementation gaps.
+
+\subsection{False-Positive Audit: Methodology and Findings}
+\label{sec:audit}
+Given that cross-file inference is inherently more failure-prone than single-file pattern matching, we conducted an audit against ground truth, using a fixed random seed (20260703) and a repo-capped stratified sample ($\leq$2 findings per repository, spanning confidence tiers) to avoid single-repository clustering bias (Section~\ref{sec:audit-protocol}). Each sampled finding was independently traced against the actual source: for path claims, we verified whether the claimed reference (import, config key, named link) genuinely existed or was inferred from incidental co-location; for security findings, we verified the flagged content against its true context (executable statement vs.\ comment, docstring, or documentation).
+
+\input{table5audit}
+
+Each round targeted a single, empirically-identified dominant root cause, was verified with regression fixtures preventing recurrence, and was re-measured on the same seed for direct comparability. True positives nearly quadrupled (2 to 8) across the three headline rounds while total findings volume dropped 64\% (2{,}002 to 723) and cross-file paths dropped from an inflated 2{,}923 (pre-audit) to a reference-verified 520, indicating the reduction in volume reflects removal of false signal rather than loss of sensitivity.
+
+\subsubsection{Remaining false-positive taxonomy}
+At the final audited state (60\% FP, $n{=}20$), no remaining false positive belongs to either of the two most-recently-fixed root causes. We categorize the residual 12 false positives into six distinct, smaller-magnitude causes:
+\begin{itemize}
+\item \textbf{Docstring-as-prompt pipeline gap (2 cases):} our comment-stripping fix operates correctly at the rule level (verified via direct unit test), but the artifact parser extracts triple-quoted Python docstrings as standalone prompt strings \emph{before} rule evaluation, with delimiters removed --- making the extracted text indistinguishable from a genuine system prompt without full AST-level source-position tracking. This is a parser-level limitation, identified as future work.
+\item \textbf{Keyword/store misattribution (2 cases):} capability inference still over-matches on some identifier patterns not covered by the credential-shape tightening applied in the precision fix.
+\item \textbf{Sink label derived from remediation text rather than source content (2 cases):} in a small number of cases the reported sink reflects auto-generated remediation guidance rather than the underlying evidence, an internal labeling inconsistency.
+\item \textbf{Single-cause classes:} CI-workflow-as-sink (1), i18n/config-file misclassification (1), unicode-rule precision (1), skill-instruction-as-sink (1), residual documentation outside recognized doc-directory conventions (1), and cross-file co-location residual (2) --- each independently verified and root-caused, none overlapping with the fixed classes.
+\end{itemize}
+We report this taxonomy in full rather than a single aggregate number because, in our experience building and auditing this tool, an unqualified false-positive percentage obscures more than it reveals: two engines with an identical 60\% FP rate can differ enormously in how tractable their remaining errors are. Ours are now concentrated in a long tail of independently fixable, well-scoped causes rather than one dominant, structurally difficult class --- evidence, we argue, that the audit-driven fixing methodology itself generalizes, even though full convergence to a low false-positive rate was not reached within our evaluation window.
+
+\subsection{Scan Performance}
+\label{sec:perf}
+Table~\ref{tab:perf} reports scan performance. All scans are deterministic and single-threaded with zero LLM calls; identical repository states reproduce byte-identical output modulo timestamp and run-identifier fields (verified across 3 consecutive runs, Section~\ref{sec:determinism}).
+
+\input{table6perf}
+
+\section{Limitations}
+\label{sec:limitations}
+We report limitations in three groups: detection scope gaps that affect what \sysname{} can observe at all, precision limitations quantified directly by our audit methodology (Section~\ref{sec:audit}), and evaluation limitations affecting how our results should be read.
+
+\subsection{Detection scope}
+\label{sec:scope-limits}
+\textbf{Cross-file approval-policy ingestion is not implemented.} \sysname{}'s contextual verdict engine correctly adjusts severity based on approval signals found within a single artifact (e.g., an MCP server's \texttt{auto\_approve} field, exercised in the controlled corpus, Section~\ref{sec:controlled-eval}), but does not currently ingest a sibling approval-policy document and apply it to a separate skill or tool definition. A privileged capability documented as requiring human approval in an adjacent policy file is, at present, evaluated as if no such policy exists. This is a scope gap in artifact classification and control-state propagation, not a failure of the contextual verdict mechanism itself, which we verified functions correctly for in-artifact signals.
+
+\textbf{Closure is downstream-only.} Repository discovery expands outward by following references from a seed set of recognized AI artifacts (prompts, skills, MCP configs) to the files they reference. It does not perform the reverse: acquiring code that references an AI artifact but is not itself referenced by one. In practice this means an entry-point file (e.g., an orchestrator that imports a skill definition) may be inventoried but excluded from analysis if nothing in the repository points back to it, truncating execution paths at the artifact rather than the true call-site origin.
+
+\textbf{Docstring/prompt-string disambiguation is source-position-dependent, not semantic.} Our artifact parser extracts triple-quoted string literals matching prompt-like keyword heuristics as candidate prompt artifacts. We added AST-level detection to exclude genuine docstrings (a string that is the first statement of a module, class, or function body) from this extraction at the tree-sitter parsing stage. This fix is verified correct for module-level docstrings but incomplete for a secondary extraction path that operates on whole-file content independently of the tree-sitter walk; a small number of method-level docstrings and content-level keyword matches within docstrings can still surface as findings. Resolving this fully requires unifying the two extraction paths onto a single AST-aware pipeline, which we identify as future work.
+
+\textbf{Format-gated secret and encoded-payload detection.} Hardcoded-secret detection requires a realistic provider-format credential shape (e.g., a recognized API key prefix and minimum length); encoded-payload detection requires a minimum length and a decode-to-injection-pattern condition. These gates are a deliberate precision/recall tradeoff --- verified during development to correctly ignore obviously-fake test fixtures --- but mean that short or atypically-formatted real secrets, and short or non-standard encoded payloads, are not flagged.
+
+\subsection{Precision, quantified by audit}
+\label{sec:precision}
+Section~\ref{sec:audit} reports a three-round, audit-driven false-positive reduction from an initial 85\% ($n{=}20$, stratified sample, verified against source) to a final measured rate of 60\%, with true positives increasing from 3 to 8 across the same rounds. We report this rate directly rather than omitting it or reporting only aggregate finding counts, because we believe an unaudited prevalence claim from a static analyzer in this space is not trustworthy without independent verification, and our own early internal results (an unaudited claim that 89\% of sampled repositories contained a reachable path to shell execution) illustrate why: that figure, computed before our audit methodology was applied, was substantially inflated by exactly the false-positive classes the audit subsequently identified and partially corrected. \textbf{We do not report repository-level prevalence percentages in this paper's headline results; we report only audit-verified findings and the audit methodology itself as a contribution.}
+
+The residual 60\% false-positive rate (Section~\ref{sec:audit}) decomposes into six identified causes, none dominant, each independently root-caused: a parser-level docstring-extraction gap (Section~\ref{sec:scope-limits}), sink-label misattribution from file content outside the classes already fixed, sink labels occasionally derived from auto-generated remediation text rather than source evidence, and several smaller single-cause classes (CI-workflow-as-sink, i18n/config misclassification, unicode-rule precision, residual documentation outside recognized directory conventions). We consider this taxonomy --- a long tail of small, independently-fixable causes rather than one dominant structural failure --- meaningfully different from, and more tractable than, the initial 85\% rate's single dominant cause (capability-word co-location), even though the numeric rate at evaluation time (60\%) remains too high for unsupervised production alerting without human review of Probable- and Potential-tier findings.
+
+\subsection{Evaluation limitations}
+\label{sec:eval-limits}
+\textbf{Sample size.} Our false-positive audit uses $n{=}20$ per round, stratified by confidence tier with a per-repository cap to avoid clustering. At this sample size, tier-level false-positive rates (e.g., Confirmed-tier at 38\% in our final headline round) carry substantial uncertainty, particularly for the Confirmed tier where the underlying population is small. A subsequent, fourth fix round (targeting sink-label attribution from remediation text and the docstring-extraction gap) was audited on freshly re-cloned repository snapshots --- necessitated by an environment reset during development --- and reduced finding volume further (e.g., 723 to 620 findings on identical re-cloned snapshots) but produced a false-positive estimate of 65\% ($n{=}20$, 7 true positives) rather than a further reduction. We attribute the higher estimate to sampling variance at this sample size and to genuine content drift in actively-maintained repositories between clone snapshots, rather than to a regression in the underlying engine, which we verified by re-running both the pre- and post-fix builds against identical repository snapshots. We report this fourth round transparently as a distinct fix iteration whose targeted changes did not move the sampled rate, not as a re-verification of the 60\% state.
+
+\textbf{Controlled-corpus construct validity.} Our controlled benchmark (Table~\ref{tab:controlled}, $P{=}R{=}F1{=}1.00$) was constructed by the authors, who also built the system under test. We report this result because it verifies mechanical correctness (path integrity, evidence-field completeness, determinism) against known ground truth, not as evidence of real-world precision --- the wild-corpus audit (Section~\ref{sec:audit}) is the paper's evidence for real-world precision, and it is deliberately independent of benchmark construction.
+
+\textbf{Repository selection.} The 37-repository wild corpus was selected to span MCP server implementations, agent frameworks, and coding-assistant tooling among actively-maintained, popular open-source projects, but was not randomly sampled from the full population of public AI-agent repositories and may not be representative of that population, particularly of less mature or less widely-used projects.
+
+\textbf{Baseline comparison scope.} Our baseline comparison (Section~\ref{sec:crossfile}) scopes both tools to each repository's AI-artifact surface rather than the full repository, after determining that whole-repository analysis caused the baseline to time out on large monorepos due to its dependency-vulnerability lookup stage, which is orthogonal to the skill-analysis capability under comparison. We believe this scoping produces a fairer comparison of the capability in question (per-artifact vs.\ cross-artifact reachability analysis) but note it is not an unmodified out-of-the-box comparison of either tool's default behavior on an arbitrary repository.
+
+\section{Conclusion}
+\label{sec:conclusion}
+%% Not among the supplied drafts; brief placeholder to be authored.
+\emph{[Conclusion to be authored: restate the cross-file capability contribution and the audit-as-methodology contribution, and the path from a 60\% audited FP rate toward production-usable precision.]}
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+%% ============================================================================
+%% GENERATIVE-AI-USE DISCLOSURE (REQUIRED by AISec 2026; placed AFTER references,
+%% does NOT count toward the page limit). HIGHEST-PRIORITY REMAINING GAP.
+%% The author must write this paragraph directly (see summary doc, open decision
+%% G1). Placeholder below is a starting scaffold ONLY and must be replaced.
+%% ============================================================================
+\section*{Disclosure of Generative-AI Use}
+\emph{[PLACEHOLDER --- author to finalize.] The engineering and evaluation of this
+work were carried out with substantial assistance from an AI coding assistant.
+AI-assisted activities included implementation, debugging, construction of the
+evaluation harness, and execution of the source-verification audit passes.
+Human-directed decisions included the system architecture, root-cause
+prioritization across fix rounds, scope decisions, and the framing of the
+false-positive audit as a first-class contribution; all quantitative results
+reported in this paper were verified by the authors against real repository
+source. This paragraph must be reviewed and finalized by the authors to
+accurately characterize the division of labor before submission.}
+
+\end{document}

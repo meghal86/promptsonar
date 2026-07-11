@@ -1,0 +1,10 @@
+\begin{table}[t]\centering\caption{False-positive audit across the three headline fix rounds (stratified $n{=}20$, seed 20260703, verified against source). A fourth round is discussed in Section~\ref{sec:eval-limits}.}\label{tab:audit}
+\begin{tabular}{lrrl}\toprule
+Engine state & FP rate & TP/20 & Root cause targeted \\\midrule
+Initial (co-location edges) & 85\% & 3 & --- (baseline) \\
+Post co-location fix & 90\%$^{\dagger}$ & 2 & Capability-word co-location edges \\
+Post discovery-layer fix & 70\% & 6 & Docs/example/test as executable \\
+Post precision fix & 60\% & 8 & Sink-label / docstring precision \\
+\bottomrule\end{tabular}
+\\[2pt]\footnotesize $^{\dagger}$The apparent rise from 85\% to 90\% reflects a change in what dominated the sample, not a worse engine: co-location edges (the initial dominant failure) were eliminated (0/18 failures in this round were co-location-based), revealing a previously-masked, larger class (documentation/test content misclassified as production) that the co-location fix did not target.
+\end{table}
