@@ -1,28 +1,28 @@
 {
-  "generatedAt": "2026-07-03T06:14:26.893Z",
+  "generatedAt": "2026-07-11T13:30:03.240Z",
   "aggregate": {
     "reposListed": 37,
     "reposScanned": 37,
     "reposSkipped": 0,
     "reposFailed": 0,
-    "totalFindings": 2002,
+    "totalFindings": 723,
     "findingsBySeverity": {
       "critical": 0,
       "high": 30,
       "medium": 15,
-      "low": 1957
+      "low": 678
     },
     "findingsByConfidence": {
       "confirmed": 25,
-      "probable": 386,
-      "potential": 1591
+      "probable": 512,
+      "potential": 186
     },
-    "totalExecutionPaths": 2650,
-    "totalCrossFilePaths": 722,
+    "totalExecutionPaths": 1414,
+    "totalCrossFilePaths": 520,
     "scanSeconds": {
-      "mean": 14,
-      "median": 7,
-      "max": 56.6
+      "mean": 10.9,
+      "median": 6.6,
+      "max": 38.7
     }
   },
   "repos": [
@@ -31,20 +31,20 @@
       "repo": "modelcontextprotocol/servers",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 2.4,
+      "scanSeconds": 2.5,
       "findingsBySeverity": {
         "critical": 0,
         "high": 1,
         "medium": 1,
-        "low": 4
+        "low": 3
       },
-      "findingsTotal": 6,
+      "findingsTotal": 5,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 5,
-        "potential": 1
+        "potential": 0
       },
-      "executionPaths": 8,
+      "executionPaths": 7,
       "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
@@ -76,9 +76,9 @@
           "crossFile": 0
         },
         "Secrets": {
-          "total": 2,
+          "total": 1,
           "confirmed": 1,
-          "probable": 1,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
@@ -104,82 +104,7 @@
       "repo": "modelcontextprotocol/python-sdk",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 7,
-      "findingsBySeverity": {
-        "critical": 0,
-        "high": 0,
-        "medium": 0,
-        "low": 23
-      },
-      "findingsTotal": 23,
-      "findingsByConfidence": {
-        "confirmed": 0,
-        "probable": 2,
-        "potential": 21
-      },
-      "executionPaths": 79,
-      "crossFilePaths": 7,
-      "uniqueSensitiveActionTypes": 5,
-      "sensitiveActionTypes": [
-        "Shell",
-        "Filesystem",
-        "Network",
-        "Secrets",
-        "External APIs"
-      ],
-      "actionStats": {
-        "Shell": {
-          "total": 11,
-          "confirmed": 2,
-          "probable": 9,
-          "potential": 0,
-          "crossFile": 2
-        },
-        "Filesystem": {
-          "total": 5,
-          "confirmed": 4,
-          "probable": 1,
-          "potential": 0,
-          "crossFile": 1
-        },
-        "Network": {
-          "total": 25,
-          "confirmed": 23,
-          "probable": 2,
-          "potential": 0,
-          "crossFile": 2
-        },
-        "Secrets": {
-          "total": 17,
-          "confirmed": 10,
-          "probable": 7,
-          "potential": 0,
-          "crossFile": 1
-        },
-        "External APIs": {
-          "total": 29,
-          "confirmed": 16,
-          "probable": 13,
-          "potential": 0,
-          "crossFile": 2
-        }
-      },
-      "artifactsByType": {
-        "AGENT_CONFIG": 3,
-        "SKILL": 1,
-        "WORKFLOW": 9,
-        "TOOL": 47,
-        "PROMPT": 20,
-        "MEMORY": 4
-      },
-      "artifactsTotal": 84
-    },
-    {
-      "id": "wild-003",
-      "repo": "modelcontextprotocol/typescript-sdk",
-      "category": "mcp_server",
-      "status": "ok",
-      "scanSeconds": 15.4,
+      "scanSeconds": 5.8,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -189,71 +114,142 @@
       "findingsTotal": 8,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 0,
-        "potential": 8
+        "probable": 6,
+        "potential": 2
       },
-      "executionPaths": 32,
-      "crossFilePaths": 4,
+      "executionPaths": 16,
+      "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "Filesystem",
         "Network",
         "Secrets",
+        "Filesystem",
         "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 11,
-          "confirmed": 3,
-          "probable": 8,
+          "total": 1,
+          "confirmed": 0,
+          "probable": 1,
           "potential": 0,
-          "crossFile": 1
+          "crossFile": 0
         },
         "Filesystem": {
           "total": 2,
-          "confirmed": 2,
-          "probable": 0,
+          "confirmed": 1,
+          "probable": 1,
           "potential": 0,
-          "crossFile": 1
+          "crossFile": 0
         },
         "Network": {
-          "total": 8,
-          "confirmed": 8,
+          "total": 3,
+          "confirmed": 3,
           "probable": 0,
           "potential": 0,
-          "crossFile": 1
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 6,
-          "confirmed": 4,
-          "probable": 2,
+          "total": 7,
+          "confirmed": 3,
+          "probable": 4,
           "potential": 0,
-          "crossFile": 1
+          "crossFile": 0
         },
         "External APIs": {
-          "total": 10,
-          "confirmed": 6,
-          "probable": 4,
+          "total": 6,
+          "confirmed": 0,
+          "probable": 6,
           "potential": 0,
           "crossFile": 0
         }
       },
       "artifactsByType": {
-        "MEMORY": 3,
-        "TOOL": 38,
+        "AGENT_CONFIG": 3,
+        "SKILL": 1,
+        "WORKFLOW": 7,
+        "PROMPT": 20,
+        "MEMORY": 2,
+        "TOOL": 8
+      },
+      "artifactsTotal": 41
+    },
+    {
+      "id": "wild-003",
+      "repo": "modelcontextprotocol/typescript-sdk",
+      "category": "mcp_server",
+      "status": "ok",
+      "scanSeconds": 11.9,
+      "findingsBySeverity": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "findingsTotal": 0,
+      "findingsByConfidence": {
+        "confirmed": 0,
+        "probable": 0,
+        "potential": 0
+      },
+      "executionPaths": 1,
+      "crossFilePaths": 0,
+      "uniqueSensitiveActionTypes": 1,
+      "sensitiveActionTypes": [
+        "Secrets"
+      ],
+      "actionStats": {
+        "Shell": {
+          "total": 0,
+          "confirmed": 0,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "Filesystem": {
+          "total": 0,
+          "confirmed": 0,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "Network": {
+          "total": 0,
+          "confirmed": 0,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "Secrets": {
+          "total": 1,
+          "confirmed": 1,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "External APIs": {
+          "total": 0,
+          "confirmed": 0,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
+        }
+      },
+      "artifactsByType": {
+        "TOOL": 7,
         "WORKFLOW": 8,
         "AGENT_CONFIG": 2,
-        "PROMPT": 6
+        "PROMPT": 6,
+        "MEMORY": 1
       },
-      "artifactsTotal": 57
+      "artifactsTotal": 24
     },
     {
       "id": "wild-004",
       "repo": "modelcontextprotocol/inspector",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 4.3,
+      "scanSeconds": 3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 1,
@@ -312,20 +308,20 @@
         }
       },
       "artifactsByType": {
-        "WORKFLOW": 4,
+        "WORKFLOW": 2,
         "MCP_SERVER": 1,
         "AGENT_CONFIG": 2,
         "TOOL": 4,
         "PROMPT": 5
       },
-      "artifactsTotal": 16
+      "artifactsTotal": 14
     },
     {
       "id": "wild-005",
       "repo": "modelcontextprotocol/quickstart-resources",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 1.9,
+      "scanSeconds": 1.6,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -393,62 +389,61 @@
       "repo": "github/github-mcp-server",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 3.3,
+      "scanSeconds": 2.3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 2,
-        "low": 13
+        "low": 8
       },
-      "findingsTotal": 15,
+      "findingsTotal": 10,
       "findingsByConfidence": {
         "confirmed": 2,
         "probable": 2,
-        "potential": 11
+        "potential": 6
       },
-      "executionPaths": 35,
+      "executionPaths": 7,
       "crossFilePaths": 0,
-      "uniqueSensitiveActionTypes": 5,
+      "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
-        "Shell",
-        "Network",
-        "Secrets",
         "Filesystem",
-        "External APIs"
+        "Secrets",
+        "Network",
+        "Shell"
       ],
       "actionStats": {
         "Shell": {
-          "total": 6,
-          "confirmed": 1,
-          "probable": 5,
+          "total": 1,
+          "confirmed": 0,
+          "probable": 1,
           "potential": 0,
           "crossFile": 0
         },
         "Filesystem": {
-          "total": 3,
-          "confirmed": 3,
+          "total": 2,
+          "confirmed": 2,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Network": {
-          "total": 11,
-          "confirmed": 11,
+          "total": 2,
+          "confirmed": 2,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Secrets": {
-          "total": 8,
-          "confirmed": 6,
-          "probable": 2,
+          "total": 2,
+          "confirmed": 2,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 10,
-          "confirmed": 8,
-          "probable": 2,
+          "total": 0,
+          "confirmed": 0,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         }
@@ -456,38 +451,37 @@
       "artifactsByType": {
         "ACTION": 1,
         "AGENT_CONFIG": 1,
-        "PROMPT": 18,
-        "WORKFLOW": 13,
-        "TOOL": 23
+        "PROMPT": 12,
+        "WORKFLOW": 12,
+        "TOOL": 10
       },
-      "artifactsTotal": 56
+      "artifactsTotal": 36
     },
     {
       "id": "wild-007",
       "repo": "cloudflare/mcp-server-cloudflare",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 7.6,
+      "scanSeconds": 6.6,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 3
+        "low": 2
       },
-      "findingsTotal": 3,
+      "findingsTotal": 2,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 0,
-        "potential": 3
+        "probable": 2,
+        "potential": 0
       },
       "executionPaths": 32,
       "crossFilePaths": 0,
-      "uniqueSensitiveActionTypes": 5,
+      "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
         "Shell",
-        "Network",
         "Secrets",
-        "Filesystem",
+        "Network",
         "External APIs"
       ],
       "actionStats": {
@@ -499,30 +493,30 @@
           "crossFile": 0
         },
         "Filesystem": {
-          "total": 1,
-          "confirmed": 1,
+          "total": 0,
+          "confirmed": 0,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Network": {
-          "total": 11,
-          "confirmed": 11,
+          "total": 7,
+          "confirmed": 7,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Secrets": {
-          "total": 10,
-          "confirmed": 10,
+          "total": 20,
+          "confirmed": 20,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 9,
-          "confirmed": 7,
-          "probable": 2,
+          "total": 4,
+          "confirmed": 3,
+          "probable": 1,
           "potential": 0,
           "crossFile": 0
         }
@@ -530,30 +524,30 @@
       "artifactsByType": {
         "ACTION": 1,
         "WORKFLOW": 4,
-        "TOOL": 26,
+        "TOOL": 23,
         "PROMPT": 2
       },
-      "artifactsTotal": 33
+      "artifactsTotal": 30
     },
     {
       "id": "wild-008",
       "repo": "sooperset/mcp-atlassian",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 3.2,
+      "scanSeconds": 2.9,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 7
+        "low": 4
       },
-      "findingsTotal": 7,
+      "findingsTotal": 4,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 4,
-        "potential": 3
+        "potential": 0
       },
-      "executionPaths": 12,
+      "executionPaths": 6,
       "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
@@ -564,9 +558,9 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 4,
+          "total": 2,
           "confirmed": 0,
-          "probable": 4,
+          "probable": 2,
           "potential": 0,
           "crossFile": 0
         },
@@ -585,16 +579,16 @@
           "crossFile": 0
         },
         "Secrets": {
-          "total": 8,
-          "confirmed": 3,
-          "probable": 5,
+          "total": 3,
+          "confirmed": 0,
+          "probable": 3,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 2,
+          "total": 1,
           "confirmed": 0,
-          "probable": 2,
+          "probable": 1,
           "potential": 0,
           "crossFile": 0
         }
@@ -603,16 +597,16 @@
         "AGENT_CONFIG": 3,
         "WORKFLOW": 6,
         "PROMPT": 14,
-        "TOOL": 7
+        "TOOL": 3
       },
-      "artifactsTotal": 30
+      "artifactsTotal": 26
     },
     {
       "id": "wild-009",
       "repo": "executeautomation/mcp-playwright",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 2,
+      "scanSeconds": 1.5,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -622,16 +616,15 @@
       "findingsTotal": 2,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 0,
-        "potential": 2
+        "probable": 2,
+        "potential": 0
       },
-      "executionPaths": 6,
-      "crossFilePaths": 3,
-      "uniqueSensitiveActionTypes": 5,
+      "executionPaths": 5,
+      "crossFilePaths": 2,
+      "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
         "Shell",
         "Filesystem",
-        "Network",
         "Secrets",
         "External APIs"
       ],
@@ -651,11 +644,11 @@
           "crossFile": 1
         },
         "Network": {
-          "total": 1,
-          "confirmed": 1,
+          "total": 0,
+          "confirmed": 0,
           "probable": 0,
           "potential": 0,
-          "crossFile": 1
+          "crossFile": 0
         },
         "Secrets": {
           "total": 1,
@@ -673,17 +666,17 @@
         }
       },
       "artifactsByType": {
-        "WORKFLOW": 3,
+        "WORKFLOW": 2,
         "TOOL": 2
       },
-      "artifactsTotal": 5
+      "artifactsTotal": 4
     },
     {
       "id": "wild-010",
       "repo": "mendableai/firecrawl-mcp-server",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 2,
+      "scanSeconds": 1.2,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -693,8 +686,8 @@
       "findingsTotal": 2,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 0,
-        "potential": 2
+        "probable": 2,
+        "potential": 0
       },
       "executionPaths": 7,
       "crossFilePaths": 0,
@@ -753,21 +746,21 @@
       "repo": "upstash/context7",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 3,
+      "scanSeconds": 2.5,
       "findingsBySeverity": {
         "critical": 0,
         "high": 2,
         "medium": 4,
-        "low": 21
+        "low": 17
       },
-      "findingsTotal": 27,
+      "findingsTotal": 23,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 13,
-        "potential": 14
+        "probable": 16,
+        "potential": 7
       },
-      "executionPaths": 109,
-      "crossFilePaths": 93,
+      "executionPaths": 108,
+      "crossFilePaths": 94,
       "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
         "Network",
@@ -777,9 +770,9 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 5,
+          "total": 4,
           "confirmed": 0,
-          "probable": 5,
+          "probable": 4,
           "potential": 0,
           "crossFile": 0
         },
@@ -791,23 +784,23 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 42,
+          "total": 43,
           "confirmed": 1,
-          "probable": 41,
+          "probable": 42,
           "potential": 0,
-          "crossFile": 34
+          "crossFile": 35
         },
         "Secrets": {
-          "total": 22,
+          "total": 21,
           "confirmed": 0,
-          "probable": 22,
+          "probable": 21,
           "potential": 0,
           "crossFile": 18
         },
         "External APIs": {
-          "total": 44,
+          "total": 42,
           "confirmed": 1,
-          "probable": 43,
+          "probable": 41,
           "potential": 0,
           "crossFile": 41
         }
@@ -826,7 +819,7 @@
       "repo": "supabase-community/supabase-mcp",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 2.4,
+      "scanSeconds": 1.7,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -839,13 +832,12 @@
         "probable": 0,
         "potential": 1
       },
-      "executionPaths": 5,
+      "executionPaths": 3,
       "crossFilePaths": 3,
-      "uniqueSensitiveActionTypes": 3,
+      "uniqueSensitiveActionTypes": 2,
       "sensitiveActionTypes": [
         "Network",
-        "Secrets",
-        "External APIs"
+        "Secrets"
       ],
       "actionStats": {
         "Shell": {
@@ -863,8 +855,8 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 2,
-          "confirmed": 2,
+          "total": 1,
+          "confirmed": 1,
           "probable": 0,
           "potential": 0,
           "crossFile": 1
@@ -877,8 +869,8 @@
           "crossFile": 2
         },
         "External APIs": {
-          "total": 1,
-          "confirmed": 1,
+          "total": 0,
+          "confirmed": 0,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
@@ -886,7 +878,8 @@
       },
       "artifactsByType": {
         "WORKFLOW": 5,
-        "TOOL": 9,
+        "AGENT_CONFIG": 1,
+        "TOOL": 8,
         "PROMPT": 1
       },
       "artifactsTotal": 15
@@ -896,7 +889,7 @@
       "repo": "microsoft/playwright-mcp",
       "category": "mcp_server",
       "status": "ok",
-      "scanSeconds": 1.9,
+      "scanSeconds": 1.2,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -909,12 +902,11 @@
         "probable": 4,
         "potential": 0
       },
-      "executionPaths": 8,
-      "crossFilePaths": 3,
-      "uniqueSensitiveActionTypes": 3,
+      "executionPaths": 6,
+      "crossFilePaths": 2,
+      "uniqueSensitiveActionTypes": 2,
       "sensitiveActionTypes": [
         "Shell",
-        "Network",
         "External APIs"
       ],
       "actionStats": {
@@ -933,11 +925,11 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 2,
+          "total": 0,
           "confirmed": 0,
-          "probable": 2,
+          "probable": 0,
           "potential": 0,
-          "crossFile": 1
+          "crossFile": 0
         },
         "Secrets": {
           "total": 0,
@@ -966,20 +958,20 @@
       "repo": "langchain-ai/langchain",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 14.9,
+      "scanSeconds": 12.8,
       "findingsBySeverity": {
         "critical": 0,
         "high": 2,
         "medium": 2,
-        "low": 72
+        "low": 26
       },
-      "findingsTotal": 76,
+      "findingsTotal": 30,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 14,
-        "potential": 62
+        "probable": 26,
+        "potential": 4
       },
-      "executionPaths": 113,
+      "executionPaths": 66,
       "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
@@ -991,85 +983,85 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 19,
-          "confirmed": 9,
-          "probable": 10,
+          "total": 24,
+          "confirmed": 12,
+          "probable": 12,
           "potential": 0,
           "crossFile": 0
         },
         "Filesystem": {
-          "total": 5,
-          "confirmed": 4,
+          "total": 3,
+          "confirmed": 2,
           "probable": 1,
           "potential": 0,
           "crossFile": 0
         },
         "Network": {
-          "total": 28,
-          "confirmed": 28,
+          "total": 6,
+          "confirmed": 6,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Secrets": {
-          "total": 30,
-          "confirmed": 22,
-          "probable": 8,
+          "total": 25,
+          "confirmed": 15,
+          "probable": 10,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 45,
-          "confirmed": 31,
-          "probable": 14,
+          "total": 19,
+          "confirmed": 10,
+          "probable": 9,
           "potential": 0,
           "crossFile": 0
         }
       },
       "artifactsByType": {
         "ACTION": 1,
-        "WORKFLOW": 28,
+        "WORKFLOW": 22,
         "MCP_SERVER": 2,
         "AGENT_CONFIG": 277,
-        "MEMORY": 68,
-        "TOOL": 100,
+        "MEMORY": 47,
+        "TOOL": 82,
         "PROMPT": 76
       },
-      "artifactsTotal": 552
+      "artifactsTotal": 507
     },
     {
       "id": "wild-015",
       "repo": "langchain-ai/langgraph",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 6.2,
+      "scanSeconds": 4.8,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 52
+        "low": 9
       },
-      "findingsTotal": 52,
+      "findingsTotal": 9,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 2,
-        "potential": 50
+        "probable": 6,
+        "potential": 3
       },
-      "executionPaths": 34,
+      "executionPaths": 13,
       "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "Network",
         "Secrets",
         "Filesystem",
+        "Network",
         "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 8,
-          "confirmed": 7,
-          "probable": 1,
+          "total": 3,
+          "confirmed": 3,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
@@ -1081,131 +1073,129 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 8,
-          "confirmed": 7,
+          "total": 2,
+          "confirmed": 1,
           "probable": 1,
           "potential": 0,
           "crossFile": 0
         },
         "Secrets": {
-          "total": 8,
-          "confirmed": 5,
+          "total": 5,
+          "confirmed": 2,
           "probable": 3,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 11,
-          "confirmed": 7,
-          "probable": 4,
+          "total": 3,
+          "confirmed": 1,
+          "probable": 2,
           "potential": 0,
           "crossFile": 0
         }
       },
       "artifactsByType": {
         "ACTION": 1,
-        "TOOL": 24,
-        "WORKFLOW": 17,
+        "TOOL": 9,
+        "WORKFLOW": 12,
         "AGENT_CONFIG": 3,
-        "MEMORY": 7,
+        "MEMORY": 3,
         "PROMPT": 6
       },
-      "artifactsTotal": 58
+      "artifactsTotal": 34
     },
     {
       "id": "wild-016",
       "repo": "langchain-ai/langchainjs",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 37.1,
+      "scanSeconds": 28.1,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 45
+        "low": 23
       },
-      "findingsTotal": 45,
+      "findingsTotal": 23,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 7,
-        "potential": 38
+        "probable": 9,
+        "potential": 14
       },
-      "executionPaths": 110,
+      "executionPaths": 102,
       "crossFilePaths": 97,
-      "uniqueSensitiveActionTypes": 5,
+      "uniqueSensitiveActionTypes": 3,
       "sensitiveActionTypes": [
         "Shell",
-        "Network",
         "Secrets",
-        "External APIs",
-        "Filesystem"
+        "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 5,
-          "confirmed": 1,
-          "probable": 4,
+          "total": 2,
+          "confirmed": 0,
+          "probable": 2,
           "potential": 0,
-          "crossFile": 1
+          "crossFile": 0
         },
         "Filesystem": {
-          "total": 1,
+          "total": 0,
           "confirmed": 0,
-          "probable": 1,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Network": {
-          "total": 2,
-          "confirmed": 2,
+          "total": 0,
+          "confirmed": 0,
           "probable": 0,
           "potential": 0,
-          "crossFile": 2
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 55,
-          "confirmed": 4,
+          "total": 51,
+          "confirmed": 0,
           "probable": 51,
           "potential": 0,
           "crossFile": 49
         },
         "External APIs": {
-          "total": 57,
-          "confirmed": 2,
-          "probable": 55,
+          "total": 52,
+          "confirmed": 0,
+          "probable": 52,
           "potential": 0,
-          "crossFile": 48
+          "crossFile": 49
         }
       },
       "artifactsByType": {
         "ACTION": 1,
-        "MEMORY": 46,
-        "TOOL": 61,
+        "MEMORY": 22,
+        "TOOL": 36,
         "WORKFLOW": 22,
         "AGENT_CONFIG": 123,
         "PROMPT": 86
       },
-      "artifactsTotal": 339
+      "artifactsTotal": 290
     },
     {
       "id": "wild-017",
       "repo": "crewAIInc/crewAI",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 56.6,
+      "scanSeconds": 38.7,
       "findingsBySeverity": {
         "critical": 0,
         "high": 1,
         "medium": 0,
-        "low": 145
+        "low": 18
       },
-      "findingsTotal": 146,
+      "findingsTotal": 19,
       "findingsByConfidence": {
         "confirmed": 1,
-        "probable": 1,
-        "potential": 144
+        "probable": 14,
+        "potential": 4
       },
-      "executionPaths": 63,
+      "executionPaths": 8,
       "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 4,
       "sensitiveActionTypes": [
@@ -1216,9 +1206,9 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 19,
+          "total": 3,
           "confirmed": 0,
-          "probable": 19,
+          "probable": 3,
           "potential": 0,
           "crossFile": 0
         },
@@ -1237,106 +1227,32 @@
           "crossFile": 0
         },
         "Secrets": {
-          "total": 23,
+          "total": 3,
           "confirmed": 0,
-          "probable": 23,
+          "probable": 3,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 45,
+          "total": 3,
           "confirmed": 0,
-          "probable": 45,
+          "probable": 3,
           "potential": 0,
           "crossFile": 0
         }
       },
       "artifactsByType": {
-        "WORKFLOW": 14,
+        "WORKFLOW": 13,
         "AGENT_CONFIG": 1
       },
-      "artifactsTotal": 15
+      "artifactsTotal": 14
     },
     {
       "id": "wild-018",
       "repo": "microsoft/autogen",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 18.6,
-      "findingsBySeverity": {
-        "critical": 0,
-        "high": 0,
-        "medium": 0,
-        "low": 71
-      },
-      "findingsTotal": 71,
-      "findingsByConfidence": {
-        "confirmed": 0,
-        "probable": 36,
-        "potential": 35
-      },
-      "executionPaths": 135,
-      "crossFilePaths": 30,
-      "uniqueSensitiveActionTypes": 5,
-      "sensitiveActionTypes": [
-        "Shell",
-        "Filesystem",
-        "Network",
-        "Secrets",
-        "External APIs"
-      ],
-      "actionStats": {
-        "Shell": {
-          "total": 56,
-          "confirmed": 28,
-          "probable": 28,
-          "potential": 0,
-          "crossFile": 9
-        },
-        "Filesystem": {
-          "total": 7,
-          "confirmed": 4,
-          "probable": 3,
-          "potential": 0,
-          "crossFile": 0
-        },
-        "Network": {
-          "total": 24,
-          "confirmed": 23,
-          "probable": 1,
-          "potential": 0,
-          "crossFile": 10
-        },
-        "Secrets": {
-          "total": 49,
-          "confirmed": 34,
-          "probable": 15,
-          "potential": 0,
-          "crossFile": 2
-        },
-        "External APIs": {
-          "total": 52,
-          "confirmed": 28,
-          "probable": 24,
-          "potential": 0,
-          "crossFile": 10
-        }
-      },
-      "artifactsByType": {
-        "PROMPT": 43,
-        "WORKFLOW": 11,
-        "MEMORY": 25,
-        "TOOL": 123,
-        "AGENT_CONFIG": 46
-      },
-      "artifactsTotal": 248
-    },
-    {
-      "id": "wild-019",
-      "repo": "run-llama/llama_index",
-      "category": "agent_framework",
-      "status": "ok",
-      "scanSeconds": 10.8,
+      "scanSeconds": 13.2,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
@@ -1346,24 +1262,98 @@
       "findingsTotal": 46,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 0,
-        "potential": 46
+        "probable": 46,
+        "potential": 0
       },
-      "executionPaths": 110,
+      "executionPaths": 91,
+      "crossFilePaths": 2,
+      "uniqueSensitiveActionTypes": 5,
+      "sensitiveActionTypes": [
+        "Shell",
+        "Network",
+        "Filesystem",
+        "Secrets",
+        "External APIs"
+      ],
+      "actionStats": {
+        "Shell": {
+          "total": 44,
+          "confirmed": 26,
+          "probable": 18,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "Filesystem": {
+          "total": 11,
+          "confirmed": 8,
+          "probable": 3,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "Network": {
+          "total": 9,
+          "confirmed": 9,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 1
+        },
+        "Secrets": {
+          "total": 35,
+          "confirmed": 22,
+          "probable": 13,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "External APIs": {
+          "total": 31,
+          "confirmed": 16,
+          "probable": 15,
+          "potential": 0,
+          "crossFile": 1
+        }
+      },
+      "artifactsByType": {
+        "PROMPT": 36,
+        "WORKFLOW": 10,
+        "MEMORY": 19,
+        "TOOL": 63,
+        "AGENT_CONFIG": 46
+      },
+      "artifactsTotal": 174
+    },
+    {
+      "id": "wild-019",
+      "repo": "run-llama/llama_index",
+      "category": "agent_framework",
+      "status": "ok",
+      "scanSeconds": 12.1,
+      "findingsBySeverity": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 8
+      },
+      "findingsTotal": 8,
+      "findingsByConfidence": {
+        "confirmed": 0,
+        "probable": 3,
+        "potential": 5
+      },
+      "executionPaths": 27,
       "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "Secrets",
         "Network",
+        "Secrets",
         "Filesystem",
         "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 11,
-          "confirmed": 6,
-          "probable": 5,
+          "total": 2,
+          "confirmed": 2,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
@@ -1375,109 +1365,107 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 26,
-          "confirmed": 26,
+          "total": 4,
+          "confirmed": 4,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Secrets": {
-          "total": 47,
-          "confirmed": 41,
-          "probable": 6,
+          "total": 15,
+          "confirmed": 14,
+          "probable": 1,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 35,
-          "confirmed": 24,
-          "probable": 11,
+          "total": 5,
+          "confirmed": 3,
+          "probable": 2,
           "potential": 0,
           "crossFile": 0
         }
       },
       "artifactsByType": {
-        "WORKFLOW": 14,
-        "TOOL": 60,
-        "MEMORY": 38,
+        "WORKFLOW": 12,
         "PROMPT": 60,
-        "AGENT_CONFIG": 5
+        "AGENT_CONFIG": 5,
+        "TOOL": 34,
+        "MEMORY": 17
       },
-      "artifactsTotal": 177
+      "artifactsTotal": 128
     },
     {
       "id": "wild-020",
       "repo": "openai/openai-agents-python",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 10.4,
+      "scanSeconds": 8.3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 88
+        "low": 38
       },
-      "findingsTotal": 88,
+      "findingsTotal": 38,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 30,
-        "potential": 58
+        "probable": 24,
+        "potential": 14
       },
-      "executionPaths": 113,
-      "crossFilePaths": 20,
+      "executionPaths": 53,
+      "crossFilePaths": 10,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
+        "Secrets",
         "Filesystem",
         "Network",
-        "Secrets",
         "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 41,
-          "confirmed": 15,
-          "probable": 26,
+          "total": 20,
+          "confirmed": 0,
+          "probable": 20,
           "potential": 0,
-          "crossFile": 4
+          "crossFile": 2
         },
         "Filesystem": {
-          "total": 17,
-          "confirmed": 15,
-          "probable": 2,
+          "total": 4,
+          "confirmed": 0,
+          "probable": 4,
           "potential": 0,
-          "crossFile": 3
+          "crossFile": 0
         },
         "Network": {
-          "total": 15,
-          "confirmed": 14,
-          "probable": 1,
+          "total": 13,
+          "confirmed": 0,
+          "probable": 13,
           "potential": 0,
           "crossFile": 5
         },
         "Secrets": {
-          "total": 35,
-          "confirmed": 17,
-          "probable": 18,
+          "total": 19,
+          "confirmed": 0,
+          "probable": 19,
           "potential": 0,
-          "crossFile": 6
+          "crossFile": 3
         },
         "External APIs": {
-          "total": 27,
-          "confirmed": 14,
-          "probable": 13,
+          "total": 5,
+          "confirmed": 0,
+          "probable": 5,
           "potential": 0,
-          "crossFile": 5
+          "crossFile": 0
         }
       },
       "artifactsByType": {
-        "AGENT_CONFIG": 323,
+        "AGENT_CONFIG": 328,
         "SKILL": 33,
-        "WORKFLOW": 6,
-        "TOOL": 85,
-        "MEMORY": 60
+        "WORKFLOW": 5
       },
-      "artifactsTotal": 507
+      "artifactsTotal": 366
     },
     {
       "id": "wild-021",
@@ -1489,175 +1477,167 @@
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 8
+        "low": 0
       },
-      "findingsTotal": 8,
+      "findingsTotal": 0,
       "findingsByConfidence": {
         "confirmed": 0,
         "probable": 0,
-        "potential": 8
+        "potential": 0
       },
-      "executionPaths": 10,
+      "executionPaths": 0,
       "crossFilePaths": 0,
-      "uniqueSensitiveActionTypes": 5,
-      "sensitiveActionTypes": [
-        "Shell",
-        "Network",
-        "Filesystem",
-        "External APIs",
-        "Secrets"
-      ],
+      "uniqueSensitiveActionTypes": 0,
+      "sensitiveActionTypes": [],
       "actionStats": {
         "Shell": {
-          "total": 2,
-          "confirmed": 2,
+          "total": 0,
+          "confirmed": 0,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Filesystem": {
-          "total": 1,
-          "confirmed": 1,
+          "total": 0,
+          "confirmed": 0,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Network": {
-          "total": 1,
-          "confirmed": 1,
+          "total": 0,
+          "confirmed": 0,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Secrets": {
-          "total": 2,
+          "total": 0,
           "confirmed": 0,
-          "probable": 2,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 6,
+          "total": 0,
           "confirmed": 0,
-          "probable": 6,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         }
       },
-      "artifactsByType": {
-        "TOOL": 10
-      },
-      "artifactsTotal": 10
+      "artifactsByType": {},
+      "artifactsTotal": 0
     },
     {
       "id": "wild-022",
       "repo": "pydantic/pydantic-ai",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 39.6,
+      "scanSeconds": 35,
       "findingsBySeverity": {
         "critical": 0,
         "high": 21,
         "medium": 0,
-        "low": 198
+        "low": 31
       },
-      "findingsTotal": 219,
+      "findingsTotal": 52,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 33,
-        "potential": 186
+        "probable": 43,
+        "potential": 9
       },
-      "executionPaths": 157,
-      "crossFilePaths": 57,
+      "executionPaths": 109,
+      "crossFilePaths": 18,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Secrets",
         "Shell",
         "External APIs",
-        "Network",
-        "Filesystem"
+        "Filesystem",
+        "Network"
       ],
       "actionStats": {
         "Shell": {
-          "total": 38,
-          "confirmed": 19,
-          "probable": 19,
+          "total": 39,
+          "confirmed": 26,
+          "probable": 13,
           "potential": 0,
-          "crossFile": 5
+          "crossFile": 1
         },
         "Filesystem": {
-          "total": 3,
-          "confirmed": 1,
-          "probable": 2,
+          "total": 4,
+          "confirmed": 3,
+          "probable": 1,
           "potential": 0,
           "crossFile": 0
         },
         "Network": {
-          "total": 38,
-          "confirmed": 12,
-          "probable": 26,
+          "total": 19,
+          "confirmed": 7,
+          "probable": 12,
           "potential": 0,
-          "crossFile": 21
+          "crossFile": 8
         },
         "Secrets": {
-          "total": 69,
-          "confirmed": 31,
-          "probable": 38,
+          "total": 42,
+          "confirmed": 26,
+          "probable": 16,
           "potential": 0,
-          "crossFile": 13
+          "crossFile": 7
         },
         "External APIs": {
-          "total": 79,
-          "confirmed": 35,
-          "probable": 44,
+          "total": 34,
+          "confirmed": 26,
+          "probable": 8,
           "potential": 0,
-          "crossFile": 18
+          "crossFile": 2
         }
       },
       "artifactsByType": {
         "SKILL": 17,
-        "AGENT_CONFIG": 15,
+        "AGENT_CONFIG": 16,
         "ACTION": 1,
-        "TOOL": 673,
-        "WORKFLOW": 68,
+        "TOOL": 50,
+        "WORKFLOW": 53,
         "PROMPT": 11,
-        "MEMORY": 3
+        "MEMORY": 1
       },
-      "artifactsTotal": 788
+      "artifactsTotal": 149
     },
     {
       "id": "wild-023",
       "repo": "microsoft/semantic-kernel",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 23.5,
+      "scanSeconds": 17.8,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 1,
-        "low": 58
+        "low": 31
       },
-      "findingsTotal": 59,
+      "findingsTotal": 32,
       "findingsByConfidence": {
         "confirmed": 1,
-        "probable": 8,
-        "potential": 50
+        "probable": 5,
+        "potential": 26
       },
-      "executionPaths": 104,
+      "executionPaths": 32,
       "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "Network",
         "Secrets",
+        "Network",
         "Filesystem",
         "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 5,
+          "total": 1,
           "confirmed": 1,
-          "probable": 4,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
@@ -1669,128 +1649,119 @@
           "crossFile": 0
         },
         "Network": {
-          "total": 32,
-          "confirmed": 32,
+          "total": 9,
+          "confirmed": 9,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Secrets": {
-          "total": 42,
-          "confirmed": 40,
-          "probable": 2,
+          "total": 18,
+          "confirmed": 17,
+          "probable": 1,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 27,
-          "confirmed": 24,
-          "probable": 3,
+          "total": 2,
+          "confirmed": 2,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         }
       },
       "artifactsByType": {
-        "TOOL": 116,
-        "PROMPT": 135,
+        "TOOL": 47,
+        "PROMPT": 91,
         "WORKFLOW": 21,
-        "MEMORY": 155,
         "AGENT_CONFIG": 631,
+        "MEMORY": 73,
         "SKILL": 2
       },
-      "artifactsTotal": 1060
+      "artifactsTotal": 865
     },
     {
       "id": "wild-024",
       "repo": "deepset-ai/haystack",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 11.1,
+      "scanSeconds": 7.9,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 106
+        "low": 0
       },
-      "findingsTotal": 106,
+      "findingsTotal": 0,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 35,
-        "potential": 71
+        "probable": 0,
+        "potential": 0
       },
-      "executionPaths": 142,
+      "executionPaths": 0,
       "crossFilePaths": 0,
-      "uniqueSensitiveActionTypes": 5,
-      "sensitiveActionTypes": [
-        "Shell",
-        "Secrets",
-        "Network",
-        "Filesystem",
-        "External APIs"
-      ],
+      "uniqueSensitiveActionTypes": 0,
+      "sensitiveActionTypes": [],
       "actionStats": {
         "Shell": {
-          "total": 2,
-          "confirmed": 1,
-          "probable": 1,
+          "total": 0,
+          "confirmed": 0,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Filesystem": {
-          "total": 3,
-          "confirmed": 3,
+          "total": 0,
+          "confirmed": 0,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Network": {
-          "total": 18,
-          "confirmed": 18,
+          "total": 0,
+          "confirmed": 0,
           "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "Secrets": {
-          "total": 81,
-          "confirmed": 19,
-          "probable": 62,
+          "total": 0,
+          "confirmed": 0,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 88,
-          "confirmed": 17,
-          "probable": 71,
+          "total": 0,
+          "confirmed": 0,
+          "probable": 0,
           "potential": 0,
           "crossFile": 0
         }
       },
       "artifactsByType": {
-        "WORKFLOW": 33,
-        "AGENT_CONFIG": 2,
-        "PROMPT": 278,
-        "MEMORY": 14,
-        "TOOL": 123
+        "WORKFLOW": 26,
+        "AGENT_CONFIG": 2
       },
-      "artifactsTotal": 450
+      "artifactsTotal": 28
     },
     {
       "id": "wild-025",
       "repo": "e2b-dev/E2B",
       "category": "agent_framework",
       "status": "ok",
-      "scanSeconds": 9.3,
+      "scanSeconds": 7.3,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 31
+        "low": 7
       },
-      "findingsTotal": 31,
+      "findingsTotal": 7,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 2,
-        "potential": 29
+        "probable": 7,
+        "potential": 0
       },
       "executionPaths": 14,
       "crossFilePaths": 0,
@@ -1840,13 +1811,13 @@
       },
       "artifactsByType": {
         "ACTION": 1,
-        "WORKFLOW": 13,
+        "WORKFLOW": 9,
         "AGENT_CONFIG": 1,
         "TOOL": 6,
         "PROMPT": 1,
         "SKILL": 1
       },
-      "artifactsTotal": 23
+      "artifactsTotal": 19
     },
     {
       "id": "wild-026",
@@ -1917,21 +1888,21 @@
       "repo": "cline/cline",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 45.1,
+      "scanSeconds": 33.1,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 97
+        "low": 65
       },
-      "findingsTotal": 97,
+      "findingsTotal": 65,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 10,
-        "potential": 87
+        "probable": 27,
+        "potential": 38
       },
-      "executionPaths": 125,
-      "crossFilePaths": 88,
+      "executionPaths": 115,
+      "crossFilePaths": 90,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
@@ -1942,71 +1913,71 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 36,
-          "confirmed": 7,
-          "probable": 29,
-          "potential": 0,
-          "crossFile": 15
-        },
-        "Filesystem": {
-          "total": 14,
-          "confirmed": 5,
-          "probable": 9,
-          "potential": 0,
-          "crossFile": 13
-        },
-        "Network": {
-          "total": 26,
-          "confirmed": 13,
-          "probable": 13,
-          "potential": 0,
-          "crossFile": 21
-        },
-        "Secrets": {
-          "total": 47,
-          "confirmed": 16,
-          "probable": 31,
-          "potential": 0,
-          "crossFile": 23
-        },
-        "External APIs": {
           "total": 34,
           "confirmed": 8,
           "probable": 26,
           "potential": 0,
           "crossFile": 16
+        },
+        "Filesystem": {
+          "total": 17,
+          "confirmed": 5,
+          "probable": 12,
+          "potential": 0,
+          "crossFile": 16
+        },
+        "Network": {
+          "total": 26,
+          "confirmed": 12,
+          "probable": 14,
+          "potential": 0,
+          "crossFile": 22
+        },
+        "Secrets": {
+          "total": 33,
+          "confirmed": 8,
+          "probable": 25,
+          "potential": 0,
+          "crossFile": 18
+        },
+        "External APIs": {
+          "total": 24,
+          "confirmed": 7,
+          "probable": 17,
+          "potential": 0,
+          "crossFile": 18
         }
       },
       "artifactsByType": {
         "SKILL": 52,
         "AGENT_CONFIG": 11,
-        "PROMPT": 139,
+        "PROMPT": 140,
         "WORKFLOW": 11,
-        "TOOL": 69,
+        "TOOL": 56,
         "MEMORY": 2
       },
-      "artifactsTotal": 284
+      "artifactsTotal": 272
     },
     {
       "id": "wild-028",
       "repo": "continuedev/continue",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 44.3,
+      "scanSeconds": 31.9,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 3,
-        "low": 39
+        "low": 25
       },
-      "findingsTotal": 42,
+      "findingsTotal": 28,
       "findingsByConfidence": {
         "confirmed": 1,
-        "probable": 10,
-        "potential": 31
+        "probable": 22,
+        "potential": 5
       },
-      "executionPaths": 116,
-      "crossFilePaths": 92,
+      "executionPaths": 41,
+      "crossFilePaths": 8,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
@@ -2017,203 +1988,55 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 12,
-          "confirmed": 0,
-          "probable": 12,
-          "potential": 0,
-          "crossFile": 0
-        },
-        "Filesystem": {
-          "total": 2,
-          "confirmed": 0,
-          "probable": 2,
-          "potential": 0,
-          "crossFile": 0
-        },
-        "Network": {
-          "total": 47,
-          "confirmed": 47,
-          "probable": 0,
-          "potential": 0,
-          "crossFile": 46
-        },
-        "Secrets": {
-          "total": 9,
-          "confirmed": 0,
-          "probable": 9,
-          "potential": 0,
-          "crossFile": 0
-        },
-        "External APIs": {
-          "total": 56,
-          "confirmed": 48,
+          "total": 14,
+          "confirmed": 6,
           "probable": 8,
           "potential": 0,
-          "crossFile": 46
+          "crossFile": 2
+        },
+        "Filesystem": {
+          "total": 9,
+          "confirmed": 7,
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 2
+        },
+        "Network": {
+          "total": 4,
+          "confirmed": 4,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 2
+        },
+        "Secrets": {
+          "total": 11,
+          "confirmed": 1,
+          "probable": 10,
+          "potential": 0,
+          "crossFile": 1
+        },
+        "External APIs": {
+          "total": 10,
+          "confirmed": 3,
+          "probable": 7,
+          "potential": 0,
+          "crossFile": 1
         }
       },
       "artifactsByType": {
         "SKILL": 2,
         "AGENT_CONFIG": 7,
-        "PROMPT": 82,
+        "PROMPT": 81,
         "ACTION": 8,
-        "WORKFLOW": 35,
-        "TOOL": 81,
+        "WORKFLOW": 34,
+        "TOOL": 80,
         "MCP_SERVER": 1
       },
-      "artifactsTotal": 216
+      "artifactsTotal": 213
     },
     {
       "id": "wild-029",
       "repo": "Aider-AI/aider",
-      "category": "ai_project",
-      "status": "ok",
-      "scanSeconds": 4.3,
-      "findingsBySeverity": {
-        "critical": 0,
-        "high": 0,
-        "medium": 0,
-        "low": 84
-      },
-      "findingsTotal": 84,
-      "findingsByConfidence": {
-        "confirmed": 0,
-        "probable": 7,
-        "potential": 77
-      },
-      "executionPaths": 100,
-      "crossFilePaths": 20,
-      "uniqueSensitiveActionTypes": 5,
-      "sensitiveActionTypes": [
-        "Shell",
-        "Network",
-        "Filesystem",
-        "Secrets",
-        "External APIs"
-      ],
-      "actionStats": {
-        "Shell": {
-          "total": 42,
-          "confirmed": 9,
-          "probable": 33,
-          "potential": 0,
-          "crossFile": 4
-        },
-        "Filesystem": {
-          "total": 12,
-          "confirmed": 8,
-          "probable": 4,
-          "potential": 0,
-          "crossFile": 4
-        },
-        "Network": {
-          "total": 10,
-          "confirmed": 10,
-          "probable": 0,
-          "potential": 0,
-          "crossFile": 4
-        },
-        "Secrets": {
-          "total": 32,
-          "confirmed": 10,
-          "probable": 22,
-          "potential": 0,
-          "crossFile": 4
-        },
-        "External APIs": {
-          "total": 40,
-          "confirmed": 10,
-          "probable": 30,
-          "potential": 0,
-          "crossFile": 4
-        }
-      },
-      "artifactsByType": {
-        "WORKFLOW": 10,
-        "PROMPT": 34,
-        "TOOL": 10
-      },
-      "artifactsTotal": 54
-    },
-    {
-      "id": "wild-030",
-      "repo": "All-Hands-AI/OpenHands",
-      "category": "ai_project",
-      "status": "ok",
-      "scanSeconds": 35.7,
-      "findingsBySeverity": {
-        "critical": 0,
-        "high": 0,
-        "medium": 0,
-        "low": 41
-      },
-      "findingsTotal": 41,
-      "findingsByConfidence": {
-        "confirmed": 0,
-        "probable": 7,
-        "potential": 34
-      },
-      "executionPaths": 105,
-      "crossFilePaths": 9,
-      "uniqueSensitiveActionTypes": 5,
-      "sensitiveActionTypes": [
-        "Shell",
-        "Filesystem",
-        "Network",
-        "Secrets",
-        "External APIs"
-      ],
-      "actionStats": {
-        "Shell": {
-          "total": 16,
-          "confirmed": 5,
-          "probable": 11,
-          "potential": 0,
-          "crossFile": 4
-        },
-        "Filesystem": {
-          "total": 16,
-          "confirmed": 14,
-          "probable": 2,
-          "potential": 0,
-          "crossFile": 0
-        },
-        "Network": {
-          "total": 33,
-          "confirmed": 29,
-          "probable": 4,
-          "potential": 0,
-          "crossFile": 4
-        },
-        "Secrets": {
-          "total": 30,
-          "confirmed": 21,
-          "probable": 9,
-          "potential": 0,
-          "crossFile": 1
-        },
-        "External APIs": {
-          "total": 19,
-          "confirmed": 9,
-          "probable": 10,
-          "potential": 0,
-          "crossFile": 1
-        }
-      },
-      "artifactsByType": {
-        "SKILL": 6,
-        "ACTION": 2,
-        "WORKFLOW": 24,
-        "AGENT_CONFIG": 1,
-        "PROMPT": 45,
-        "TOOL": 58,
-        "MEMORY": 2
-      },
-      "artifactsTotal": 138
-    },
-    {
-      "id": "wild-031",
-      "repo": "princeton-nlp/SWE-agent",
       "category": "ai_project",
       "status": "ok",
       "scanSeconds": 3.6,
@@ -2221,57 +2044,204 @@
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 31
+        "low": 15
       },
-      "findingsTotal": 31,
+      "findingsTotal": 15,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 12,
-        "potential": 19
+        "probable": 5,
+        "potential": 10
       },
-      "executionPaths": 52,
-      "crossFilePaths": 0,
+      "executionPaths": 19,
+      "crossFilePaths": 12,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
         "Filesystem",
-        "Secrets",
         "Network",
+        "Secrets",
         "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 29,
-          "confirmed": 13,
-          "probable": 16,
+          "total": 6,
+          "confirmed": 3,
+          "probable": 3,
+          "potential": 0,
+          "crossFile": 3
+        },
+        "Filesystem": {
+          "total": 7,
+          "confirmed": 3,
+          "probable": 4,
+          "potential": 0,
+          "crossFile": 3
+        },
+        "Network": {
+          "total": 3,
+          "confirmed": 3,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 3
+        },
+        "Secrets": {
+          "total": 2,
+          "confirmed": 0,
+          "probable": 2,
           "potential": 0,
           "crossFile": 0
         },
+        "External APIs": {
+          "total": 4,
+          "confirmed": 3,
+          "probable": 1,
+          "potential": 0,
+          "crossFile": 3
+        }
+      },
+      "artifactsByType": {
+        "WORKFLOW": 10,
+        "PROMPT": 4,
+        "TOOL": 3
+      },
+      "artifactsTotal": 17
+    },
+    {
+      "id": "wild-030",
+      "repo": "All-Hands-AI/OpenHands",
+      "category": "ai_project",
+      "status": "ok",
+      "scanSeconds": 26,
+      "findingsBySeverity": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 18
+      },
+      "findingsTotal": 18,
+      "findingsByConfidence": {
+        "confirmed": 0,
+        "probable": 11,
+        "potential": 7
+      },
+      "executionPaths": 62,
+      "crossFilePaths": 6,
+      "uniqueSensitiveActionTypes": 5,
+      "sensitiveActionTypes": [
+        "Shell",
+        "Filesystem",
+        "Network",
+        "Secrets",
+        "External APIs"
+      ],
+      "actionStats": {
+        "Shell": {
+          "total": 18,
+          "confirmed": 5,
+          "probable": 13,
+          "potential": 0,
+          "crossFile": 3
+        },
         "Filesystem": {
           "total": 11,
-          "confirmed": 11,
-          "probable": 0,
+          "confirmed": 9,
+          "probable": 2,
           "potential": 0,
           "crossFile": 0
         },
         "Network": {
-          "total": 2,
-          "confirmed": 2,
-          "probable": 0,
+          "total": 13,
+          "confirmed": 11,
+          "probable": 2,
           "potential": 0,
-          "crossFile": 0
+          "crossFile": 3
         },
         "Secrets": {
-          "total": 11,
-          "confirmed": 4,
-          "probable": 7,
+          "total": 17,
+          "confirmed": 9,
+          "probable": 8,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
           "total": 12,
+          "confirmed": 4,
+          "probable": 8,
+          "potential": 0,
+          "crossFile": 0
+        }
+      },
+      "artifactsByType": {
+        "SKILL": 6,
+        "ACTION": 2,
+        "WORKFLOW": 26,
+        "AGENT_CONFIG": 1,
+        "PROMPT": 46,
+        "TOOL": 42,
+        "MEMORY": 2
+      },
+      "artifactsTotal": 125
+    },
+    {
+      "id": "wild-031",
+      "repo": "princeton-nlp/SWE-agent",
+      "category": "ai_project",
+      "status": "ok",
+      "scanSeconds": 2.6,
+      "findingsBySeverity": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 13
+      },
+      "findingsTotal": 13,
+      "findingsByConfidence": {
+        "confirmed": 0,
+        "probable": 13,
+        "potential": 0
+      },
+      "executionPaths": 28,
+      "crossFilePaths": 0,
+      "uniqueSensitiveActionTypes": 4,
+      "sensitiveActionTypes": [
+        "Shell",
+        "Filesystem",
+        "Secrets",
+        "External APIs"
+      ],
+      "actionStats": {
+        "Shell": {
+          "total": 13,
+          "confirmed": 11,
+          "probable": 2,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "Filesystem": {
+          "total": 9,
+          "confirmed": 9,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "Network": {
+          "total": 0,
+          "confirmed": 0,
+          "probable": 0,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "Secrets": {
+          "total": 5,
+          "confirmed": 4,
+          "probable": 1,
+          "potential": 0,
+          "crossFile": 0
+        },
+        "External APIs": {
+          "total": 4,
           "confirmed": 2,
-          "probable": 10,
+          "probable": 2,
           "potential": 0,
           "crossFile": 0
         }
@@ -2279,32 +2249,31 @@
       "artifactsByType": {
         "WORKFLOW": 4,
         "PROMPT": 17,
-        "TOOL": 18,
-        "AGENT_CONFIG": 1,
-        "MEMORY": 1
+        "TOOL": 12,
+        "AGENT_CONFIG": 1
       },
-      "artifactsTotal": 41
+      "artifactsTotal": 34
     },
     {
       "id": "wild-032",
       "repo": "block/goose",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 27.6,
+      "scanSeconds": 21.9,
       "findingsBySeverity": {
         "critical": 0,
         "high": 1,
         "medium": 0,
-        "low": 224
+        "low": 102
       },
-      "findingsTotal": 225,
+      "findingsTotal": 103,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 66,
-        "potential": 159
+        "probable": 93,
+        "potential": 10
       },
-      "executionPaths": 177,
-      "crossFilePaths": 56,
+      "executionPaths": 118,
+      "crossFilePaths": 50,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Secrets",
@@ -2315,72 +2284,72 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 95,
-          "confirmed": 17,
-          "probable": 78,
+          "total": 64,
+          "confirmed": 24,
+          "probable": 40,
           "potential": 0,
-          "crossFile": 18
+          "crossFile": 27
         },
         "Filesystem": {
-          "total": 30,
-          "confirmed": 17,
-          "probable": 13,
+          "total": 26,
+          "confirmed": 23,
+          "probable": 3,
           "potential": 0,
-          "crossFile": 12
+          "crossFile": 19
         },
         "Network": {
-          "total": 14,
-          "confirmed": 14,
-          "probable": 0,
+          "total": 6,
+          "confirmed": 5,
+          "probable": 1,
           "potential": 0,
-          "crossFile": 13
+          "crossFile": 5
         },
         "Secrets": {
-          "total": 50,
-          "confirmed": 9,
-          "probable": 41,
+          "total": 33,
+          "confirmed": 8,
+          "probable": 25,
           "potential": 0,
-          "crossFile": 1
+          "crossFile": 2
         },
         "External APIs": {
-          "total": 81,
-          "confirmed": 23,
-          "probable": 58,
+          "total": 23,
+          "confirmed": 8,
+          "probable": 15,
           "potential": 0,
-          "crossFile": 15
+          "crossFile": 1
         }
       },
       "artifactsByType": {
         "ACTION": 2,
-        "PROMPT": 150,
-        "WORKFLOW": 50,
+        "PROMPT": 142,
+        "WORKFLOW": 46,
         "AGENT_CONFIG": 50,
-        "TOOL": 61,
-        "MEMORY": 3,
+        "TOOL": 45,
+        "MEMORY": 1,
         "SKILL": 10
       },
-      "artifactsTotal": 326
+      "artifactsTotal": 296
     },
     {
       "id": "wild-033",
       "repo": "anthropics/anthropic-cookbook",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 6.2,
+      "scanSeconds": 4.9,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 60
+        "low": 48
       },
-      "findingsTotal": 60,
+      "findingsTotal": 48,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 32,
-        "potential": 28
+        "probable": 38,
+        "potential": 10
       },
-      "executionPaths": 108,
-      "crossFilePaths": 21,
+      "executionPaths": 91,
+      "crossFilePaths": 23,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
@@ -2391,221 +2360,221 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 42,
-          "confirmed": 9,
-          "probable": 33,
+          "total": 38,
+          "confirmed": 7,
+          "probable": 31,
           "potential": 0,
-          "crossFile": 2
+          "crossFile": 3
         },
         "Filesystem": {
-          "total": 15,
-          "confirmed": 6,
-          "probable": 9,
+          "total": 11,
+          "confirmed": 3,
+          "probable": 8,
           "potential": 0,
           "crossFile": 4
         },
         "Network": {
-          "total": 22,
-          "confirmed": 6,
-          "probable": 16,
+          "total": 18,
+          "confirmed": 3,
+          "probable": 15,
           "potential": 0,
           "crossFile": 6
         },
         "Secrets": {
-          "total": 38,
-          "confirmed": 6,
-          "probable": 32,
+          "total": 34,
+          "confirmed": 4,
+          "probable": 30,
           "potential": 0,
-          "crossFile": 4
+          "crossFile": 5
         },
         "External APIs": {
-          "total": 29,
-          "confirmed": 5,
-          "probable": 24,
+          "total": 18,
+          "confirmed": 1,
+          "probable": 17,
           "potential": 0,
           "crossFile": 5
         }
       },
       "artifactsByType": {
-        "AGENT_CONFIG": 31,
-        "SKILL": 10,
-        "TOOL": 8,
+        "AGENT_CONFIG": 32,
+        "SKILL": 11,
+        "TOOL": 7,
         "WORKFLOW": 9,
-        "PROMPT": 13,
-        "MEMORY": 2
+        "PROMPT": 12,
+        "MEMORY": 1
       },
-      "artifactsTotal": 73
+      "artifactsTotal": 72
     },
     {
       "id": "wild-034",
       "repo": "openai/openai-cookbook",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 5.2,
+      "scanSeconds": 7.2,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 42
+        "low": 8
       },
-      "findingsTotal": 42,
+      "findingsTotal": 8,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 2,
-        "potential": 40
+        "probable": 6,
+        "potential": 2
       },
-      "executionPaths": 87,
-      "crossFilePaths": 19,
+      "executionPaths": 19,
+      "crossFilePaths": 8,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
-        "Secrets",
-        "Network",
         "Filesystem",
+        "Network",
+        "Secrets",
         "External APIs"
       ],
       "actionStats": {
         "Shell": {
-          "total": 16,
-          "confirmed": 9,
-          "probable": 7,
+          "total": 8,
+          "confirmed": 5,
+          "probable": 3,
           "potential": 0,
           "crossFile": 4
         },
         "Filesystem": {
-          "total": 11,
-          "confirmed": 4,
-          "probable": 7,
+          "total": 2,
+          "confirmed": 2,
+          "probable": 0,
           "potential": 0,
           "crossFile": 1
         },
         "Network": {
-          "total": 11,
-          "confirmed": 11,
+          "total": 1,
+          "confirmed": 1,
           "probable": 0,
           "potential": 0,
-          "crossFile": 5
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 36,
-          "confirmed": 9,
-          "probable": 27,
+          "total": 8,
+          "confirmed": 3,
+          "probable": 5,
           "potential": 0,
-          "crossFile": 5
+          "crossFile": 3
         },
         "External APIs": {
-          "total": 28,
-          "confirmed": 13,
-          "probable": 15,
+          "total": 6,
+          "confirmed": 1,
+          "probable": 5,
           "potential": 0,
-          "crossFile": 5
+          "crossFile": 1
         }
       },
       "artifactsByType": {
-        "TOOL": 20,
+        "TOOL": 6,
         "WORKFLOW": 3,
         "AGENT_CONFIG": 4,
         "PROMPT": 7,
         "SKILL": 4
       },
-      "artifactsTotal": 38
+      "artifactsTotal": 24
     },
     {
       "id": "wild-035",
       "repo": "RooCodeInc/Roo-Code",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 36.8,
+      "scanSeconds": 27.8,
       "findingsBySeverity": {
         "critical": 0,
         "high": 1,
         "medium": 0,
-        "low": 59
+        "low": 39
       },
-      "findingsTotal": 60,
+      "findingsTotal": 40,
       "findingsByConfidence": {
         "confirmed": 18,
-        "probable": 14,
-        "potential": 28
+        "probable": 16,
+        "potential": 6
       },
-      "executionPaths": 118,
-      "crossFilePaths": 79,
+      "executionPaths": 102,
+      "crossFilePaths": 77,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
         "External APIs",
-        "Secrets",
         "Network",
+        "Secrets",
         "Filesystem"
       ],
       "actionStats": {
         "Shell": {
-          "total": 40,
-          "confirmed": 21,
-          "probable": 19,
+          "total": 36,
+          "confirmed": 24,
+          "probable": 12,
           "potential": 0,
-          "crossFile": 25
+          "crossFile": 27
         },
         "Filesystem": {
-          "total": 31,
-          "confirmed": 15,
-          "probable": 16,
+          "total": 40,
+          "confirmed": 23,
+          "probable": 17,
           "potential": 0,
-          "crossFile": 26
+          "crossFile": 27
         },
         "Network": {
-          "total": 10,
-          "confirmed": 10,
-          "probable": 0,
+          "total": 13,
+          "confirmed": 12,
+          "probable": 1,
           "potential": 0,
-          "crossFile": 10
+          "crossFile": 12
         },
         "Secrets": {
-          "total": 20,
-          "confirmed": 15,
-          "probable": 5,
+          "total": 10,
+          "confirmed": 9,
+          "probable": 1,
           "potential": 0,
-          "crossFile": 7
+          "crossFile": 9
         },
         "External APIs": {
-          "total": 28,
-          "confirmed": 21,
-          "probable": 7,
+          "total": 6,
+          "confirmed": 3,
+          "probable": 3,
           "potential": 0,
-          "crossFile": 11
+          "crossFile": 2
         }
       },
       "artifactsByType": {
         "ACTION": 2,
-        "WORKFLOW": 7,
+        "WORKFLOW": 6,
         "PROMPT": 267,
         "SKILL": 6,
         "AGENT_CONFIG": 1,
-        "TOOL": 97,
+        "TOOL": 92,
         "MCP_SERVER": 36
       },
-      "artifactsTotal": 416
+      "artifactsTotal": 410
     },
     {
       "id": "wild-036",
       "repo": "yamadashy/repomix",
       "category": "ai_project",
       "status": "ok",
-      "scanSeconds": 10.4,
+      "scanSeconds": 7.6,
       "findingsBySeverity": {
         "critical": 0,
         "high": 0,
         "medium": 1,
-        "low": 226
+        "low": 46
       },
-      "findingsTotal": 227,
+      "findingsTotal": 47,
       "findingsByConfidence": {
         "confirmed": 2,
-        "probable": 19,
-        "potential": 206
+        "probable": 42,
+        "potential": 3
       },
-      "executionPaths": 192,
-      "crossFilePaths": 21,
+      "executionPaths": 93,
+      "crossFilePaths": 18,
       "uniqueSensitiveActionTypes": 5,
       "sensitiveActionTypes": [
         "Shell",
@@ -2616,39 +2585,39 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 129,
+          "total": 41,
           "confirmed": 4,
-          "probable": 125,
+          "probable": 37,
           "potential": 0,
           "crossFile": 1
         },
         "Filesystem": {
-          "total": 23,
+          "total": 20,
           "confirmed": 15,
-          "probable": 8,
+          "probable": 5,
           "potential": 0,
           "crossFile": 8
         },
         "Network": {
-          "total": 8,
+          "total": 4,
           "confirmed": 1,
-          "probable": 7,
+          "probable": 3,
           "potential": 0,
-          "crossFile": 2
+          "crossFile": 0
         },
         "Secrets": {
-          "total": 80,
-          "confirmed": 17,
-          "probable": 63,
+          "total": 27,
+          "confirmed": 14,
+          "probable": 13,
           "potential": 0,
           "crossFile": 8
         },
         "External APIs": {
-          "total": 114,
-          "confirmed": 1,
-          "probable": 113,
+          "total": 28,
+          "confirmed": 0,
+          "probable": 28,
           "potential": 0,
-          "crossFile": 2
+          "crossFile": 1
         }
       },
       "artifactsByType": {
@@ -2657,11 +2626,11 @@
         "MCP_SERVER": 1,
         "ACTION": 1,
         "WORKFLOW": 19,
-        "MEMORY": 4,
-        "PROMPT": 5,
+        "MEMORY": 3,
+        "PROMPT": 4,
         "TOOL": 9
       },
-      "artifactsTotal": 77
+      "artifactsTotal": 75
     },
     {
       "id": "wild-037",
@@ -2673,15 +2642,15 @@
         "critical": 0,
         "high": 0,
         "medium": 0,
-        "low": 45
+        "low": 10
       },
-      "findingsTotal": 45,
+      "findingsTotal": 10,
       "findingsByConfidence": {
         "confirmed": 0,
-        "probable": 6,
-        "potential": 39
+        "probable": 10,
+        "potential": 0
       },
-      "executionPaths": 25,
+      "executionPaths": 6,
       "crossFilePaths": 0,
       "uniqueSensitiveActionTypes": 3,
       "sensitiveActionTypes": [
@@ -2691,9 +2660,9 @@
       ],
       "actionStats": {
         "Shell": {
-          "total": 17,
+          "total": 6,
           "confirmed": 1,
-          "probable": 16,
+          "probable": 5,
           "potential": 0,
           "crossFile": 0
         },
@@ -2712,16 +2681,16 @@
           "crossFile": 0
         },
         "Secrets": {
-          "total": 11,
-          "confirmed": 1,
-          "probable": 10,
+          "total": 1,
+          "confirmed": 0,
+          "probable": 1,
           "potential": 0,
           "crossFile": 0
         },
         "External APIs": {
-          "total": 9,
+          "total": 1,
           "confirmed": 0,
-          "probable": 9,
+          "probable": 1,
           "potential": 0,
           "crossFile": 0
         }
@@ -2729,12 +2698,12 @@
       "artifactsByType": {
         "AGENT_CONFIG": 12,
         "WORKFLOW": 13,
-        "ACTION": 2,
-        "PROMPT": 2,
+        "ACTION": 3,
+        "PROMPT": 3,
         "MCP_SERVER": 1,
         "TOOL": 1
       },
-      "artifactsTotal": 31
+      "artifactsTotal": 33
     }
   ]
 }
