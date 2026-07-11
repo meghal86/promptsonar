@@ -70,13 +70,12 @@ reinstalling).
 
 ## 3. Open decisions requiring YOUR judgment (not resolved here)
 
-- **D1 — MISSING Section 3 (System Design). HIGH.** The five drafts are Abstract+Intro
-  (§1), Related (§2), Methods (§4), Results (§5), Limitations (§6). **There is no
-  §3** — yet every cross-reference assumes Methods=4/Results=5/Limitations=6, i.e.
-  that §3 exists. A placeholder §3 is inserted to preserve numbering. You must author
-  the System Design section (artifact discovery/classification, reference-verified
-  edge construction, reachability, contextual verdict engine). `docs/papers/mcp-security-arxiv-draft.md`
-  may be adaptable. **This is the single largest content gap.**
+- **D1 — Section 3 (System Design). RESOLVED.** The author-supplied §3 draft was
+  **verified against the real source at the eval-ready commit `132c3c4`** and
+  integrated into the `.tex` (prose preserved verbatim; cross-refs resolved to the
+  existing labels). Verification results below (§8). Two minor items flagged for a
+  final source-check; one honesty clause added to §3.3. The §7 Conclusion was also
+  drafted (restates contributions vs delivered results); **author to revise.**
 - **D2 — "three" vs "four" rounds.** Table 4 shows 3 headline fix rounds (85→60);
   Methods §4.6 says "four audit rounds"; there were in fact 4 *fix* rounds (the 4th =
   the 65% P1/P2 round). I set the paper to: **three headline rounds (Table 4) + a
@@ -179,10 +178,11 @@ Source: AISec 2026 CFP (aisec.cc), verified July 2026.
 
 ## 7. What is NOT done / needs a human pass
 
-1. **§3 System Design** — author it (D1).
-2. **§7 Conclusion** — author it (placeholder present).
-3. **GenAI disclosure paragraph** — write it (G1).
-4. **Compile** with `acmart.cls` and check page count (Step 5).
+1. ~~§3 System Design~~ — **DONE** (verified + integrated, §8 below).
+2. ~~§7 Conclusion~~ — **DRAFTED** (author to revise).
+3. **GenAI disclosure paragraph** — write it (G1). **Highest-priority remaining gap.**
+4. **Compile** with `acmart.cls` and check page count (Step 5). With §3 + Conclusion
+   now in, the paper is at full content — page-count check is now the pressing item.
 5. **Tool-name anonymization** decision (A2).
 6. **Verify** `references.bib` `VERIFY` items; **verify** Snyk/Cisco/garak/LLMGuard/
    NeMo/Rebuff current capabilities if named specifically.
@@ -192,3 +192,29 @@ Source: AISec 2026 CFP (aisec.cc), verified July 2026.
    pushback).
 
 Nothing has been submitted. All changes are on branch `aisec2026-submission`.
+
+---
+
+## 8. Section 3 (System Design) — source verification
+
+Verified against `packages/core/src` at the eval-ready commit `132c3c4`.
+
+| §3 claim | Source check | Verdict |
+|---|---|---|
+| Artifact types (prompt/skill/MCP/agent-config/workflow/memory/tool) | `classifyFile` branches in `repository/analyzer.ts` | ✓ accurate |
+| High-confidence basenames (`.mcp.json`, CLAUDE/AGENTS.md, `.cursorrules`) | `ALWAYS_CLASSIFY_BASENAMES` | ✓ accurate |
+| Provenance = production/doc/test/fixture/example/generated; non-prod excluded from classification **and** security emission | `RepositoryProvenance`, `NON_PRODUCTION_PROVENANCE`, discovery gate | ✓ accurate |
+| "blanket markdown-is-docs" replaced by location signal | `isProseFile` removed; "detected by LOCATION" | ✓ accurate |
+| §3.1.1 upgrade-guide (`tool_dispatcher`/`default_tools`) → TOOL → Confirmed sinks | real audit finding | ✓ accurate |
+| Edge rule: import/link→Confirmed, named MCP server→Probable, no co-location | `buildRepositoryExecutionMap` (2 producers, scores 80 `direct` / 70 `connected`) | ✓ accurate (draft's 3 conditions correctly collapse to 2 producers) |
+| Potential-tier paths measure zero | regenerated data: 685 confirmed / 986 probable / **0 potential** action-paths | ✓ **verified** |
+| 2,923 → 520 cross-file | regenerated | ✓ |
+| Sink tightening: no bare `token`, call-idiom for network/API | `detectSensitiveActions` (comment cites `cancellation_token`/`max_tokens`) | ✓ for the artifact-content classifier |
+| — same, for the **workflow finding-inference** path | `CREDENTIAL_PATTERNS` still matches bare `token` at `132c3c4` (tightened only in the 4th round) | ⚠️ **added a one-clause pointer to §5.4** — this is the "keyword misattribution" residual; §3 and §5.4 are now consistent |
+| `auto_approve` raises composite severity, distinct from standalone finding | `mcp/auditor.ts` detects `auto_approve`/`autoApprove` → autoExecute evidence | ✓ mechanism confirmed; the "**distinct standalone finding**" sub-claim is plausible but **confirm** the standalone finding exists separately |
+| §3.2 completeness funnel: inventoried/selected/fetched/parsed/analyzed/graph-connected | `closure.ts` has selected/fetched/analyzed; discovery-first priority ranking confirmed (`discovery.ts` `initialPriority`/`CATEGORY_RANK`) | ✓ concept accurate; **confirm the exact 6 stage-field names** if you cite them precisely |
+| §3.5 no LLM calls | confirmed | ✓ |
+
+**Net:** §3 is substantially accurate at the headline commit. The only substantive
+correction was the sink-tightening completeness clause (now added); the two ⚠️ items
+are precision checks, not errors.

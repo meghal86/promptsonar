@@ -91,18 +91,60 @@ However, these tools have no model of AI-specific artifacts: a \texttt{SKILL.md}
 
 \section{System Design}
 \label{sec:design}
-%% ======================================================================
-%% GAP: The five provided drafts are Abstract+Intro (1), Related Work (2),
-%% Methods (4), Results (5), Limitations (6). NO Section 3 (the technique /
-%% system design) was provided, yet every cross-reference in the drafts
-%% assumes Methods=4/Results=5/Limitations=6, i.e. that Section 3 exists.
-%% This placeholder preserves the numbering. The author must supply the
-%% System Design section (artifact classification, reference-graph
-%% construction, reachability/edge gating, contextual verdict engine),
-%% likely adaptable from docs/papers/mcp-security-arxiv-draft.md.
-%% See summary doc, open decision D1 (highest-priority content gap).
-%% ======================================================================
-\emph{[Section~3 (System Design) is not among the supplied drafts and must be authored: artifact discovery/classification, the reference-verified edge-construction rule, reachability computation, and the contextual verdict/severity engine. Placed here to preserve the cross-reference numbering the other sections assume.]}
+%% Verified against source at the evaluated commit (see AISEC-INTEGRATION-SUMMARY.md,
+%% Section "System Design verification"). Load-bearing claims (edge-construction
+%% rule, provenance gate, upgrade-guide example, Potential-tier = 0, sink-pattern
+%% tightening, auto_approve severity) confirmed accurate. Two minor items flagged
+%% for a final author source-check: the exact 6-stage completeness-funnel field
+%% names (3.2) and the "distinct standalone finding" sub-claim (3.4).
+\sysname{} operates in four stages: artifact discovery and classification, repository closure, reference-verified execution-graph construction, and contextual severity assessment. We describe each in turn, emphasizing the design decisions that were revised during development in response to the false-positive audit (Section~\ref{sec:audit}) --- several of the mechanisms described here exist specifically because an earlier, simpler version produced unreliable results.
+
+\subsection{Artifact discovery and classification}
+\label{sec:classify}
+\sysname{} begins with a full inventory of the target repository: every file is enumerated and assigned a provisional artifact type based on filename, location, and content signals. Recognized artifact types include prompts and system instructions, agent skill definitions (e.g., \texttt{SKILL.md}), MCP server configurations, agent instruction files (e.g., \texttt{AGENTS.md}, \texttt{CLAUDE.md}), workflow definitions (e.g., CI/CD pipelines), memory/session-state configurations, and tool implementations.
+
+Classification is not purely filename-based. A file is classified by a combination of location conventions (e.g., a top-level or nested \texttt{memory/} directory), content markers (e.g., a prompt-like keyword density), and explicit filename recognition for a fixed set of high-confidence artifacts (\texttt{.mcp.json}, \texttt{CLAUDE.md}, \texttt{AGENTS.md}, \texttt{.cursorrules}).
+
+\paragraph{Production-vs-reference provenance.} A separate classification pass determines whether a file, regardless of its artifact type, represents production content or reference content --- documentation, examples, tests, and fixtures. This provenance signal is derived from directory conventions (\texttt{docs/}, \texttt{test/}, \texttt{\_\_tests\_\_/}, \texttt{examples/}, common documentation-site path segments), filename patterns (\texttt{*.test.*}, \texttt{*.spec.*}, \texttt{README.md}), and, for markdown content specifically, a combination of location and content signals rather than a blanket rule (an early blanket ``all markdown is documentation'' rule was found during development to misclassify legitimate prompt artifacts written in markdown, and was replaced with the narrower location-based signal described here). Files classified as reference content are excluded from executable-artifact classification and from security-finding emission entirely, rather than being emitted with a downgraded severity --- an earlier design emitted such findings at reduced severity, which the audit (Section~\ref{sec:audit}) found still produced misleading ``Confirmed''-tier results when a documentation file was structurally similar to an executor (Section~\ref{sec:classify-example}).
+
+\subsubsection{A worked failure case}
+\label{sec:classify-example}
+During development, a documentation file (an upgrade guide whose prose repeatedly mentioned \texttt{tool\_dispatcher} and \texttt{default\_tools}) was classified as a \textsc{tool} artifact on the basis of these content signals, and subsequently produced ``Confirmed'' severity findings for shell, filesystem, and network sinks --- despite containing no executable code. This is representative of the class of error that motivated moving provenance classification earlier in the pipeline (as a gate on artifact-type classification itself, not merely on finding severity) and is discussed further as a limitation in Section~\ref{sec:scope-limits}.
+
+\subsection{Repository closure}
+\label{sec:closure}
+Rather than analyzing files in the order they are enumerated (which risks truncating analysis of large repositories before AI-relevant files are reached, particularly when those files sort late alphabetically), \sysname{} performs discovery-first, priority-ranked selection: after the full inventory, files are ranked by AI-relevance (recognized artifact types first) rather than enumeration order, and this ranked set --- not a fixed-position prefix of the file listing --- forms the initial acquisition set under a configurable file budget.
+
+From this seed set, closure expands outward by following references discovered during content analysis: a prompt that names a tool, a config that declares a server, an import statement --- up to a bounded traversal depth. This expansion is strictly downstream: a file is acquired because something already in the analysis set references it, not because it references something in the analysis set. We identify this directionality as a limitation (Section~\ref{sec:scope-limits}) --- an entry-point file that is never itself referenced by another artifact (e.g., a top-level orchestrator) may remain in the ``inventoried'' state without being analyzed or contributing outbound edges, even though it is the true origin of an execution path that closure otherwise reconstructs correctly from its downstream hops.
+
+Closure tracks and reports a completeness funnel (inventoried, selected, fetched, parsed, analyzed, and graph-connected file counts) so that a scan's coverage --- and specifically, whether all repository references were successfully resolved --- is an explicit, inspectable output rather than an implicit assumption.
+
+\subsection{Reference-verified execution-graph construction}
+\label{sec:graph}
+The execution graph is the core data structure underlying \sysname{}'s central claim: a directed graph whose nodes are classified artifacts (or, at the terminal end of a path, one of five abstract sensitive-action categories --- shell execution, filesystem access, network access, secret/credential access, and external API access) and whose edges represent a demonstrated relationship between artifacts.
+
+\textbf{The edge-construction rule is the paper's key technical decision, and it was substantially revised mid-development in response to audit findings.} An initial implementation constructed a cross-file edge whenever two artifacts shared a capability-relevant keyword --- for example, a prompt mentioning ``shell'' and any MCP server in the repository exposing shell capability, regardless of whether the prompt referenced that server by name. A source-verified audit (Section~\ref{sec:audit}) found this produced an 85\% false-positive rate on a stratified sample, with essentially all inferred cross-file paths connecting artifacts that shared vocabulary but had no actual reference relationship --- including, in the most severe cases, edges between files in different programming languages with no possible import relationship.
+
+We replaced capability-word co-location with a strictly reference-gated rule: an edge between two artifacts is constructed only if one of the following holds:
+\begin{enumerate}
+\item A resolved import, require, or include statement in the source artifact that points to the target artifact's file path.
+\item An explicit configuration key (e.g., an \texttt{mcpServers} entry) whose declared name is referenced by name in the source artifact's content --- not merely present in the same repository.
+\item An explicit file-path reference (a string literal matching the target's relative or absolute path) or a resolvable markdown link.
+\end{enumerate}
+Edges constructed via (1) or (3) are assigned Confirmed confidence; edges constructed via (2) --- a named reference to a declared server or tool, which is a real reference but does not guarantee the referenced code path is actually invoked at runtime --- are assigned Probable confidence. No edge is constructed on keyword co-location alone; the confidence tier formerly used for such inferences (Potential) is, after this change, populated only by weaker-but-still-reference-based signals, and in practice measures zero on real-world co-location-only patterns (Section~\ref{sec:crossfile}).
+
+This single change reduced total cross-file paths in our wild corpus from an inflated 2{,}923 to a reference-verified 520 (Section~\ref{sec:crossfile}) and eliminated capability-word co-location as a false-positive cause entirely in subsequent audit rounds (Section~\ref{sec:audit}) --- though, as that section documents, it also revealed a second-order false-positive class (documentation and test content being classified as executable artifacts in the first place, Section~\ref{sec:classify}) that the edge-construction fix alone did not address, since a false edge and a false node are distinct failure modes requiring separate fixes.
+
+\paragraph{Sink classification.} A path's terminal sensitive-action classification (which of the five action categories a reachable node exposes) is determined by matching the artifact's declared capabilities or code content against category-specific patterns. This matching was also tightened during development after the audit found it initially fired on bare keyword presence --- for example, the substring ``token'' matching variable names such as \texttt{cancellation\_token} or \texttt{max\_tokens} and mislabeling them as credential-secret sinks. The revised classification requires a credential-shaped identifier pattern (e.g., \texttt{api\_key}, \texttt{access\_token}, \texttt{auth\_token} as a full identifier, not a substring) for secret-sink classification, and requires an actual outbound-call idiom (an HTTP client invocation, not merely a URL string or an \texttt{api.}-prefixed property access) for network/external-API sink classification. This tightening was applied to the artifact-content sink classifier at the evaluated commit; a parallel finding-derived inference path retained looser identifier matching, which is the keyword-misattribution residual reported in the audit (Section~\ref{sec:audit}).
+
+\subsection{Contextual verdict engine}
+\label{sec:verdict}
+A raw finding's default severity is adjusted based on the control context in which the underlying capability appears. The clearest example in our evaluation is MCP server configuration: a declared shell-execution capability is assigned a higher composite severity when the same configuration also declares \texttt{auto\_approve: true} for that capability (indicating the capability can execute without human review) than when \texttt{auto\_approve} is absent or \texttt{false} (Section~\ref{sec:controlled-eval}, controlled corpus). This composite severity signal is distinct from --- and layered on top of --- a standalone finding for the auto-approval setting itself, so that the approval state and the underlying capability are both independently visible in a report, not merged into a single opaque severity number.
+
+This mechanism currently operates on control signals present within a single artifact. We identify the extension to cross-artifact control state --- for instance, a sibling approval-policy document that should downgrade severity for a skill it governs --- as unimplemented scope, discussed in Section~\ref{sec:scope-limits}; the underlying severity-adjustment machinery supports this extension, but the classification and control-state-propagation logic needed to populate it from a separate file does not yet exist.
+
+\subsection{Determinism}
+\sysname{} performs no model inference calls during scanning; all artifact classification, edge construction, and sink/severity assessment are pattern- and reference-based. We verify this design goal directly: repeated scans of an identical repository state produce byte-identical output once run-scoped metadata (a report identifier and timestamp fields, which are expected to vary between invocations and are not analysis output) is excluded from comparison (Section~\ref{sec:determinism}).
 
 \section{Methods}
 \label{sec:methods}
@@ -227,8 +269,12 @@ The residual 60\% false-positive rate (Section~\ref{sec:audit}) decomposes into 
 
 \section{Conclusion}
 \label{sec:conclusion}
-%% Not among the supplied drafts; brief placeholder to be authored.
-\emph{[Conclusion to be authored: restate the cross-file capability contribution and the audit-as-methodology contribution, and the path from a 60\% audited FP rate toward production-usable precision.]}
+%% Drafted by integration pass after §3 was verified/locked; author to revise.
+Static analysis for AI-agent software is converging on artifact-level granularity, which is structurally blind to the risk that only exists across artifact boundaries: whether an instruction in one file can actually reach a privileged capability declared in another. We presented \sysname{}, a deterministic, LLM-free analyzer that answers this question by constructing a reference-verified execution-path graph over prompts, skills, MCP configurations, workflows, and tool implementations. On a 37-repository wild corpus, it reconstructed 520 reference-verified cross-file execution paths, surfacing connective risk in 17 repositories where a representative artifact-level baseline --- which detects zero cross-file paths by construction --- found nothing linking a prompt's intent to a tool's capability (Section~\ref{sec:crossfile}). This capability gap is structural, not an implementation detail a future single-artifact release could close.
+
+Our second contribution is methodological, and we regard it as no less important than the first. We reported a source-verified false-positive audit rather than an unaudited prevalence claim, and disclosed --- rather than suppressed --- that our own early cross-file numbers were 85\% false-positive under manual audit. Three root-cause fixes reduced that rate to a still-substantial 60\% while nearly quadrupling true positives in the same sample, and we report the complete residual error taxonomy (Section~\ref{sec:audit}). We argue this kind of disclosure should be the norm, not the exception, in a nascent tool category where unverified precision claims are currently common.
+
+\sysname{} is not yet accurate enough for unsupervised production alerting: a 60\% false-positive rate demands human review of Probable- and Potential-tier findings. But its residual errors are now a long tail of small, independently-fixable causes rather than one dominant structural failure (Section~\ref{sec:precision}), and its distinguishing capability --- cross-file reachability --- is one no amount of within-file tuning can add to an artifact-isolated tool. We see the most valuable near-term work as closing the discovery- and parser-layer gaps that dominate the remaining false positives, and extending contextual control-state propagation across artifacts (Section~\ref{sec:scope-limits}), toward a precision level that would make cross-file execution-path analysis a routine part of pre-deployment review for AI-agent systems.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}
