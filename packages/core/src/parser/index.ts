@@ -178,6 +178,25 @@ function containsPromptKeyword(text: string): boolean {
     return false;
 }
 
+// True when the string node is a docstring — a bare string expression that is
+// the FIRST statement of a module, class, or function body (Python; also covers
+// a leading bare-string expression in JS/TS). Such strings are documentation,
+// not prompts/instructions, so they must not be scanned as AI instruction text.
+// An assigned prompt string (SYSTEM_PROMPT = """…""") is NOT a docstring: its
+// parent is an assignment, not a bare expression_statement.
+function isDocstringNode(node: any): boolean {
+    try {
+        const stmt = node.parent;
+        if (!stmt || stmt.type !== 'expression_statement') return false;
+        const body = stmt.parent;
+        if (!body || (body.type !== 'module' && body.type !== 'block' && body.type !== 'program' && body.type !== 'statement_block')) return false;
+        const first = body.firstNamedChild;
+        return Boolean(first) && first.startIndex === stmt.startIndex && first.endIndex === stmt.endIndex;
+    } catch {
+        return false;
+    }
+}
+
 // Strip a string literal down to its body: remove Python/JS string prefixes
 // (f, r, b, u, rb, fr, ...) and the surrounding quotes so f-string and raw
 // string bodies are scanned like any other prompt text.
@@ -392,6 +411,11 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
                         };
 
                         if (capture.name.includes("prompt.string") && containsPromptKeyword(capture.node.text)) {
+                            // A docstring (a bare string that is the first statement of a
+                            // module/class/function body) is API documentation, not an
+                            // instruction — do not extract it as a prompt, so security rules
+                            // don't fire on prose like "…Args: api_key…" or "the bash tool".
+                            if (isDocstringNode(capture.node)) continue;
                             results.push({ ...nodeInfo, text: stripStringLiteral(capture.node.text), sourceType: "string_literal" });
                         } else if (capture.name.includes("prompt.named_string")) {
                             // A string explicitly assigned to a prompt variable

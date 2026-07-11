@@ -4,6 +4,8 @@ import * as path from 'path';
 import { detectSensitiveActions } from '../src/repository/analyzer';
 import { checkWorkflowEscalation } from '../src/rules/security/workflow_escalation';
 import { scanContentForSecrets } from '../src/rules/security/pii';
+import { parseFile } from '../src/parser';
+import { inferWorkflowForFinding } from '../src/workflow';
 
 // Regression for two precision false-positive classes found in the wild-corpus
 // re-audit after the discovery-layer fix:
@@ -72,5 +74,31 @@ describe('precision regression (docstring/comment gating + sink-label attributio
 
     it('STILL labels a real fetch() call as an External API sink', () => {
         expect(detectSensitiveActions(read('real-network-call-still-fires.ts'))).toContain('External APIs');
+    });
+
+    // Priority 2 — a docstring is not extracted as a scannable prompt
+    it('does not extract a class docstring as a prompt (but keeps an assigned prompt)', async () => {
+        const content = read('docstring-not-prompt.py');
+        const prompts = await parseFile({ filePath: path.join(DIR, 'docstring-not-prompt.py'), language: 'python', content });
+        const texts = prompts.map(p => p.text);
+        // The class docstring ("Chat completion client … api_key … bash tool") is
+        // documentation and must not become a prompt the security rules scan.
+        expect(texts.some(t => /Chat completion client/.test(t))).toBe(false);
+        // The genuinely-assigned SYSTEM_PROMPT string is still extracted.
+        expect(texts.some(t => /helpful assistant/.test(t))).toBe(true);
+    });
+
+    // Priority 1 — sink inference must not credit a control token as a credential
+    it('does not infer a credential_store sink from a control token in content', () => {
+        const wf = inferWorkflowForFinding({
+            ruleId: 'sec_unbounded_persona',
+            severity: 'medium',
+            text: 'You are a bounded persona assistant.',
+            content: 'def add(self, content, cancellation_token: CancellationToken | None = None): ...',
+            filePath: 'x.py', line: 1, column: 1, message: 'persona',
+        });
+        const nodeTypes = (wf?.path?.nodes || []).map((n: any) => n.type);
+        expect(nodeTypes).not.toContain('credential_store');
+        expect(nodeTypes).not.toContain('secret');
     });
 });

@@ -323,7 +323,9 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
                 workflow: finding.workflow || inferWorkflowForFinding({
                     ruleId: finding.rule_id,
                     severity: finding.severity,
-                    text: `${finding.message}\n${finding.fix}`,
+                    // Remediation `fix` text ("rotate credentials", "move secrets to
+                    // env") must not drive sink inference — use the finding message only.
+                    text: finding.message,
                     content,
                     filePath: absolutePath,
                     line: finding.line || 1,

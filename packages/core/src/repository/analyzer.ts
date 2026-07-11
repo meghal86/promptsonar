@@ -1078,7 +1078,10 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
                 if (workflowNode.type === 'external_api') actions.add('External APIs');
             }
             if (related && !['PROMPT', 'SKILL', 'AGENT_CONFIG'].includes(related.type)) {
-                detectSensitiveActions(`${finding.message || ''}\n${finding.evidence || ''}\n${finding.fix || ''}`).forEach(action => actions.add(action));
+                // Derive sink actions from the actual matched evidence, NOT the
+                // remediation `fix` text (generic advice like "rotate credentials"
+                // or "move secrets to env" would otherwise mislabel the sink).
+                detectSensitiveActions(`${finding.evidence || ''}\n${finding.message || ''}`).forEach(action => actions.add(action));
             }
         }
         if (!sourceNode) {
