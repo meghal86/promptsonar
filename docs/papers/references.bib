@@ -1,16 +1,20 @@
 %% References for the AISec 2026 submission.
-%% NOTE (see summary doc, open item C1): entries below are assembled from tool
-%% repositories/docs and known publications. Exact arXiv IDs / DOIs / venues
-%% marked "VERIFY" must be confirmed against the primary source before
-%% submission -- they are intentionally NOT invented here. Access dates are
-%% July 2026.
+%% garak (arXiv:2406.11036), NeMo Guardrails (ACL 2023.emnlp-demo.40, DOI
+%% 10.18653/v1/2023.emnlp-demo.40), and Liu et al. (arXiv:2601.10338) are
+%% CONFIRMED from primary listings (arXiv / ACL Anthology). garak author order
+%% and full given names should get a final eyeball on the arXiv page (direct
+%% render was proxy-blocked). Remaining @misc repo entries (llmguard, rebuff,
+%% skillspector tool, mcpscan, semgrep) are cited as repositories; access
+%% dates July 2026.
 
-@misc{garak,
-  author       = {{Derczynski, Leon and others}},
-  title        = {{garak: A Framework for Security Probing Large Language Models}},
-  year         = {2024},
-  howpublished = {\url{https://github.com/NVIDIA/garak}},
-  note         = {Accessed July 2026. Associated arXiv preprint exists -- VERIFY identifier.}
+@article{garak,
+  author        = {Derczynski, Leon and Galinkin, Erick and Martin, Jeffrey and Majumdar, S. and Inie, Nanna},
+  title         = {{garak}: A Framework for Security Probing Large Language Models},
+  year          = {2024},
+  eprint        = {2406.11036},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2406.11036},
+  note          = {arXiv:2406.11036 (confirmed from the arXiv listing). Author order/full given names to be confirmed on the arXiv page -- direct render was proxy-blocked during verification.}
 }
 
 @misc{llmguard,
@@ -21,12 +25,17 @@
   note         = {Accessed July 2026.}
 }
 
-@misc{nemoguardrails,
-  author       = {{Rebedea, Traian and others}},
-  title        = {{NeMo Guardrails: A Toolkit for Controllable and Safe LLM Applications with Programmable Rails}},
-  year         = {2023},
-  howpublished = {\url{https://github.com/NVIDIA/NeMo-Guardrails}},
-  note         = {Accessed July 2026. Published at EMNLP 2023 (System Demonstrations) -- VERIFY exact citation/DOI.}
+@inproceedings{nemoguardrails,
+  author    = {Rebedea, Traian and Dinu, Razvan and Sreedhar, Makesh Narsimhan and Parisien, Christopher and Cohen, Jonathan},
+  title     = {{NeMo Guardrails}: A Toolkit for Controllable and Safe {LLM} Applications with Programmable Rails},
+  booktitle = {Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing: System Demonstrations},
+  year      = {2023},
+  month     = dec,
+  address   = {Singapore},
+  publisher = {Association for Computational Linguistics},
+  pages     = {431--445},
+  doi       = {10.18653/v1/2023.emnlp-demo.40},
+  url       = {https://aclanthology.org/2023.emnlp-demo.40}
 }
 
 @misc{rebuff,
@@ -39,10 +48,20 @@
 
 @misc{skillspector,
   author       = {{NVIDIA}},
-  title        = {{SkillSpector: Security Scanner for AI Agent Skills}},
+  title        = {{SkillSpector}: Security Scanner for {AI} Agent Skills},
   year         = {2026},
   howpublished = {\url{https://github.com/NVIDIA/SkillSpector}},
-  note         = {Accessed July 2026. Version pinned in the evaluation artifact. Associated study: Liu et al., ``Agent Skills in the Wild: An Empirical Study of Security Vulnerabilities at Scale,'' 2026 -- VERIFY exact citation.}
+  note         = {Accessed July 2026; version pinned in the evaluation artifact. Cited as the tool (repository); there is no standalone SkillSpector tool paper. All SkillSpector capability claims in this paper are sourced to this repository/README, not to the separate SkillScan framework of the related study Liu et al.}
+}
+
+@article{liuskills2026,
+  author        = {Liu, Yi and Wang, Weizhe and Feng, Ruitao and Zhang, Yao and Xu, Guangquan and Deng, Gelei and Li, Yuekang and Zhang, Leo},
+  title         = {Agent Skills in the Wild: An Empirical Study of Security Vulnerabilities at Scale},
+  year          = {2026},
+  eprint        = {2601.10338},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2601.10338},
+  note          = {arXiv:2601.10338 (confirmed from the arXiv listing). Related empirical study of agent-skill security; uses its own detection framework, SkillScan, which is distinct from the SkillSpector tool. No peer-reviewed venue/DOI found as of July 2026.}
 }
 
 @misc{mcpscan,
