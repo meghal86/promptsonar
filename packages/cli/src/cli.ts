@@ -936,6 +936,18 @@ program
                 process.exit(1);
             }
 
+            // When a directory was passed (or discovery ran) and no MCP config
+            // was found, show a friendly message for the human-readable format
+            // instead of an empty report. JSON/SARIF stay machine-readable.
+            if (results.length === 0 && selectedFormat === 'terminal') {
+                const scannedDir = targetPath && fs.existsSync(path.resolve(targetPath))
+                    && fs.statSync(path.resolve(targetPath)).isDirectory();
+                console.log(chalk.yellow(scannedDir
+                    ? `[PromptSonar] No MCP config files (claude_desktop_config.json, .cursor/mcp.json, mcp.json) found under "${targetPath}".`
+                    : `[PromptSonar] No MCP config files found. Pass a path to a config file or a directory that contains one.`));
+                process.exit(0);
+            }
+
             const output = selectedFormat === 'sarif'
                 ? formatMcpSarif(results)
                 : selectedFormat === 'json'

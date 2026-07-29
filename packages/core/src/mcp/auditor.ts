@@ -929,21 +929,52 @@ export function auditMcpConfig(filePath: string, content: string): McpAuditResul
     });
 }
 
+// Conventional project-local locations for an MCP config, relative to a
+// directory root. Shared by the global discovery pass and the directory-scan
+// path so both stay in sync.
+const PROJECT_MCP_CONFIG_RELATIVE_PATHS = [
+    'claude_desktop_config.json',
+    path.join('.cursor', 'mcp.json'),
+    'mcp.json',
+];
+
 export function discoverMcpConfigPaths(cwd = process.cwd()): string[] {
     const candidates = [
         path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'),
         path.join(os.homedir(), '.config', 'claude', 'claude_desktop_config.json'),
         process.env.APPDATA ? path.join(process.env.APPDATA, 'Claude', 'claude_desktop_config.json') : '',
-        path.join(cwd, 'claude_desktop_config.json'),
-        path.join(cwd, '.cursor', 'mcp.json'),
-        path.join(cwd, 'mcp.json'),
+        ...PROJECT_MCP_CONFIG_RELATIVE_PATHS.map(rel => path.join(cwd, rel)),
     ].filter(Boolean);
 
     return Array.from(new Set(candidates)).filter(candidate => fs.existsSync(candidate));
 }
 
+// Scan a directory for MCP config files at the conventional project-local
+// locations. Used when `audit-mcp` is pointed at a directory rather than a
+// specific config file, so a directory argument scans instead of crashing with
+// EISDIR when the directory is passed straight to readFileSync.
+export function discoverMcpConfigPathsInDir(dir: string): string[] {
+    return PROJECT_MCP_CONFIG_RELATIVE_PATHS
+        .map(rel => path.join(dir, rel))
+        .filter(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
+}
+
 export function auditDiscoveredMcpConfigs(targetPath?: string, cwd = process.cwd()): McpAuditResult[] {
-    const paths = targetPath ? [path.resolve(targetPath)] : discoverMcpConfigPaths(cwd);
+    let paths: string[];
+    if (targetPath) {
+        const resolved = path.resolve(targetPath);
+        if (!fs.existsSync(resolved)) {
+            throw new Error(`path not found: ${resolved}`);
+        }
+        // A directory argument must be scanned for config files, not read as a
+        // file (which throws EISDIR). An empty result here means "no MCP
+        // configs under this directory" and surfaces as a friendly message.
+        paths = fs.statSync(resolved).isDirectory()
+            ? discoverMcpConfigPathsInDir(resolved)
+            : [resolved];
+    } else {
+        paths = discoverMcpConfigPaths(cwd);
+    }
     return paths.map(filePath => {
         const content = fs.readFileSync(filePath, 'utf-8');
         return auditMcpConfig(filePath, content);
