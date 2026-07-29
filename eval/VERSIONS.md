@@ -4,13 +4,13 @@ Pinned versions for the AISec 2026 PromptSonar evaluation. The pipeline is
 deterministic and makes **zero LLM calls** in PromptSonar; the only optional
 LLM path (SkillSpector +LLM) was intentionally **not run** (see CONSTRAINTS).
 
-Generated: 2026-06-30 (UTC)
+Generated: 2026-06-30 (UTC); wild-corpus results regenerated 2026-07-11 at the eval-ready commit on git-cloned (depth-1) snapshots
 
 ## Core
 | Component | Version / ref |
 |---|---|
 | Node.js | v22.22.2 |
-| PromptSonar (this repo) | commit `edd87e9` (`edd87e9ac87b1ef93e76acb68cf63261eddad33b`) |
+| PromptSonar (this repo) | commit `132c3c4` (`132c3c4a1109c8e44b3970d2cf65c0a965ff70b5`) — eval-ready (60% audited FP round) |
 | PromptSonar CLI | 1.4.3 |
 | ts-node | 10.9.2 |
 | vitest | 4.1.7 |

@@ -1,0 +1,81 @@
+%% References for the AISec 2026 submission.
+%% garak (arXiv:2406.11036), NeMo Guardrails (ACL 2023.emnlp-demo.40, DOI
+%% 10.18653/v1/2023.emnlp-demo.40), and Liu et al. (arXiv:2601.10338) are
+%% CONFIRMED from primary listings (arXiv / ACL Anthology). garak author order
+%% and full given names should get a final eyeball on the arXiv page (direct
+%% render was proxy-blocked). Remaining @misc repo entries (llmguard, rebuff,
+%% skillspector tool, mcpscan, semgrep) are cited as repositories; access
+%% dates July 2026.
+
+@article{garak,
+  author        = {Derczynski, Leon and Galinkin, Erick and Martin, Jeffrey and Majumdar, S. and Inie, Nanna},
+  title         = {{garak}: A Framework for Security Probing Large Language Models},
+  year          = {2024},
+  eprint        = {2406.11036},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2406.11036},
+  note          = {arXiv:2406.11036 (confirmed from the arXiv listing). Author order/full given names to be confirmed on the arXiv page -- direct render was proxy-blocked during verification.}
+}
+
+@misc{llmguard,
+  author       = {{Protect AI}},
+  title        = {{LLM Guard: The Security Toolkit for LLM Interactions}},
+  year         = {2024},
+  howpublished = {\url{https://github.com/protectai/llm-guard}},
+  note         = {Accessed July 2026.}
+}
+
+@inproceedings{nemoguardrails,
+  author    = {Rebedea, Traian and Dinu, Razvan and Sreedhar, Makesh Narsimhan and Parisien, Christopher and Cohen, Jonathan},
+  title     = {{NeMo Guardrails}: A Toolkit for Controllable and Safe {LLM} Applications with Programmable Rails},
+  booktitle = {Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing: System Demonstrations},
+  year      = {2023},
+  month     = dec,
+  address   = {Singapore},
+  publisher = {Association for Computational Linguistics},
+  pages     = {431--445},
+  doi       = {10.18653/v1/2023.emnlp-demo.40},
+  url       = {https://aclanthology.org/2023.emnlp-demo.40}
+}
+
+@misc{rebuff,
+  author       = {{Protect AI}},
+  title        = {{Rebuff: A Self-Hardening Prompt Injection Detector}},
+  year         = {2023},
+  howpublished = {\url{https://github.com/protectai/rebuff}},
+  note         = {Accessed July 2026.}
+}
+
+@misc{skillspector,
+  author       = {{NVIDIA}},
+  title        = {{SkillSpector}: Security Scanner for {AI} Agent Skills},
+  year         = {2026},
+  howpublished = {\url{https://github.com/NVIDIA/SkillSpector}},
+  note         = {Accessed July 2026; version pinned in the evaluation artifact. Cited as the tool (repository); there is no standalone SkillSpector tool paper. All SkillSpector capability claims in this paper are sourced to this repository/README, not to the separate SkillScan framework of the related study Liu et al.}
+}
+
+@article{liuskills2026,
+  author        = {Liu, Yi and Wang, Weizhe and Feng, Ruitao and Zhang, Yao and Xu, Guangquan and Deng, Gelei and Li, Yuekang and Zhang, Leo},
+  title         = {Agent Skills in the Wild: An Empirical Study of Security Vulnerabilities at Scale},
+  year          = {2026},
+  eprint        = {2601.10338},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2601.10338},
+  note          = {arXiv:2601.10338 (confirmed from the arXiv listing). Related empirical study of agent-skill security; uses its own detection framework, SkillScan, which is distinct from the SkillSpector tool. No peer-reviewed venue/DOI found as of July 2026.}
+}
+
+@misc{mcpscan,
+  author       = {{Invariant Labs}},
+  title        = {{MCP-Scan: A Security Scanner for Model Context Protocol Installations}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/invariantlabs-ai/mcp-scan}},
+  note         = {Accessed July 2026. Detects tool poisoning, rug pulls, and cross-server (cross-origin) tool-shadowing.}
+}
+
+@misc{semgrep,
+  author       = {{Semgrep, Inc.}},
+  title        = {{Semgrep: Lightweight Static Analysis for Many Languages}},
+  year         = {2024},
+  howpublished = {\url{https://github.com/semgrep/semgrep}},
+  note         = {Accessed July 2026.}
+}

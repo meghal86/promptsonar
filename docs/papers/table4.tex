@@ -1,0 +1,19 @@
+\begin{table}[t]\centering\caption{Cross-file detection gap. \sysname{} reconstructs reference-verified cross-file execution paths; the per-file baseline has no cross-file execution-path model and detects zero on every repository. Top 10 repositories by cross-file path count shown.}\label{tab:crossfile}
+\begin{tabular}{lrr}\toprule
+Repository & \sysname{} & Baseline \\\midrule
+\texttt{langchain-ai/langchainjs} & 97 & 0 \\
+\texttt{upstash/context7} & 94 & 0 \\
+\texttt{cline/cline} & 90 & 0 \\
+\texttt{RooCodeInc/Roo-Code} & 77 & 0 \\
+\texttt{block/goose} & 50 & 0 \\
+\texttt{anthropics/anthropic-cookbook} & 23 & 0 \\
+\texttt{pydantic/pydantic-ai} & 18 & 0 \\
+\texttt{yamadashy/repomix} & 18 & 0 \\
+\texttt{Aider-AI/aider} & 12 & 0 \\
+\texttt{openai/openai-agents-python} & 10 & 0 \\
+\midrule
+\textbf{Total (37 repos)} & \textbf{520} & \textbf{0} \\
+\textbf{Repos with $\geq$1 cross-file path} & \textbf{17 / 37} & \textbf{0} \\
+\bottomrule\end{tabular}
+\\[2pt]\footnotesize The baseline scans per-file/per-skill and has no cross-file execution-path model; all \sysname{} cross-file paths are out of its detection scope. Compared on 37/37 repos (0 timeouts under AI-artifact scoping).
+\end{table}
