@@ -16,6 +16,12 @@ export interface Finding {
     evidenceKind?: FindingEvidenceKind;
     scopeLabel?: string;
     missingRequirement?: string;
+    // Root-cause grouping (from codex/mcp-audit-launch-evidence): a primary
+    // finding carries its root_cause + the explanations of supporting findings,
+    // and each grouped supporting finding is flagged is_supporting.
+    root_cause?: string;
+    supporting_findings?: string[];
+    is_supporting?: boolean;
 }
 
 export interface RuleContext {
