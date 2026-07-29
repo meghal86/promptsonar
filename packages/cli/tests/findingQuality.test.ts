@@ -401,18 +401,31 @@ describe('artifact-aware finding quality', () => {
         expect(report.diagnostics || []).toEqual([]);
     });
 
-    it('renders fixture fake secrets as low non-production repository issues', async () => {
+    it('excludes fixture fake secrets from repository security issues (not emitted-and-downranked)', async () => {
+        // Discovery-layer contract (analyzer.ts): security findings on
+        // non-production surfaces (tests/fixtures/docs) are EXCLUDED rather than
+        // emitted-and-downranked, because fixtures routinely carry intentional
+        // fake secrets and rendering them — even as low — is noise. This guards
+        // that a fake secret under tests/fixtures/ never surfaces as a
+        // repository issue or inflates the production issue count.
         const root = makeTempDir();
         writeFile(root, 'tests/fixtures/fake-secret.ts', 'const fake = "sk-proj-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // test fixture do not fix');
 
         const scanResults = await scanFiles(root, {});
-        const report = analyzeRepositoryExecution(root, scanResults as any);
-        const issue = report.issues.find(item => item.impactedFiles.includes('tests/fixtures/fake-secret.ts'));
 
-        expect(issue).toBeTruthy();
-        expect(issue).toMatchObject({ severity: 'low', provenance: 'fixture' });
-        expect(issue?.context?.verdict).not.toBe('vulnerability');
-        expect(issue?.fix.recommendedFix).toMatch(/reference|test context/i);
+        // The raw secret is still detectable at scan level (detection works)...
+        const scannedFinding = scanResults
+            .flatMap(result => result.findings || [])
+            .find(finding => /^sec_/.test(finding.rule_id || ''));
+        expect(scannedFinding).toBeTruthy();
+
+        // ...but the repository layer excludes it as a non-production finding.
+        const report = analyzeRepositoryExecution(root, scanResults as any);
+        const securityIssue = report.issues.find(item =>
+            item.impactedFiles.includes('tests/fixtures/fake-secret.ts') &&
+            /^sec_/.test(item.ruleId || ''));
+
+        expect(securityIssue).toBeUndefined();
         expect(report.summary.productionIssueSummary?.total).toBe(0);
     });
 });

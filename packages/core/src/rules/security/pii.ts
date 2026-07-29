@@ -45,6 +45,17 @@ const PII_REGEXES = [
         // Placeholder values (`your-*`, `<...>`) are filtered by looksLikePlaceholder.
         name: "Generic Unquoted Secret",
         pattern: /(?:API_KEY|SECRET_KEY|ACCESS_TOKEN|AUTH_TOKEN)\s*=\s*[a-zA-Z0-9_\-]{16,}/i
+    },
+    {
+        // A credential-named identifier ASSIGNED a quoted literal of real length
+        // (`token = "abc123..."`, `api_key: "..."`). This is the narrow, anchored
+        // form of the keyword pattern that P1 removed: it requires the credential
+        // word (\b-anchored, so `max_tokens` / `cancellation_token` do NOT match),
+        // an `=`/`:` assignment, AND a quoted value >=12 chars. Bare prose mentions
+        // of "token" (no assignment) and type annotations (`token: string`,
+        // unquoted/short) stay suppressed; placeholders are filtered downstream.
+        name: "Assigned Credential Literal",
+        pattern: /\b(?:api[_-]?keys?|access[_-]?tokens?|auth[_-]?tokens?|token|secret|password|passwd|pwd|bearer)\b\s*[:=]\s*["'`][^"'`\n]{12,}["'`]/i
     }
 ];
 
