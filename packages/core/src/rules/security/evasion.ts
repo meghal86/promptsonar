@@ -69,7 +69,17 @@ export function checkEvasionPatterns(input: RuleInput): Finding[] {
         });
     }
 
-    const zeroWidthMatch = input.text.match(ZERO_WIDTH_CHARS)?.[0];
+    // A U+FEFF at offset 0 is a UTF-8 byte-order mark (a file-encoding artifact),
+    // not an injection — ignore only that case. The same character anywhere else,
+    // or any other zero-width character (U+200B/C/D), still fires.
+    let zeroWidthMatch: string | undefined;
+    const firstZwIdx = input.text.search(ZERO_WIDTH_CHARS);
+    if (firstZwIdx === 0 && input.text.charCodeAt(0) === 0xFEFF) {
+        const after = input.text.slice(1).match(ZERO_WIDTH_CHARS);
+        zeroWidthMatch = after ? after[0] : undefined;
+    } else if (firstZwIdx !== -1) {
+        zeroWidthMatch = input.text[firstZwIdx];
+    }
     if (zeroWidthMatch) {
         findings.push({
             rule_id: 'sec_zero_width_injection',

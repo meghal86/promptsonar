@@ -323,7 +323,9 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
                 workflow: finding.workflow || inferWorkflowForFinding({
                     ruleId: finding.rule_id,
                     severity: finding.severity,
-                    text: `${finding.message}\n${finding.fix}`,
+                    // Remediation `fix` text ("rotate credentials", "move secrets to
+                    // env") must not drive sink inference — use the finding message only.
+                    text: finding.message,
                     content,
                     filePath: absolutePath,
                     line: finding.line || 1,
@@ -392,7 +394,7 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
             }
         }
 
-        for (const secret of scanContentForSecrets(content)) {
+        for (const secret of scanContentForSecrets(content, absolutePath)) {
             const secretFix = artifactKind === 'workflow'
                 ? 'Restrict workflow permissions to least privilege, protect environments, avoid exposing secrets to pull_request or other untrusted triggers, scope secrets to the minimum jobs and environments, pin actions to trusted versions, and validate shell inputs before use.'
                 : 'Move secrets to environment variables or a secret manager, rotate exposed credentials, and keep secrets out of executable instructions and checked-in configuration.';

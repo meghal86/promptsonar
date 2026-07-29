@@ -271,16 +271,77 @@ function extractReferences(content: string): string[] {
     return Array.from(references).slice(0, 25);
 }
 
-function detectSensitiveActions(text: string): RepositorySensitiveAction[] {
+// Path-qualified references from a file to other repo files, resolved to
+// repo-relative paths. Captures import/require/from specifiers, markdown link
+// targets, and explicit slash-qualified path strings. A token must contain a
+// path separator to count — a bare filename (e.g. one line of an ASCII directory
+// tree, or a prose word) is NOT a reference and must never synthesize an edge.
+// Relative specifiers are resolved against the source file's directory so the
+// edge builder can require a real path link rather than name similarity.
+function extractReferencePaths(content: string, sourceDir: string): string[] {
+    const out = new Set<string>();
+    const baseDir = normalizePath(sourceDir) === '.' ? '' : normalizePath(sourceDir);
+    const consider = (raw: string): void => {
+        if (!raw || raw.length > 400 || out.size >= 60) return;
+        let spec = raw.trim().replace(/^['"`<]+|['"`>]+$/g, '').split(/[?#]/)[0].trim();
+        if (!spec) return;
+        // Skip URLs and non-path protocol specifiers; only in-repo paths matter.
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(spec) || spec.startsWith('mailto:')) return;
+        // Must be path-qualified: a separator distinguishes a reference from a
+        // bare filename mention (which is co-location noise, not a reference).
+        if (!spec.includes('/')) return;
+        const resolved = spec.startsWith('/')
+            ? normalizePath(spec.replace(/^\/+/, ''))
+            : normalizePath(path.posix.join(baseDir, spec));
+        const cleaned = resolved.replace(/^(\.\.\/)+/, '');
+        if (cleaned) out.add(cleaned.toLowerCase());
+    };
+    const patterns: RegExp[] = [
+        // import ... from '...'; require('...'); include '...'
+        /(?:\bfrom|\bimport|\brequire|\binclude|\bsource)\s*\(?\s*["'`]([^"'`\n]+)["'`]/gi,
+        // markdown links: [text](target) and reference-style [id]: target
+        /\]\(\s*<?([^)\s>]+)>?[^)]*\)/g,
+        /\]:\s*([^\s]+)/g,
+    ];
+    for (const pattern of patterns) {
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(content)) !== null) {
+            if (match[1]) consider(match[1]);
+        }
+    }
+    // Explicit slash-qualified path tokens. Tokenize LINEARLY on characters that
+    // cannot appear in a path reference, then keep the slash-qualified tokens —
+    // a nested-quantifier path regex would risk catastrophic backtracking on
+    // minified or data-heavy files. Overlong lines carry no real reference.
+    for (const line of content.split('\n')) {
+        if (line.length > 4000 || out.size >= 60) continue;
+        if (line.indexOf('/') === -1) continue;
+        for (const token of line.split(/[^\w./@\\-]+/)) {
+            if (token.indexOf('/') !== -1) consider(token);
+        }
+    }
+    return Array.from(out).slice(0, 60);
+}
+
+export function detectSensitiveActions(text: string): RepositorySensitiveAction[] {
     const normalized = stripNegatedClauses(text).replace(/[_-]/g, ' ');
     const actions = new Set<RepositorySensitiveAction>();
     // "command" alone is not shell evidence (it appears in every MCP config and
     // most prose); require an execution verb or an actual shell term.
     if (/\b(shell|bash|terminal|exec|spawn|subprocess|run\s+(?:any\s+|all\s+)?commands?|execute\s+(?:any\s+|all\s+)?commands?)\b/i.test(normalized)) actions.add('Shell');
     if (/\b(filesystem|file\s*(read|write)|read\s+file|write\s+file|read\s+all\s+files|write\s+all\s+files|workspace|directory)\b/i.test(normalized)) actions.add('Filesystem');
-    if (/\b(network|http|https|fetch|curl|webhook|internal api|network\s+request)\b/i.test(normalized)) actions.add('Network');
-    if (/\b(secret|secrets|read\s+secret|token|api\s*key|password|credential|credentials|bearer)\b/i.test(normalized)) actions.add('Secrets');
-    if (/https?:\/\/|\bexternal\s+api\b|\bapi\./i.test(text)) actions.add('External APIs');
+    // Network requires a network verb/idiom (or an explicit "network" mention) —
+    // a bare URL literal (e.g. a spec link in a comment or a default endpoint
+    // string) is not itself a network call.
+    if (/\b(network|fetch|curl|webhook|internal\s+api|network\s+requests?|https?\s+requests?|websocket)\b/i.test(normalized)) actions.add('Network');
+    // Secrets requires a credential-shaped identifier — NOT bare "token", which
+    // matches LLM token counts (max_tokens, token_limit) and control tokens
+    // (cancellation_token). Mirrors the tightened HARDCODED_SECRET patterns.
+    if (/\b(secrets?|read\s+secret|api\s?keys?|access\s?tokens?|auth\s?tokens?|passwords?|credentials?|bearer)\b/i.test(normalized)) actions.add('Secrets');
+    // External API requires an actual outbound call idiom (fetch/axios/requests/
+    // http client) or an explicit "external api" mention — NOT a bare URL literal
+    // or an "api." property access (e.g. self.api.foo, a validator's spec URL).
+    if (/\bfetch\s*\(|\b(?:axios|httpx|urllib2?|superagent|node[-_]?fetch)\b|\brequests\.(?:get|post|put|delete|patch|head|request|session)\b|\bhttp2?\.(?:get|post|request|client|Agent)\b|\bhttps\.(?:get|request)\b|\bXMLHttpRequest\b|\bWebSocket\b|\bcurl\s+-|\bexternal\s+apis?\b/i.test(text)) actions.add('External APIs');
     return Array.from(actions);
 }
 
@@ -432,16 +493,34 @@ function classifyRepositoryProvenance(relativePath: string, content: string): Re
         /\b(intentional(?:ly)? vulnerable|test fixture|do not fix|fixture only|vulnerable fixture|suppression_reason)\b/i.test(content)) {
         return 'fixture';
     }
-    if (hasSegment('tests', 'test', '__tests__', '__test__', 'spec', '__mocks__') ||
-        /\.(?:test|spec)\.[a-z]+$/.test(basename)) {
+    if (hasSegment('tests', 'test', '__tests__', '__test__', 'spec', 'specs', '__mocks__',
+            'unittests', 'unittest', 'e2e', 'testing') ||
+        /(?:^|[_.])test[_.]/.test(basename) ||               // test_foo.py
+        /[_.](?:test|spec)s?\.[a-z0-9]+$/.test(basename) ||  // foo.test.ts, foo_test.go, foo.spec.rb
+        /tests?\.(?:cs|java|kt|scala|rb|php)$/.test(basename)) { // PascalCase FooTests.cs / FooTest.java
         return 'test';
     }
-    if (hasSegment('docs', 'doc', 'documentation', 'wiki') ||
-        basename === 'readme.md' || basename === 'changelog.md' || basename === 'contributing.md' ||
-        /\.mdx?$/.test(basename) && hasSegment('docs', 'doc')) {
+    // Documentation is detected by LOCATION (doc directories) and by well-known
+    // doc filenames — not by markdown extension alone, since agent memory,
+    // instructions, and prompts also live in markdown. This keeps illustrative
+    // security content in READMEs, guides, tutorials, blogs, and API-reference
+    // docs (```bash examples, sample emails, doctest output) out of production
+    // findings, while leaving real AI-instruction markdown classified. Known
+    // AI-instruction surfaces under a doc directory are exempted.
+    const isAiInstructionSurface =
+        ['agents.md', 'agent.md', 'claude.md', 'skill.md', '.cursorrules'].includes(basename) ||
+        hasSegment('prompts', 'skills', '.claude', '.cursor', '.agents', '.codex');
+    if (!isAiInstructionSurface && (
+        hasSegment('docs', 'doc', 'documentation', 'wiki', 'wikis', 'blog', 'blogs',
+            'website', 'site', 'tutorial', 'tutorials', 'guide', 'guides', 'man', 'manual', 'handbook') ||
+        segments.some(segment => segment.startsWith('docs') || segment.startsWith('documentation')) ||
+        ['readme.md', 'readme.mdx', 'changelog.md', 'contributing.md', 'code_of_conduct.md', 'security.md', 'history.md', 'authors.md', 'notice.md'].includes(basename)
+    )) {
         return 'documentation';
     }
-    if (hasSegment('examples', 'example', 'demo', 'demos', 'scratch', 'evidence', 'benchmarks', 'research', 'results', 'tmp', 'output')) {
+    if (hasSegment('examples', 'example', 'demo', 'demos', 'scratch', 'evidence', 'benchmarks',
+            'research', 'results', 'tmp', 'output', 'sample', 'samples', 'cookbook', 'cookbooks',
+            'recipes', 'playground', 'quickstart', 'quickstarts')) {
         return 'example';
     }
     return 'production';
@@ -503,6 +582,17 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     }
     const provenance = classifyRepositoryProvenance(relativePath, content);
     const isPromptPath = lower.startsWith('prompts/') || lower.includes('/prompts/') || ['.prompt', '.ai', '.chat', '.system'].includes(ext);
+    // Documentation, examples, tests, fixtures, and generated files are not
+    // executable execution surfaces. They must not be classified as heuristic
+    // executor artifacts (TOOL/MEMORY/WORKFLOW/PROMPT) — a docs guide mentioning
+    // `tool_dispatcher` is not a tool, and a bash example in a tutorial is not a
+    // reachable sink. Explicit named AI artifacts (mcp.json, SKILL.md,
+    // AGENTS.md/CLAUDE.md) are still classified by their dedicated branches.
+    const nonProductionArtifact = NON_PRODUCTION_PROVENANCE.has(provenance);
+    // Resolved path-qualified references this file makes to other repo files.
+    // Shared by every artifact classified from the file so the execution-graph
+    // builder can gate cross-file edges on a real reference.
+    const referencePaths = extractReferencePaths(content, path.dirname(relativePath));
     const artifacts: RepositoryArtifact[] = [];
     const add = (type: RepositoryArtifactType, name: string, description: string, signals: string[], evidence: string[], metadata?: RepositoryArtifact['metadata']) => {
         artifacts.push({
@@ -515,13 +605,14 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
             evidence: sanitizeStringArray(evidence) || [],
             provenance,
             signals,
-            metadata: metadata ? {
-                ...metadata,
-                capabilities: sanitizeStringArray(metadata.capabilities),
-                constraints: sanitizeStringArray(metadata.constraints),
-                permissions: sanitizeStringArray(metadata.permissions),
-                references: sanitizeStringArray(metadata.references),
-            } : undefined,
+            metadata: {
+                ...(metadata || {}),
+                capabilities: sanitizeStringArray(metadata?.capabilities),
+                constraints: sanitizeStringArray(metadata?.constraints),
+                permissions: sanitizeStringArray(metadata?.permissions),
+                references: sanitizeStringArray(metadata?.references),
+                referencePaths,
+            },
         });
     };
 
@@ -570,7 +661,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (basename.includes('memory') || lower.startsWith('memory/') || lower.includes('/memory/')) {
+    if (!nonProductionArtifact && (basename.includes('memory') || lower.startsWith('memory/') || lower.includes('/memory/'))) {
         add('MEMORY', path.basename(filePath), 'Agent memory artifact discovered.', ['memory-store'], [lineEvidence(content, /memory|remember|persist|session|history/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
@@ -585,7 +676,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     const isGithubWorkflow = lower.startsWith('.github/workflows/') || lower.includes('/.github/workflows/');
     const isActionManifest = basename === 'action.yml' || basename === 'action.yaml';
     const isWorkflowConfigName = (basename.includes('workflow') || basename.includes('pipeline')) && WORKFLOW_CONFIG_EXTENSIONS.has(ext);
-    if (isGithubWorkflow || isActionManifest || isWorkflowConfigName) {
+    if (!nonProductionArtifact && (isGithubWorkflow || isActionManifest || isWorkflowConfigName)) {
         add(basename.startsWith('action.') ? 'ACTION' : 'WORKFLOW', path.basename(filePath), 'Workflow or action orchestration file discovered.', ['workflow-config'], [lineEvidence(content, /workflow|jobs|steps|uses|run|tool|prompt|mcp/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
@@ -593,7 +684,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (!isPromptPath && (basename.includes('tool') || basename.includes('router') || basename.includes('registry') || /\b(tool router|tool_registry|function call|tools\s*[:=]|toolDefinitions)\b/i.test(content))) {
+    if (!nonProductionArtifact && !isPromptPath && (basename.includes('tool') || basename.includes('router') || basename.includes('registry') || /\b(tool router|tool_registry|function call|tools\s*[:=]|toolDefinitions)\b/i.test(content))) {
         add('TOOL', path.basename(filePath), 'Tool registry or tool-routing artifact discovered.', ['tool-definition'], [lineEvidence(content, /tool|router|function call|execute|invoke/i, relativePath)], {
             tools: Array.from(content.matchAll(/\b(?:tool|name|function)\s*[:=]\s*["'`]?([A-Za-z0-9_.-]{3,})/gi)).map(match => match[1]).slice(0, 20),
             sensitiveActions: detectSensitiveActions(content),
@@ -772,17 +863,66 @@ function addEdge(edges: Map<string, RepositoryExecutionEdge>, from: string, to: 
     });
 }
 
-function artifactText(artifact: RepositoryArtifact): string {
+// Content-derived text of a source artifact, EXCLUDING its own name and path.
+// Used for name-reference matching so a file whose *filename* coincides with a
+// target's name (e.g. `context7.ts` and an MCP server named `context7`) is not
+// mistaken for a reference — only the file's actual content counts.
+function referenceNameHaystack(artifact: RepositoryArtifact): string {
     return [
-        artifact.name,
-        artifact.relativePath,
         artifact.description,
         ...(artifact.evidence || []),
         ...(artifact.signals || []),
         ...(artifact.metadata?.references || []),
-        ...(artifact.metadata?.tools || []),
-        ...(artifact.metadata?.servers || []),
     ].join(' ').toLowerCase();
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// True when `name` appears as a standalone token in `haystack` (word-boundaried
+// by any non-alphanumeric, so `my-server` and `shell` match but `preshell` and
+// `max_tokens`→`token` do not). Generic 1-2 char names never match.
+function containsNameToken(haystack: string, name: string): boolean {
+    const token = name.trim().toLowerCase();
+    if (token.length < 3) return false;
+    return new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(token)}(?:$|[^a-z0-9])`, 'i').test(haystack);
+}
+
+// True when the source's resolved path references include the target file: an
+// exact path match, an extension-insensitive match, or a directory reference
+// naming the target's containing folder (e.g. `skills/deploy` -> that skill).
+function referencePathMatchesTarget(sourceRefPaths: string[], targetRelPath: string): boolean {
+    const target = normalizePath(targetRelPath).toLowerCase();
+    if (!target) return false;
+    const targetNoExt = target.replace(/\.[a-z0-9]+$/i, '');
+    const targetDir = target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : '';
+    for (const raw of sourceRefPaths) {
+        const ref = raw.toLowerCase();
+        if (!ref) continue;
+        const refNoExt = ref.replace(/\.[a-z0-9]+$/i, '');
+        if (ref === target || ref === targetNoExt || refNoExt === targetNoExt) return true;
+        if (targetDir && (ref === targetDir || refNoExt === targetDir)) return true;
+    }
+    return false;
+}
+
+// Prose / orchestration artifacts may reference a configured MCP server by its
+// declared name (a real config-key reference). Code artifacts (TOOL, MCP_SERVER)
+// may not — a bare name collision between two code files is co-location, not a
+// reference, and must not create an edge.
+const NAME_REFERENCE_SOURCE_TYPES = new Set<RepositoryArtifactType>([
+    'PROMPT', 'AGENT_CONFIG', 'SKILL', 'WORKFLOW', 'ACTION', 'MEMORY',
+]);
+
+function edgeTypeForTarget(targetType: RepositoryArtifactType): RepositoryExecutionEdge['type'] {
+    switch (targetType) {
+        case 'MEMORY': return 'READS';
+        case 'TOOL': return 'ROUTES_TO';
+        case 'SKILL':
+        case 'MCP_SERVER': return 'INVOKES';
+        default: return 'REFERENCES';
+    }
 }
 
 // Node types that actually *execute* a sensitive action (a configured MCP
@@ -882,66 +1022,45 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
         }
     }
 
-    const byType = (type: RepositoryArtifactType) => artifacts.filter(artifact => artifact.type === type);
-    const prompts = artifacts.filter(artifact => artifact.type === 'PROMPT' || artifact.type === 'AGENT_CONFIG');
-    const skills = byType('SKILL');
-    const tools = byType('TOOL');
-    const mcps = byType('MCP_SERVER');
-    const memories = byType('MEMORY');
-    const workflows = byType('WORKFLOW').concat(byType('ACTION'));
-
+    // Cross-file execution edges are created ONLY when the source artifact makes
+    // a REAL reference to the target — never from capability-word co-location.
+    // A reference is one of:
+    //   (1) a resolved import/require, markdown link, or explicit path-qualified
+    //       string that points at the target file (or its containing folder), or
+    //   (2) a prose/orchestration file naming a configured MCP server by its
+    //       declared name.
+    // Two files that merely both mention "shell", or share a filename, are NOT
+    // connected. This keeps Potential/Probable meaning "a reference exists but
+    // reachability is not certain" rather than "co-located in the same repo".
     for (const source of artifacts) {
         const sourceNode = nodeIdByArtifact.get(source.id);
         if (!sourceNode) continue;
-        const sourceText = artifactText(source);
+        const sourceRefPaths = source.metadata?.referencePaths || [];
+        const canNameReference = NAME_REFERENCE_SOURCE_TYPES.has(source.type);
+        const nameHaystack = canNameReference ? referenceNameHaystack(source) : '';
         for (const target of artifacts) {
             if (source.id === target.id) continue;
             const targetNode = nodeIdByArtifact.get(target.id);
             if (!targetNode) continue;
-            const targetName = target.name.toLowerCase();
-            const targetBase = path.basename(target.relativePath).toLowerCase();
-            if (sourceText.includes(targetName) || sourceText.includes(target.relativePath.toLowerCase()) || (targetBase.length > 4 && sourceText.includes(targetBase))) {
-                addEdge(edges, sourceNode, targetNode, 'REFERENCES', `${source.name} references ${target.name}.`, source.evidence[0], 75, 'direct');
+
+            // (1) Resolved path / import / markdown-link reference -> Confirmed.
+            if (referencePathMatchesTarget(sourceRefPaths, target.relativePath)) {
+                addEdge(edges, sourceNode, targetNode, edgeTypeForTarget(target.type), `${source.name} references ${target.relativePath} by path.`, source.evidence[0], 80, 'direct');
+                continue;
+            }
+
+            // (2) Named reference to a configured MCP server -> Probable. Servers
+            // are invoked by their config-declared name; other artifact kinds must
+            // be referenced by path (a bare name match is co-location noise).
+            if (canNameReference && target.type === 'MCP_SERVER') {
+                const serverNames = (target.metadata?.servers && target.metadata.servers.length > 0)
+                    ? target.metadata.servers
+                    : [target.name];
+                if (serverNames.some(name => containsNameToken(nameHaystack, name))) {
+                    addEdge(edges, sourceNode, targetNode, 'INVOKES', `${source.name} references configured MCP server "${target.name}" by name.`, source.evidence[0], 70, 'connected');
+                }
             }
         }
-    }
-
-    for (const prompt of prompts) {
-        const sourceNode = nodeIdByArtifact.get(prompt.id);
-        if (!sourceNode) continue;
-        for (const memory of memories) addEdge(edges, sourceNode, nodeIdByArtifact.get(memory.id)!, 'READS', 'Prompt or agent config can read repository memory context.', prompt.evidence[0], 55, 'structural');
-        for (const skill of skills) addEdge(edges, sourceNode, nodeIdByArtifact.get(skill.id)!, 'INVOKES', 'Prompt or agent config can invoke discovered agent skills.', prompt.evidence[0], 60, 'structural');
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'ROUTES_TO', 'Prompt or agent config can route work to tool definitions.', prompt.evidence[0], 60, 'structural');
-        for (const mcp of mcps) {
-            const promptActions = prompt.metadata?.sensitiveActions || [];
-            const mcpActions = mcp.metadata?.sensitiveActions || [];
-            if (promptActions.some(action => mcpActions.includes(action))) {
-                // Capability overlap (prompt names an action the MCP exposes) is
-                // strong structural evidence, not a confirmed reference.
-                addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Prompt names a sensitive action exposed by a configured MCP server.', prompt.evidence[0], 80, 'connected');
-            }
-        }
-    }
-
-    for (const skill of skills) {
-        const sourceNode = nodeIdByArtifact.get(skill.id);
-        if (!sourceNode) continue;
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'ROUTES_TO', 'Skill can route instructions to a tool surface.', skill.evidence[0], 65, 'structural');
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Skill can invoke MCP server capabilities.', skill.evidence[0], 60, 'structural');
-    }
-
-    for (const tool of tools) {
-        const sourceNode = nodeIdByArtifact.get(tool.id);
-        if (!sourceNode) continue;
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'ROUTES_TO', 'Tool surface can route to MCP server capability.', tool.evidence[0], 70, 'structural');
-    }
-
-    for (const workflow of workflows) {
-        const sourceNode = nodeIdByArtifact.get(workflow.id);
-        if (!sourceNode) continue;
-        for (const prompt of prompts) addEdge(edges, sourceNode, nodeIdByArtifact.get(prompt.id)!, 'REFERENCES', 'Workflow can reference prompt or agent instructions.', workflow.evidence[0], 55, 'structural');
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'INVOKES', 'Workflow can invoke tool definitions.', workflow.evidence[0], 65, 'structural');
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Workflow can invoke MCP server configuration.', workflow.evidence[0], 65, 'structural');
     }
 
     for (const result of scanResults) {
@@ -959,7 +1078,10 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
                 if (workflowNode.type === 'external_api') actions.add('External APIs');
             }
             if (related && !['PROMPT', 'SKILL', 'AGENT_CONFIG'].includes(related.type)) {
-                detectSensitiveActions(`${finding.message || ''}\n${finding.evidence || ''}\n${finding.fix || ''}`).forEach(action => actions.add(action));
+                // Derive sink actions from the actual matched evidence, NOT the
+                // remediation `fix` text (generic advice like "rotate credentials"
+                // or "move secrets to env" would otherwise mislabel the sink).
+                detectSensitiveActions(`${finding.evidence || ''}\n${finding.message || ''}`).forEach(action => actions.add(action));
             }
         }
         if (!sourceNode) {
@@ -1118,6 +1240,17 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
     const findingsByFileForEvidence = new Map(scanResults.map(result => [path.resolve(result.filePath), result.findings || []]));
     const fileProvenance = (filePath: string): RepositoryProvenance =>
         artifactProvenance.get(path.resolve(filePath)) || classifyRepositoryProvenance(path.resolve(filePath), '');
+    // Provenance for a graph node. Classified artifacts carry their provenance
+    // (computed from the repo-relative path); for others, classify on the node's
+    // repo-RELATIVE path — never the absolute path, whose ambient prefix (a
+    // `/tmp/...` scratch dir, an `.../corpus/...` clone root) would otherwise leak
+    // segments like `tmp`/`corpus` and mis-mark real files as non-production.
+    const nodeProvenance = (nodeId: string): RepositoryProvenance | undefined => {
+        const node = nodesById.get(nodeId);
+        if (!node?.filePath) return undefined;
+        return artifactProvenance.get(path.resolve(node.filePath))
+            || classifyRepositoryProvenance(node.relativePath || path.basename(node.filePath), '');
+    };
     // A path is live production risk only when its whole chain is production. If
     // any node it traverses (e.g. a fixture MCP that supplies the sink) is
     // non-production, the path is non-production — a production-sourced prompt
@@ -1125,9 +1258,8 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
     // shippable vulnerability. Source provenance is used only as the fallback.
     const pathProvenance = (nodeIds: string[], fallbackFile?: string): RepositoryProvenance => {
         const chain = nodeIds
-            .map(id => nodesById.get(id)?.filePath)
-            .filter(Boolean)
-            .map(file => fileProvenance(file as string));
+            .map(id => nodeProvenance(id))
+            .filter((provenance): provenance is RepositoryProvenance => Boolean(provenance));
         const nonProduction = chain.find(provenance => NON_PRODUCTION_PROVENANCE.has(provenance));
         if (nonProduction) return nonProduction;
         if (chain.length > 0) return chain[0];
@@ -1300,6 +1432,11 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
 
     const seen = new Set<string>();
     return paths.filter(pathItem => {
+        // A path whose chain runs through documentation, an example, a test, or a
+        // fixture is not a production execution path — the illustrative content
+        // that produced it is not a shippable vulnerability. Excluded rather than
+        // emitted as a low-confidence path (which the audit still counted noise).
+        if (NON_PRODUCTION_PROVENANCE.has(pathItem.provenance ?? 'production')) return false;
         const key = `${pathItem.risk}:${pathItem.files.join(',')}:${pathItem.sensitiveActions.join(',')}:${pathItem.explanation}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -2464,9 +2601,11 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
     const artifactByFile = new Map<string, RepositoryArtifact>(
         artifacts.map(artifact => [path.resolve(artifact.filePath), artifact]),
     );
-    const provenanceForFile = (absoluteFile: string): RepositoryProvenance =>
-        artifactProvenance.get(absoluteFile) || classifyRepositoryProvenance(absoluteFile, '');
     const root = path.resolve(rootPath);
+    // Classified artifacts carry provenance; for others classify on the repo-
+    // RELATIVE path so an ambient absolute prefix (tmp/, corpus/) cannot leak.
+    const provenanceForFile = (absoluteFile: string): RepositoryProvenance =>
+        artifactProvenance.get(absoluteFile) || classifyRepositoryProvenance(normalizePath(path.relative(root, absoluteFile)), '');
     const issues = new Map<string, RepositoryExecutionIssue>();
     const diagnostics: NonNullable<RepositoryExecutionReport['diagnostics']> = [];
     const contentCache = new Map<string, string | null>();
@@ -2481,6 +2620,13 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
 
             const artifact = artifactByFile.get(absoluteFile);
             const provenance = provenanceForFile(absoluteFile);
+            // Security findings are reported only on production execution surfaces.
+            // Documentation, examples, tests, and fixtures routinely contain
+            // illustrative unsafe content (```bash examples, sample emails,
+            // doctest output, intentional test vectors); flagging them as security
+            // issues is noise, so they are excluded rather than emitted-and-downranked.
+            const isSecurityFinding = finding.category === 'security' || /^(?:sec_|MCP-)/.test(finding.rule_id || '');
+            if (isSecurityFinding && NON_PRODUCTION_PROVENANCE.has(provenance)) continue;
             const effectiveArtifactKind = finding.artifactKind || artifactKindForContext(artifact, provenance);
             const effectiveFinding: RepositoryScanFinding = {
                 ...finding,

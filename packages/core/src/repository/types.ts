@@ -77,6 +77,12 @@ export interface RepositoryArtifact {
         parseWarning?: string;
         sensitiveActions?: RepositorySensitiveAction[];
         references?: string[];
+        // Path-qualified references the file makes to other repo files (resolved
+        // to repo-relative paths): import/require specifiers, markdown link
+        // targets, and explicit slash-qualified path strings. Used to gate
+        // cross-file execution edges on a real reference, never on capability-word
+        // co-location. Bare filenames with no separator are intentionally excluded.
+        referencePaths?: string[];
     };
 }
 

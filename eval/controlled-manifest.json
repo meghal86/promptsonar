@@ -141,18 +141,17 @@
     },
     {
       "id": "case-012",
-      "name": "agent config (CLAUDE.md) instructing shell escalation — KNOWN GAP",
+      "name": "agent config (CLAUDE.md) instructing shell escalation",
       "path": "eval/corpus/controlled/case-012-agent-config-shell-gap",
-      "description": "CLAUDE.md with the SAME shell-escalation language that fires as a .prompt. Probes a confirmed engine gap: AGENT_CONFIG artifacts are discovered but not run through sink/path analysis.",
+      "description": "CLAUDE.md with shell-escalation language whose risk is capability invocation (call shell_exec), not jailbreak phrasing. Named instruction files (CLAUDE.md/AGENTS.md/SKILL.md) are analyzed unconditionally; severity is capped lower than an executable .prompt because an instruction file declares intent.",
       "expected_findings": [
-        {"rule_id": "sec_privileged_sink_access", "severity": "high", "confidence": "probable"},
-        {"rule_id": "sec_workflow_escalation", "severity": "critical", "confidence": "probable"}
+        {"rule_id": "sec_privileged_sink_access", "severity": "low", "confidence": "probable"},
+        {"rule_id": "sec_workflow_escalation", "severity": "low", "confidence": "probable"}
       ],
       "expected_paths": [
         {"chain": "agent_config → shell", "reachability": "potentially_reachable", "cross_file": false}
       ],
-      "known_gap": true,
-      "notes": "Engine currently produces ZERO findings here; scores as FN by design. Demonstrates AGENT_CONFIG (CLAUDE.md/AGENTS.md/.cursorrules) are classified but not analyzed for execution-path risk."
+      "notes": "Previously a known gap (zero findings): the injection-centric containsPromptKeyword parser gate dropped capability-only instruction files. Fixed by parsing named instruction files unconditionally."
     },
     {
       "id": "case-013",
@@ -227,8 +226,10 @@
       "id": "case-019",
       "name": "exclusion of build/test/config noise",
       "path": "eval/corpus/controlled/case-019-exclusion-noise",
-      "description": "package.json, tsconfig.json, vitest.config.ts, a *.test.ts under __tests__/, and a README.md mixed with one real SKILL.md. Only the SKILL must be classified.",
-      "expected_findings": [],
+      "description": "package.json, tsconfig.json, vitest.config.ts, a *.test.ts under __tests__/, and a README.md mixed with one real SKILL.md that declares shell_exec. Only the SKILL must be classified, and its shell capability must be flagged.",
+      "expected_findings": [
+        {"rule_id": "sec_privileged_sink_access", "severity": "low", "confidence": "probable"}
+      ],
       "expected_paths": [
         {"chain": "skill → shell", "reachability": "potentially_reachable", "cross_file": false}
       ],

@@ -8,10 +8,12 @@ const PII_REGEXES = [
     { name: "OpenAI API Key", pattern: /sk-(?:live|test|proj)-[a-zA-Z0-9]{32,}/i },
     { name: "Anthropic API Key", pattern: /sk-ant-[a-zA-Z0-9_-]{8,}/i },
     { name: "GitHub PAT", pattern: /ghp_[a-zA-Z0-9]{36}/i },
-    { name: "Generic API Key", pattern: /(?:api[_-]?key|secret|token)[\s:=]+["'][a-zA-Z0-9_\-]{16,}["']/i },
-    { name: "Credential/Key", pattern: /\b(?:key|api_?key|secret|token)\b\s*(?:is|[:=])\s*[a-zA-Z0-9_\-]{4,}\b/i },
-    { name: "Password", pattern: /\b(?:password|passwd|pwd)\b\s*(?:is|[:=])\s*[a-zA-Z0-9_\-]{4,}\b/i },
-    { 
+    // NOTE: keyword-anchored patterns (`api_key: <weak value>`, `token = X`,
+    // `password: X`, a quoted 16-char blob) were removed — they fired on type
+    // annotations, docstrings, doc placeholders, `"max_tokens"`, and env-var
+    // reads. Detection is now value-shape anchored: a match requires a literal
+    // that looks like a real provider credential (patterns below).
+    {
         name: "OpenAI API Key (legacy)", 
         pattern: /\bsk-[a-zA-Z0-9]{48}\b/i 
     },
@@ -31,26 +33,53 @@ const PII_REGEXES = [
         name: "Stripe Restricted Key", 
         pattern: /\brk_live_[a-zA-Z0-9]{24,}\b/i 
     },
-    { 
-        name: "JWT Token", 
-        pattern: /\beyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b/ 
+    {
+        name: "JWT Token",
+        pattern: /\beyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b/
     },
-    { 
-        name: "Generic Unquoted Secret", 
-        pattern: /(?:API_KEY|SECRET_KEY|ACCESS_TOKEN|AUTH_TOKEN)\s*=\s*[a-zA-Z0-9_\-]{16,}/i 
+    {
+        // An ALL-CAPS credential env-var name assigned a 16+ char inline value —
+        // a genuine hardcoded secret (`API_KEY=abc...`). Requires the underscore
+        // credential name + `=` + value, so it does NOT match `apiKey?: string`,
+        // `= process.env.X` (value too short before the dot), or `max_tokens`.
+        // Placeholder values (`your-*`, `<...>`) are filtered by looksLikePlaceholder.
+        name: "Generic Unquoted Secret",
+        pattern: /(?:API_KEY|SECRET_KEY|ACCESS_TOKEN|AUTH_TOKEN)\s*=\s*[a-zA-Z0-9_\-]{16,}/i
     }
 ];
 
+// A file whose path is a test/spec fixture: credential-shaped strings there are
+// test data, not real secrets (mirrors the classifier's discovery exclusion).
+export function isTestOrSpecPath(filePath?: string): boolean {
+    if (!filePath) return false;
+    const p = filePath.replace(/\\/g, '/').toLowerCase();
+    return /(^|\/)__tests__\//.test(p) || /\.(test|spec)\.[a-z0-9]+$/.test(p);
+}
+
+// A matched value that is obviously a documentation placeholder, not a real
+// credential: <your-*>, your-*-key, YOUR_*_HERE, xxxx, ***, placeholder.
+// Deliberately narrow — real keys (including canonical vendor sample keys like
+// AKIA...EXAMPLE used in tests) must still fire, so "example" is NOT a marker.
+function looksLikePlaceholder(value: string): boolean {
+    return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b/i.test(value);
+}
+
 export function checkPii(input: RuleInput): Finding[] {
     const findings: Finding[] = [];
+    // Credential-shaped strings in test/spec fixtures are test data, not secrets.
+    if (isTestOrSpecPath(input.context?.filePath)) return findings;
     const text = redactSecretReferences(input.text);
 
     for (const pii of PII_REGEXES) {
-        if (pii.pattern.test(text)) {
+        pii.pattern.lastIndex = 0;
+        const match = text.match(pii.pattern);
+        // Only fire on a real value-shaped match, not a documentation placeholder.
+        if (match && !looksLikePlaceholder(match[0])) {
             findings.push({
                 rule_id: "sec_owasp_llm02_pii",
                 category: "security",
                 severity: "high",
+                matchedText: match[0],
                 explanation: `Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded ${pii.name} found in prompt.`,
                 suggested_fix: `Replace hardcoded ${pii.name} with environment variables or template parameters.`,
                 penalty_score: 20
@@ -86,8 +115,10 @@ export interface ContentSecretMatch {
     matchedText: string;
 }
 
-export function scanContentForSecrets(content: string): ContentSecretMatch[] {
+export function scanContentForSecrets(content: string, filePath?: string): ContentSecretMatch[] {
     const matches: ContentSecretMatch[] = [];
+    // Credential-shaped strings in test/spec fixtures are test data, not secrets.
+    if (isTestOrSpecPath(filePath)) return matches;
     const seen = new Set<string>();
     const lines = content.split(/\r?\n/);
     lines.forEach((line, index) => {
@@ -98,6 +129,9 @@ export function scanContentForSecrets(content: string): ContentSecretMatch[] {
                 // Credit-card regex also matches long digit runs; require a
                 // value that passes the Luhn checksum to stay precise.
                 if (name === 'Credit Card' && !isLuhnValid(match[0])) continue;
+                // A commented-out or placeholder value is documentation, not a
+                // live secret (e.g. `# API_KEY = "your-key-here"`).
+                if (looksLikePlaceholder(match[0])) continue;
                 const key = `${name}:${index}:${match.index}`;
                 if (seen.has(key)) continue;
                 seen.add(key);
