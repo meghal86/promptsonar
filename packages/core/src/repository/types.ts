@@ -1,4 +1,6 @@
 import type { Severity } from '../rules/types';
+import type { CanonicalAnalysisIssue, CanonicalIssueContext, CapabilityType } from '../contextual/types';
+import type { ArtifactKind, ExecutionIntent } from '../artifacts';
 
 export type RepositoryArtifactType =
     | 'PROMPT'
@@ -75,6 +77,12 @@ export interface RepositoryArtifact {
         parseWarning?: string;
         sensitiveActions?: RepositorySensitiveAction[];
         references?: string[];
+        // Path-qualified references the file makes to other repo files (resolved
+        // to repo-relative paths): import/require specifiers, markdown link
+        // targets, and explicit slash-qualified path strings. Used to gate
+        // cross-file execution edges on a real reference, never on capability-word
+        // co-location. Bare filenames with no separator are intentionally excluded.
+        referencePaths?: string[];
     };
 }
 
@@ -146,6 +154,9 @@ export interface RepositoryScanFinding {
     risk?: string;
     waived?: boolean;
     workflow?: any;
+    context?: CanonicalIssueContext;
+    artifactKind?: ArtifactKind;
+    executionIntent?: ExecutionIntent;
 }
 
 export interface RepositoryScanResult {
@@ -244,6 +255,7 @@ export interface RepositorySummary {
 
 export interface RepositoryExecutionIssueEvidence {
     id: string;
+    ruleId?: string;
     file: string;
     line?: number;
     column?: number;
@@ -272,7 +284,7 @@ export interface RepositoryIssueFix {
     effort: RepositoryIssueFixEffort;
 }
 
-export interface RepositoryExecutionIssue {
+export interface RepositoryExecutionIssue extends CanonicalAnalysisIssue {
     id: string;
     ruleId: string;
     severity: Severity | string;
@@ -293,6 +305,7 @@ export interface RepositoryExecutionIssue {
     fixSuggestions: string[];
     pathIds: string[];
     provenance?: RepositoryProvenance;
+    context?: CanonicalIssueContext;
 }
 
 export interface RepositoryIssueSummary {
@@ -301,6 +314,19 @@ export interface RepositoryIssueSummary {
     high: number;
     medium: number;
     low: number;
+}
+
+export interface RepositoryExecutiveSummary {
+    overallRisk: RepositoryRisk | 'none';
+    findingCounts: RepositoryIssueSummary;
+    highestPriorityFindings: Array<{
+        id: string;
+        ruleId: string;
+        severity: Severity | string;
+        issue: string;
+        impactedFiles: string[];
+    }>;
+    estimatedFixEffort: RepositoryIssueFixEffort;
 }
 
 export type RepositoryImpactedFileType = 'SKILL.md' | 'MCP Config' | 'Workflow' | 'Prompt' | 'Other';
@@ -326,7 +352,12 @@ export interface RepositoryPathValidationError {
         | 'broken-chain'
         | 'invalid-source'
         | 'invalid-sensitive-action'
-        | 'missing-evidence';
+        | 'missing-evidence'
+        | 'issue-count-mismatch'
+        | 'impacted-file-count-mismatch'
+        | 'evidence-owner-mismatch'
+        | 'completeness-count-mismatch'
+        | 'repository-complete-with-unresolved-context';
     message: string;
 }
 
@@ -339,6 +370,7 @@ export interface RepositoryPathValidation {
 export interface RepositoryExecutionReport {
     id?: string;
     version: string;
+    schemaVersion: string;
     generated_at: string;
     scannedAt?: string;
     repository: {
@@ -379,16 +411,125 @@ export interface RepositoryExecutionReport {
     executionMap: RepositoryExecutionMap;
     reachablePaths: ReachableExecutionPath[];
     summary: RepositorySummary;
+    executiveSummary?: RepositoryExecutiveSummary;
     issues: RepositoryExecutionIssue[];
     issueSummary: RepositoryIssueSummary;
     impactedFiles: RepositoryImpactedFile[];
     pathValidation: RepositoryPathValidation;
     confidenceDefinitions: Record<RepositoryPathConfidence, string>;
     findings: RepositoryScanResult[];
+    diagnostics?: Array<{
+        level: 'warning';
+        code: string;
+        message: string;
+        file?: string;
+        ruleId?: string;
+    }>;
+    completeness?: ScanCompleteness;
+    profileEvidence?: RepositoryProfileEvidence;
+    threatModel?: unknown;
 }
 
 export interface AnalyzeRepositoryOptions {
     maxFiles?: number;
     maxFileSizeBytes?: number;
     ignorePatterns?: string[];
+}
+
+export type RepositoryFileStatus =
+    | 'inventoried'
+    | 'selected'
+    | 'fetched'
+    | 'parsed'
+    | 'analyzed'
+    | 'graph_connected'
+    | 'skipped'
+    | 'failed';
+
+export type RepositoryFileFailureReason =
+    | 'budget_exhausted'
+    | 'api_request_budget_exhausted'
+    | 'rate_limited'
+    | 'file_too_large'
+    | 'binary'
+    | 'unsupported_type'
+    | 'fetch_failed'
+    | 'decode_failed'
+    | 'parse_failed'
+    | 'reference_unresolved'
+    | 'excluded'
+    | 'unknown';
+
+export type ScanMode = 'full' | 'bounded';
+export type CoverageStatus = 'unknown' | 'partial' | 'path_complete' | 'repository_complete';
+
+export interface ScanCompleteness {
+    mode: ScanMode;
+    coverageStatus: CoverageStatus;
+    files: {
+        inventoried: number;
+        selected: number;
+        fetched: number;
+        parsed: number;
+        analyzed: number;
+        graphConnected: number;
+    };
+    capabilities: {
+        discovered: number;
+        withControlNeighborhoodSearched: number;
+        withControlContextResolved: number;
+        unresolved: number;
+    };
+    references: {
+        discovered: number;
+        fetched: number;
+        parsed: number;
+        resolved: number;
+        unresolved: number;
+    };
+    unresolvedContext: Array<{
+        capability: CapabilityType;
+        artifactId: string;
+        missingFilesOrControls: string[];
+    }>;
+    verdictScope: 'repository_complete' | 'path_complete' | 'partial_context';
+    coverageReason: string;
+}
+
+export type RepositoryProfileSignal = {
+    signalId: string;
+    category:
+        | 'system_type'
+        | 'execution_model'
+        | 'deployment'
+        | 'capability'
+        | 'trust_source'
+        | 'control';
+    candidateValue: string;
+    source: { path: string; line?: number; evidenceId: string };
+    evidenceKind:
+        | 'executable_code'
+        | 'configuration'
+        | 'manifest'
+        | 'documentation'
+        | 'filename'
+        | 'test'
+        | 'fixture';
+    confidence: 'confirmed' | 'probable' | 'potential';
+    reason: string;
+};
+
+export type RepositoryProfileEvidence = {
+    signals: RepositoryProfileSignal[];
+};
+
+export interface EvaluateCanonicalFindingsInput {
+    rootPath: string;
+    analyzedArtifacts: RepositoryArtifact[];
+    executionGraph: RepositoryExecutionMap;
+    profileEvidence: RepositoryProfileEvidence;
+    scanCompleteness: ScanCompleteness;
+    threatModel?: unknown;
+    scanResults?: RepositoryScanResult[];
+    scanStats?: RepositoryScanStats;
 }

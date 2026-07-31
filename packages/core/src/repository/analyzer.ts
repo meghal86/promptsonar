@@ -1,6 +1,24 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { minimatch } from 'minimatch';
+import {
+    assertFindingInvariants,
+    classifySecretSemantics,
+    evaluateContextualVerdict,
+    inferCapabilityIntent,
+    omitMalformedContextualSections,
+    secretAssessmentToVerdictInput,
+    type ArtifactKind,
+    type CanonicalIssueContext,
+    type CapabilityType,
+    type ControlStatus,
+    type ContextualConfidence,
+    type SecurityControl,
+    type VerdictDecision,
+    type VerdictInput,
+    type VulnerabilityBasis,
+} from '../contextual';
+import { inferArtifactKind, inferExecutionIntent } from '../artifacts';
 import { stripNegatedClauses } from '../workflow/analyzer';
 import {
     REPOSITORY_CONFIDENCE_DEFINITIONS,
@@ -9,6 +27,7 @@ import {
 import { NON_PRODUCTION_PROVENANCE } from './types';
 import type {
     AnalyzeRepositoryOptions,
+    EvaluateCanonicalFindingsInput,
     ReachableExecutionPath,
     RepositoryArtifact,
     RepositoryArtifactType,
@@ -17,6 +36,7 @@ import type {
     RepositoryExecutionMap,
     RepositoryExecutionNode,
     RepositoryExecutionNodeType,
+    RepositoryExecutiveSummary,
     RepositoryImpactedFile,
     RepositoryImpactedFileType,
     RepositoryExecutionIssue,
@@ -33,16 +53,18 @@ import type {
     RepositorySensitiveAction,
     RepositorySummary,
     RepositoryTrustStatus,
+    ScanCompleteness,
 } from './types';
 
 // Keep in lockstep with the published package version so the report version and
-// the CLI banner never disagree. The repository report schema is additive
-// (new fields are optional), so it rides the product version rather than its own.
+// the CLI banner never disagree. The export schema version is tracked
+// separately because contextual issue fields evolve independently.
 // Workflow/action artifacts are config surfaces, not source code that merely
 // mentions "workflow" in its name.
 const WORKFLOW_CONFIG_EXTENSIONS = new Set(['.yml', '.yaml', '.json', '.toml']);
 
 const REPORT_VERSION = '1.4.3';
+const REPORT_SCHEMA_VERSION = '2026-06-23.contextual-v1';
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
@@ -153,7 +175,7 @@ function safeRead(filePath: string, maxFileSizeBytes: number): string | undefine
         if (!stat.isFile() || stat.size > maxFileSizeBytes) return undefined;
         const ext = path.extname(filePath).toLowerCase();
         const basename = path.basename(filePath).toLowerCase();
-        if (!TEXT_EXTENSIONS.has(ext) && basename !== 'agents.md' && basename !== 'agent.md') return undefined;
+        if (!TEXT_EXTENSIONS.has(ext) && !['agents.md', 'agent.md', 'claude.md', 'prompt.md', '.cursorrules'].includes(basename)) return undefined;
         return fs.readFileSync(filePath, 'utf-8');
     } catch {
         return undefined;
@@ -249,16 +271,77 @@ function extractReferences(content: string): string[] {
     return Array.from(references).slice(0, 25);
 }
 
-function detectSensitiveActions(text: string): RepositorySensitiveAction[] {
+// Path-qualified references from a file to other repo files, resolved to
+// repo-relative paths. Captures import/require/from specifiers, markdown link
+// targets, and explicit slash-qualified path strings. A token must contain a
+// path separator to count — a bare filename (e.g. one line of an ASCII directory
+// tree, or a prose word) is NOT a reference and must never synthesize an edge.
+// Relative specifiers are resolved against the source file's directory so the
+// edge builder can require a real path link rather than name similarity.
+function extractReferencePaths(content: string, sourceDir: string): string[] {
+    const out = new Set<string>();
+    const baseDir = normalizePath(sourceDir) === '.' ? '' : normalizePath(sourceDir);
+    const consider = (raw: string): void => {
+        if (!raw || raw.length > 400 || out.size >= 60) return;
+        let spec = raw.trim().replace(/^['"`<]+|['"`>]+$/g, '').split(/[?#]/)[0].trim();
+        if (!spec) return;
+        // Skip URLs and non-path protocol specifiers; only in-repo paths matter.
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(spec) || spec.startsWith('mailto:')) return;
+        // Must be path-qualified: a separator distinguishes a reference from a
+        // bare filename mention (which is co-location noise, not a reference).
+        if (!spec.includes('/')) return;
+        const resolved = spec.startsWith('/')
+            ? normalizePath(spec.replace(/^\/+/, ''))
+            : normalizePath(path.posix.join(baseDir, spec));
+        const cleaned = resolved.replace(/^(\.\.\/)+/, '');
+        if (cleaned) out.add(cleaned.toLowerCase());
+    };
+    const patterns: RegExp[] = [
+        // import ... from '...'; require('...'); include '...'
+        /(?:\bfrom|\bimport|\brequire|\binclude|\bsource)\s*\(?\s*["'`]([^"'`\n]+)["'`]/gi,
+        // markdown links: [text](target) and reference-style [id]: target
+        /\]\(\s*<?([^)\s>]+)>?[^)]*\)/g,
+        /\]:\s*([^\s]+)/g,
+    ];
+    for (const pattern of patterns) {
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(content)) !== null) {
+            if (match[1]) consider(match[1]);
+        }
+    }
+    // Explicit slash-qualified path tokens. Tokenize LINEARLY on characters that
+    // cannot appear in a path reference, then keep the slash-qualified tokens —
+    // a nested-quantifier path regex would risk catastrophic backtracking on
+    // minified or data-heavy files. Overlong lines carry no real reference.
+    for (const line of content.split('\n')) {
+        if (line.length > 4000 || out.size >= 60) continue;
+        if (line.indexOf('/') === -1) continue;
+        for (const token of line.split(/[^\w./@\\-]+/)) {
+            if (token.indexOf('/') !== -1) consider(token);
+        }
+    }
+    return Array.from(out).slice(0, 60);
+}
+
+export function detectSensitiveActions(text: string): RepositorySensitiveAction[] {
     const normalized = stripNegatedClauses(text).replace(/[_-]/g, ' ');
     const actions = new Set<RepositorySensitiveAction>();
     // "command" alone is not shell evidence (it appears in every MCP config and
     // most prose); require an execution verb or an actual shell term.
     if (/\b(shell|bash|terminal|exec|spawn|subprocess|run\s+(?:any\s+|all\s+)?commands?|execute\s+(?:any\s+|all\s+)?commands?)\b/i.test(normalized)) actions.add('Shell');
     if (/\b(filesystem|file\s*(read|write)|read\s+file|write\s+file|read\s+all\s+files|write\s+all\s+files|workspace|directory)\b/i.test(normalized)) actions.add('Filesystem');
-    if (/\b(network|http|https|fetch|curl|webhook|internal api|network\s+request)\b/i.test(normalized)) actions.add('Network');
-    if (/\b(secret|secrets|read\s+secret|token|api\s*key|password|credential|credentials|bearer)\b/i.test(normalized)) actions.add('Secrets');
-    if (/https?:\/\/|\bexternal\s+api\b|\bapi\./i.test(text)) actions.add('External APIs');
+    // Network requires a network verb/idiom (or an explicit "network" mention) —
+    // a bare URL literal (e.g. a spec link in a comment or a default endpoint
+    // string) is not itself a network call.
+    if (/\b(network|fetch|curl|webhook|internal\s+api|network\s+requests?|https?\s+requests?|websocket)\b/i.test(normalized)) actions.add('Network');
+    // Secrets requires a credential-shaped identifier — NOT bare "token", which
+    // matches LLM token counts (max_tokens, token_limit) and control tokens
+    // (cancellation_token). Mirrors the tightened HARDCODED_SECRET patterns.
+    if (/\b(secrets?|read\s+secret|api\s?keys?|access\s?tokens?|auth\s?tokens?|passwords?|credentials?|bearer)\b/i.test(normalized)) actions.add('Secrets');
+    // External API requires an actual outbound call idiom (fetch/axios/requests/
+    // http client) or an explicit "external api" mention — NOT a bare URL literal
+    // or an "api." property access (e.g. self.api.foo, a validator's spec URL).
+    if (/\bfetch\s*\(|\b(?:axios|httpx|urllib2?|superagent|node[-_]?fetch)\b|\brequests\.(?:get|post|put|delete|patch|head|request|session)\b|\bhttp2?\.(?:get|post|request|client|Agent)\b|\bhttps\.(?:get|request)\b|\bXMLHttpRequest\b|\bWebSocket\b|\bcurl\s+-|\bexternal\s+apis?\b/i.test(text)) actions.add('External APIs');
     return Array.from(actions);
 }
 
@@ -410,19 +493,83 @@ function classifyRepositoryProvenance(relativePath: string, content: string): Re
         /\b(intentional(?:ly)? vulnerable|test fixture|do not fix|fixture only|vulnerable fixture|suppression_reason)\b/i.test(content)) {
         return 'fixture';
     }
-    if (hasSegment('tests', 'test', '__tests__', '__test__', 'spec', '__mocks__') ||
-        /\.(?:test|spec)\.[a-z]+$/.test(basename)) {
+    if (hasSegment('tests', 'test', '__tests__', '__test__', 'spec', 'specs', '__mocks__',
+            'unittests', 'unittest', 'e2e', 'testing') ||
+        /(?:^|[_.])test[_.]/.test(basename) ||               // test_foo.py
+        /[_.](?:test|spec)s?\.[a-z0-9]+$/.test(basename) ||  // foo.test.ts, foo_test.go, foo.spec.rb
+        /tests?\.(?:cs|java|kt|scala|rb|php)$/.test(basename)) { // PascalCase FooTests.cs / FooTest.java
         return 'test';
     }
-    if (hasSegment('docs', 'doc', 'documentation', 'wiki') ||
-        basename === 'readme.md' || basename === 'changelog.md' || basename === 'contributing.md' ||
-        /\.mdx?$/.test(basename) && hasSegment('docs', 'doc')) {
+    // Documentation is detected by LOCATION (doc directories) and by well-known
+    // doc filenames — not by markdown extension alone, since agent memory,
+    // instructions, and prompts also live in markdown. This keeps illustrative
+    // security content in READMEs, guides, tutorials, blogs, and API-reference
+    // docs (```bash examples, sample emails, doctest output) out of production
+    // findings, while leaving real AI-instruction markdown classified. Known
+    // AI-instruction surfaces under a doc directory are exempted.
+    const isAiInstructionSurface =
+        ['agents.md', 'agent.md', 'claude.md', 'skill.md', '.cursorrules'].includes(basename) ||
+        hasSegment('prompts', 'skills', '.claude', '.cursor', '.agents', '.codex');
+    if (!isAiInstructionSurface && (
+        hasSegment('docs', 'doc', 'documentation', 'wiki', 'wikis', 'blog', 'blogs',
+            'website', 'site', 'tutorial', 'tutorials', 'guide', 'guides', 'man', 'manual', 'handbook') ||
+        segments.some(segment => segment.startsWith('docs') || segment.startsWith('documentation')) ||
+        ['readme.md', 'readme.mdx', 'changelog.md', 'contributing.md', 'code_of_conduct.md', 'security.md', 'history.md', 'authors.md', 'notice.md'].includes(basename)
+    )) {
         return 'documentation';
     }
-    if (hasSegment('examples', 'example', 'demo', 'demos', 'scratch', 'evidence', 'benchmarks', 'research', 'results', 'tmp', 'output')) {
+    if (hasSegment('examples', 'example', 'demo', 'demos', 'scratch', 'evidence', 'benchmarks',
+            'research', 'results', 'tmp', 'output', 'sample', 'samples', 'cookbook', 'cookbooks',
+            'recipes', 'playground', 'quickstart', 'quickstarts')) {
         return 'example';
     }
     return 'production';
+}
+
+// Files that never represent an AI artifact even when their directory or name
+// would otherwise match a classifier heuristic — build, dependency, lint, test,
+// container, and project-meta files. These caused false positives (e.g. a
+// package.json under memory/ classified as MEMORY). Known AI-artifact filenames
+// are exempt (see ALWAYS_CLASSIFY_BASENAMES).
+const NON_ARTIFACT_BASENAMES = new Set([
+    'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+    'tsconfig.json',
+    'vitest.config.ts', 'vitest.config.js', 'vitest.config.mts',
+    'jest.config.ts', 'jest.config.js', 'jest.config.mjs',
+    '.eslintrc', '.eslintrc.js', '.eslintrc.json', '.eslintrc.yml',
+    '.prettierrc', '.prettierrc.js', '.prettierrc.json', '.prettierrc.yml',
+    'dockerfile', 'docker-compose.yml', 'docker-compose.yaml',
+    'makefile', 'license', 'contributing.md', 'changelog.md',
+    '.gitignore', '.gitattributes', '.editorconfig',
+    'readme.md',
+]);
+
+// Filenames that are always classified, even inside an otherwise-excluded
+// directory (e.g. AGENTS.md under __tests__/, mcp.json under .cursor/). Matched
+// on the lower-cased basename.
+const ALWAYS_CLASSIFY_BASENAMES = new Set([
+    'agents.md', 'claude.md', 'skill.md', 'mcp.json', '.mcp.json', '.cursorrules',
+]);
+
+const NON_ARTIFACT_PATH_PATTERNS = [
+    /(^|\/)__tests__\//,
+    /\.(test|spec)\.(ts|tsx|js|jsx|mts|mjs)$/,
+    /(^|\/)node_modules\//,
+    /(^|\/)\.git\//,
+    /(^|\/)dist\//,
+    /(^|\/)build\//,
+    /(^|\/)coverage\//,
+];
+
+// Exclusion layer: runs before any classification heuristic. Returns true when
+// the file must be skipped entirely and kept out of the artifact list. Known
+// AI-artifact filenames are never excluded, so AGENTS.md/CLAUDE.md/SKILL.md/
+// mcp.json/.cursorrules survive even inside a test or build directory.
+function isExcludedFromClassification(lower: string, basename: string): boolean {
+    if (ALWAYS_CLASSIFY_BASENAMES.has(basename)) return false;
+    if (NON_ARTIFACT_BASENAMES.has(basename)) return true;
+    if (/^tsconfig\..+\.json$/.test(basename)) return true; // tsconfig.*.json glob
+    return NON_ARTIFACT_PATH_PATTERNS.some(pattern => pattern.test(lower));
 }
 
 function classifyFile(root: string, filePath: string, content: string): RepositoryArtifact[] {
@@ -430,8 +577,22 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     const lower = relativePath.toLowerCase();
     const basename = path.basename(lower);
     const ext = path.extname(lower);
+    if (isExcludedFromClassification(lower, basename)) {
+        return [];
+    }
     const provenance = classifyRepositoryProvenance(relativePath, content);
     const isPromptPath = lower.startsWith('prompts/') || lower.includes('/prompts/') || ['.prompt', '.ai', '.chat', '.system'].includes(ext);
+    // Documentation, examples, tests, fixtures, and generated files are not
+    // executable execution surfaces. They must not be classified as heuristic
+    // executor artifacts (TOOL/MEMORY/WORKFLOW/PROMPT) — a docs guide mentioning
+    // `tool_dispatcher` is not a tool, and a bash example in a tutorial is not a
+    // reachable sink. Explicit named AI artifacts (mcp.json, SKILL.md,
+    // AGENTS.md/CLAUDE.md) are still classified by their dedicated branches.
+    const nonProductionArtifact = NON_PRODUCTION_PROVENANCE.has(provenance);
+    // Resolved path-qualified references this file makes to other repo files.
+    // Shared by every artifact classified from the file so the execution-graph
+    // builder can gate cross-file edges on a real reference.
+    const referencePaths = extractReferencePaths(content, path.dirname(relativePath));
     const artifacts: RepositoryArtifact[] = [];
     const add = (type: RepositoryArtifactType, name: string, description: string, signals: string[], evidence: string[], metadata?: RepositoryArtifact['metadata']) => {
         artifacts.push({
@@ -444,17 +605,18 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
             evidence: sanitizeStringArray(evidence) || [],
             provenance,
             signals,
-            metadata: metadata ? {
-                ...metadata,
-                capabilities: sanitizeStringArray(metadata.capabilities),
-                constraints: sanitizeStringArray(metadata.constraints),
-                permissions: sanitizeStringArray(metadata.permissions),
-                references: sanitizeStringArray(metadata.references),
-            } : undefined,
+            metadata: {
+                ...(metadata || {}),
+                capabilities: sanitizeStringArray(metadata?.capabilities),
+                constraints: sanitizeStringArray(metadata?.constraints),
+                permissions: sanitizeStringArray(metadata?.permissions),
+                references: sanitizeStringArray(metadata?.references),
+                referencePaths,
+            },
         });
     };
 
-    if (lower.endsWith('/mcp.json') || lower.endsWith('/mcp.yaml') || lower.endsWith('/mcp.yml') || lower === 'mcp.json' || lower === 'mcp.yaml' || lower === 'mcp.yml' || lower.endsWith('/.cursor/mcp.json') || lower.endsWith('/.vscode/mcp.json') || basename === 'claude_desktop_config.json') {
+    if (lower.endsWith('/mcp.json') || lower.endsWith('/mcp.yaml') || lower.endsWith('/mcp.yml') || lower === 'mcp.json' || lower === 'mcp.yaml' || lower === 'mcp.yml' || lower === '.mcp.json' || lower.endsWith('/.mcp.json') || lower.endsWith('/.cursor/mcp.json') || lower.endsWith('/.vscode/mcp.json') || basename === 'claude_desktop_config.json') {
         const servers = parseMcpServers(content);
         const serverArtifacts = servers.length > 0 ? servers : [{ name: path.basename(filePath), body: content }];
         const parseWarning = mcpParseWarning(relativePath, content);
@@ -482,7 +644,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (lower === 'agents.md' || lower === 'agent.md' || lower.startsWith('agents/') || lower.endsWith('/agents.md') || lower.endsWith('/agent.md') || lower.includes('/agents/')) {
+    if (lower === 'agents.md' || lower === 'agent.md' || lower === 'claude.md' || lower.startsWith('agents/') || lower.endsWith('/agents.md') || lower.endsWith('/agent.md') || lower.endsWith('/claude.md') || lower.includes('/agents/') || basename === '.cursorrules') {
         add('AGENT_CONFIG', path.basename(filePath), 'Repository agent instruction file discovered.', ['agent-instructions'], [lineEvidence(content, /agent|codex|cursor|claude|instructions/i, relativePath)], {
             constraints: Array.from(content.matchAll(/\b(?:do not|never|only|must|important)[:\s-]+(.+)/gi)).map(match => match[0].trim()).slice(0, 10),
             sensitiveActions: detectSensitiveActions(content),
@@ -499,7 +661,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (basename.includes('memory') || lower.includes('/memory/')) {
+    if (!nonProductionArtifact && (basename.includes('memory') || lower.startsWith('memory/') || lower.includes('/memory/'))) {
         add('MEMORY', path.basename(filePath), 'Agent memory artifact discovered.', ['memory-store'], [lineEvidence(content, /memory|remember|persist|session|history/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
@@ -514,7 +676,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     const isGithubWorkflow = lower.startsWith('.github/workflows/') || lower.includes('/.github/workflows/');
     const isActionManifest = basename === 'action.yml' || basename === 'action.yaml';
     const isWorkflowConfigName = (basename.includes('workflow') || basename.includes('pipeline')) && WORKFLOW_CONFIG_EXTENSIONS.has(ext);
-    if (isGithubWorkflow || isActionManifest || isWorkflowConfigName) {
+    if (!nonProductionArtifact && (isGithubWorkflow || isActionManifest || isWorkflowConfigName)) {
         add(basename.startsWith('action.') ? 'ACTION' : 'WORKFLOW', path.basename(filePath), 'Workflow or action orchestration file discovered.', ['workflow-config'], [lineEvidence(content, /workflow|jobs|steps|uses|run|tool|prompt|mcp/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
@@ -522,7 +684,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (!isPromptPath && (basename.includes('tool') || basename.includes('router') || basename.includes('registry') || /\b(tool router|tool_registry|function call|tools\s*[:=]|toolDefinitions)\b/i.test(content))) {
+    if (!nonProductionArtifact && !isPromptPath && (basename.includes('tool') || basename.includes('router') || basename.includes('registry') || /\b(tool router|tool_registry|function call|tools\s*[:=]|toolDefinitions)\b/i.test(content))) {
         add('TOOL', path.basename(filePath), 'Tool registry or tool-routing artifact discovered.', ['tool-definition'], [lineEvidence(content, /tool|router|function call|execute|invoke/i, relativePath)], {
             tools: Array.from(content.matchAll(/\b(?:tool|name|function)\s*[:=]\s*["'`]?([A-Za-z0-9_.-]{3,})/gi)).map(match => match[1]).slice(0, 20),
             sensitiveActions: detectSensitiveActions(content),
@@ -531,7 +693,13 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         return artifacts;
     }
 
-    if (isPromptPath || /\b(system|assistant|developer)\s+prompt\b/i.test(content) || /\{\{[^}]+}}/.test(content) || (ext === '.md' && /\b(prompt template|system instructions|assistant instructions)\b/i.test(content))) {
+    const referenceOnly = NON_PRODUCTION_PROVENANCE.has(provenance) && !isPromptPath;
+    if (!referenceOnly && (
+        isPromptPath ||
+        /\b(system|assistant|developer)\s+prompt\b/i.test(content) ||
+        /\{\{[^}]+}}/.test(content) ||
+        (ext === '.md' && /\b(prompt template|system instructions|assistant instructions)\b/i.test(content))
+    )) {
         add('PROMPT', path.basename(filePath), 'Prompt or prompt template discovered.', ['prompt-template'], [lineEvidence(content, /prompt template|system prompt|assistant prompt|developer prompt|instructions|tool|shell|filesystem|mcp|{{/i, relativePath)], {
             sensitiveActions: detectSensitiveActions(content),
             references: extractReferences(content),
@@ -567,6 +735,79 @@ export function analyzeRepositoryArtifacts(rootPath: string, options: AnalyzeRep
         scanStats.filesScanned += 1;
         artifacts.push(...classifyFile(isDirectory ? root : path.dirname(root), filePath, content));
     }
+    return {
+        artifacts: artifacts.sort((a, b) => `${a.relativePath}:${a.type}:${a.name}`.localeCompare(`${b.relativePath}:${b.type}:${b.name}`)),
+        scanStats,
+    };
+}
+
+export type InMemoryRepositoryFile = {
+    path: string;
+    content: string;
+};
+
+function normalizeInMemoryRelativePath(value: string): string {
+    return normalizePath(value)
+        .split('/')
+        .filter(part => part && part !== '.' && part !== '..')
+        .join('/');
+}
+
+function isSupportedRepositoryTextPath(relativePath: string): boolean {
+    const lower = normalizePath(relativePath).toLowerCase();
+    const ext = path.extname(lower);
+    const basename = path.basename(lower);
+    return TEXT_EXTENSIONS.has(ext) || basename === 'agents.md' || basename === 'agent.md';
+}
+
+export function analyzeRepositoryArtifactsFromFiles(
+    rootPath: string,
+    files: InMemoryRepositoryFile[],
+    options: AnalyzeRepositoryOptions = {},
+): { artifacts: RepositoryArtifact[]; scanStats: RepositoryScanStats } {
+    const root = path.resolve(rootPath);
+    const resolvedOptions = {
+        maxFiles: options.maxFiles || DEFAULT_MAX_FILES,
+        maxFileSizeBytes: options.maxFileSizeBytes || DEFAULT_MAX_FILE_SIZE_BYTES,
+        ignorePatterns: options.ignorePatterns || [],
+    };
+    const scanStats = emptyScanStats();
+    const artifacts: RepositoryArtifact[] = [];
+    const isIgnored = (relativePath: string): boolean =>
+        resolvedOptions.ignorePatterns.some(pattern =>
+            minimatch(relativePath, pattern, { dot: true }) ||
+            minimatch(relativePath, pattern.replace(/\/\*?\*?$/, ''), { dot: true })
+        );
+
+    for (const file of files) {
+        scanStats.filesConsidered += 1;
+        const relativePath = normalizeInMemoryRelativePath(file.path);
+        if (!relativePath) {
+            noteSkip(scanStats, 'unsupported_or_unreadable');
+            continue;
+        }
+        if (isIgnored(relativePath)) {
+            noteSkip(scanStats, 'ignore_pattern');
+            continue;
+        }
+        if (scanStats.filesScanned >= resolvedOptions.maxFiles) {
+            scanStats.truncated = true;
+            noteSkip(scanStats, 'max_files_exceeded');
+            continue;
+        }
+        const content = String(file.content || '');
+        if (content.length > resolvedOptions.maxFileSizeBytes) {
+            noteSkip(scanStats, 'file_too_large');
+            continue;
+        }
+        if (!isSupportedRepositoryTextPath(relativePath)) {
+            noteSkip(scanStats, 'unsupported_or_unreadable');
+            continue;
+        }
+        scanStats.filesScanned += 1;
+        artifacts.push(...classifyFile(root, path.join(root, relativePath), content));
+    }
+
     return {
         artifacts: artifacts.sort((a, b) => `${a.relativePath}:${a.type}:${a.name}`.localeCompare(`${b.relativePath}:${b.type}:${b.name}`)),
         scanStats,
@@ -622,17 +863,66 @@ function addEdge(edges: Map<string, RepositoryExecutionEdge>, from: string, to: 
     });
 }
 
-function artifactText(artifact: RepositoryArtifact): string {
+// Content-derived text of a source artifact, EXCLUDING its own name and path.
+// Used for name-reference matching so a file whose *filename* coincides with a
+// target's name (e.g. `context7.ts` and an MCP server named `context7`) is not
+// mistaken for a reference — only the file's actual content counts.
+function referenceNameHaystack(artifact: RepositoryArtifact): string {
     return [
-        artifact.name,
-        artifact.relativePath,
         artifact.description,
         ...(artifact.evidence || []),
         ...(artifact.signals || []),
         ...(artifact.metadata?.references || []),
-        ...(artifact.metadata?.tools || []),
-        ...(artifact.metadata?.servers || []),
     ].join(' ').toLowerCase();
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// True when `name` appears as a standalone token in `haystack` (word-boundaried
+// by any non-alphanumeric, so `my-server` and `shell` match but `preshell` and
+// `max_tokens`→`token` do not). Generic 1-2 char names never match.
+function containsNameToken(haystack: string, name: string): boolean {
+    const token = name.trim().toLowerCase();
+    if (token.length < 3) return false;
+    return new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(token)}(?:$|[^a-z0-9])`, 'i').test(haystack);
+}
+
+// True when the source's resolved path references include the target file: an
+// exact path match, an extension-insensitive match, or a directory reference
+// naming the target's containing folder (e.g. `skills/deploy` -> that skill).
+function referencePathMatchesTarget(sourceRefPaths: string[], targetRelPath: string): boolean {
+    const target = normalizePath(targetRelPath).toLowerCase();
+    if (!target) return false;
+    const targetNoExt = target.replace(/\.[a-z0-9]+$/i, '');
+    const targetDir = target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : '';
+    for (const raw of sourceRefPaths) {
+        const ref = raw.toLowerCase();
+        if (!ref) continue;
+        const refNoExt = ref.replace(/\.[a-z0-9]+$/i, '');
+        if (ref === target || ref === targetNoExt || refNoExt === targetNoExt) return true;
+        if (targetDir && (ref === targetDir || refNoExt === targetDir)) return true;
+    }
+    return false;
+}
+
+// Prose / orchestration artifacts may reference a configured MCP server by its
+// declared name (a real config-key reference). Code artifacts (TOOL, MCP_SERVER)
+// may not — a bare name collision between two code files is co-location, not a
+// reference, and must not create an edge.
+const NAME_REFERENCE_SOURCE_TYPES = new Set<RepositoryArtifactType>([
+    'PROMPT', 'AGENT_CONFIG', 'SKILL', 'WORKFLOW', 'ACTION', 'MEMORY',
+]);
+
+function edgeTypeForTarget(targetType: RepositoryArtifactType): RepositoryExecutionEdge['type'] {
+    switch (targetType) {
+        case 'MEMORY': return 'READS';
+        case 'TOOL': return 'ROUTES_TO';
+        case 'SKILL':
+        case 'MCP_SERVER': return 'INVOKES';
+        default: return 'REFERENCES';
+    }
 }
 
 // Node types that actually *execute* a sensitive action (a configured MCP
@@ -732,66 +1022,45 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
         }
     }
 
-    const byType = (type: RepositoryArtifactType) => artifacts.filter(artifact => artifact.type === type);
-    const prompts = artifacts.filter(artifact => artifact.type === 'PROMPT' || artifact.type === 'AGENT_CONFIG');
-    const skills = byType('SKILL');
-    const tools = byType('TOOL');
-    const mcps = byType('MCP_SERVER');
-    const memories = byType('MEMORY');
-    const workflows = byType('WORKFLOW').concat(byType('ACTION'));
-
+    // Cross-file execution edges are created ONLY when the source artifact makes
+    // a REAL reference to the target — never from capability-word co-location.
+    // A reference is one of:
+    //   (1) a resolved import/require, markdown link, or explicit path-qualified
+    //       string that points at the target file (or its containing folder), or
+    //   (2) a prose/orchestration file naming a configured MCP server by its
+    //       declared name.
+    // Two files that merely both mention "shell", or share a filename, are NOT
+    // connected. This keeps Potential/Probable meaning "a reference exists but
+    // reachability is not certain" rather than "co-located in the same repo".
     for (const source of artifacts) {
         const sourceNode = nodeIdByArtifact.get(source.id);
         if (!sourceNode) continue;
-        const sourceText = artifactText(source);
+        const sourceRefPaths = source.metadata?.referencePaths || [];
+        const canNameReference = NAME_REFERENCE_SOURCE_TYPES.has(source.type);
+        const nameHaystack = canNameReference ? referenceNameHaystack(source) : '';
         for (const target of artifacts) {
             if (source.id === target.id) continue;
             const targetNode = nodeIdByArtifact.get(target.id);
             if (!targetNode) continue;
-            const targetName = target.name.toLowerCase();
-            const targetBase = path.basename(target.relativePath).toLowerCase();
-            if (sourceText.includes(targetName) || sourceText.includes(target.relativePath.toLowerCase()) || (targetBase.length > 4 && sourceText.includes(targetBase))) {
-                addEdge(edges, sourceNode, targetNode, 'REFERENCES', `${source.name} references ${target.name}.`, source.evidence[0], 75, 'direct');
+
+            // (1) Resolved path / import / markdown-link reference -> Confirmed.
+            if (referencePathMatchesTarget(sourceRefPaths, target.relativePath)) {
+                addEdge(edges, sourceNode, targetNode, edgeTypeForTarget(target.type), `${source.name} references ${target.relativePath} by path.`, source.evidence[0], 80, 'direct');
+                continue;
+            }
+
+            // (2) Named reference to a configured MCP server -> Probable. Servers
+            // are invoked by their config-declared name; other artifact kinds must
+            // be referenced by path (a bare name match is co-location noise).
+            if (canNameReference && target.type === 'MCP_SERVER') {
+                const serverNames = (target.metadata?.servers && target.metadata.servers.length > 0)
+                    ? target.metadata.servers
+                    : [target.name];
+                if (serverNames.some(name => containsNameToken(nameHaystack, name))) {
+                    addEdge(edges, sourceNode, targetNode, 'INVOKES', `${source.name} references configured MCP server "${target.name}" by name.`, source.evidence[0], 70, 'connected');
+                }
             }
         }
-    }
-
-    for (const prompt of prompts) {
-        const sourceNode = nodeIdByArtifact.get(prompt.id);
-        if (!sourceNode) continue;
-        for (const memory of memories) addEdge(edges, sourceNode, nodeIdByArtifact.get(memory.id)!, 'READS', 'Prompt or agent config can read repository memory context.', prompt.evidence[0], 55, 'structural');
-        for (const skill of skills) addEdge(edges, sourceNode, nodeIdByArtifact.get(skill.id)!, 'INVOKES', 'Prompt or agent config can invoke discovered agent skills.', prompt.evidence[0], 60, 'structural');
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'ROUTES_TO', 'Prompt or agent config can route work to tool definitions.', prompt.evidence[0], 60, 'structural');
-        for (const mcp of mcps) {
-            const promptActions = prompt.metadata?.sensitiveActions || [];
-            const mcpActions = mcp.metadata?.sensitiveActions || [];
-            if (promptActions.some(action => mcpActions.includes(action))) {
-                // Capability overlap (prompt names an action the MCP exposes) is
-                // strong structural evidence, not a confirmed reference.
-                addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Prompt names a sensitive action exposed by a configured MCP server.', prompt.evidence[0], 80, 'connected');
-            }
-        }
-    }
-
-    for (const skill of skills) {
-        const sourceNode = nodeIdByArtifact.get(skill.id);
-        if (!sourceNode) continue;
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'ROUTES_TO', 'Skill can route instructions to a tool surface.', skill.evidence[0], 65, 'structural');
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Skill can invoke MCP server capabilities.', skill.evidence[0], 60, 'structural');
-    }
-
-    for (const tool of tools) {
-        const sourceNode = nodeIdByArtifact.get(tool.id);
-        if (!sourceNode) continue;
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'ROUTES_TO', 'Tool surface can route to MCP server capability.', tool.evidence[0], 70, 'structural');
-    }
-
-    for (const workflow of workflows) {
-        const sourceNode = nodeIdByArtifact.get(workflow.id);
-        if (!sourceNode) continue;
-        for (const prompt of prompts) addEdge(edges, sourceNode, nodeIdByArtifact.get(prompt.id)!, 'REFERENCES', 'Workflow can reference prompt or agent instructions.', workflow.evidence[0], 55, 'structural');
-        for (const tool of tools) addEdge(edges, sourceNode, nodeIdByArtifact.get(tool.id)!, 'INVOKES', 'Workflow can invoke tool definitions.', workflow.evidence[0], 65, 'structural');
-        for (const mcp of mcps) addEdge(edges, sourceNode, nodeIdByArtifact.get(mcp.id)!, 'INVOKES', 'Workflow can invoke MCP server configuration.', workflow.evidence[0], 65, 'structural');
     }
 
     for (const result of scanResults) {
@@ -809,7 +1078,10 @@ export function buildRepositoryExecutionMap(artifacts: RepositoryArtifact[], sca
                 if (workflowNode.type === 'external_api') actions.add('External APIs');
             }
             if (related && !['PROMPT', 'SKILL', 'AGENT_CONFIG'].includes(related.type)) {
-                detectSensitiveActions(`${finding.message || ''}\n${finding.evidence || ''}\n${finding.fix || ''}`).forEach(action => actions.add(action));
+                // Derive sink actions from the actual matched evidence, NOT the
+                // remediation `fix` text (generic advice like "rotate credentials"
+                // or "move secrets to env" would otherwise mislabel the sink).
+                detectSensitiveActions(`${finding.evidence || ''}\n${finding.message || ''}`).forEach(action => actions.add(action));
             }
         }
         if (!sourceNode) {
@@ -968,6 +1240,17 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
     const findingsByFileForEvidence = new Map(scanResults.map(result => [path.resolve(result.filePath), result.findings || []]));
     const fileProvenance = (filePath: string): RepositoryProvenance =>
         artifactProvenance.get(path.resolve(filePath)) || classifyRepositoryProvenance(path.resolve(filePath), '');
+    // Provenance for a graph node. Classified artifacts carry their provenance
+    // (computed from the repo-relative path); for others, classify on the node's
+    // repo-RELATIVE path — never the absolute path, whose ambient prefix (a
+    // `/tmp/...` scratch dir, an `.../corpus/...` clone root) would otherwise leak
+    // segments like `tmp`/`corpus` and mis-mark real files as non-production.
+    const nodeProvenance = (nodeId: string): RepositoryProvenance | undefined => {
+        const node = nodesById.get(nodeId);
+        if (!node?.filePath) return undefined;
+        return artifactProvenance.get(path.resolve(node.filePath))
+            || classifyRepositoryProvenance(node.relativePath || path.basename(node.filePath), '');
+    };
     // A path is live production risk only when its whole chain is production. If
     // any node it traverses (e.g. a fixture MCP that supplies the sink) is
     // non-production, the path is non-production — a production-sourced prompt
@@ -975,9 +1258,8 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
     // shippable vulnerability. Source provenance is used only as the fallback.
     const pathProvenance = (nodeIds: string[], fallbackFile?: string): RepositoryProvenance => {
         const chain = nodeIds
-            .map(id => nodesById.get(id)?.filePath)
-            .filter(Boolean)
-            .map(file => fileProvenance(file as string));
+            .map(id => nodeProvenance(id))
+            .filter((provenance): provenance is RepositoryProvenance => Boolean(provenance));
         const nonProduction = chain.find(provenance => NON_PRODUCTION_PROVENANCE.has(provenance));
         if (nonProduction) return nonProduction;
         if (chain.length > 0) return chain[0];
@@ -1150,6 +1432,11 @@ export function analyzeReachablePaths(executionMap: RepositoryExecutionMap, arti
 
     const seen = new Set<string>();
     return paths.filter(pathItem => {
+        // A path whose chain runs through documentation, an example, a test, or a
+        // fixture is not a production execution path — the illustrative content
+        // that produced it is not a shippable vulnerability. Excluded rather than
+        // emitted as a low-confidence path (which the audit still counted noise).
+        if (NON_PRODUCTION_PROVENANCE.has(pathItem.provenance ?? 'production')) return false;
         const key = `${pathItem.risk}:${pathItem.files.join(',')}:${pathItem.sensitiveActions.join(',')}:${pathItem.explanation}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -1380,8 +1667,118 @@ function issueEvidenceKind(finding: RepositoryScanFinding): 'direct' | 'absence'
 function plainFixCandidate(finding: RepositoryScanFinding, fallback: string): string {
     const candidate = [finding.fix, finding.recommendation].find(value => value && !INTERNAL_TERMINOLOGY.test(value));
     if (!candidate || INTERNAL_TERMINOLOGY.test(candidate)) return fallback;
+    if (!fixMatchesArtifactContext(finding, candidate)) return fallback;
     return redactSecrets(candidate).trim();
 }
+
+function isWorkflowArtifactFinding(finding: RepositoryScanFinding): boolean {
+    return finding.artifactKind === 'workflow' || finding.context?.artifactKind === 'workflow';
+}
+
+function agentInstructionKind(finding: RepositoryScanFinding): ArtifactKind | undefined {
+    const kind = finding.artifactKind || finding.context?.artifactKind;
+    return kind === 'claude' || kind === 'agents' || kind === 'agent' || kind === 'skill' ? kind : undefined;
+}
+
+function isReferenceOrTestFinding(finding: RepositoryScanFinding): boolean {
+    const kind = finding.artifactKind || finding.context?.artifactKind;
+    return finding.executionIntent === 'reference'
+        || finding.executionIntent === 'test_fixture'
+        || kind === 'documentation'
+        || kind === 'test'
+        || kind === 'fixture'
+        || kind === 'example';
+}
+
+function fixMatchesArtifactContext(finding: RepositoryScanFinding, candidate: string): boolean {
+    const signal = `${finding.rule_id} ${finding.category || ''} ${finding.message || ''}`.toLowerCase();
+    const fix = candidate.toLowerCase();
+    const securityFinding = /secret|credential|api.?key|password|token|pii|sensitive.?data|shell|privileged|sink|escalation|workflow|autonomous|tool.?routing|access/.test(signal);
+    const promptQualityFix = /rag|retrieval|token|compress|shorten\s+the\s+prompt|few-shot|persona|bounded role|prompt template/.test(fix);
+    if (isWorkflowArtifactFinding(finding) && securityFinding) {
+        return !promptQualityFix && /workflow|permission|environment|secret|pull_request|trigger|action|shell|input|pin|least privilege/.test(fix);
+    }
+    if (agentInstructionKind(finding) && securityFinding) {
+        return !promptQualityFix && /agent|instruction|tool|approval|shell|filesystem|network|secret|credential|path|command|least privilege|scope/.test(fix);
+    }
+    if (securityFinding && promptQualityFix) return false;
+    return true;
+}
+
+const WORKFLOW_SECURITY_REMEDIATION = 'Restrict workflow permissions to least privilege, protect environments, avoid exposing secrets to pull_request or other untrusted triggers, scope secrets to the minimum jobs and environments, pin actions to trusted versions, and validate shell inputs before use.';
+
+const WORKFLOW_SECURITY_SAFE_PATTERN = [
+    'permissions: { contents: read }',
+    'environment: production',
+    'if: github.event_name != "pull_request"',
+    'uses: actions/checkout@<pinned-sha>',
+    'run: ./script.sh --input "$VALIDATED_INPUT"',
+].join('\n');
+
+const AGENT_INSTRUCTION_SAFE_PATTERNS: Record<string, string> = {
+    claude: [
+        '# CLAUDE.md',
+        'You are a repository coding agent for this project.',
+        'Allowed: read files, propose patches, and run documented verification commands.',
+        'Denied: expose secrets, bypass approvals, or run deployment/shell commands without explicit user approval.',
+        'Before acting: state the target files, validate inputs, and report verification results.',
+    ].join('\n'),
+    agents: [
+        '# AGENTS.md',
+        'Scope: this repository.',
+        'Agent role: maintain the codebase using least privilege.',
+        'Allowed tools: read, edit, and test only the files needed for the task.',
+        'Safety: do not reveal secrets; ask before destructive commands, deployment, or credential use.',
+    ].join('\n'),
+    agent: [
+        '# AGENTS.md',
+        'Scope: this repository.',
+        'Agent role: maintain the codebase using least privilege.',
+        'Safety: do not reveal secrets; ask before destructive commands, deployment, or credential use.',
+    ].join('\n'),
+    skill: [
+        '# SKILL.md',
+        'Use when: the user asks for this specific workflow.',
+        'Allowed capabilities: list the exact tools and paths required.',
+        'Controls: require approval before shell, network, filesystem writes, or secret access.',
+        'Verification: run the documented checks and report failures.',
+    ].join('\n'),
+};
+
+const AGENT_QUALITY_SAFE_PATTERNS: Record<string, string> = {
+    claude: [
+        '# CLAUDE.md',
+        'Role: maintain this repository within the requested task scope.',
+        'Scope: list the files and workflows this instruction may affect.',
+        'Allowed actions: inspect, edit, and verify only the required changes.',
+        'Denied actions: destructive or unrelated work without explicit approval.',
+        'Verification: report the exact checks run and any remaining assumptions.',
+    ].join('\n'),
+    agents: [
+        '# AGENTS.md',
+        'Role: maintain this repository within the requested task scope.',
+        'Scope: list the files and workflows this instruction may affect.',
+        'Allowed actions: inspect, edit, and verify only the required changes.',
+        'Denied actions: destructive or unrelated work without explicit approval.',
+        'Verification: report the exact checks run and any remaining assumptions.',
+    ].join('\n'),
+    agent: [
+        '# AGENTS.md',
+        'Role: maintain this repository within the requested task scope.',
+        'Scope: list the files and workflows this instruction may affect.',
+        'Allowed actions: inspect, edit, and verify only the required changes.',
+        'Denied actions: destructive or unrelated work without explicit approval.',
+        'Verification: report the exact checks run and any remaining assumptions.',
+    ].join('\n'),
+    skill: [
+        '# SKILL.md',
+        'Role: perform the named workflow only when requested.',
+        'Scope: list the exact inputs, outputs, and affected paths.',
+        'Allowed actions: inspect, edit, and verify only the required changes.',
+        'Denied actions: destructive or unrelated work without explicit approval.',
+        'Verification: report the exact checks run and any remaining assumptions.',
+    ].join('\n'),
+};
 
 // Rule-specific plain-language copy for quality rules, so two different
 // clarity/structure findings do not render the identical sentence.
@@ -1456,6 +1853,78 @@ const QUALITY_ISSUE_COPY: Record<string, { issue: string; impact: string; whyThi
 
 function plainLanguageIssue(finding: RepositoryScanFinding): Pick<RepositoryExecutionIssue, 'issue' | 'impact' | 'whyThisMatters' | 'howToFix'> {
     const signal = `${finding.rule_id} ${finding.category || ''} ${finding.message || ''}`.toLowerCase();
+    const qualityCopy = QUALITY_ISSUE_COPY[finding.rule_id];
+    const isWorkflow = isWorkflowArtifactFinding(finding);
+    const agentKind = agentInstructionKind(finding);
+
+    if (isReferenceOrTestFinding(finding) && finding.category === 'security') {
+        const fallback = 'Treat this as reference/test context: keep examples isolated from runtime prompts or automation, use placeholders for fake secrets, and add production controls before wiring it into executable agent instructions.';
+        return {
+            issue: 'Security-sensitive text appears in reference, test, or fixture context.',
+            impact: 'This is not production reachable unless the file is wired into runtime prompts, agent instructions, or automation.',
+            whyThisMatters: 'Documentation, research, tests, and fixtures often contain intentionally unsafe examples; they should stay visible without being presented as live production vulnerabilities.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
+
+    if (isWorkflow && /secret|credential|api.?key|password|token|pii|sensitive.?data/.test(signal)) {
+        return {
+            issue: 'Workflow secrets may be exposed or available to an unsafe workflow path.',
+            impact: 'Repository or deployment credentials could be disclosed in logs, exposed to pull requests, or used by jobs with broader permissions than required.',
+            whyThisMatters: 'GitHub Actions secrets often authorize releases, package publishing, or cloud access; an unsafe workflow can turn a YAML mistake into credential misuse.',
+            howToFix: plainFixCandidate(finding, WORKFLOW_SECURITY_REMEDIATION),
+        };
+    }
+
+    if (isWorkflow && /shell|privileged|sink|escalation|workflow|autonomous|tool.?routing/.test(signal)) {
+        return {
+            issue: 'Workflow automation can reach a sensitive shell or deployment action.',
+            impact: 'An untrusted event, input, or dependency could influence commands, release steps, or protected resources.',
+            whyThisMatters: 'CI/CD workflows bridge repository content and production credentials. They need least privilege and explicit input validation.',
+            howToFix: plainFixCandidate(finding, WORKFLOW_SECURITY_REMEDIATION),
+        };
+    }
+
+    if (agentKind && qualityCopy) {
+        const agentIssue = qualityCopy.issue.includes('prompt')
+            ? qualityCopy.issue.replace('prompt', 'agent instruction')
+            : qualityCopy.issue.replace('instruction', 'agent instruction');
+        return {
+            issue: agentIssue,
+            impact: qualityCopy.impact,
+            whyThisMatters: 'Executable agent instructions need concrete scope, allowed actions, denied actions, and verification criteria so the agent behaves consistently.',
+            howToFix: plainFixCandidate(finding, 'Add artifact-specific agent operating guidance: role, scope, allowed tools, denied actions, and verification steps.'),
+        };
+    }
+
+    if (agentKind && /secret|credential|api.?key|password|token|pii|sensitive.?data/.test(signal)) {
+        const fallback = 'Remove credentials from the agent instruction file, scope any required secrets to approved tools, and require explicit approval before secret access.';
+        return {
+            issue: 'Agent instructions may expose sensitive information or secret access.',
+            impact: 'The agent could leak credentials, use repository secrets outside the intended workflow, or preserve sensitive data in logs.',
+            whyThisMatters: 'CLAUDE.md, AGENTS.md, and SKILL.md files are executable operating guidance for coding agents, not passive prompt templates.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
+
+    if (agentKind && /shell|privileged|sink|escalation|workflow|autonomous|tool.?routing|access/.test(signal)) {
+        const fallback = 'Constrain allowed tools, paths, and commands; require explicit approval before shell, filesystem write, network, deployment, or secret access.';
+        return {
+            issue: 'Agent instructions grant or imply sensitive capabilities without enough operating boundaries.',
+            impact: 'A coding agent could run commands, edit files, access network services, or use secrets beyond the intended scope.',
+            whyThisMatters: 'Agent instruction files directly shape tool use. Vague or broad capability grants become operational risk when an agent acts on the repository.',
+            howToFix: plainFixCandidate(finding, fallback),
+        };
+    }
+
+    if (qualityCopy) {
+        return {
+            issue: qualityCopy.issue,
+            impact: qualityCopy.impact,
+            whyThisMatters: qualityCopy.whyThisMatters,
+            howToFix: plainFixCandidate(finding, qualityCopy.fallback),
+        };
+    }
 
     if (/injection|jailbreak|override|evasion|rag/.test(signal)) {
         const fallback = 'Separate untrusted content from trusted instructions, reject attempts to replace system rules, and validate the resulting action before it runs.';
@@ -1507,15 +1976,6 @@ function plainLanguageIssue(finding: RepositoryScanFinding): Pick<RepositoryExec
         };
     }
 
-    const qualityCopy = QUALITY_ISSUE_COPY[finding.rule_id];
-    if (qualityCopy) {
-        return {
-            issue: qualityCopy.issue,
-            impact: qualityCopy.impact,
-            whyThisMatters: qualityCopy.whyThisMatters,
-            howToFix: plainFixCandidate(finding, qualityCopy.fallback),
-        };
-    }
     if (/output|format|structure|clarity|consistency|best.?practice|efficiency|token/.test(signal)) {
         const fallback = 'Make the expected input, output, validation, and failure behavior explicit, then add a test that verifies the required behavior.';
         return {
@@ -1535,7 +1995,33 @@ function plainLanguageIssue(finding: RepositoryScanFinding): Pick<RepositoryExec
     };
 }
 
-function structuredIssueFix(finding: RepositoryScanFinding, recommendedFix: string): RepositoryIssueFix {
+function secretSafePatternForFile(filePath?: string): string {
+    const extension = path.extname(filePath || '').toLowerCase();
+    if (extension === '.py') {
+        return [
+            'import os',
+            'api_key = os.environ["API_KEY"]',
+            '# Optional fallback when the value may be absent:',
+            'api_key = os.getenv("API_KEY")',
+            '# Prefer a project wrapper around your managed secret client for production reads.',
+            'api_key = secret_client.get_secret("API_KEY")',
+        ].join('\n');
+    }
+    if (extension === '.ts' || extension === '.tsx' || extension === '.js' || extension === '.jsx' || extension === '.mjs' || extension === '.cjs') {
+        return 'const apiKey = process.env.API_KEY; // never place the value in prompts or checked-in config';
+    }
+    if (extension === '.yml' || extension === '.yaml') {
+        return [
+            'env:',
+            '  API_KEY: ${{ secrets.API_KEY }}',
+            'permissions:',
+            '  contents: read',
+        ].join('\n');
+    }
+    return 'apiKey = secrets.get("API_KEY"); // use a managed secret client or environment-backed wrapper';
+}
+
+function structuredIssueFix(finding: RepositoryScanFinding, recommendedFix: string, filePath?: string): RepositoryIssueFix {
     const signal = `${finding.rule_id} ${finding.category || ''} ${finding.message || ''}`.toLowerCase();
     const effort: RepositoryIssueFix['effort'] = finding.severity === 'critical'
         ? 'Large'
@@ -1543,6 +2029,73 @@ function structuredIssueFix(finding: RepositoryScanFinding, recommendedFix: stri
             ? 'Moderate'
             : 'Quick';
 
+    if (isReferenceOrTestFinding(finding) && finding.category === 'security') {
+        return {
+            quickFix: 'Keep the example isolated from runtime prompts and replace any fake-looking secret with an obvious placeholder.',
+            recommendedFix,
+            safePattern: 'Reference/test context only: use <FAKE_API_KEY> placeholders and do not import this file into runtime prompts or automation.',
+            effort: 'Quick',
+        };
+    }
+
+    if (isWorkflowArtifactFinding(finding) && (
+        /secret|credential|api.?key|password|token|pii|sensitive.?data/.test(signal) ||
+        /shell|privileged|sink|escalation|workflow|autonomous|tool.?routing/.test(signal)
+    )) {
+        return {
+            quickFix: 'Reduce workflow permissions, protect the environment, and keep secrets away from untrusted triggers.',
+            recommendedFix,
+            safePattern: WORKFLOW_SECURITY_SAFE_PATTERN,
+            effort,
+        };
+    }
+
+    const agentKind = agentInstructionKind(finding);
+    if (agentKind) {
+        const safePattern = AGENT_INSTRUCTION_SAFE_PATTERNS[agentKind] || AGENT_INSTRUCTION_SAFE_PATTERNS.agent;
+        const qualitySafePattern = AGENT_QUALITY_SAFE_PATTERNS[agentKind] || AGENT_QUALITY_SAFE_PATTERNS.agent;
+        if (QUALITY_ISSUE_COPY[finding.rule_id]) {
+            return {
+                quickFix: 'Add agent-specific role, scope, denied actions, and verification criteria.',
+                recommendedFix,
+                safePattern: qualitySafePattern,
+                effort,
+            };
+        }
+        if (/secret|credential|api.?key|password|token|pii|sensitive.?data/.test(signal)) {
+            return {
+                quickFix: 'Remove secrets from the instruction file and scope any secret access to approved tools.',
+                recommendedFix,
+                safePattern,
+                effort,
+            };
+        }
+        if (/shell|privileged|sink|escalation|workflow|autonomous|tool.?routing|access/.test(signal)) {
+            return {
+                quickFix: 'Constrain allowed tools and require approval before sensitive agent actions.',
+                recommendedFix,
+                safePattern,
+                effort,
+            };
+        }
+        if (/output|format|structure|clarity|consistency|best.?practice|efficiency|token|persona|example|verification/.test(signal)) {
+            return {
+                quickFix: 'Add agent-specific role, scope, denied actions, and verification criteria.',
+                recommendedFix,
+                safePattern: qualitySafePattern,
+                effort,
+            };
+        }
+    }
+
+    if (finding.rule_id.startsWith('eff_') && QUALITY_ISSUE_COPY[finding.rule_id]) {
+        return {
+            quickFix: 'Reduce prompt size or move static reference material out of the main instruction.',
+            recommendedFix,
+            safePattern: 'Keep the active prompt concise; retrieve bulky reference material only when needed.',
+            effort,
+        };
+    }
     if (/injection|jailbreak|override|evasion|rag/.test(signal)) {
         return {
             quickFix: 'Block instruction-override phrases and keep untrusted content outside the trusted instruction block.',
@@ -1555,7 +2108,7 @@ function structuredIssueFix(finding: RepositoryScanFinding, recommendedFix: stri
         return {
             quickFix: 'Remove the exposed value, rotate it if it may be active, and redact it from logs and generated output.',
             recommendedFix,
-            safePattern: 'const apiKey = process.env.API_KEY; // never place the value in prompts or checked-in config',
+            safePattern: secretSafePatternForFile(filePath),
             effort,
         };
     }
@@ -1709,12 +2262,304 @@ function refineFindingLocation(
     return { line: index + 1, column: Math.max(1, lines[index].indexOf(needle) + 1) };
 }
 
-// A SKILL.md or agent-config file that declares shell/secret/file/network reach
-// is dangerous on its own, but the prompt scanner may emit no finding on it. We
-// synthesize a repository-level finding from the declared sensitive actions so
-// the artifact produces a real, plain-language issue with a fix — instead of
-// silently reporting as Trusted with zero issues.
+// A SKILL.md file that declares shell/secret/file/network reach is a capability
+// inventory item that needs contextual review. The prompt scanner may emit no
+// raw finding on it, so we synthesize repository-level evidence and then let the
+// contextual issue normalizer decide whether this is review, risk, or a vuln.
 const DECLARED_ACTION_RULE_ID = 'repo_skill_declared_sensitive_action';
+const CAPABILITY_ONLY_RULE_IDS = new Set(['repo_skill_declared_sensitive_action', 'MCP-103', 'MCP-104', 'MCP-105']);
+const CONTROL_FAILURE_RULE_IDS = new Set(['MCP-002', 'MCP-003', 'MCP-008', 'MCP-011', 'MCP-012', 'MCP-013', 'MCP-014']);
+
+const SEVERITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };
+const CONFIDENCE_RANK: Record<ContextualConfidence, number> = { potential: 1, probable: 2, confirmed: 3 };
+const CONFIDENCE_SCORE: Record<ContextualConfidence, number> = { potential: 55, probable: 75, confirmed: 90 };
+
+function artifactKindForContext(artifact: RepositoryArtifact | undefined, provenance: RepositoryProvenance): ArtifactKind {
+    if (provenance === 'documentation') return 'documentation';
+    if (provenance === 'test') return 'test';
+    if (provenance === 'fixture') return 'fixture';
+    if (provenance === 'example') return 'example';
+    if (!artifact) return 'source';
+    if (artifact.type === 'PROMPT') return 'prompt';
+    if (artifact.type === 'SKILL') return 'skill';
+    if (artifact.type === 'MCP_SERVER') return 'mcp_config';
+    if (artifact.type === 'AGENT_CONFIG') {
+        const inferred = inferArtifactKind(artifact.relativePath || artifact.filePath);
+        return inferred === 'source' ? 'agent' : inferred;
+    }
+    if (artifact.type === 'MEMORY') return 'memory';
+    if (artifact.type === 'TOOL') return 'tool_router';
+    if (artifact.type === 'WORKFLOW' || artifact.type === 'ACTION') return 'workflow';
+    return 'unknown';
+}
+
+function capabilityFromAction(action: RepositorySensitiveAction | undefined): CapabilityType | undefined {
+    if (action === 'Shell') return 'shell';
+    if (action === 'Filesystem') return 'filesystem.write';
+    if (action === 'Network') return 'network';
+    if (action === 'Secrets') return 'secret.read';
+    if (action === 'External APIs') return 'external_api';
+    return undefined;
+}
+
+function capabilityFromFinding(finding: RepositoryScanFinding, artifact?: RepositoryArtifact): CapabilityType {
+    const actionCapability = capabilityFromAction(artifact?.metadata?.sensitiveActions?.[0]);
+    if (finding.rule_id === 'repo_skill_declared_sensitive_action' && actionCapability) return actionCapability;
+    if (finding.rule_id === 'MCP-103') return /write|delete|modify/i.test(`${finding.message || ''} ${finding.evidence || ''}`)
+        ? 'filesystem.write'
+        : 'filesystem.read';
+    if (finding.rule_id === 'MCP-104') return 'shell';
+    if (finding.rule_id === 'MCP-105') return 'network';
+
+    const signal = `${finding.rule_id} ${finding.category || ''} ${finding.message || ''} ${finding.evidence || ''}`.toLowerCase();
+    if (/deploy|cloud role|release|production/.test(signal)) return 'deployment';
+    if (/shell|command|exec|process|subprocess|bash|python -c|node -e/.test(signal)) return 'shell';
+    if (/secret|credential|api.?key|token|password|process\.env|env/.test(signal)) return 'secret.read';
+    if (/write|delete|modify|overwrite/.test(signal) && /file|filesystem|directory|workspace/.test(signal)) return 'filesystem.write';
+    if (/file|filesystem|directory|workspace/.test(signal)) return 'filesystem.read';
+    if (/database|sql|query/.test(signal)) return /write|insert|update|delete/.test(signal) ? 'database.write' : 'database.read';
+    if (/network|http|https|url|domain|external api|remote/.test(signal)) return 'network';
+    if (/mcp|tool|router|privileged/.test(signal)) return 'privileged_tool';
+    return 'unknown';
+}
+
+function capabilityPrivilege(capability: CapabilityType): VerdictInput['capabilityPrivilege'] {
+    if (
+        capability === 'shell'
+        || capability === 'filesystem.write'
+        || capability === 'secret.read'
+        || capability === 'secret.write'
+        || capability === 'database.write'
+        || capability === 'deployment'
+        || capability === 'privileged_tool'
+    ) {
+        return 'privileged';
+    }
+    if (
+        capability === 'filesystem.read'
+        || capability === 'network'
+        || capability === 'external_api'
+        || capability === 'database.read'
+    ) {
+        return 'sensitive';
+    }
+    return 'ordinary';
+}
+
+function controlStateForFinding(finding: RepositoryScanFinding): ControlStatus {
+    if (CAPABILITY_ONLY_RULE_IDS.has(finding.rule_id)) return 'unavailable';
+    const signal = `${finding.rule_id} ${finding.message || ''} ${finding.evidence || ''} ${finding.fix || ''} ${finding.recommendation || ''}`.toLowerCase();
+    if (/contradict|declares approval|required.*but.*auto|auto.*despite/.test(signal)) return 'contradicted';
+    if (/bypass|skip confirmation|without approval|auto.?approve|auto.?execute|approval_required=false/.test(signal)) return 'bypassed';
+    if (/disabled|disable approval|approval.*false/.test(signal)) return 'disabled';
+    if (CONTROL_FAILURE_RULE_IDS.has(finding.rule_id)) return 'missing';
+    if (/wildcard|allowall|allow all|unrestricted|overpermission|broad|admin|root|missing auth|lacks api|does not show an authentication|unauthenticated/.test(signal)) return 'missing';
+    if (finding.workflow?.path?.privilegedSinkReached) return 'missing';
+    return 'unavailable';
+}
+
+function requiredControlsForCapability(capability: CapabilityType, finding: RepositoryScanFinding): SecurityControl[] {
+    if (capability === 'shell') return ['human_approval', 'command_allowlist', 'argument_validation', 'sandbox'];
+    if (capability === 'filesystem.write') return ['filesystem_scope', 'human_approval', 'sandbox'];
+    if (capability === 'filesystem.read') return ['filesystem_scope', 'read_only_scope'];
+    if (capability === 'network' || capability === 'external_api') return ['network_allowlist', 'authentication'];
+    if (capability === 'secret.read' || capability === 'secret.write') return ['secret_scope', 'output_redaction'];
+    if (capability === 'deployment') return ['authentication', 'authorization', 'human_approval'];
+    if (capability === 'database.read') return ['authorization', 'read_only_scope'];
+    if (capability === 'database.write') return ['authorization', 'human_approval', 'argument_validation'];
+    if (/approval/i.test(`${finding.message || ''} ${finding.evidence || ''}`)) return ['human_approval'];
+    return ['unknown'];
+}
+
+function hasUntrustedInfluence(finding: RepositoryScanFinding): boolean {
+    const signal = `${finding.rule_id} ${finding.message || ''} ${finding.evidence || ''}`.toLowerCase();
+    return Boolean(finding.workflow?.path?.trustBoundaryCrossed)
+        || /untrusted|user input|retrieved|rag|webhook|public|prompt injection|ignore previous|tool-description|memory/.test(signal);
+}
+
+function sourceToSinkBasisForFinding(
+    finding: RepositoryScanFinding,
+    pathIds: string[],
+    reachablePaths: ReachableExecutionPath[],
+    evidenceIds: string[],
+    controlState: ControlStatus,
+): Extract<VulnerabilityBasis, { kind: 'source_to_sink' }> | undefined {
+    if (pathIds.length === 0 || !hasUntrustedInfluence(finding)) return undefined;
+    if (!['missing', 'disabled', 'bypassed', 'contradicted'].includes(controlState)) return undefined;
+    const matchedPaths = reachablePaths.filter(pathItem => pathIds.includes(pathItem.id));
+    const privilegedSinkEvidenceIds = matchedPaths
+        .flatMap(pathItem => pathItem.evidenceRefs || pathItem.evidence.map(item => item.id).filter(Boolean) as string[])
+        .filter(Boolean);
+    return {
+        kind: 'source_to_sink',
+        pathIds,
+        untrustedSourceEvidenceIds: evidenceIds,
+        privilegedSinkEvidenceIds: privilegedSinkEvidenceIds.length > 0 ? Array.from(new Set(privilegedSinkEvidenceIds)) : evidenceIds,
+        controlFailureEvidenceIds: evidenceIds,
+    };
+}
+
+function capSeverity(rawSeverity: string, decision: VerdictDecision): string {
+    const normalized = rawSeverity.toLowerCase();
+    const rawRank = SEVERITY_RANK[normalized] || 1;
+    const ceilingRank = SEVERITY_RANK[decision.severityCeiling] || 1;
+    return rawRank > ceilingRank ? decision.severityCeiling : normalized;
+}
+
+function displayedRepositorySeverity(finding: RepositoryScanFinding, severity: string): string {
+    if (isReferenceOrTestFinding(finding) && finding.category === 'security') return 'low';
+    if (agentInstructionKind(finding) && finding.category === 'efficiency') return 'low';
+    return severity;
+}
+
+function capIssueConfidence(
+    confidence: RepositoryExecutionIssue['confidence'],
+    ceiling: ContextualConfidence,
+): RepositoryExecutionIssue['confidence'] {
+    if (CONFIDENCE_RANK[confidence.level] <= CONFIDENCE_RANK[ceiling]) return confidence;
+    return {
+        score: CONFIDENCE_SCORE[ceiling],
+        level: ceiling,
+        label: pathConfidenceLabel(ceiling),
+        definition: repositoryConfidenceDefinition(ceiling),
+    };
+}
+
+function contextualizeRepositoryFinding(args: {
+    finding: RepositoryScanFinding;
+    artifact?: RepositoryArtifact;
+    provenance: RepositoryProvenance;
+    pathIds: string[];
+    reachablePaths: ReachableExecutionPath[];
+    evidenceIds: string[];
+}): { context: CanonicalIssueContext; verdictInput: VerdictInput; decision: VerdictDecision } {
+    const { finding, artifact, provenance, pathIds, reachablePaths, evidenceIds } = args;
+    const artifactKind = artifactKindForContext(artifact, provenance);
+    const capability = capabilityFromFinding(finding, artifact);
+    const controlState = controlStateForFinding(finding);
+    const sourceToSinkBasis = sourceToSinkBasisForFinding(finding, pathIds, reachablePaths, evidenceIds, controlState);
+    const rawSecretAssessment = classifySecretSemantics(`${finding.message || ''}\n${finding.evidence || ''}`, {
+        evidenceIds,
+        untrustedInfluence: hasUntrustedInfluence(finding),
+        sourceToSinkBasis,
+    });
+    const nonProductionReference = NON_PRODUCTION_PROVENANCE.has(provenance);
+    const secretAssessment = nonProductionReference && rawSecretAssessment.kind === 'hardcoded_secret'
+        ? {
+            ...rawSecretAssessment,
+            kind: 'secret_availability' as const,
+            confidence: 'potential' as const,
+            reason: 'Secret-like value appears in non-production reference/test/fixture context without a runtime path.',
+        }
+        : rawSecretAssessment;
+    const intentAssessment = inferCapabilityIntent({
+        artifactKind,
+        capability,
+        evidenceIds,
+        declaredExpectedCapabilities: artifact?.metadata?.sensitiveActions
+            ?.map(action => capabilityFromAction(action))
+            .filter((value): value is CapabilityType => Boolean(value)),
+    });
+    const directSecretInput = secretAssessment.kind !== 'none' || finding.rule_id === 'MCP-005'
+        ? secretAssessmentToVerdictInput(
+            finding.rule_id === 'MCP-005' && secretAssessment.kind !== 'hardcoded_secret'
+                ? {
+                    kind: 'hardcoded_secret',
+                    confidence: 'confirmed',
+                    evidenceIds,
+                    reason: 'MCP hardcoded secret rule supplied direct evidence.',
+                }
+                : secretAssessment,
+            { untrustedInfluence: hasUntrustedInfluence(finding), sourceToSinkBasis },
+        )
+        : undefined;
+    const verifiedPath = reachablePaths.some(pathItem => pathIds.includes(pathItem.id) && pathItem.confidenceLevel === 'confirmed');
+    const verdictInput: VerdictInput = directSecretInput || {
+        capabilityPrivilege: capabilityPrivilege(capability),
+        exposure: hasUntrustedInfluence(finding) ? 'untrusted' : 'unknown',
+        reachability: sourceToSinkBasis ? (verifiedPath ? 'verified' : 'probable') : pathIds.length > 0 ? 'probable' : 'not_verified',
+        controlState,
+        contextAvailability: controlState === 'unavailable' ? 'unavailable' : 'complete',
+        intent: intentAssessment.expected === true ? 'expected' : intentAssessment.expected === false ? 'unexpected' : 'unknown',
+        directVulnerability: { present: false },
+        sourceToSinkBasis,
+    };
+    const referenceSecurityObservation = nonProductionReference
+        && isReferenceOrTestFinding(finding)
+        && finding.category === 'security'
+    const referenceVerdictInput: VerdictInput = {
+        capabilityPrivilege: 'ordinary',
+        exposure: 'trusted',
+        reachability: 'not_applicable',
+        controlState: 'missing',
+        contextAvailability: 'complete',
+        intent: 'unknown',
+        directVulnerability: { present: false },
+    };
+    const decision: VerdictDecision = referenceSecurityObservation
+        ? {
+            verdict: 'hardening_suggestion',
+            severityCeiling: 'low',
+            confidenceCeiling: 'potential',
+            explanationCode: 'reference_or_test_not_runtime_reachable',
+        }
+        : evaluateContextualVerdict(verdictInput);
+    const effectiveVerdictInput = referenceSecurityObservation ? referenceVerdictInput : verdictInput;
+    const controls = requiredControlsForCapability(capability, finding);
+    const evaluationScope = controlState === 'unavailable'
+        ? 'not_available'
+        : controlState === 'effective'
+            ? 'complete'
+            : 'partial';
+    const context: CanonicalIssueContext = {
+        contextModelVersion: REPORT_SCHEMA_VERSION,
+        artifactKind,
+        capability,
+        trustAssessment: {
+            sources: hasUntrustedInfluence(finding)
+                ? ['user_input']
+                : intentAssessment.expected === true && intentAssessment.confidence === 'confirmed'
+                    ? ['developer_instruction']
+                    : ['unknown'],
+            confidence: hasUntrustedInfluence(finding) ? 'probable' : intentAssessment.confidence === 'confirmed' ? 'confirmed' : 'potential',
+            evidenceIds: hasUntrustedInfluence(finding) || intentAssessment.confidence === 'confirmed' ? evidenceIds : [],
+        },
+        intentAssessment,
+        controlAssessment: {
+            evaluationScope,
+            evaluations: controls.map(control => ({
+                control,
+                status: controlState,
+                confidence: controlState === 'effective' ? 'confirmed' : controlState === 'unavailable' ? 'potential' : 'probable',
+                evidenceIds: controlState === 'unavailable' ? [] : evidenceIds,
+                reason: controlState === 'unavailable'
+                    ? 'Control enforcement was not available in the current analysis context.'
+                    : undefined,
+            })),
+        },
+        reachability: {
+            pathIds,
+            confidence: sourceToSinkBasis ? (verifiedPath ? 'confirmed' : 'probable') : pathIds.length > 0 ? 'probable' : 'potential',
+            repositoryVerified: Boolean(sourceToSinkBasis),
+        },
+        vulnerabilityBasis: decision.vulnerabilityBasis,
+        verdict: decision.verdict,
+    };
+    return { context, verdictInput: effectiveVerdictInput, decision };
+}
+
+function shouldApplyContextualRepositoryFinding(
+    finding: RepositoryScanFinding,
+    contextual: { context: CanonicalIssueContext; decision: VerdictDecision; verdictInput: VerdictInput },
+): boolean {
+    return CAPABILITY_ONLY_RULE_IDS.has(finding.rule_id)
+        || CONTROL_FAILURE_RULE_IDS.has(finding.rule_id)
+        || finding.rule_id === 'sec_privileged_sink_access'
+        || (isReferenceOrTestFinding(finding) && finding.category === 'security')
+        || Boolean(finding.workflow?.path?.privilegedSinkReached)
+        || Boolean(contextual.decision.vulnerabilityBasis)
+        || contextual.verdictInput.directVulnerability.present === true;
+}
 
 function declaredSensitiveActionFindings(artifacts: RepositoryArtifact[], scanResults: RepositoryScanResult[]): RepositoryScanResult[] {
     const filesWithFindings = new Set(
@@ -1749,14 +2594,20 @@ function declaredSensitiveActionFindings(artifacts: RepositoryArtifact[], scanRe
     return synthetic;
 }
 
-function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], reachablePaths: ReachableExecutionPath[], executionMap: RepositoryExecutionMap, artifacts: RepositoryArtifact[] = []): RepositoryExecutionIssue[] {
+function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], reachablePaths: ReachableExecutionPath[], executionMap: RepositoryExecutionMap, artifacts: RepositoryArtifact[] = []): { issues: RepositoryExecutionIssue[]; diagnostics: NonNullable<RepositoryExecutionReport['diagnostics']> } {
     const artifactProvenance = new Map<string, RepositoryProvenance>(
         artifacts.filter(artifact => artifact.provenance).map(artifact => [path.resolve(artifact.filePath), artifact.provenance!]),
     );
-    const provenanceForFile = (absoluteFile: string): RepositoryProvenance =>
-        artifactProvenance.get(absoluteFile) || classifyRepositoryProvenance(absoluteFile, '');
+    const artifactByFile = new Map<string, RepositoryArtifact>(
+        artifacts.map(artifact => [path.resolve(artifact.filePath), artifact]),
+    );
     const root = path.resolve(rootPath);
+    // Classified artifacts carry provenance; for others classify on the repo-
+    // RELATIVE path so an ambient absolute prefix (tmp/, corpus/) cannot leak.
+    const provenanceForFile = (absoluteFile: string): RepositoryProvenance =>
+        artifactProvenance.get(absoluteFile) || classifyRepositoryProvenance(normalizePath(path.relative(root, absoluteFile)), '');
     const issues = new Map<string, RepositoryExecutionIssue>();
+    const diagnostics: NonNullable<RepositoryExecutionReport['diagnostics']> = [];
     const contentCache = new Map<string, string | null>();
 
     for (const result of scanResults) {
@@ -1767,28 +2618,43 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
         for (const finding of result.findings || []) {
             if (finding.waived) continue;
 
-            const location = refineFindingLocation(absoluteFile, finding, contentCache);
-            const id = stableId('issue', `${displayFile}:${finding.rule_id}:${location.line || 1}:${location.column || 1}`);
-            const evidenceKind = issueEvidenceKind(finding);
-            const missingRequirement = finding.missingRequirement || ABSENCE_REQUIREMENTS[finding.rule_id] || finding.message || finding.rule_id;
+            const artifact = artifactByFile.get(absoluteFile);
+            const provenance = provenanceForFile(absoluteFile);
+            // Security findings are reported only on production execution surfaces.
+            // Documentation, examples, tests, and fixtures routinely contain
+            // illustrative unsafe content (```bash examples, sample emails,
+            // doctest output, intentional test vectors); flagging them as security
+            // issues is noise, so they are excluded rather than emitted-and-downranked.
+            const isSecurityFinding = finding.category === 'security' || /^(?:sec_|MCP-)/.test(finding.rule_id || '');
+            if (isSecurityFinding && NON_PRODUCTION_PROVENANCE.has(provenance)) continue;
+            const effectiveArtifactKind = finding.artifactKind || artifactKindForContext(artifact, provenance);
+            const effectiveFinding: RepositoryScanFinding = {
+                ...finding,
+                artifactKind: effectiveArtifactKind,
+                executionIntent: finding.executionIntent || inferExecutionIntent(absoluteFile, effectiveArtifactKind),
+            };
+            const location = refineFindingLocation(absoluteFile, effectiveFinding, contentCache);
+            const id = stableId('issue', `${displayFile}:${effectiveFinding.rule_id}:${location.line || 1}:${location.column || 1}`);
+            const evidenceKind = issueEvidenceKind(effectiveFinding);
+            const missingRequirement = effectiveFinding.missingRequirement || ABSENCE_REQUIREMENTS[effectiveFinding.rule_id] || effectiveFinding.message || effectiveFinding.rule_id;
             const evidenceSnippet = evidenceKind === 'absence'
                 ? ''
-                : redactSecrets(finding.evidence || finding.message || finding.rule_id);
+                : redactSecrets(effectiveFinding.evidence || effectiveFinding.message || effectiveFinding.rule_id);
             const detectedFixSuggestions = Array.from(new Set([
-                finding.fix ? redactSecrets(finding.fix) : '',
-                finding.recommendation ? redactSecrets(finding.recommendation) : '',
+                effectiveFinding.fix ? redactSecrets(effectiveFinding.fix) : '',
+                effectiveFinding.recommendation ? redactSecrets(effectiveFinding.recommendation) : '',
             ].filter(candidate => candidate && !INTERNAL_TERMINOLOGY.test(candidate))));
 
             const pathIds = reachablePaths
                 .filter(pathItem => pathItem.findings.some(pathFinding =>
-                    pathFinding.ruleId === finding.rule_id &&
+                    pathFinding.ruleId === effectiveFinding.rule_id &&
                     (path.isAbsolute(pathFinding.filePath) ? path.resolve(pathFinding.filePath) : path.resolve(root, pathFinding.filePath)) === absoluteFile
                 ))
                 .map(pathItem => pathItem.id)
                 .sort();
-            const workflowReason = finding.workflow?.path?.riskStory || finding.workflow?.path?.summary;
-            const copy = plainLanguageIssue(finding);
-            const fix = structuredIssueFix(finding, copy.howToFix);
+            const workflowReason = effectiveFinding.workflow?.path?.riskStory || effectiveFinding.workflow?.path?.summary;
+            const copy = plainLanguageIssue(effectiveFinding);
+            const fix = structuredIssueFix(effectiveFinding, copy.howToFix, displayFile);
             const fixSuggestions = Array.from(new Set([
                 fix.quickFix,
                 fix.recommendedFix,
@@ -1796,25 +2662,42 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 ...detectedFixSuggestions,
             ]));
             const evidence = [{
-                id: stableId('evidence', `${displayFile}:${finding.rule_id}:${location.line || 1}:${location.column || 1}`),
+                id: stableId('evidence', `${displayFile}:${effectiveFinding.rule_id}:${location.line || 1}:${location.column || 1}`),
+                ruleId: effectiveFinding.rule_id,
                 file: displayFile,
                 line: evidenceKind === 'direct' ? location.line : undefined,
                 column: evidenceKind === 'direct' ? location.column : undefined,
                 snippet: evidenceSnippet,
                 kind: evidenceKind,
-                startLine: evidenceKind === 'absence' ? finding.scopeStartLine || location.line : undefined,
-                endLine: evidenceKind === 'absence' ? finding.scopeEndLine || finding.scopeStartLine || location.line : undefined,
-                scopeLabel: evidenceKind === 'absence' ? finding.scopeLabel || 'Instruction block' : undefined,
+                startLine: evidenceKind === 'absence' ? effectiveFinding.scopeStartLine || location.line : undefined,
+                endLine: evidenceKind === 'absence' ? effectiveFinding.scopeEndLine || effectiveFinding.scopeStartLine || location.line : undefined,
+                scopeLabel: evidenceKind === 'absence' ? effectiveFinding.scopeLabel || 'Instruction block' : undefined,
                 missingRequirement: evidenceKind === 'absence' ? redactSecrets(missingRequirement) : undefined,
                 source: workflowReason ? 'workflow' as const : 'scanner' as const,
             }];
-            const confidence = issueConfidence(finding);
+            const contextual = contextualizeRepositoryFinding({
+                finding: effectiveFinding,
+                artifact,
+                provenance,
+                pathIds,
+                reachablePaths,
+                evidenceIds: evidence.map(item => item.id),
+            });
+            const applyContext = shouldApplyContextualRepositoryFinding(effectiveFinding, contextual);
+            const confidence = applyContext
+                ? capIssueConfidence(issueConfidence(effectiveFinding), contextual.decision.confidenceCeiling)
+                : issueConfidence(effectiveFinding);
 
-            issues.set(id, {
+            const severity = displayedRepositorySeverity(
+                effectiveFinding,
+                applyContext ? capSeverity(effectiveFinding.severity, contextual.decision) : effectiveFinding.severity,
+            );
+
+            const issue: RepositoryExecutionIssue = {
                 id,
-                ruleId: finding.rule_id,
-                severity: finding.severity,
-                category: finding.category || 'security',
+                ruleId: effectiveFinding.rule_id,
+                severity,
+                category: effectiveFinding.category || 'security',
                 ...copy,
                 fix,
                 evidence,
@@ -1827,12 +2710,54 @@ function canonicalIssues(rootPath: string, scanResults: RepositoryScanResult[], 
                 impactedFiles: [displayFile],
                 fixSuggestions,
                 pathIds,
-                provenance: provenanceForFile(absoluteFile),
-            });
+                provenance,
+                context: applyContext ? contextual.context : undefined,
+            };
+
+            try {
+                assertFindingInvariants(issue, applyContext
+                    ? {
+                        verdictInput: contextual.verdictInput,
+                        decision: contextual.decision,
+                    }
+                    : undefined);
+                issues.set(id, issue);
+            } catch (err: any) {
+                issues.set(id, omitMalformedContextualSections(issue));
+                diagnostics.push({
+                    level: 'warning',
+                    code: 'contextual_invariant_quarantined',
+                    message: `Malformed contextual finding was quarantined: ${err?.message || String(err)}`,
+                    file: displayFile,
+                    ruleId: effectiveFinding.rule_id,
+                });
+            }
         }
     }
 
-    return Array.from(issues.values()).sort((left, right) => left.id.localeCompare(right.id));
+    return {
+        issues: Array.from(issues.values()).sort(compareIssuesByPriority),
+        diagnostics,
+    };
+}
+
+function issuePriorityBand(issue: RepositoryExecutionIssue): number {
+    if (issue.severity === 'critical' || issue.context?.verdict === 'vulnerability') return 0;
+    if (issue.context?.verdict === 'risky_configuration' || (issue.category === 'security' && issue.severity === 'high')) return 1;
+    if (issue.context?.verdict === 'capability_review' || issue.category === 'security') return 2;
+    if (issue.context?.verdict === 'needs_more_context') return 3;
+    if (issue.context?.verdict === 'hardening_suggestion') return 4;
+    if (['clarity', 'structure', 'best_practices', 'consistency', 'efficiency'].includes(issue.category)) return 5;
+    return 4;
+}
+
+function compareIssuesByPriority(left: RepositoryExecutionIssue, right: RepositoryExecutionIssue): number {
+    const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    const bandDelta = issuePriorityBand(left) - issuePriorityBand(right);
+    if (bandDelta !== 0) return bandDelta;
+    const severityDelta = (severityRank[String(left.severity)] ?? 9) - (severityRank[String(right.severity)] ?? 9);
+    if (severityDelta !== 0) return severityDelta;
+    return left.id.localeCompare(right.id);
 }
 
 function summarizeIssues(issues: RepositoryExecutionIssue[]): RepositoryIssueSummary {
@@ -1844,6 +2769,26 @@ function summarizeIssues(issues: RepositoryExecutionIssue[]): RepositoryIssueSum
         else summary.low += 1;
     }
     return summary;
+}
+
+function repositoryExecutiveSummary(summary: RepositorySummary, issueSummary: RepositoryIssueSummary, issues: RepositoryExecutionIssue[]): RepositoryExecutiveSummary {
+    const estimatedFixEffort: RepositoryExecutiveSummary['estimatedFixEffort'] = issues.some(issue => issue.fix.effort === 'Large' || issue.severity === 'critical')
+        ? 'Large'
+        : issues.some(issue => issue.fix.effort === 'Moderate' || issue.severity === 'high')
+            ? 'Moderate'
+            : 'Quick';
+    return {
+        overallRisk: summary.overallRisk ?? 'none',
+        findingCounts: issueSummary,
+        highestPriorityFindings: issues.slice(0, 5).map(issue => ({
+            id: issue.id,
+            ruleId: issue.ruleId,
+            severity: issue.severity,
+            issue: issue.issue,
+            impactedFiles: issue.impactedFiles,
+        })),
+        estimatedFixEffort,
+    };
 }
 
 function impactedFileType(file: string, artifacts: RepositoryArtifact[]): RepositoryImpactedFileType {
@@ -1924,7 +2869,7 @@ function sanitizeReachablePaths(paths: ReachableExecutionPath[]): ReachableExecu
     });
 }
 
-function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[]): RepositoryExecutionReport['evidence'] {
+function canonicalEvidence(root: string, artifacts: RepositoryArtifact[], executionMap: RepositoryExecutionMap, reachablePaths: ReachableExecutionPath[], scanResults: RepositoryScanResult[]): RepositoryExecutionReport['evidence'] {
     const evidence = new Map<string, NonNullable<RepositoryExecutionReport['evidence']>[number]>();
     for (const artifact of artifacts) {
         for (const [index, snippet] of (artifact.evidence || []).entries()) {
@@ -1961,7 +2906,7 @@ function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: Reposi
             evidence.set(id, {
                 id,
                 type: item.type || 'path',
-                file: normalizePath(item.filePath),
+                file: reportRelativeFile(root, item.filePath),
                 lineStart: item.line,
                 snippet: item.snippet ? redactSecrets(item.snippet) : redactSecrets(item.message),
                 ruleId: item.ruleId,
@@ -1978,7 +2923,7 @@ function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: Reposi
                 evidence.set(id, {
                     id,
                     type: 'finding',
-                    file: normalizePath(result.filePath),
+                    file: reportRelativeFile(root, result.filePath),
                     lineStart: finding.line,
                     snippet: finding.evidence ? redactSecrets(finding.evidence) : finding.message ? redactSecrets(finding.message) : undefined,
                     ruleId: finding.rule_id,
@@ -1990,6 +2935,129 @@ function canonicalEvidence(artifacts: RepositoryArtifact[], executionMap: Reposi
         }
     }
     return Array.from(evidence.values()).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function normalizedCompleteness(completeness: ScanCompleteness): ScanCompleteness {
+    const files = {
+        inventoried: Math.max(0, completeness.files.inventoried),
+        selected: Math.min(Math.max(0, completeness.files.selected), Math.max(0, completeness.files.inventoried)),
+        fetched: 0,
+        parsed: 0,
+        analyzed: 0,
+        graphConnected: 0,
+    };
+    files.fetched = Math.min(Math.max(0, completeness.files.fetched), files.selected);
+    files.parsed = Math.min(Math.max(0, completeness.files.parsed), files.fetched);
+    files.analyzed = Math.min(Math.max(0, completeness.files.analyzed), files.parsed);
+    files.graphConnected = Math.min(Math.max(0, completeness.files.graphConnected), files.analyzed);
+
+    const references = {
+        discovered: Math.max(0, completeness.references.discovered),
+        fetched: Math.min(Math.max(0, completeness.references.fetched), Math.max(0, completeness.references.discovered)),
+        parsed: 0,
+        resolved: 0,
+        unresolved: Math.max(0, completeness.references.unresolved),
+    };
+    references.parsed = Math.min(Math.max(0, completeness.references.parsed), references.fetched);
+    references.resolved = Math.min(Math.max(0, completeness.references.resolved), references.parsed);
+
+    const capabilities = {
+        discovered: Math.max(0, completeness.capabilities.discovered),
+        withControlNeighborhoodSearched: Math.min(Math.max(0, completeness.capabilities.withControlNeighborhoodSearched), Math.max(0, completeness.capabilities.discovered)),
+        withControlContextResolved: 0,
+        unresolved: Math.max(0, completeness.capabilities.unresolved),
+    };
+    capabilities.withControlContextResolved = Math.min(
+        Math.max(0, completeness.capabilities.withControlContextResolved),
+        capabilities.withControlNeighborhoodSearched,
+    );
+
+    const changedCounts = JSON.stringify(files) !== JSON.stringify(completeness.files) ||
+        JSON.stringify(references) !== JSON.stringify(completeness.references) ||
+        JSON.stringify(capabilities) !== JSON.stringify(completeness.capabilities);
+    const unresolved = capabilities.unresolved > 0 || references.unresolved > 0 || completeness.unresolvedContext.length > 0;
+    const failedOrIncomplete = files.selected < files.inventoried || files.fetched < files.selected || files.parsed < files.fetched || files.analyzed < files.parsed;
+    const impossibleRepositoryComplete = completeness.coverageStatus === 'repository_complete' && (changedCounts || unresolved || failedOrIncomplete);
+
+    if (!changedCounts && !impossibleRepositoryComplete) return completeness;
+
+    const coverageReason = [
+        completeness.coverageReason,
+        changedCounts ? 'Completeness counts were normalized to selected <= inventoried, fetched <= selected, parsed/analyzed <= fetched, and graphConnected <= analyzed.' : '',
+        impossibleRepositoryComplete ? 'Repository-complete coverage was downgraded because unresolved context, unresolved references, or parse/fetch gaps remain.' : '',
+    ].filter(Boolean).join(' ');
+
+    return {
+        ...completeness,
+        files,
+        capabilities,
+        references,
+        coverageStatus: impossibleRepositoryComplete ? 'partial' : completeness.coverageStatus,
+        verdictScope: impossibleRepositoryComplete ? 'partial_context' : completeness.verdictScope,
+        coverageReason,
+    };
+}
+
+function repositoryMapConsistencyErrors(input: {
+    root: string;
+    issueSummary: RepositoryIssueSummary;
+    issues: RepositoryExecutionIssue[];
+    impactedFiles: RepositoryImpactedFile[];
+    reachablePaths: ReachableExecutionPath[];
+    completeness?: ScanCompleteness;
+}): RepositoryPathValidation['errors'] {
+    const errors: RepositoryPathValidation['errors'] = [];
+    const { root, issueSummary, issues, impactedFiles, reachablePaths, completeness } = input;
+    const actualSummary = summarizeIssues(issues);
+    if (JSON.stringify(actualSummary) !== JSON.stringify(issueSummary)) {
+        errors.push({ code: 'issue-count-mismatch', message: 'Issue summary counts do not match canonical issues.' });
+    }
+    for (const impacted of impactedFiles) {
+        const actualIssueIds = issues.filter(issue => issue.impactedFiles.includes(impacted.path)).map(issue => issue.id).sort();
+        const listedIssueIds = [...impacted.issueIds].sort();
+        if (impacted.issueCount !== actualIssueIds.length || JSON.stringify(actualIssueIds) !== JSON.stringify(listedIssueIds)) {
+            errors.push({ code: 'impacted-file-count-mismatch', message: `Impacted file ${impacted.path} does not match canonical issue ownership.` });
+        }
+        const actualPathIds = new Set([
+            ...issues.filter(issue => issue.impactedFiles.includes(impacted.path)).flatMap(issue => issue.pathIds),
+            ...reachablePaths.filter(pathItem => pathItem.files.some(file => reportRelativeFile(root, file) === impacted.path)).map(pathItem => pathItem.id),
+        ]);
+        if (impacted.pathIds.some(pathId => !actualPathIds.has(pathId))) {
+            errors.push({ code: 'impacted-file-count-mismatch', message: `Impacted file ${impacted.path} lists a path that is not owned by that file.` });
+        }
+    }
+    for (const issue of issues) {
+        for (const item of issue.evidence) {
+            if (!issue.impactedFiles.includes(item.file)) {
+                errors.push({ code: 'evidence-owner-mismatch', message: `Issue ${issue.id} evidence points at ${item.file}, which is not one of its impacted files.` });
+            }
+        }
+    }
+    if (completeness) {
+        const files = completeness.files;
+        const references = completeness.references;
+        const capabilities = completeness.capabilities;
+        if (
+            files.selected > files.inventoried ||
+            files.fetched > files.selected ||
+            files.parsed > files.fetched ||
+            files.analyzed > files.parsed ||
+            files.graphConnected > files.analyzed ||
+            references.fetched > references.discovered ||
+            references.parsed > references.fetched ||
+            references.resolved > references.parsed ||
+            capabilities.withControlNeighborhoodSearched > capabilities.discovered ||
+            capabilities.withControlContextResolved > capabilities.withControlNeighborhoodSearched
+        ) {
+            errors.push({ code: 'completeness-count-mismatch', message: 'Scan completeness counters are internally inconsistent.' });
+        }
+        const unresolved = capabilities.unresolved > 0 || references.unresolved > 0 || completeness.unresolvedContext.length > 0;
+        const failedOrIncomplete = files.selected < files.inventoried || files.fetched < files.selected || files.parsed < files.fetched || files.analyzed < files.parsed;
+        if ((completeness.coverageStatus === 'repository_complete' || completeness.verdictScope === 'repository_complete') && (unresolved || failedOrIncomplete)) {
+            errors.push({ code: 'repository-complete-with-unresolved-context', message: 'repository_complete cannot be reported with unresolved controls, unresolved references, or parse/fetch gaps.' });
+        }
+    }
+    return errors;
 }
 
 export function validateRepositoryExecutionPaths(
@@ -2090,7 +3158,8 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     // but received no scanner finding, so a dangerous SKILL.md yields a real issue.
     const declaredFindings = declaredSensitiveActionFindings(sanitizedArtifacts, scanResults);
     const issueScanResults = declaredFindings.length > 0 ? [...scanResults, ...declaredFindings] : scanResults;
-    const issues = canonicalIssues(root, issueScanResults, sanitizedPaths, executionMap, sanitizedArtifacts);
+    const canonical = canonicalIssues(root, issueScanResults, sanitizedPaths, executionMap, sanitizedArtifacts);
+    const issues = canonical.issues;
     const issueSummary = summarizeIssues(issues);
     const isNonProduction = (issue: RepositoryExecutionIssue): boolean =>
         NON_PRODUCTION_PROVENANCE.has(issue.provenance ?? 'production');
@@ -2108,7 +3177,22 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     summary.productionIssueSummary = productionIssueSummary;
     summary.nonProductionIssueSummary = nonProductionIssueSummary;
     summary.issuesByProvenance = issuesByProvenance;
-    const pathValidation = validateRepositoryExecutionPaths(executionMap, sanitizedPaths, summary);
+    const reportEvidence = canonicalEvidence(root, sanitizedArtifacts, executionMap, sanitizedPaths, scanResults);
+    let pathValidation = validateRepositoryExecutionPaths(executionMap, sanitizedPaths, summary);
+    const consistencyErrors = repositoryMapConsistencyErrors({
+        root,
+        issueSummary,
+        issues,
+        impactedFiles,
+        reachablePaths: sanitizedPaths,
+    });
+    if (consistencyErrors.length > 0) {
+        pathValidation = {
+            ...pathValidation,
+            valid: false,
+            errors: [...pathValidation.errors, ...consistencyErrors],
+        };
+    }
 
     if (scanStats) {
         summary.scanStats = scanStats;
@@ -2138,10 +3222,12 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
     }, 0);
     const currentRisk: RepositoryRisk | 'none' = summary.overallRisk ?? 'none';
     summary.overallRisk = riskOrder[Math.max(riskOrder.indexOf(currentRisk), securityIssueRank)];
+    const executiveSummary = repositoryExecutiveSummary(summary, issueSummary, issues);
 
     return {
         id: stableId('repo-report', `${root}:${generatedAt}`),
         version: REPORT_VERSION,
+        schemaVersion: REPORT_SCHEMA_VERSION,
         generated_at: generatedAt,
         scannedAt: generatedAt,
         repository: {
@@ -2157,13 +3243,15 @@ export function generateRepositoryExecutionReport(rootPath: string, artifacts: R
         executionMap,
         reachablePaths: sanitizedPaths,
         summary,
+        executiveSummary,
         issues,
         issueSummary,
         impactedFiles,
         pathValidation,
         confidenceDefinitions: REPOSITORY_CONFIDENCE_DEFINITIONS,
         findings: sanitizeScanResults(scanResults),
-        evidence: canonicalEvidence(sanitizedArtifacts, executionMap, sanitizedPaths, scanResults),
+        diagnostics: canonical.diagnostics.length > 0 ? canonical.diagnostics : undefined,
+        evidence: reportEvidence,
         fixPlan: dedupeFixPlan(sanitizedPaths, executionMap),
         exports: { json: true, sarif: true, html: true, mapJson: true },
     };
@@ -2174,4 +3262,53 @@ export function analyzeRepositoryExecution(rootPath: string, scanResults: Reposi
     const executionMap = buildRepositoryExecutionMap(artifacts, scanResults, rootPath);
     const reachablePaths = analyzeReachablePaths(executionMap, artifacts, scanResults);
     return generateRepositoryExecutionReport(rootPath, artifacts, executionMap, reachablePaths, scanResults, scanStats);
+}
+
+export function analyzeRepositoryExecutionFromFiles(
+    rootPath: string,
+    files: InMemoryRepositoryFile[],
+    scanResults: RepositoryScanResult[] = [],
+    options: AnalyzeRepositoryOptions = {},
+): RepositoryExecutionReport {
+    const { artifacts, scanStats } = analyzeRepositoryArtifactsFromFiles(rootPath, files, options);
+    const executionMap = buildRepositoryExecutionMap(artifacts, scanResults, rootPath);
+    const reachablePaths = analyzeReachablePaths(executionMap, artifacts, scanResults);
+    return generateRepositoryExecutionReport(rootPath, artifacts, executionMap, reachablePaths, scanResults, scanStats);
+}
+
+export function evaluateCanonicalFindings(input: EvaluateCanonicalFindingsInput): RepositoryExecutionReport {
+    const scanResults = input.scanResults || [];
+    const reachablePaths = analyzeReachablePaths(input.executionGraph, input.analyzedArtifacts, scanResults);
+    const report = generateRepositoryExecutionReport(
+        input.rootPath,
+        input.analyzedArtifacts,
+        input.executionGraph,
+        reachablePaths,
+        scanResults,
+        input.scanStats,
+    );
+    const completeness = normalizedCompleteness(input.scanCompleteness);
+    const completenessErrors = repositoryMapConsistencyErrors({
+        root: path.resolve(input.rootPath),
+        issueSummary: report.issueSummary,
+        issues: report.issues,
+        impactedFiles: report.impactedFiles,
+        reachablePaths: report.reachablePaths,
+        completeness,
+    });
+    const pathValidation = completenessErrors.length > 0
+        ? {
+            ...report.pathValidation,
+            valid: false,
+            errors: [...report.pathValidation.errors, ...completenessErrors],
+        }
+        : report.pathValidation;
+
+    return {
+        ...report,
+        completeness,
+        profileEvidence: input.profileEvidence,
+        pathValidation,
+        threatModel: input.threatModel,
+    };
 }

@@ -1,0 +1,569 @@
+{
+  "generatedAt": "2026-06-30T17:40:46.824Z",
+  "summary": {
+    "tool": "PromptSonar",
+    "cases": 22,
+    "findings": {
+      "TP": 25,
+      "FP": 0,
+      "FN": 0,
+      "TN": 4
+    },
+    "precision": 1,
+    "recall": 1,
+    "f1": 1,
+    "trueNegatives": {
+      "total": 4,
+      "passed": 4
+    },
+    "knownGaps": {
+      "cases": 0,
+      "fnByDesign": 0
+    },
+    "paths": {
+      "matched": 15,
+      "missed": 0
+    },
+    "timing_s": {
+      "mean": 0.4,
+      "median": 0.2,
+      "max": 1.6
+    }
+  },
+  "cases": [
+    {
+      "id": "case-001",
+      "name": "single prompt with direct shell reference",
+      "scanMs": 652,
+      "expected": [
+        "sec_privileged_sink_access",
+        "sec_workflow_escalation"
+      ],
+      "actual": [
+        "sec_workflow_escalation(critical)",
+        "sec_privileged_sink_access(high)"
+      ],
+      "tp": [
+        "sec_privileged_sink_access",
+        "sec_workflow_escalation"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "prompt → shell",
+          "reachability": "potentially_reachable",
+          "cross_file": false,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-002",
+      "name": "prompt → MCP server → shell (cross-file)",
+      "scanMs": 323,
+      "expected": [
+        "MCP-104"
+      ],
+      "actual": [
+        "MCP-104(low)"
+      ],
+      "tp": [
+        "MCP-104"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "prompt → mcp(dangerous-shell) → shell",
+          "reachability": "potentially_reachable",
+          "cross_file": true,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-003",
+      "name": "prompt → tool → external API with env credentials (cross-file)",
+      "scanMs": 1629,
+      "expected": [
+        "MCP-012"
+      ],
+      "actual": [
+        "MCP-012(high)"
+      ],
+      "tp": [
+        "MCP-012"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "prompt → mcp(data-tool) → tool → external API",
+          "reachability": "reachable",
+          "cross_file": true,
+          "matched": true
+        },
+        {
+          "chain": "prompt → mcp(data-tool) → secret access",
+          "reachability": "reachable",
+          "cross_file": true,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-004",
+      "name": "MCP config with auto_approve enabled",
+      "scanMs": 234,
+      "expected": [
+        "MCP-108",
+        "MCP-011",
+        "MCP-103",
+        "MCP-104"
+      ],
+      "actual": [
+        "MCP-108(critical)",
+        "MCP-011(high)",
+        "MCP-103(low)",
+        "MCP-104(low)"
+      ],
+      "tp": [
+        "MCP-108",
+        "MCP-011",
+        "MCP-103",
+        "MCP-104"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-005",
+      "name": "MCP config with auto_approve disabled",
+      "scanMs": 241,
+      "expected": [
+        "MCP-103",
+        "MCP-104"
+      ],
+      "actual": [
+        "MCP-103(low)",
+        "MCP-104(low)"
+      ],
+      "tp": [
+        "MCP-103",
+        "MCP-104"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-006",
+      "name": "autonomous deployment agent with shell privileges",
+      "scanMs": 264,
+      "expected": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access"
+      ],
+      "actual": [
+        "sec_workflow_escalation(critical)",
+        "sec_privileged_sink_access(high)"
+      ],
+      "tp": [
+        "sec_workflow_escalation",
+        "sec_privileged_sink_access"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "prompt → shell/deployment",
+          "reachability": "potentially_reachable",
+          "cross_file": false,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-007",
+      "name": "zero-width unicode injection in a prompt",
+      "scanMs": 241,
+      "expected": [
+        "sec_zero_width_injection"
+      ],
+      "actual": [
+        "sec_zero_width_injection(high)"
+      ],
+      "tp": [
+        "sec_zero_width_injection"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-008",
+      "name": "memory config referencing sensitive data",
+      "scanMs": 256,
+      "expected": [],
+      "actual": [],
+      "tp": [],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "memory → secret access",
+          "reachability": "reachable",
+          "cross_file": false,
+          "matched": true
+        },
+        {
+          "chain": "prompt → memory → secret access",
+          "reachability": "potentially_reachable",
+          "cross_file": true,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-009",
+      "name": "clean prompt (true negative)",
+      "scanMs": 199,
+      "expected": [],
+      "actual": [],
+      "tp": [],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [],
+      "true_negative": true,
+      "known_gap": false
+    },
+    {
+      "id": "case-010",
+      "name": "clean MCP config (true negative)",
+      "scanMs": 214,
+      "expected": [],
+      "actual": [],
+      "tp": [],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [],
+      "true_negative": true,
+      "known_gap": false
+    },
+    {
+      "id": "case-011",
+      "name": "SKILL.md declaring shell capability",
+      "scanMs": 229,
+      "expected": [
+        "sec_privileged_sink_access"
+      ],
+      "actual": [
+        "sec_privileged_sink_access(low)"
+      ],
+      "tp": [
+        "sec_privileged_sink_access"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "skill → shell",
+          "reachability": "potentially_reachable",
+          "cross_file": false,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-012",
+      "name": "agent config (CLAUDE.md) instructing shell escalation",
+      "scanMs": 227,
+      "expected": [
+        "sec_privileged_sink_access",
+        "sec_workflow_escalation"
+      ],
+      "actual": [
+        "sec_privileged_sink_access(low)",
+        "sec_workflow_escalation(low)"
+      ],
+      "tp": [
+        "sec_privileged_sink_access",
+        "sec_workflow_escalation"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "agent_config → shell",
+          "reachability": "potentially_reachable",
+          "cross_file": false,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-013",
+      "name": "MCP filesystem capability (reversed tool-name tokens)",
+      "scanMs": 231,
+      "expected": [
+        "MCP-103"
+      ],
+      "actual": [
+        "MCP-103(low)"
+      ],
+      "tp": [
+        "MCP-103"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "mcp(fs-tool) → filesystem access",
+          "reachability": "reachable",
+          "cross_file": false,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-014",
+      "name": "MCP network capability",
+      "scanMs": 228,
+      "expected": [
+        "MCP-105"
+      ],
+      "actual": [
+        "MCP-105(low)"
+      ],
+      "tp": [
+        "MCP-105"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "mcp(net-tool) → network access",
+          "reachability": "reachable",
+          "cross_file": false,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-015",
+      "name": "MCP wildcard / allow-all permissions",
+      "scanMs": 229,
+      "expected": [
+        "MCP-002",
+        "MCP-012"
+      ],
+      "actual": [
+        "MCP-002(high)",
+        "MCP-012(high)"
+      ],
+      "tp": [
+        "MCP-002",
+        "MCP-012"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "mcp(all-access) → shell access",
+          "reachability": "reachable",
+          "cross_file": false,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-016",
+      "name": "prompt injection (OWASP LLM01)",
+      "scanMs": 233,
+      "expected": [
+        "sec_owasp_llm01_injection"
+      ],
+      "actual": [
+        "sec_owasp_llm01_injection(critical)"
+      ],
+      "tp": [
+        "sec_owasp_llm01_injection"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-017",
+      "name": "base64-encoded injection payload",
+      "scanMs": 315,
+      "expected": [
+        "sec_base64_encoded_payload",
+        "sec_owasp_llm01_injection"
+      ],
+      "actual": [
+        "sec_owasp_llm01_injection(critical)",
+        "sec_base64_encoded_payload(high)"
+      ],
+      "tp": [
+        "sec_base64_encoded_payload",
+        "sec_owasp_llm01_injection"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-018",
+      "name": "top-level memory/ directory classification",
+      "scanMs": 235,
+      "expected": [],
+      "actual": [],
+      "tp": [],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "memory → secret access",
+          "reachability": "reachable",
+          "cross_file": false,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-019",
+      "name": "exclusion of build/test/config noise",
+      "scanMs": 1360,
+      "expected": [
+        "sec_privileged_sink_access"
+      ],
+      "actual": [
+        "sec_privileged_sink_access(low)"
+      ],
+      "tp": [
+        "sec_privileged_sink_access"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "skill → shell",
+          "reachability": "potentially_reachable",
+          "cross_file": false,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-020",
+      "name": "clean CI workflow (true negative)",
+      "scanMs": 219,
+      "expected": [],
+      "actual": [],
+      "tp": [],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [],
+      "true_negative": true,
+      "known_gap": false
+    },
+    {
+      "id": "case-021",
+      "name": "hardcoded secret (realistic format)",
+      "scanMs": 225,
+      "expected": [
+        "sec_owasp_llm02_pii"
+      ],
+      "actual": [
+        "sec_owasp_llm02_pii(high)"
+      ],
+      "tp": [
+        "sec_owasp_llm02_pii"
+      ],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [
+        {
+          "chain": "prompt → secret access",
+          "reachability": "potentially_reachable",
+          "cross_file": false,
+          "matched": true
+        }
+      ],
+      "true_negative": false,
+      "known_gap": false
+    },
+    {
+      "id": "case-022",
+      "name": "co-location restraint (true negative on linkage)",
+      "scanMs": 1151,
+      "expected": [],
+      "actual": [],
+      "tp": [],
+      "fn": [],
+      "fp": [],
+      "severityDiscrepancies": [],
+      "pathResults": [],
+      "true_negative": true,
+      "known_gap": false
+    }
+  ]
+}

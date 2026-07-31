@@ -18,12 +18,18 @@ import {
     editorLineForEvidence,
     renderRepositoryFileInvestigations,
 } from './repositoryInvestigation';
+import {
+    buildClosureRepositoryExecutionReport,
+    repositoryCompletenessHtml,
+    useClosureScanSetting,
+} from './repositoryClosure';
+import { contextualizeMcpAuditForActiveDocument } from './mcpContextual';
 import { isScannable, isMcpConfigFile } from '../shared/detection';
 import { isPromptSonarIgnoredPath, parsePromptSonarIgnore, PromptSonarIgnoreMatcher } from '../shared/ignore';
 import { executionPathText, pickWorstWorkflowFinding, reportText } from '../shared/model';
 import { applyAllFixes, workflowDiffReport, workflowDiffReportBetween } from '../shared/quickfix';
 // @ts-ignore
-import { parseFile, evaluatePrompt, compressPromptLLMLingua, auditMcpConfig, formatToSarif, analyzeRepositoryExecution } from '@promptsonar/core';
+import { parseFile, evaluatePrompt, compressPromptLLMLingua, auditMcpConfig, formatToSarif, analyzeRepositoryExecution, contextualVerdictLabel } from '@promptsonar/core';
 
 let client: LanguageClient;
 
@@ -64,6 +70,14 @@ function summarizeWorkspaceScore(scores: number[], findings: any[]): { score: nu
 
 function hashContent(content: string): string {
     return crypto.createHash('md5').update(content).digest('hex');
+}
+
+function escapeHtml(value: unknown): string {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 const SUPPORTED_LANGUAGES = new Set([
@@ -378,15 +392,9 @@ export function activate(context: ExtensionContext) {
         let findings: any[] = [];
         let mcpAudit: any | undefined;
         if (isMcpConfigFile(document.fileName)) {
-            mcpAudit = auditMcpConfig(document.fileName, text);
-            findings = mcpAudit.findings.map((finding: any) => ({
-                rule_id: finding.rule_id,
-                category: 'security',
-                severity: finding.severity,
-                explanation: finding.message,
-                suggested_fix: finding.fix,
-                workflow: finding.workflow,
-            }));
+            const contextualMcp = contextualizeMcpAuditForActiveDocument(auditMcpConfig(document.fileName, text));
+            mcpAudit = contextualMcp.mcpAudit;
+            findings = contextualMcp.findings;
         } else {
             const prompts = await parseFile({ filePath: document.fileName, content: text, language: '' });
             for (const prompt of prompts) {
@@ -684,14 +692,6 @@ export function activate(context: ExtensionContext) {
         });
     }
 
-    function escapeHtml(value: unknown): string {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
-
     function repositoryPanelHtml(report: any): string {
         const summary = report.summary;
         const nodesById = new Map(report.executionMap.nodes.map((node: any) => [node.id, node]));
@@ -758,6 +758,7 @@ export function activate(context: ExtensionContext) {
     <aside>
       <a href="#overview">Repository</a>
       <a href="#impacted-files">Impacted Files</a>
+      ${report.completeness ? '<a href="#completeness">Completeness</a>' : ''}
       <a href="#overview">Overview</a>
       <a href="#findings">Findings</a>
       <a href="#map">Execution Map</a>
@@ -768,6 +769,7 @@ export function activate(context: ExtensionContext) {
     <main>
       <h1>Files to Fix</h1>
       <div class="cards">${surfaces.map(([label, value]) => `<div class="card"><div class="metric">${escapeHtml(value)}</div><div class="label">${escapeHtml(label)}</div></div>`).join('')}</div>
+      ${repositoryCompletenessHtml(report)}
       ${renderRepositoryFileInvestigations(fileInvestigations)}
       <section id="overview">
         <h2>Repository Summary</h2>
@@ -782,8 +784,8 @@ export function activate(context: ExtensionContext) {
         <h2>Canonical Issues (${report.issueSummary.total})</h2>
         ${summary.productionIssueSummary && summary.nonProductionIssueSummary ? `<p class="muted">Production: ${summary.productionIssueSummary.critical} critical · ${summary.productionIssueSummary.high} high · ${summary.productionIssueSummary.medium} medium · ${summary.productionIssueSummary.low} low. Non-production (docs/tests/fixtures): ${summary.nonProductionIssueSummary.critical} critical · ${summary.nonProductionIssueSummary.high} high · ${summary.nonProductionIssueSummary.medium} medium · ${summary.nonProductionIssueSummary.low} low — not counted toward trust.</p>` : ''}
         <table>
-          <tr><th>ID</th><th>Context</th><th>Severity</th><th>Issue</th><th>Evidence</th><th>How to Fix</th><th>Confidence</th></tr>
-          ${issues.map((issue: any) => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td>${escapeHtml(issue.provenance ?? 'production')}</td><td class="risk-${issue.severity}">${escapeHtml(issue.severity)}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Quick Fix:</strong> ${escapeHtml(issue.fix?.quickFix || issue.howToFix)}<br><br><strong>Recommended Fix:</strong> ${escapeHtml(issue.fix?.recommendedFix || issue.howToFix)}<br><br><strong>Safe Pattern:</strong> <code>${escapeHtml(issue.fix?.safePattern || '')}</code><br><br><strong>Effort:</strong> ${escapeHtml(issue.fix?.effort || 'Moderate')}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails?.executionPath || 'No connected sensitive action was confirmed for this finding.')}<br><strong>Evidence:</strong> ${escapeHtml((issue.technicalDetails?.evidence || issue.evidence).map((item: any) => `${item.file}:${item.line || 1}`).join(', '))}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails?.confidence?.label || issue.confidence.label)} ${escapeHtml(issue.technicalDetails?.confidence?.score ?? issue.confidence.score)}% · ${escapeHtml(issue.technicalDetails?.confidence?.definition || issue.confidence.definition)}</details></td><td><button class="link" data-open-file="${escapeHtml(reportFilePath(issue.impactedFiles[0] || ''))}">${escapeHtml(issue.impactedFiles.join(', '))}</button></td><td>${escapeHtml(issue.fix?.recommendedFix || issue.howToFix)}</td><td>${escapeHtml(issue.confidence.label)} ${escapeHtml(issue.confidence.score)}%<br>${escapeHtml(issue.confidence.definition)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No active issues.</td></tr>'}
+          <tr><th>ID</th><th>Context</th><th>Verdict</th><th>Severity</th><th>Issue</th><th>Evidence</th><th>How to Fix</th><th>Confidence</th></tr>
+          ${issues.map((issue: any) => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td>${escapeHtml(issue.provenance ?? 'production')}</td><td>${escapeHtml(contextualVerdictLabel(issue.context?.verdict))}</td><td class="risk-${issue.severity}">${escapeHtml(issue.severity)}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Quick Fix:</strong> ${escapeHtml(issue.fix?.quickFix || issue.howToFix)}<br><br><strong>Recommended Fix:</strong> ${escapeHtml(issue.fix?.recommendedFix || issue.howToFix)}<br><br><strong>Safe Pattern:</strong> <code>${escapeHtml(issue.fix?.safePattern || '')}</code><br><br><strong>Effort:</strong> ${escapeHtml(issue.fix?.effort || 'Moderate')}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails?.executionPath || 'No connected sensitive action was confirmed for this finding.')}<br><strong>Evidence:</strong> ${escapeHtml((issue.technicalDetails?.evidence || issue.evidence).map((item: any) => `${item.file}:${item.line || 1}`).join(', '))}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails?.confidence?.label || issue.confidence.label)} ${escapeHtml(issue.technicalDetails?.confidence?.score ?? issue.confidence.score)}% · ${escapeHtml(issue.technicalDetails?.confidence?.definition || issue.confidence.definition)}</details></td><td><button class="link" data-open-file="${escapeHtml(reportFilePath(issue.impactedFiles[0] || ''))}">${escapeHtml(issue.impactedFiles.join(', '))}</button></td><td>${escapeHtml(issue.fix?.recommendedFix || issue.howToFix)}</td><td>${escapeHtml(issue.confidence.label)} ${escapeHtml(issue.confidence.score)}%<br>${escapeHtml(issue.confidence.definition)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No active issues.</td></tr>'}
         </table>
       </section>
       <section id="map">
@@ -834,6 +836,18 @@ export function activate(context: ExtensionContext) {
         }
 
         const root = workspaceFolders[0].uri.fsPath;
+        const configScope = workspace.getConfiguration('promptsonar');
+        const maxWorkspaceScanFiles = Math.max(1, configScope.get<number>('maxWorkspaceScanFiles', 2000));
+        const maxFileSizeBytes = configScope.get<number>('maxFileSizeBytes', 1048576);
+
+        if (useClosureScanSetting(configScope)) {
+            progress?.report({ message: 'Running closure scan' });
+            return buildClosureRepositoryExecutionReport(root, {
+                maxWorkspaceScanFiles,
+                maxFileSizeBytes,
+            });
+        }
+
         const workspaceIgnoreMatchers = await loadWorkspaceIgnoreMatchers(workspaceFolders);
         const sourceFiles = await workspace.findFiles(WORKSPACE_SCAN_GLOB, WORKSPACE_SCAN_EXCLUDE_GLOB);
         const markdownInstructionFiles = await workspace.findFiles('**/{SKILL.md,skills.md,AGENT.md,AGENTS.md,agent.md,agents.md}', WORKSPACE_SCAN_EXCLUDE_GLOB);
@@ -843,8 +857,7 @@ export function activate(context: ExtensionContext) {
                 !isPromptSonarIgnoredPath(file.fsPath, workspaceIgnoreMatchers)
             )
             .sort((a, b) => a.fsPath.localeCompare(b.fsPath))
-            .slice(0, Math.max(1, workspace.getConfiguration('promptsonar').get<number>('maxWorkspaceScanFiles', 2000)));
-        const maxFileSizeBytes = workspace.getConfiguration('promptsonar').get<number>('maxFileSizeBytes', 1048576);
+            .slice(0, maxWorkspaceScanFiles);
         const scanResults: any[] = [];
 
         for (let index = 0; index < files.length; index++) {
@@ -856,7 +869,7 @@ export function activate(context: ExtensionContext) {
             const findings: any[] = [];
 
             if (isMcpConfigFile(file.fsPath)) {
-                const audit = auditMcpConfig(file.fsPath, text);
+                const audit = contextualizeMcpAuditForActiveDocument(auditMcpConfig(file.fsPath, text)).mcpAudit;
                 findings.push(...audit.findings.map((finding: any) => ({
                     rule_id: finding.rule_id,
                     category: 'security',
@@ -866,6 +879,7 @@ export function activate(context: ExtensionContext) {
                     fix: finding.fix,
                     evidence: finding.evidence || finding.path,
                     workflow: finding.workflow,
+                    context: finding.context,
                     waived: false,
                 })));
             } else {

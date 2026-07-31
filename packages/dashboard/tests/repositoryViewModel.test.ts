@@ -74,6 +74,7 @@ const report = {
       ruleId: "mcp_wildcard",
       severity: "high",
       category: "security",
+      context: { verdict: "risky_configuration" },
       issue: "Wildcard filesystem permission",
       impact: "The MCP server can write outside an approved scope.",
       whyThisMatters: "A reachable tool can modify files.",
@@ -161,6 +162,7 @@ describe("repository explorer view models", () => {
     });
     expect(view.selectedFile).toBe(".cursor/mcp.json");
     expect(view.issue?.confidence.label).toBe("Confirmed");
+    expect(view.issue?.contextualVerdictLabel).toBe("Risky configuration");
     expect(view.evidence[0]).toMatchObject({ line: 9, column: 3, snippet: "\"permissions\": [\"*\"]" });
     expect(view.fix?.effort).toBe("Quick");
     expect(view.highestRelatedPathRisk).toBe("high");

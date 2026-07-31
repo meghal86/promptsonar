@@ -51,3 +51,7 @@ PromptSonar_Medium_Article_*.docx
 PromptSonar_Test_Engineering_Prompt.md
 promptsonar_cover*.png
 promptsonar_cover*.jpg
+
+# eval wild-corpus clones (never commit)
+eval/corpus/wild/clones/
+eval/corpus/wild/clone-log.txt

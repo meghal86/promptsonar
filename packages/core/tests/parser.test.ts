@@ -115,6 +115,30 @@ Always explain the risk, suggest a fix, and return the result in JSON.
 
         expect(prompts).toEqual([]);
     });
+
+    it('extracts explicit prompt blocks from GitHub workflow YAML', async () => {
+        const content = [
+            'name: prompt workflow',
+            'jobs:',
+            '  review:',
+            '    steps:',
+            '      - name: Review release notes',
+            '        with:',
+            '          prompt: |',
+            '            You are an AI release reviewer.',
+            '            Summarize user-provided changes in three bullets.',
+        ].join('\n');
+
+        const prompts = await parseFile({
+            filePath: '.github/workflows/release-macos.yml',
+            content,
+            language: '',
+        });
+
+        expect(prompts).toHaveLength(1);
+        expect(prompts[0].sourceType).toBe('config_file');
+        expect(prompts[0].text).toContain('AI release reviewer');
+    });
 });
 
 describe('f-string and prefixed string extraction', () => {

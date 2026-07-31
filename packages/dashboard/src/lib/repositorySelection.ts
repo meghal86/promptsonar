@@ -9,14 +9,36 @@ export function repositoryFileDisplayName(file: File): string {
   return (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
 }
 
-function shouldRead(file: File): boolean {
-  const name = repositoryFileDisplayName(file).replace(/\\/g, "/");
-  if (name.split("/").some((part) => IGNORED_PARTS.has(part))) return false;
-  return TEXT_FILE_PATTERN.test(name) || file.type.startsWith("text/");
+export function normalizeRepositoryPath(value: string): string {
+  return value.replace(/\\/g, "/").split("/").filter(part => part && part !== "." && part !== "..").join("/");
 }
 
-function repositoryFilePriority(file: File): number {
-  const name = repositoryFileDisplayName(file).replace(/\\/g, "/").toLowerCase();
+export function stripCommonRepositoryRoot(paths: string[]): Map<string, string> {
+  const normalized = paths.map(normalizeRepositoryPath);
+  const firstParts = normalized
+    .filter(path => path.includes("/"))
+    .map(path => path.split("/")[0]);
+  const commonRoot = firstParts.length === normalized.length && new Set(firstParts).size === 1
+    ? firstParts[0]
+    : "";
+
+  return new Map(paths.map((original, index) => {
+    const path = normalized[index];
+    return [
+      original,
+      commonRoot && path.startsWith(`${commonRoot}/`) ? path.slice(commonRoot.length + 1) : path,
+    ];
+  }));
+}
+
+export function shouldReadRepositoryPath(path: string, mimeType = ""): boolean {
+  const name = normalizeRepositoryPath(path);
+  if (name.split("/").some((part) => IGNORED_PARTS.has(part))) return false;
+  return TEXT_FILE_PATTERN.test(name) || mimeType.startsWith("text/");
+}
+
+export function repositoryPathPriority(path: string): number {
+  const name = `/${normalizeRepositoryPath(path)}`.toLowerCase();
   if (name.includes("/.cursor/") || name.includes("/.claude/") || name.endsWith("/mcp.json")) return 100;
   if (name.endsWith("skill.md") || name.includes("/skills/")) return 90;
   if (name.endsWith(".prompt") || name.includes("/prompts/")) return 80;
@@ -32,17 +54,26 @@ function boundedFileSize(file: File): number {
 }
 
 export function prepareRepositorySelection(allFiles: File[]) {
-  const eligibleFiles = allFiles
-    .filter(shouldRead)
+  const displayPaths = allFiles.map(repositoryFileDisplayName);
+  const repoPathByDisplayPath = stripCommonRepositoryRoot(displayPaths);
+  const eligibleItems = allFiles
+    .map(file => {
+      const displayPath = repositoryFileDisplayName(file);
+      return {
+        file,
+        repoPath: repoPathByDisplayPath.get(displayPath) || normalizeRepositoryPath(displayPath),
+      };
+    })
+    .filter(item => shouldReadRepositoryPath(item.repoPath, item.file.type))
     .sort((a, b) =>
-      repositoryFilePriority(b) - repositoryFilePriority(a) ||
-      repositoryFileDisplayName(a).localeCompare(repositoryFileDisplayName(b)),
+      repositoryPathPriority(b.repoPath) - repositoryPathPriority(a.repoPath) ||
+      a.repoPath.localeCompare(b.repoPath),
     );
-  const fileCandidates = eligibleFiles.slice(0, MAX_BROWSER_FILES);
+  const fileCandidates = eligibleItems.slice(0, MAX_BROWSER_FILES);
   const queuedFiles: File[] = [];
   let estimatedChars = 0;
 
-  for (const file of fileCandidates) {
+  for (const { file } of fileCandidates) {
     if (estimatedChars >= MAX_BROWSER_TOTAL_CHARS) break;
     queuedFiles.push(file);
     estimatedChars += Math.min(boundedFileSize(file), MAX_BROWSER_TOTAL_CHARS - estimatedChars);
@@ -52,9 +83,9 @@ export function prepareRepositorySelection(allFiles: File[]) {
     files: queuedFiles,
     stats: {
       total: allFiles.length,
-      eligible: eligibleFiles.length,
+      eligible: eligibleItems.length,
       queued: queuedFiles.length,
-      excludedByFileLimit: Math.max(0, eligibleFiles.length - fileCandidates.length),
+      excludedByFileLimit: Math.max(0, eligibleItems.length - fileCandidates.length),
       excludedByPayloadLimit: Math.max(0, fileCandidates.length - queuedFiles.length),
       estimatedChars,
     },
@@ -67,6 +98,8 @@ export async function buildRepositoryPayload(
 ) {
   const payload: Array<{ path: string; content: string }> = [];
   let totalChars = 0;
+  const displayPaths = files.map(repositoryFileDisplayName);
+  const repoPathByDisplayPath = stripCommonRepositoryRoot(displayPaths);
 
   for (let index = 0; index < files.length; index += 1) {
     const remaining = MAX_BROWSER_TOTAL_CHARS - totalChars;
@@ -74,8 +107,9 @@ export async function buildRepositoryPayload(
     const file = files[index];
     const readLimit = Math.min(MAX_BROWSER_FILE_CHARS, remaining);
     const content = (await file.slice(0, readLimit).text()).slice(0, readLimit);
+    const displayPath = repositoryFileDisplayName(file);
     payload.push({
-      path: repositoryFileDisplayName(file),
+      path: repoPathByDisplayPath.get(displayPath) || normalizeRepositoryPath(displayPath),
       content,
     });
     totalChars += content.length;

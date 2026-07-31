@@ -4,7 +4,9 @@ import type {
   RepositoryExecutionReport,
   RepositoryPathConfidence,
   RepositoryRisk,
+  ScanCompleteness,
 } from "@promptsonar/core";
+import { contextualVerdictLabel } from "@promptsonar/core/dist/contextual/presentation";
 import { useEffect, useMemo, useState } from "react";
 import { buildRepositoryExplorerViewModel } from "@/lib/repositoryViewModel";
 import {
@@ -19,21 +21,61 @@ import {
   prepareRepositorySelection,
   repositoryFileDisplayName,
 } from "@/lib/repositorySelection";
+import { saveRepositoryFiles } from "@/lib/repositoryFileStore";
+import { fetchGithubRepoFiles, parseGithubUrl } from "@/lib/githubRepo";
+import { findingLane, LANE_LABEL, type FindingLane } from "@/lib/plainLanguage";
 import { ConfidenceBadge, ProvenanceBadge, RiskBadge } from "./Badges";
 import { PreviewShell } from "./PreviewShell";
+import { ExecutionFlowGraph } from "./ExecutionFlowGraph";
+import { CodeDiff } from "../repository/CodeDiff";
+import { BusinessImpact } from "../repository/BusinessImpact";
 
 type ScanMeta = {
   filesReceived: number;
   filesWritten: number;
   filesSkipped: number;
+  sourceKind?: "folder" | "github" | "sample";
+  sourceTotalFiles?: number;
+  sourceEligibleFiles?: number;
+  sourceQueuedFiles?: number;
+  sourceExcludedByFileLimit?: number;
+  sourceExcludedByPayloadLimit?: number;
+  sourceEstimatedChars?: number;
+  findingsCount?: number;
+  groupedFindingsCount?: number;
+  rawIssuesCount?: number;
+  reachablePathsCount?: number;
+  hiddenFindingsCount?: number;
+  hiddenReasons?: Record<string, number>;
   mode: string;
   cli: string;
+  closure?: boolean;
   timings?: {
     scannerMs: number;
     reportMs: number;
     totalMs: number;
   };
 };
+
+type RepositoryScanWorkerMessage =
+  | { type: "progress"; id: string; message: string }
+  | { type: "complete"; id: string; report: RepositoryExecutionReport; scan: ScanMeta }
+  | { type: "error"; id: string; error: string };
+
+type SourceScanStats = Pick<
+  ScanMeta,
+  | "sourceKind"
+  | "sourceTotalFiles"
+  | "sourceEligibleFiles"
+  | "sourceQueuedFiles"
+  | "sourceExcludedByFileLimit"
+  | "sourceExcludedByPayloadLimit"
+  | "sourceEstimatedChars"
+>;
+
+function completenessLabel(value: ScanCompleteness["coverageStatus"] | ScanCompleteness["verdictScope"]): string {
+  return String(value).replaceAll("_", " ");
+}
 
 function sectionLabel(children: string) {
   return <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">{children}</p>;
@@ -43,7 +85,7 @@ function SectionHeading({ label, title, help }: { label: string; title: string; 
   return (
     <header className="mb-5">
       {sectionLabel(label)}
-      <h2 className="mt-2 font-playfair text-[27px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[31px]">{title}</h2>
+      <h2 className="mt-2 font-sans text-[27px] font-medium leading-tight tracking-[-0.02em] text-stone-900 sm:text-[31px]">{title}</h2>
       {help && <p className="mt-2 max-w-2xl text-[14px] leading-6 text-stone-600">{help}</p>}
     </header>
   );
@@ -104,6 +146,9 @@ function readStoredReport(scanId?: string): RepositoryExecutionReport | null {
 function microscopeHref(report: RepositoryExecutionReport, params: Record<string, string | undefined>): string {
   const query = new URLSearchParams();
   if (report.id) query.set("scan", report.id);
+  // Opened from a repository scan, so the microscope must run in repository mode
+  // (real execution-path context) — not single-input/standalone mode.
+  query.set("mode", "repository");
   Object.entries(params).forEach(([key, value]) => {
     if (value) query.set(key, value);
   });
@@ -126,6 +171,49 @@ function downloadBlob(name: string, value: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+// Real, client-side Markdown export generated from the canonical report — no
+// fabricated content. The GitHub-comment variant is the same Markdown trimmed
+// to the highest-severity findings so it fits a PR comment.
+function buildMarkdownReport(report: RepositoryExecutionReport, limit = Infinity): string {
+  const summary = report.summary;
+  const lines: string[] = [];
+  lines.push(`# PromptSonar repository report — ${report.repository?.name || "repository"}`);
+  lines.push("");
+  lines.push(`- **Overall risk:** ${summary?.overallRisk || "none"}`);
+  lines.push(`- **Trust status:** ${summary?.trustStatus || "—"}`);
+  lines.push(`- **Reachable paths:** ${report.reachablePaths?.length ?? 0}`);
+  lines.push(`- **Findings:** ${report.issues?.length ?? 0}`);
+  const actions = summary?.reachableSensitiveActions || {};
+  const reachable = Object.entries(actions).filter(([, count]) => Number(count) > 0);
+  if (reachable.length > 0) {
+    lines.push(`- **Reachable sensitive actions:** ${reachable.map(([name, count]) => `${name} (${count})`).join(", ")}`);
+  }
+  lines.push("");
+  const issues = [...(report.issues || [])]
+    .sort((a, b) => SEVERITY_RANK(b.severity) - SEVERITY_RANK(a.severity))
+    .slice(0, limit);
+  if (issues.length > 0) {
+    lines.push(limit === Infinity ? "## Findings" : `## Top ${issues.length} findings`);
+    lines.push("");
+    for (const issue of issues) {
+      lines.push(`### ${String(issue.severity || "finding").toUpperCase()} · ${issue.issue || issue.ruleId}`);
+      lines.push(`**Verdict:** ${contextualVerdictLabel(issue.context?.verdict)}`);
+      if (issue.howToFix || issue.fix?.recommendedFix) lines.push(`**Fix:** ${issue.fix?.recommendedFix || issue.howToFix}`);
+      const files = issue.impactedFiles || [];
+      if (files.length > 0) lines.push(`**Files:** ${files.slice(0, 6).map((file) => `\`${file}\``).join(", ")}`);
+      lines.push(`*Rule: ${issue.ruleId} · confidence: ${issue.confidence?.level || "—"}*`);
+      lines.push("");
+    }
+  }
+  lines.push("---");
+  lines.push("*Generated by PromptSonar. Run `npx @promptsonar/cli repo .` for the full local scan.*");
+  return lines.join("\n");
+}
+
+function SEVERITY_RANK(severity?: string): number {
+  return { critical: 4, high: 3, medium: 2, low: 1 }[severity || ""] ?? 0;
+}
+
 function Disclosure({
   id,
   title,
@@ -146,7 +234,7 @@ function Disclosure({
         aria-controls={id}
       >
         <span>
-          <span className="block font-playfair text-[20px] font-medium tracking-tight text-stone-900">{title}</span>
+          <span className="block font-sans text-[20px] font-medium tracking-tight text-stone-900">{title}</span>
           <span className="mt-1 block text-[13px] leading-5 text-stone-500">{description}</span>
         </span>
         <span className="font-mono text-[16px] text-stone-400 transition group-open:rotate-45" aria-hidden="true">+</span>
@@ -155,6 +243,68 @@ function Disclosure({
     </details>
   );
 }
+
+// Plain-language "what this is / why it helps" intro for a section, so any
+// reader — engineer, security, or PM — understands it without prior vocabulary.
+function WhatWhy({ what, why }: { what: string; why: string }) {
+  return (
+    <div className="mb-5 rounded-xl border border-stone-200 bg-stone-50/70 p-4">
+      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">What this is</p>
+      <p className="mt-2 text-[13px] leading-6 text-stone-600">{what}</p>
+      <p className="mt-2 text-[13px] leading-6 text-stone-600"><span className="font-semibold text-stone-700">Why it helps:</span> {why}</p>
+    </div>
+  );
+}
+
+// Single-artifact analysis lives in the same portal as repository scans — same
+// engine, same report, just one file. Each example maps to a virtual path so
+// the engine classifies it correctly, and a mode so the microscope renders it
+// in single-input (standalone) framing.
+type ArtifactKindOption = "prompt" | "skill" | "mcp" | "agent" | "workflow" | "tool";
+const ARTIFACT_EXAMPLES: Array<{ kind: ArtifactKindOption; label: string; filename: string; mode: "prompt" | "file"; text: string }> = [
+  {
+    kind: "prompt",
+    label: "Prompt",
+    filename: "prompts/reviewer.prompt",
+    mode: "prompt",
+    text: `You are a code review assistant.\n\nUse filesystem-mcp to read the changed files, and run shell commands to reproduce failures when CI is blocked. Reuse the last approved review from memory and post results to the external review API.`,
+  },
+  {
+    kind: "skill",
+    label: "Skill",
+    filename: "skills/code-review/SKILL.md",
+    mode: "file",
+    text: `# Code Review Skill\n\nUse when reviewing pull requests or recovering CI.\n\nCapabilities:\n- inspect repository files\n- call tool-router\n- request filesystem writes\n- run shell recovery commands\n\nThe tool-router may continue automatically when CI is blocked.`,
+  },
+  {
+    kind: "mcp",
+    label: "MCP config",
+    filename: ".cursor/mcp.json",
+    mode: "file",
+    text: JSON.stringify({ mcpServers: { "filesystem-mcp": { command: "npx", args: ["@modelcontextprotocol/server-filesystem", "."], autoApprove: true, permissions: ["*"] } } }, null, 2),
+  },
+  {
+    kind: "agent",
+    label: "Agent",
+    filename: "AGENTS.md",
+    mode: "file",
+    text: `# Reviewer Agent\n\nUse filesystem-mcp and tool-router to inspect pull requests. Run shell commands when CI is blocked and reuse memory/reviewer-memory.json. Approval is optional.`,
+  },
+  {
+    kind: "workflow",
+    label: "Workflow",
+    filename: ".github/workflows/ai-review.yml",
+    mode: "file",
+    text: `name: AI review\non: pull_request\njobs:\n  review:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npx promptsonar-agent --prompt prompts/reviewer.prompt\n        env:\n          REVIEW_TOKEN: \${{ secrets.REVIEW_TOKEN }}`,
+  },
+  {
+    kind: "tool",
+    label: "Tool router",
+    filename: "tools/tool-router.yaml",
+    mode: "file",
+    text: `tools:\n  - name: shell.run_command\n    routes_to: filesystem-mcp\n  - name: secrets.read\n    routes_to: filesystem-mcp\npolicy:\n  approval: optional`,
+  },
+];
 
 export function RepositoryExplorer() {
   const [files, setFiles] = useState<File[]>([]);
@@ -172,6 +322,7 @@ export function RepositoryExplorer() {
   const [scanProgress, setScanProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copiedCommand, setCopiedCommand] = useState(false);
+  const [copiedComment, setCopiedComment] = useState(false);
   const [activeSection, setActiveSection] = useState("overview");
   const [pathFilters, setPathFilters] = useState({
     file: "",
@@ -189,6 +340,19 @@ export function RepositoryExplorer() {
   });
   const [pathLimit, setPathLimit] = useState(20);
   const [fileLimit, setFileLimit] = useState(20);
+  // Single-artifact paste intake (prompt / skill / mcp / agent / workflow / tool).
+  const [artifactKind, setArtifactKind] = useState<ArtifactKindOption>("prompt");
+  const [artifactText, setArtifactText] = useState(ARTIFACT_EXAMPLES[0].text);
+  // Public GitHub URL intake.
+  const [githubUrl, setGithubUrl] = useState("");
+  const [useClosure, setUseClosure] = useState(false);
+  // Security / Reliability / Quality filter for the remediation list (all on by default).
+  const [remediationLanes, setRemediationLanes] = useState<Set<FindingLane>>(() => new Set<FindingLane>(["security", "reliability", "quality"]));
+  const toggleRemediationLane = (lane: FindingLane) => setRemediationLanes((current) => {
+    const next = new Set(current);
+    if (next.has(lane)) next.delete(lane); else next.add(lane);
+    return next.size === 0 ? new Set<FindingLane>(["security", "reliability", "quality"]) : next;
+  });
 
   const view = useMemo(
     () => report ? buildRepositoryExplorerViewModel(report) : null,
@@ -199,6 +363,24 @@ export function RepositoryExplorer() {
     const params = new URLSearchParams(window.location.search);
     const scanId = params.get("scan") || params.get("scanId") || undefined;
     const section = params.get("section") || undefined;
+    // Deep-link from marketing / homepage into the unified intake:
+    //   ?example=mcp            preload a built-in example
+    //   ?paste=<text>&kind=...  carry the visitor's own prompt/artifact
+    const repoParam = params.get("repo");
+    if (!scanId && repoParam) setGithubUrl(repoParam);
+    const example = params.get("example");
+    const paste = params.get("paste");
+    const kindParam = params.get("kind");
+    if (!scanId && (example || paste)) {
+      const kind = (kindParam && ARTIFACT_EXAMPLES.some((item) => item.kind === kindParam))
+        ? (kindParam as ArtifactKindOption)
+        : (example && ARTIFACT_EXAMPLES.some((item) => item.kind === example))
+          ? (example as ArtifactKindOption)
+          : "prompt";
+      setArtifactKind(kind);
+      if (paste) setArtifactText(paste);
+      else loadArtifactExample(kind);
+    }
     const scrollToSection = () => {
       if (section) window.setTimeout(() => document.getElementById(section)?.scrollIntoView({ block: "start" }), 250);
     };
@@ -288,34 +470,189 @@ export function RepositoryExplorer() {
     setError(null);
   }
 
-  async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string) {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 120_000);
-    setScanProgress(`Analyzing ${payloadFiles.length.toLocaleString()} prioritized files with the dashboard service…`);
+  function loadArtifactExample(kind: ArtifactKindOption) {
+    const example = ARTIFACT_EXAMPLES.find((item) => item.kind === kind) || ARTIFACT_EXAMPLES[0];
+    setArtifactKind(kind);
+    setArtifactText(example.text);
+  }
+
+  // Analyze a single pasted artifact with the same engine, then open it in the
+  // microscope (which renders single-input with honest standalone framing).
+  async function scanArtifact() {
+    const example = ARTIFACT_EXAMPLES.find((item) => item.kind === artifactKind) || ARTIFACT_EXAMPLES[0];
+    const text = artifactText.trim();
+    if (!text) { setError("Paste a prompt or artifact, or load an example."); return; }
+    setLoading(true);
+    setError(null);
+    setScanProgress("Analyzing artifact…");
     try {
       const response = await fetch("/api/repository", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files: payloadFiles, repositoryName }),
+        body: JSON.stringify({ files: [{ path: example.filename, content: text }], repositoryName: `${example.label} analysis` }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `Analysis failed (${response.status})`);
+      const nextReport = data.report;
+      saveReport(nextReport);
+      saveRepositoryFiles(nextReport?.id, [{ path: example.filename, content: text }]);
+      const firstFile = nextReport.impactedFiles?.[0]?.path || nextReport.artifacts?.[0]?.relativePath || example.filename;
+      const firstIssue = nextReport.impactedFiles?.[0]?.issueIds?.[0] || nextReport.issues?.[0]?.id;
+      const query = new URLSearchParams();
+      if (nextReport.id) query.set("scan", nextReport.id);
+      query.set("mode", example.mode);
+      query.set("file", firstFile);
+      if (firstIssue) query.set("issue", firstIssue);
+      window.location.href = `/playground-v4?${query.toString()}`;
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : "Analysis failed.");
+      setLoading(false);
+      setScanProgress(null);
+    }
+  }
+
+  // Clear the current report and return to the intake — works whether the report
+  // came from a live scan or was loaded from a ?scan= URL (the footer reset only
+  // appears for live scans, so the header needs its own always-visible control).
+  function startOver() {
+    setReport(null);
+    setScanMeta(null);
+    setFiles([]);
+    setSelectionStats({ total: 0, eligible: 0, queued: 0, excludedByFileLimit: 0, excludedByPayloadLimit: 0, estimatedChars: 0 });
+    setUseClosure(false);
+    setError(null);
+    setScanProgress(null);
+    try {
+      Object.keys(window.sessionStorage)
+        .filter((key) => key.startsWith("promptsonar:repository-report:"))
+        .forEach((key) => window.sessionStorage.removeItem(key));
+    } catch {
+      // Resetting the view still works even if storage can't be cleared.
+    }
+    window.history.replaceState({}, "", "/repository-v2");
+    window.scrollTo({ top: 0 });
+  }
+
+  // Scan a public GitHub repository: the browser reads it via GitHub's API + raw
+  // CDN, prioritizes with the same rules as a folder upload, then runs the same
+  // bounded scan and renders the same report.
+  async function scanGithub() {
+    const target = parseGithubUrl(githubUrl);
+    if (!target) {
+      setError("Enter a GitHub URL like github.com/org/repo.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      setScanProgress(`Reading ${target.owner}/${target.repo} from GitHub…`);
+      const result = await fetchGithubRepoFiles(target, (message) => setScanProgress(message));
+      await scanPayload(result.files, result.repositoryName, {
+        sourceKind: "github",
+        sourceTotalFiles: result.stats.totalInTree,
+        sourceEligibleFiles: result.stats.eligible,
+        sourceQueuedFiles: result.stats.queued,
+        sourceExcludedByFileLimit: result.stats.excludedByFileLimit,
+        sourceExcludedByPayloadLimit: result.stats.excludedByPayloadLimit,
+        sourceEstimatedChars: result.stats.estimatedChars,
+      });
+    } catch (githubError) {
+      setError(githubError instanceof Error ? githubError.message : "GitHub scan failed.");
+    } finally {
+      setLoading(false);
+      setScanProgress(null);
+    }
+  }
+
+  async function scanPayloadOnServer(payloadFiles: RepositoryPayloadFile[], repositoryName: string, sourceStats?: SourceScanStats) {
+    const controller = new AbortController();
+    const hardTimeout = window.setTimeout(() => controller.abort(), 120_000);
+
+    // Cycle through scan phases so the user sees progress, not a frozen spinner.
+    const PHASES: Array<{ label: string; afterMs: number }> = [
+      { label: `Indexing ${payloadFiles.length} files and detecting artifact types…`, afterMs: 0 },
+      { label: "Extracting prompts, skills, and tool configurations…", afterMs: 5_000 },
+      { label: "Tracing execution routes through tool routers and MCP servers…", afterMs: 15_000 },
+      { label: "Confirming path reachability and scoring risks…", afterMs: 35_000 },
+      { label: "Finalising execution map — almost done…", afterMs: 65_000 },
+    ];
+    const phaseTimers: number[] = [];
+    for (const phase of PHASES) {
+      phaseTimers.push(window.setTimeout(() => setScanProgress(phase.label), phase.afterMs));
+    }
+
+    try {
+      const response = await fetch("/api/repository", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: payloadFiles, repositoryName, ...(useClosure ? { useClosure: true } : {}) }),
         signal: controller.signal,
       });
       setScanProgress("Building the execution map and repository report…");
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `Scan failed (${response.status})`);
       setReport(data.report);
-      setScanMeta(data.scan);
+      setScanMeta({ ...data.scan, ...sourceStats });
       saveReport(data.report);
+      // Persist the scanned file text so the file microscope can show full-file
+      // before/after context (browser session only, never re-uploaded).
+      saveRepositoryFiles(data.report?.id, payloadFiles);
       if (data.report?.id) {
         window.history.replaceState({}, "", `/repository-v2?scan=${encodeURIComponent(data.report.id)}&section=overview#overview`);
       }
     } catch (scanError) {
       if (scanError instanceof DOMException && scanError.name === "AbortError") {
-        throw new Error("The dashboard scan service did not finish within 120 seconds. Retry once, or use the local CLI for a complete repository scan.");
+        throw new Error("The dashboard scan service did not finish within 120 seconds. Retry once, or use the local CLI for a complete repository scan: npx @promptsonar/cli repo .");
       }
       throw scanError;
     } finally {
-      window.clearTimeout(timeout);
+      window.clearTimeout(hardTimeout);
+      for (const t of phaseTimers) window.clearTimeout(t);
     }
+  }
+
+  async function scanPayloadInWorker(payloadFiles: RepositoryPayloadFile[], repositoryName: string, sourceStats?: SourceScanStats) {
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const worker = new Worker(new URL("../../workers/repositoryScan.worker.ts", import.meta.url), { type: "module" });
+
+    try {
+      const result = await new Promise<{ report: RepositoryExecutionReport; scan: ScanMeta }>((resolve, reject) => {
+        worker.onmessage = (event: MessageEvent<RepositoryScanWorkerMessage>) => {
+          const message = event.data;
+          if (message.id !== requestId) return;
+          if (message.type === "progress") {
+            setScanProgress(message.message);
+            return;
+          }
+          if (message.type === "complete") {
+            resolve({ report: message.report, scan: message.scan });
+            return;
+          }
+          reject(new Error(message.error));
+        };
+        worker.onerror = () => reject(new Error("Repository scan worker failed."));
+        worker.postMessage({ id: requestId, files: payloadFiles, repositoryName, ...(useClosure ? { useClosure: true } : {}) });
+      });
+
+      setReport(result.report);
+      setScanMeta({ ...result.scan, ...sourceStats });
+      saveReport(result.report);
+      saveRepositoryFiles(result.report?.id, payloadFiles);
+      if (result.report?.id) {
+        window.history.replaceState({}, "", `/repository-v2?scan=${encodeURIComponent(result.report.id)}&section=overview#overview`);
+      }
+    } finally {
+      worker.terminate();
+    }
+  }
+
+  async function scanPayload(payloadFiles: RepositoryPayloadFile[], repositoryName: string, sourceStats?: SourceScanStats) {
+    setScanProgress(`Preparing hosted preview for ${payloadFiles.length.toLocaleString()} prioritized files…`);
+    if (typeof Worker === "undefined") {
+      await scanPayloadOnServer(payloadFiles, repositoryName, sourceStats);
+      return;
+    }
+    await scanPayloadInWorker(payloadFiles, repositoryName, sourceStats);
   }
 
   async function scanSelectedFiles() {
@@ -332,7 +669,15 @@ export function RepositoryExplorer() {
           setScanProgress(`Reading ${completed.toLocaleString()} of ${total.toLocaleString()} bounded files…`);
         }
       });
-      await scanPayload(payload.files, repositoryFileDisplayName(files[0]).split("/")[0] || "Uploaded repository");
+      await scanPayload(payload.files, repositoryFileDisplayName(files[0]).split("/")[0] || "Uploaded repository", {
+        sourceKind: "folder",
+        sourceTotalFiles: selectionStats.total,
+        sourceEligibleFiles: selectionStats.eligible,
+        sourceQueuedFiles: selectionStats.queued,
+        sourceExcludedByFileLimit: selectionStats.excludedByFileLimit,
+        sourceExcludedByPayloadLimit: selectionStats.excludedByPayloadLimit,
+        sourceEstimatedChars: selectionStats.estimatedChars,
+      });
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Repository scan failed.");
     } finally {
@@ -345,7 +690,13 @@ export function RepositoryExplorer() {
     setLoading(true);
     setError(null);
     try {
-      await scanPayload(SAMPLE_REPOSITORY_FILES, "Sample AI review repository");
+      await scanPayload(SAMPLE_REPOSITORY_FILES, "Sample AI review repository", {
+        sourceKind: "sample",
+        sourceTotalFiles: SAMPLE_REPOSITORY_FILES.length,
+        sourceEligibleFiles: SAMPLE_REPOSITORY_FILES.length,
+        sourceQueuedFiles: SAMPLE_REPOSITORY_FILES.length,
+        sourceEstimatedChars: SAMPLE_REPOSITORY_FILES.reduce((total, file) => total + file.content.length, 0),
+      });
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Sample scan failed.");
     } finally {
@@ -354,7 +705,7 @@ export function RepositoryExplorer() {
     }
   }
 
-  async function exportReport(format: "json" | "sarif" | "html" | "mapJson") {
+  async function exportReport(format: "json" | "sarif" | "html" | "mapJson" | "markdown" | "githubComment") {
     if (!report) return;
     if (format === "json") {
       downloadBlob("promptsonar-repository-report.json", JSON.stringify(report, null, 2), "application/json");
@@ -362,6 +713,16 @@ export function RepositoryExplorer() {
     }
     if (format === "mapJson") {
       downloadBlob("promptsonar-execution-map.json", JSON.stringify(report.executionMap, null, 2), "application/json");
+      return;
+    }
+    if (format === "markdown") {
+      downloadBlob("promptsonar-repository-report.md", buildMarkdownReport(report), "text/markdown");
+      return;
+    }
+    if (format === "githubComment") {
+      await navigator.clipboard.writeText(buildMarkdownReport(report, 5));
+      setCopiedComment(true);
+      window.setTimeout(() => setCopiedComment(false), 1800);
       return;
     }
     const response = await fetch("/api/repository/export", {
@@ -389,6 +750,12 @@ export function RepositoryExplorer() {
 
   const path = view?.highestRiskPath;
   const pathVerb = path?.confidence === "confirmed" ? "can" : "may";
+  const productionFindingCount = view?.remediationCount.total || 0;
+  const rawFindingCount = report?.issues?.length || 0;
+  const hiddenFindingCount = Math.max(0, rawFindingCount - productionFindingCount);
+  const groupedFindingCount = scanMeta?.groupedFindingsCount ?? new Set(report?.issues?.map(issue => issue.ruleId) || []).size;
+  const hiddenReasons = scanMeta?.hiddenReasons || view?.nonProduction.byProvenance || {};
+  const completeness = report?.completeness;
 
   return (
     <PreviewShell
@@ -401,7 +768,7 @@ export function RepositoryExplorer() {
           <>
             <header className="max-w-3xl">
               {sectionLabel("Repository Explorer v2")}
-              <h1 className="mt-4 max-w-[760px] font-playfair text-[40px] font-medium leading-[1.03] tracking-[-0.035em] text-stone-900 sm:text-[58px]">
+              <h1 className="mt-4 max-w-[760px] font-sans text-[40px] font-medium leading-[1.03] tracking-[-0.035em] text-stone-900 sm:text-[58px]">
                 See where AI instructions <span className="italic text-amber-700">can go.</span>
               </h1>
               <p className="mt-5 max-w-2xl text-[16px] leading-7 text-stone-600">
@@ -409,7 +776,68 @@ export function RepositoryExplorer() {
               </p>
             </header>
 
-            <section className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {/* SINGLE-ARTIFACT INTAKE — one portal for prompts, skills, MCP configs, agents */}
+            <section className="mt-10 rounded-2xl border border-stone-900/10 bg-white/70 p-6 shadow-[0_18px_55px_-38px_rgba(28,25,23,0.7)] backdrop-blur-xl sm:p-7">
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Analyze a single artifact</span>
+              <h2 className="mt-2 font-sans text-[24px] font-medium tracking-tight text-stone-900">Paste a prompt, skill, MCP config, or agent file</h2>
+              <p className="mt-2 max-w-2xl text-[14px] leading-6 text-stone-600">Same engine, same report as a full repository scan — just one file. Pick an example or paste your own.</p>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {ARTIFACT_EXAMPLES.map((example) => (
+                  <button
+                    key={example.kind}
+                    type="button"
+                    onClick={() => loadArtifactExample(example.kind)}
+                    aria-pressed={artifactKind === example.kind}
+                    className={`rounded-full border px-3 py-1.5 font-mono text-[11px] font-medium transition ${artifactKind === example.kind ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 bg-white text-stone-600 hover:bg-stone-50"}`}
+                  >
+                    {example.label}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                value={artifactText}
+                onChange={(event) => setArtifactText(event.target.value)}
+                rows={8}
+                spellCheck={false}
+                className="mt-4 block w-full resize-y rounded-xl border border-stone-300 bg-white px-4 py-3 font-mono text-[12px] leading-6 text-stone-900 outline-none focus:ring-2 focus:ring-stone-800"
+                placeholder="Paste a prompt, skill, MCP config, agent file, workflow, or tool router…"
+              />
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <p className="font-mono text-[11px] text-stone-500">Analyzed as <span className="text-stone-700">{(ARTIFACT_EXAMPLES.find((item) => item.kind === artifactKind) || ARTIFACT_EXAMPLES[0]).filename}</span> · no LLM calls</p>
+                <button
+                  type="button"
+                  onClick={scanArtifact}
+                  disabled={loading || !artifactText.trim()}
+                  className="rounded-xl bg-stone-900 px-5 py-3 text-[13px] font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 disabled:opacity-50"
+                >
+                  {loading ? "Analyzing…" : "Analyze artifact →"}
+                </button>
+              </div>
+            </section>
+
+            <div className="mt-8 flex items-center gap-3">
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-stone-400">Or scan a whole repository</span>
+              <span className="h-px flex-1 bg-stone-900/10" />
+            </div>
+
+            <label className="mt-4 flex max-w-xl items-center justify-between gap-4 rounded-2xl border border-white/75 bg-white/65 px-5 py-4 text-left shadow-[0_18px_55px_-42px_rgba(28,25,23,0.55)] backdrop-blur-xl">
+              <span>
+                <span className="block font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Opt-in closure</span>
+                <span className="mt-1 block text-[13px] leading-5 text-stone-600">Use repository closure for this uploaded scan.</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={useClosure}
+                onChange={(event) => setUseClosure(event.target.checked)}
+                disabled={loading}
+                className="h-5 w-5 rounded border-stone-400 text-stone-900 focus:ring-stone-900"
+              />
+            </label>
+
+            <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <button
                 type="button"
                 onClick={scanSample}
@@ -417,7 +845,7 @@ export function RepositoryExplorer() {
                 className="rounded-2xl border border-amber-600/30 bg-[linear-gradient(180deg,rgba(255,249,230,0.9),rgba(255,255,255,0.72))] p-7 text-left shadow-[0_18px_55px_-38px_rgba(28,25,23,0.7)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-amber-700/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 disabled:opacity-50"
               >
                 <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Built-in demo</span>
-                <span className="mt-3 block font-playfair text-[24px] font-medium tracking-tight">Run the sample repository</span>
+                <span className="mt-3 block font-sans text-[24px] font-medium tracking-tight">Run the sample repository</span>
                 <span className="mt-2 block text-[14px] leading-6 text-stone-600">A deterministic fixture with prompts, a skill, workflow, router, memory, and MCP configuration.</span>
                 <span className="mt-5 block font-mono text-[12px] font-medium text-stone-900">{loading ? "Analyzing…" : "Analyze sample →"}</span>
                 <span className="mt-3 block text-[11px] text-stone-500">Processed by this dashboard service · no LLM calls</span>
@@ -425,7 +853,7 @@ export function RepositoryExplorer() {
 
               <label className="cursor-pointer rounded-2xl border border-white/75 bg-white/65 p-7 shadow-[0_18px_55px_-38px_rgba(28,25,23,0.7)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-stone-400 focus-within:ring-2 focus-within:ring-stone-900">
                 <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Folder upload</span>
-                <span className="mt-3 block font-playfair text-[24px] font-medium tracking-tight">
+                <span className="mt-3 block font-sans text-[24px] font-medium tracking-tight">
                   {selectionStats.total
                     ? `${selectionStats.total.toLocaleString()} files selected`
                     : "Select repository folder"}
@@ -446,21 +874,34 @@ export function RepositoryExplorer() {
                 <span className="mt-3 block text-[11px] text-stone-500">For fully local analysis with no uploads, use the CLI shown below.</span>
               </label>
 
-              <div
-                aria-disabled="true"
-                aria-describedby="github-coming-soon"
-                className="rounded-2xl border border-white/75 bg-white/45 p-7 opacity-80 shadow-[0_18px_55px_-38px_rgba(28,25,23,0.55)] backdrop-blur-xl"
-              >
+              <div className="rounded-2xl border border-white/75 bg-white/65 p-7 shadow-[0_18px_55px_-38px_rgba(28,25,23,0.7)] backdrop-blur-xl">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">GitHub repository</span>
-                  <span className="rounded-full border border-stone-300 bg-white/70 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-stone-600">Coming soon</span>
+                  <span className="rounded-full border border-emerald-700/20 bg-emerald-50/75 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-emerald-800">Public</span>
                 </div>
-                <span className="mt-3 block font-playfair text-[24px] font-medium tracking-tight">Scan from a GitHub URL</span>
-                <span id="github-coming-soon" className="mt-2 block text-[14px] leading-6 text-stone-600">Connect a repository without selecting a local folder. This option is disabled until GitHub import is implemented.</span>
-                <div role="textbox" aria-disabled="true" className="mt-5 rounded-xl border border-stone-300 bg-white/55 px-3 py-3 font-mono text-[11px] text-stone-400">
-                  https://github.com/your-org/your-repo
-                </div>
-                <span className="mt-3 block text-[11px] text-stone-500">Repository processing will use the configured scan service.</span>
+                <span className="mt-3 block font-sans text-[24px] font-medium tracking-tight">Scan from a GitHub URL</span>
+                <span className="mt-2 block text-[14px] leading-6 text-stone-600">Paste a public repo URL — the prioritized AI-relevant files are read from GitHub and scanned, no folder needed.</span>
+                <form
+                  onSubmit={(event) => { event.preventDefault(); if (!loading) scanGithub(); }}
+                  className="mt-5"
+                >
+                  <input
+                    type="text"
+                    value={githubUrl}
+                    onChange={(event) => setGithubUrl(event.target.value)}
+                    placeholder="https://github.com/org/repo"
+                    spellCheck={false}
+                    className="block w-full rounded-xl border border-stone-300 bg-white px-3 py-3 font-mono text-[12px] text-stone-900 outline-none focus:ring-2 focus:ring-stone-800"
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading || !githubUrl.trim()}
+                    className="mt-3 inline-flex items-center font-mono text-[12px] font-medium text-stone-900 hover:underline disabled:opacity-50"
+                  >
+                    {loading ? "Reading from GitHub…" : "Scan from GitHub →"}
+                  </button>
+                </form>
+                <span className="mt-3 block text-[11px] text-stone-500">Public repos only for now · private repos (token) coming next.</span>
               </div>
             </section>
 
@@ -522,6 +963,16 @@ export function RepositoryExplorer() {
 
         {report && view && (
           <div className="space-y-12">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="min-w-0 truncate font-mono text-[11px] text-stone-500">{report.repository?.name || "Repository report"}</p>
+              <button
+                type="button"
+                onClick={startOver}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-stone-300 bg-white/70 px-3 py-1.5 font-mono text-[11px] font-medium text-stone-700 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900"
+              >
+                ↺ Start over (new scan)
+              </button>
+            </div>
             <nav className="sticky top-16 z-10 -mx-2 overflow-x-auto border-y border-stone-900/10 bg-[#f7f5f1]/82 px-2 py-2 backdrop-blur-xl" aria-label="Repository report sections">
               <div className="flex min-w-max gap-2">
                 {[
@@ -554,22 +1005,26 @@ export function RepositoryExplorer() {
                 <div className="flex flex-wrap gap-3">
                   <div className="rounded-xl border border-stone-900/10 bg-white/60 px-4 py-3">
                     <span className="block font-mono text-[9px] uppercase tracking-[0.14em] text-stone-400">Overall risk</span>
-                    <span className="mt-1 block font-playfair text-[23px] font-semibold capitalize">{view.overallRisk === "none" ? "None found" : view.overallRisk}</span>
+                    <span className="mt-1 block font-sans text-[23px] font-semibold capitalize">{view.overallRisk === "none" ? "None found" : view.overallRisk}</span>
                   </div>
                   <div className="rounded-xl border border-stone-900/10 bg-white/60 px-4 py-3">
                     <span className="block font-mono text-[9px] uppercase tracking-[0.14em] text-stone-400">Trust status</span>
-                    <span className="mt-1 block font-playfair text-[21px] font-semibold">{view.trustStatus}</span>
+                    <span className="mt-1 block font-sans text-[21px] font-semibold">{view.trustStatus}</span>
                   </div>
                 </div>
 
-                <h1 id="repository-verdict" className="mt-6 max-w-3xl font-playfair text-[29px] font-medium leading-[1.12] tracking-[-0.025em] sm:text-[39px]">
+                <h1 id="repository-verdict" className="mt-6 max-w-3xl font-sans text-[29px] font-medium leading-[1.12] tracking-[-0.025em] sm:text-[39px]">
                   {path
                     ? `A ${path.risk}-risk path ${pathVerb} reach ${actionLabel(path.action)}.`
-                    : "No production-relevant sensitive-action paths were found."}
+                    : productionFindingCount > 0
+                      ? `${productionFindingCount.toLocaleString()} production finding${productionFindingCount === 1 ? "" : "s"} need review.`
+                      : rawFindingCount > 0
+                        ? "No production issues found; filtered findings are listed below."
+                        : "No production-relevant sensitive-action paths or findings were found."}
                 </h1>
                 <p className="mt-3 max-w-3xl text-[14px] leading-6 text-stone-600">
                   {path?.explanation || (
-                    `PromptSonar scanned ${view.productionArtifactCount.toLocaleString()} production-relevant AI artifact${view.productionArtifactCount === 1 ? "" : "s"}. ${view.nonProduction.total.toLocaleString()} non-production suggestion${view.nonProduction.total === 1 ? "" : "s"} are available. This result is limited to the artifacts and relationships PromptSonar scanned; it is not a universal safety guarantee.`
+                    `PromptSonar scanned ${view.productionArtifactCount.toLocaleString()} production-relevant AI artifact${view.productionArtifactCount === 1 ? "" : "s"}. ${productionFindingCount.toLocaleString()} production finding${productionFindingCount === 1 ? "" : "s"} and ${view.nonProduction.total.toLocaleString()} non-production suggestion${view.nonProduction.total === 1 ? "" : "s"} are available. This result is limited to the artifacts and relationships PromptSonar scanned; it is not a universal safety guarantee.`
                   )}
                 </p>
 
@@ -585,7 +1040,7 @@ export function RepositoryExplorer() {
                   <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-stone-400">Production findings by evidence</span>
                   {(["confirmed", "probable", "potential"] as RepositoryPathConfidence[]).map((confidence) => (
                     <div key={confidence} className="flex items-baseline gap-2 rounded-xl border border-stone-900/10 bg-white/55 px-3 py-2">
-                      <span className="font-playfair text-[20px] font-semibold">{view.findingConfidence[confidence]}</span>
+                      <span className="font-sans text-[20px] font-semibold">{view.findingConfidence[confidence]}</span>
                       <span className="font-mono text-[10px] capitalize text-stone-500">{confidence}</span>
                     </div>
                   ))}
@@ -604,34 +1059,107 @@ export function RepositoryExplorer() {
                       Skipped: {Object.entries(view.coverage.skipReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}
                     </p>
                   )}
+                  <details className="mt-4 rounded-xl border border-stone-900/10 bg-white/50 px-4 py-3">
+                    <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-stone-500">Scan diagnostics</summary>
+                    <div className="mt-3 grid gap-2 font-mono text-[11px] text-stone-600 sm:grid-cols-2 lg:grid-cols-4">
+                      {scanMeta?.sourceKind && <span>source: <b className="text-stone-900">{scanMeta.sourceKind}</b></span>}
+                      {typeof scanMeta?.sourceTotalFiles === "number" && <span>source files: <b className="text-stone-900">{scanMeta.sourceTotalFiles}</b></span>}
+                      {typeof scanMeta?.sourceEligibleFiles === "number" && <span>eligible files: <b className="text-stone-900">{scanMeta.sourceEligibleFiles}</b></span>}
+                      {typeof scanMeta?.sourceQueuedFiles === "number" && <span>bounded selection: <b className="text-stone-900">{scanMeta.sourceQueuedFiles}</b></span>}
+                      <span>files received: <b className="text-stone-900">{scanMeta?.filesReceived ?? view.coverage.filesConsidered}</b></span>
+                      <span>files scanned: <b className="text-stone-900">{view.coverage.filesScanned}</b></span>
+                      <span>engine findings: <b className="text-stone-900">{scanMeta?.findingsCount ?? rawFindingCount}</b></span>
+                      <span>grouped findings: <b className="text-stone-900">{groupedFindingCount}</b></span>
+                      <span>production findings: <b className="text-stone-900">{productionFindingCount}</b></span>
+                      <span>reachable paths: <b className="text-stone-900">{view.totalPathCount}</b></span>
+                      <span>hidden findings: <b className="text-stone-900">{hiddenFindingCount}</b></span>
+                      <span>remediation hidden: <b className="text-stone-900">{view.remediationCount.hidden}</b></span>
+                      <span>non-production: <b className="text-stone-900">{view.nonProduction.total}</b></span>
+                      {completeness && <span>coverage: <b className="text-stone-900">{completenessLabel(completeness.coverageStatus)}</b></span>}
+                      {completeness && <span>verdict scope: <b className="text-stone-900">{completenessLabel(completeness.verdictScope)}</b></span>}
+                      {completeness && <span>closure selected: <b className="text-stone-900">{completeness.files.selected}</b></span>}
+                      {completeness && <span>closure analyzed: <b className="text-stone-900">{completeness.files.analyzed}</b></span>}
+                      {completeness && <span>references resolved: <b className="text-stone-900">{completeness.references.resolved}</b></span>}
+                      {completeness && <span>unresolved controls: <b className="text-stone-900">{completeness.capabilities.unresolved}</b></span>}
+                    </div>
+                    {completeness && (
+                      <p className="mt-3 text-[11px] text-stone-500">
+                        Completeness: {completeness.coverageReason}
+                      </p>
+                    )}
+                    {completeness && completeness.unresolvedContext.length > 0 && (
+                      <p className="mt-3 text-[11px] text-amber-800">
+                        Unresolved context: {completeness.unresolvedContext.map((item) => `${item.capability} (${item.missingFilesOrControls.slice(0, 3).join(", ")})`).join(" · ")}
+                      </p>
+                    )}
+                    {((scanMeta?.sourceExcludedByFileLimit || 0) > 0 || (scanMeta?.sourceExcludedByPayloadLimit || 0) > 0) && (
+                      <p className="mt-3 text-[11px] text-stone-500">
+                        Hosted bounded scan excluded {(scanMeta?.sourceExcludedByFileLimit || 0).toLocaleString()} eligible file{(scanMeta?.sourceExcludedByFileLimit || 0) === 1 ? "" : "s"} by file limit
+                        {(scanMeta?.sourceExcludedByPayloadLimit || 0) > 0 ? ` and ${(scanMeta?.sourceExcludedByPayloadLimit || 0).toLocaleString()} by payload limit` : ""}. Use the CLI for the complete repository.
+                      </p>
+                    )}
+                    {Object.keys(hiddenReasons).length > 0 && (
+                      <p className="mt-3 text-[11px] text-stone-500">
+                        Hidden/non-production reasons: {Object.entries(hiddenReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}
+                      </p>
+                    )}
+                  </details>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                {sectionLabel("Execution flow — sources to sensitive actions")}
+                <div className="mt-3">
+                  <ExecutionFlowGraph paths={view.paths} scanId={report.id} />
                 </div>
               </div>
             </section>
 
+            {view.businessImpact.length > 0 && (
+              <section aria-labelledby="business-impact">
+                {sectionLabel("What this means for the business")}
+                <h2 id="business-impact" className="sr-only">Business impact</h2>
+                <div className="mt-3">
+                  <BusinessImpact items={view.businessImpact} />
+                </div>
+              </section>
+            )}
+
             {view.nextAction && (
               <section aria-labelledby="next-action">
                 {sectionLabel("02 · Your next action")}
-                <div className="relative mt-3 flex flex-col gap-6 overflow-hidden rounded-2xl border border-amber-600/30 bg-[linear-gradient(180deg,rgba(255,249,230,0.88),rgba(255,255,255,0.7))] p-6 shadow-[0_18px_55px_-40px_rgba(28,25,23,0.8)] sm:flex-row sm:items-center sm:justify-between sm:p-7">
+                <div className="relative mt-3 overflow-hidden rounded-2xl border border-amber-600/30 bg-[linear-gradient(180deg,rgba(255,249,230,0.88),rgba(255,255,255,0.7))] p-6 shadow-[0_18px_55px_-40px_rgba(28,25,23,0.8)] sm:p-7">
                   <span className="absolute inset-y-0 left-0 w-1 bg-amber-600" />
-                  <div>
-                    <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Fix first</p>
-                    <h2 id="next-action" className="mt-2 font-playfair text-[25px] font-medium tracking-tight">
-                      <span className="font-mono text-[17px]">{view.nextAction.file}</span>
-                    </h2>
-                    <p className="mt-2 text-[13px] leading-6 text-stone-600"><b className="text-stone-900">Reason:</b> {view.nextAction.reason}</p>
-                    <p className="mt-1 text-[13px] leading-6 text-stone-600"><b className="text-stone-900">Expected effect:</b> Apply the report&apos;s recommended constraint, then re-scan to verify the updated graph.</p>
-                    <p className="mt-3 font-mono text-[11px] text-stone-500">Effort · {view.nextAction.effort}</p>
+                  <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700">Fix first</p>
+                      <h2 id="next-action" className="mt-2 font-sans text-[25px] font-medium tracking-tight">
+                        <span className="font-mono text-[17px]">{view.nextAction.file}</span>
+                      </h2>
+                      <p className="mt-2 text-[13px] leading-6 text-stone-600"><b className="text-stone-900">Reason:</b> {view.nextAction.reason}</p>
+                      <p className="mt-1 text-[13px] leading-6 text-stone-600"><b className="text-stone-900">Expected effect:</b> Apply the report&apos;s recommended constraint, then re-scan to verify the updated graph.</p>
+                      <p className="mt-3 font-mono text-[11px] text-stone-500">Effort · {view.nextAction.effort}</p>
+                    </div>
+                    <a
+                      href={microscopeHref(report, {
+                        artifact: view.files.find((file) => file.path === view.nextAction?.file)?.artifactId,
+                        file: view.nextAction.file,
+                        issue: view.nextAction.issueId,
+                      })}
+                      className="shrink-0 rounded-xl bg-stone-900 px-5 py-3 text-center text-[13px] font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
+                    >
+                      Inspect this file
+                    </a>
                   </div>
-                  <a
-                    href={microscopeHref(report, {
-                      artifact: view.files.find((file) => file.path === view.nextAction?.file)?.artifactId,
-                      file: view.nextAction.file,
-                      issue: view.nextAction.issueId,
-                    })}
-                    className="shrink-0 rounded-xl bg-stone-900 px-5 py-3 text-center text-[13px] font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
-                  >
-                    Inspect this file
-                  </a>
+                  {view.nextAction.before && view.nextAction.after && (
+                    <CodeDiff
+                      className="mt-5"
+                      before={view.nextAction.before}
+                      after={view.nextAction.after}
+                      beforeLabel="Before — current code"
+                      afterLabel="After — safe pattern"
+                    />
+                  )}
                 </div>
               </section>
             )}
@@ -668,7 +1196,7 @@ export function RepositoryExplorer() {
                   </div>
                   <div>
                     {sectionLabel("What this means")}
-                    <h3 className="mt-3 font-playfair text-[24px] font-medium leading-tight tracking-tight">{path.explanation}</h3>
+                    <h3 className="mt-3 font-sans text-[24px] font-medium leading-tight tracking-tight">{path.explanation}</h3>
                     {view.selectedPathImpacts.length > 0 && (
                       <div className="mt-5 grid gap-3 sm:grid-cols-2">
                         {view.selectedPathImpacts.map((impact) => (
@@ -800,25 +1328,65 @@ export function RepositoryExplorer() {
                     : `${view.remediationCount.total} production finding${view.remediationCount.total === 1 ? "" : "s"}`
                 }
               >
-                {view.remediation.length > 0 ? (
-                  <ol className="space-y-3">
-                    {view.remediation.map((item, index) => (
-                      <li key={item.id} className="grid gap-4 rounded-2xl border border-white/75 bg-white/65 p-5 backdrop-blur-xl sm:grid-cols-[38px_1fr_auto] sm:items-center">
-                        <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-stone-900 font-mono text-[12px] text-white">{index + 1}</span>
-                        <div>
-                          <p className="text-[15px] font-semibold text-stone-900">{item.title}</p>
-                          <p className="mt-1 text-[13px] leading-6 text-stone-600">{item.description}</p>
-                          {item.safePattern && <code className="mt-2 block max-w-full overflow-x-auto rounded-lg bg-stone-900/5 px-3 py-2 font-mono text-[12px] leading-5 text-stone-700">{item.safePattern}</code>}
-                          <p className="mt-2 break-all font-mono text-[11px] text-stone-500">{item.files.join(" · ")}</p>
-                          <p className="mt-1 font-mono text-[10px] text-stone-400">Rule · {item.ruleId}</p>
-                        </div>
-                        <span className="rounded-lg border border-stone-300 bg-white/65 px-3 py-2 font-mono text-[11px] text-stone-600">Effort · {item.effort}</span>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <p className="text-[13px] text-stone-500">No production remediation items were included in this report.</p>
-                )}
+                <WhatWhy
+                  what="A to-do list of everything worth fixing, sorted most-important first. Each item says what's wrong, which file it's in, and shows the risky code next to a safer version."
+                  why="Start at the top and work down — the first item removes the most risk for the least effort."
+                />
+                {(() => {
+                  const laneCounts: Record<FindingLane, number> = { security: 0, reliability: 0, quality: 0 };
+                  for (const item of view.remediation) laneCounts[findingLane(item.ruleId, item.title)] += 1;
+                  const visible = view.remediation.filter((item) => remediationLanes.has(findingLane(item.ruleId, item.title)));
+                  return (
+                    <>
+                      <div className="mb-4 flex flex-wrap items-center gap-2">
+                        {(["security", "reliability", "quality"] as FindingLane[]).map((lane) => {
+                          const on = remediationLanes.has(lane);
+                          return (
+                            <button
+                              key={lane}
+                              type="button"
+                              aria-pressed={on}
+                              onClick={() => toggleRemediationLane(lane)}
+                              className={`rounded-full border px-3 py-1.5 font-mono text-[11px] font-medium transition ${on ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 bg-white text-stone-500 hover:bg-stone-50"}`}
+                            >
+                              {LANE_LABEL[lane]} · {laneCounts[lane]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {visible.length > 0 ? (
+                        <ol className="space-y-3">
+                          {visible.map((item, index) => (
+                            <li key={item.id} className="grid gap-4 rounded-2xl border border-white/75 bg-white/65 p-5 backdrop-blur-xl sm:grid-cols-[38px_1fr_auto] sm:items-start">
+                              <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-stone-900 font-mono text-[12px] text-white">{index + 1}</span>
+                              <div>
+                                <span className="mb-1 inline-block rounded-full border border-stone-300 bg-white/70 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-stone-600">{LANE_LABEL[findingLane(item.ruleId, item.title)]}</span>
+                                <p className="text-[15px] font-semibold text-stone-900">{item.title}</p>
+                                <p className="mt-1 text-[13px] leading-6 text-stone-600">{item.description}</p>
+                                {item.currentPattern && item.safePattern ? (
+                                  <CodeDiff
+                                    className="mt-3"
+                                    before={item.currentPattern}
+                                    after={item.safePattern}
+                                    beforeLabel="Before — current code"
+                                    afterLabel="After — safe pattern"
+                                  />
+                                ) : item.safePattern ? (
+                                  <code className="mt-2 block max-w-full overflow-x-auto rounded-lg bg-stone-900/5 px-3 py-2 font-mono text-[12px] leading-5 text-stone-700">{item.safePattern}</code>
+                                ) : null}
+                                <p className="mt-2 break-all font-mono text-[11px] text-stone-500">{item.files.join(" · ")}</p>
+                                <p className="mt-1 font-mono text-[10px] text-stone-400">Rule · {item.ruleId}</p>
+                              </div>
+                              <span className="rounded-lg border border-stone-300 bg-white/65 px-3 py-2 font-mono text-[11px] text-stone-600">Effort · {item.effort}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="text-[13px] text-stone-500">{view.remediation.length > 0 ? "No remediation items in the selected categories." : "No production remediation items were included in this report."}</p>
+                      )}
+                    </>
+                  );
+                })()}
               </Disclosure>
             </section>
 
@@ -832,6 +1400,10 @@ export function RepositoryExplorer() {
                     : `${view.pathCount.total} canonical path${view.pathCount.total === 1 ? "" : "s"}`
                 }
               >
+                <WhatWhy
+                  what="A step-by-step trail showing how an instruction in a file could actually end up doing something risky — like running a command, reading your files, or reaching the internet. You can filter the list to focus on what matters."
+                  why="It proves a problem is real and can actually happen, not just scary-looking text — and lets you click straight to the file where the trail starts."
+                />
                 {path && (
                   <div className="flex flex-wrap items-center gap-2 rounded-xl border border-stone-900/10 bg-white/55 p-4">
                     {path.nodes.map((node, index) => (
@@ -909,12 +1481,16 @@ export function RepositoryExplorer() {
                 title="Show architecture overview"
                 description="Clustered categories, not a fabricated full graph"
               >
+                <WhatWhy
+                  what="A simple map of your AI setup in four groups: where instructions come from, what coordinates them, the tools they can use, and the risky things those tools can do — with a count for each group."
+                  why="A quick bird's-eye view of what you have and how much of it can take action, before you dig into the details."
+                />
                 <div className="grid gap-3">
                   {view.architecture.map((cluster, index) => (
                     <div key={cluster.id}>
                       {index > 0 && <div className="mx-auto h-5 w-px bg-stone-300" aria-hidden="true" />}
                       <details className={`rounded-xl border p-4 ${cluster.id === "sensitiveActions" ? "border-red-300 bg-red-50/55" : "border-stone-300 bg-white/55"}`}>
-                        <summary className="cursor-pointer list-none font-playfair text-[18px] font-medium">
+                        <summary className="cursor-pointer list-none font-sans text-[18px] font-medium">
                           {cluster.id === "instructionSources" ? "Instruction sources" : cluster.id === "orchestration" ? "Agent orchestration" : cluster.id === "toolLayer" ? "Tool layer" : "Sensitive actions"}
                           <span className="ml-3 font-mono text-[11px] font-normal text-stone-500">{cluster.count} node{cluster.count === 1 ? "" : "s"}</span>
                         </summary>
@@ -932,6 +1508,10 @@ export function RepositoryExplorer() {
                 title="Evidence"
                 description={`${view.evidenceCount.visible} renderable evidence item${view.evidenceCount.visible === 1 ? "" : "s"} from ${view.evidenceCount.total} canonical evidence record${view.evidenceCount.total === 1 ? "" : "s"}`}
               >
+                <WhatWhy
+                  what="The receipts. For every problem we flag, this shows the exact file and line, and the actual piece of text that triggered it."
+                  why="You can open that line in your editor and see it for yourself, or send it to a teammate. We never claim a problem without showing you where it is."
+                />
                 {view.evidence.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[720px] border-collapse text-left">
@@ -976,12 +1556,16 @@ export function RepositoryExplorer() {
                 title="Non-production findings"
                 description={`${view.nonProduction.total} finding${view.nonProduction.total === 1 ? "" : "s"} · excluded from the main verdict unless connected to production execution`}
               >
+                <WhatWhy
+                  what="Problems we found in files that aren't part of your live product — things like documentation, tests, and examples."
+                  why="We list them so nothing is hidden, but we don't count them against your safety score — a scary-looking test file shouldn't make your real product look unsafe. If one is actually used by the live product, it still shows up in the trail above."
+                />
                 {view.nonProduction.total > 0 ? (
                   <div>
                     <div className="divide-y divide-stone-900/10">
                       {Object.entries(view.nonProduction.byProvenance).map(([provenance, count]) => (
                         <div key={provenance} className="flex items-center gap-5 py-4">
-                          <span className="w-14 font-playfair text-[24px] font-semibold text-stone-500">{count}</span>
+                          <span className="w-14 font-sans text-[24px] font-semibold text-stone-500">{count}</span>
                           <div>
                             <p className="text-[14px] font-medium capitalize">{provenance} findings</p>
                             <p className="mt-1 text-[12px] text-stone-500">Visible for completeness; not counted in the production trust verdict by provenance alone.</p>
@@ -997,13 +1581,19 @@ export function RepositoryExplorer() {
               <Disclosure
                 id="exports"
                 title="Exports"
-                description="Only formats implemented by the canonical repository report"
+                description="SARIF, HTML and JSON come from the canonical report; Markdown and the GitHub comment are generated from it client-side"
               >
+                <WhatWhy
+                  what="Download the results in different formats so other tools can read them — a security-dashboard format (SARIF), a shareable web page (HTML), raw data for scripts (JSON), or a ready-to-paste comment for a pull request."
+                  why="Drop these into the tools you already use — like your build pipeline or a code review — without running the scan again."
+                />
                 <div className="flex flex-wrap gap-3">
                   {report.exports?.json && <button type="button" onClick={() => exportReport("json")} className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-[12px] font-semibold hover:bg-stone-50">Download JSON</button>}
                   {report.exports?.sarif && <button type="button" onClick={() => exportReport("sarif")} className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-[12px] font-semibold hover:bg-stone-50">Download SARIF</button>}
                   {report.exports?.html && <button type="button" onClick={() => exportReport("html")} className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-[12px] font-semibold hover:bg-stone-50">Download HTML</button>}
                   {report.exports?.mapJson && <button type="button" onClick={() => exportReport("mapJson")} className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-[12px] font-semibold hover:bg-stone-50">Execution-map JSON</button>}
+                  <button type="button" onClick={() => exportReport("markdown")} className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-[12px] font-semibold hover:bg-stone-50">Download Markdown</button>
+                  <button type="button" onClick={() => exportReport("githubComment")} className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-[12px] font-semibold hover:bg-stone-50">{copiedComment ? "Copied to clipboard" : "Copy GitHub comment"}</button>
                 </div>
               </Disclosure>
             </section>

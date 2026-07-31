@@ -43,6 +43,46 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+
+        // ── Repository Explorer v2 palette ──────────────────────────────
+        // Namespaced so it never clobbers the shadcn tokens above.
+        // NOTE: the spec's `muted` (#6f6a63) is exposed as `ink-muted`
+        // because shadcn already owns `muted`. Everything else matches spec.
+        ink: "#1c1917",
+        "ink-muted": "#6f6a63",
+        faint: "#9a948c",
+        amber: {
+          DEFAULT: "#b07d09",
+          soft: "rgba(244,221,150,0.5)",
+          line: "rgba(214,170,70,0.55)",
+          badge: "rgba(251,224,160,0.55)",
+          "badge-line": "rgba(214,160,60,0.55)",
+        },
+        crit: "#b91c1c",
+        danger: {
+          DEFAULT: "#c81e1e",
+          500: "#ef4444",
+          soft: "rgba(254,226,222,0.7)",
+          line: "rgba(238,150,140,0.7)",
+        },
+        high: "#c2410c",
+        med: "#b45309",
+        safe: {
+          DEFAULT: "#057a52",
+          soft: "rgba(209,242,226,0.65)",
+          line: "rgba(120,200,160,0.6)",
+        },
+        blue: {
+          DEFAULT: "#3b6ea5",
+          soft: "rgba(214,229,245,0.6)",
+          line: "rgba(150,185,225,0.6)",
+        },
+        neu: {
+          DEFAULT: "#475569",
+          soft: "rgba(236,239,244,0.85)",
+          line: "rgba(196,203,214,0.7)",
+        },
+        hairline: "rgba(140,130,115,0.18)",
       },
       borderRadius: {
         xl: "calc(var(--radius) + 4px)",
@@ -52,8 +92,13 @@ const config: Config = {
       },
       fontFamily: {
         playfair: ["Playfair Display", "Georgia", "serif"],
-        sans: ["Geist", "system-ui", "sans-serif"],
-        mono: ["Geist Mono", "monospace"],
+        // Repository Explorer v2 uses `font-display` for the Playfair accents.
+        display: ['"Playfair Display"', "Georgia", "serif"],
+        sans: ["Geist", "Inter", "system-ui", "sans-serif"],
+        mono: ['"Geist Mono"', '"IBM Plex Mono"', "monospace"],
+      },
+      backdropBlur: {
+        glass: "20px",
       },
       boxShadow: {
         xs: "0 1px 2px 0 rgb(0 0 0 / 0.05)",

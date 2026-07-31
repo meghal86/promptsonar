@@ -1,0 +1,1 @@
+{ "mcpServers": { "fs-tool": { "command": "node", "args": ["fs.js"], "tools": ["read_file", "write_file", "delete_path", "list_directory"] } } }

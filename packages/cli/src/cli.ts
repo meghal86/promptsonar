@@ -6,7 +6,8 @@ import * as path from 'path';
 import chalk from 'chalk';
 import { scanFiles, generateSarif, ScanResult, scoreFromFindings, loadRepositoryIgnorePatterns } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
-import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport } from '@promptsonar/core';
+import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, evaluateRepositoryWithClosure, LocalCheckoutSource, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport, computeDeterministicEdits, applyDeterministicFixes, contextualVerdictLabel, contextualVerdictToSarifLevel, severityToSarifRank, severityToSecuritySeverity, shouldIncludeIssueInSarif, normalizeMcpAuditResultsContextual, type RepositoryClosureEvaluationResult, type ScanBudget } from '@promptsonar/core';
+import * as os from 'os';
 import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
 import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
@@ -15,6 +16,10 @@ const VERSION = '1.4.3';
 
 const program = new Command();
 type CliOptions = Record<string, any>;
+type RepositoryBuildResult = {
+    report: RepositoryExecutionReport;
+    closure?: RepositoryClosureEvaluationResult;
+};
 
 function summarizeWorkspaceScore(results: ScanResult[]): { score: number; status: 'pass' | 'warn' | 'fail' } {
     if (results.length === 0) return { score: 100, status: 'pass' };
@@ -227,9 +232,22 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
             lines.push(`  ${chalk.yellow('⚠ Scan truncated at the file limit — results may be incomplete.')}`);
         }
     }
+    if (report.completeness) {
+        const c = report.completeness;
+        lines.push(`  Closure: ${c.coverageStatus} · scope ${c.verdictScope}`);
+        lines.push(`  Completeness: ${c.files.inventoried} inventoried · ${c.files.selected} selected · ${c.files.fetched} fetched · ${c.files.analyzed} analyzed · ${c.references.resolved} refs resolved`);
+        if (c.unresolvedContext.length > 0) {
+            lines.push(`  ${chalk.yellow(`${c.unresolvedContext.length} privileged capabilities missing control context`)}`);
+        }
+        lines.push(`  ${chalk.dim(c.coverageReason)}`);
+    }
     lines.push(report.pathValidation.valid
         ? `  ${chalk.green(`✓ Path validation passed (${report.pathValidation.checkedPaths} paths checked)`)}`
         : `  ${chalk.red(`✗ Path validation failed (${report.pathValidation.errors.length} errors across ${report.pathValidation.checkedPaths} paths) — see pathValidation in --json`)}`);
+    const diagnostics = (report as any).diagnostics as unknown[] | undefined;
+    if (diagnostics?.length) {
+        lines.push(`  ${chalk.yellow(`${diagnostics.length} diagnostic warning${diagnostics.length === 1 ? '' : 's'} — see diagnostics in --json`)}`);
+    }
     lines.push('');
     lines.push(chalk.bold(`2. Top Issues (${report.issueSummary.total})`));
     for (const issue of topIssues) {
@@ -238,6 +256,7 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
                 : String(issue.severity).toUpperCase();
         const context = isProduction(issue) ? '' : chalk.dim(` [${issue.provenance} · not counted toward trust]`);
         lines.push(`  ${severity}${context} · ${issue.id}`);
+        lines.push(`    Verdict: ${contextualVerdictLabel(issue.context?.verdict)}`);
         lines.push(`    Issue: ${issue.issue}`);
         lines.push(`    Impact: ${issue.impact}`);
         lines.push(`    Files: ${issue.impactedFiles.join(', ')}`);
@@ -270,6 +289,53 @@ function formatRepositoryTerminal(report: RepositoryExecutionReport): string {
     return lines.join('\n');
 }
 
+function formatSelectionExplanation(closure: RepositoryClosureEvaluationResult | undefined): string {
+    if (!closure) return '';
+    const lines: string[] = ['', chalk.bold('5. Closure Selection')];
+    const selected = closure.lifecycle.filter(file => file.status !== 'inventoried').slice(0, 50);
+    for (const file of selected) {
+        const reason = file.reason ? ` · ${file.reason}` : '';
+        lines.push(`  ${file.status.toUpperCase()} · ${file.path}${reason}`);
+    }
+    if (closure.lifecycle.length > selected.length) {
+        lines.push(`  ... ${closure.lifecycle.length - selected.length} more inventoried files in discovery report`);
+    }
+    return lines.join('\n');
+}
+
+function parsePositiveIntOption(value: unknown, fallback: number): number {
+    if (value === undefined || value === null || value === '') return fallback;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+function repositoryClosureBudget(options: CliOptions): ScanBudget {
+    return {
+        maxFiles: parsePositiveIntOption(options.maxFiles, 200),
+        maxBytes: parsePositiveIntOption(options.maxBytes, 5 * 1024 * 1024),
+        maxDurationMs: parsePositiveIntOption(options.maxDurationMs, 30_000),
+        maxReferenceDepth: parsePositiveIntOption(options.maxReferenceDepth, 2),
+        maxApiRequests: options.maxApiRequests === undefined
+            ? undefined
+            : parsePositiveIntOption(options.maxApiRequests, 200),
+    };
+}
+
+function discoveryReportPayload(closure: RepositoryClosureEvaluationResult) {
+    return {
+        completeness: closure.completeness,
+        acquisition: closure.acquisition,
+        lifecycle: closure.lifecycle,
+        analyzedFiles: closure.analyzedFiles.map(file => ({
+            path: file.path,
+            capabilitySignals: file.capabilitySignals,
+            controlSignals: file.controlSignals,
+            frameworkSignals: file.frameworkSignals,
+            references: file.references,
+        })),
+    };
+}
+
 function formatExecutionMapTerminal(report: RepositoryExecutionReport): string {
     const lines: string[] = [];
     lines.push(chalk.bold(`PromptSonar Execution Map v${VERSION}`));
@@ -297,18 +363,87 @@ function formatExecutionMapTerminal(report: RepositoryExecutionReport): string {
     return lines.join('\n');
 }
 
-async function buildRepositoryReport(targetPath: string, options: CliOptions): Promise<RepositoryExecutionReport> {
-    const results = await scanFiles(targetPath, {
-        verbose: options.verbose,
-        waiverFile: options.waiver
-    });
+async function buildRepositoryReport(targetPath: string, options: CliOptions): Promise<RepositoryBuildResult> {
     const resolvedPath = path.resolve(targetPath);
     const scanRoot = fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory()
         ? resolvedPath
         : path.dirname(resolvedPath);
-    return analyzeRepositoryExecution(targetPath, results as any, {
+
+    if (options.closure) {
+        const closure = await evaluateRepositoryWithClosure({
+            rootPath: targetPath,
+            source: new LocalCheckoutSource(scanRoot),
+            budget: repositoryClosureBudget(options),
+            mode: 'bounded',
+            profileEvidence: { signals: [] },
+        });
+        return { report: closure.report, closure };
+    }
+
+    const results = await scanFiles(targetPath, {
+        verbose: options.verbose,
+        waiverFile: options.waiver
+    });
+    const report = analyzeRepositoryExecution(targetPath, results as any, {
         ignorePatterns: loadRepositoryIgnorePatterns(scanRoot),
     });
+    return { report };
+}
+
+// Deterministic, no-AI repository fixer. For each impacted file it applies only
+// exact, structure-preserving edits, then PROVES the fix by re-running the same
+// scanner on the result and reporting the finding delta. Files that need human
+// judgement produce no edit and are left for the AI fix prompt or manual work.
+async function applyRepositoryFixes(report: RepositoryExecutionReport, targetPath: string, options: CliOptions): Promise<void> {
+    const resolved = path.resolve(targetPath);
+    const root = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() ? resolved : path.dirname(resolved);
+    console.log(chalk.blue('\n[PromptSonar] Deterministic auto-fix (no AI) — exact, structure-preserving edits, verified by re-scan.\n'));
+
+    let fixedFiles = 0;
+    let totalEdits = 0;
+    for (const impacted of report.impactedFiles) {
+        const abs = path.resolve(root, impacted.path);
+        if (!fs.existsSync(abs)) continue;
+        const content = fs.readFileSync(abs, 'utf-8');
+        const edits = computeDeterministicEdits(impacted.path, content);
+        if (edits.length === 0) continue;
+
+        const { fixed, applied, residualClear } = applyDeterministicFixes(impacted.path, content, edits);
+        if (fixed === content || applied.length === 0) continue;
+
+        // Prove it: re-scan the original vs the fixed content with the same engine.
+        const beforeScan = await scanFiles(abs, {});
+        const beforeCount = beforeScan.reduce((n, r) => n + r.findings.length, 0);
+        const tmp = path.join(os.tmpdir(), `psonar-fix-${Date.now()}-${path.basename(abs)}`);
+        fs.writeFileSync(tmp, fixed, 'utf-8');
+        const afterScan = await scanFiles(tmp, {});
+        const afterCount = afterScan.reduce((n, r) => n + r.findings.length, 0);
+        fs.rmSync(tmp, { force: true });
+
+        console.log(chalk.bold(impacted.path));
+        for (const edit of applied) {
+            console.log(`  ${chalk.green('✓')} L${edit.line} ${edit.description}`);
+            console.log(`      ${chalk.dim(edit.match.trim())} ${chalk.dim('→')} ${chalk.cyan(edit.replacement.trim())}`);
+        }
+        const verified = residualClear && afterCount <= beforeCount;
+        console.log(`  re-scan: ${beforeCount} → ${afterCount} findings  ${verified ? chalk.green('✓ verified') : chalk.yellow('⚠ review')}`);
+
+        if (options.dryRun) {
+            console.log(chalk.yellow('  [dry-run] not written\n'));
+        } else {
+            const out = abs.replace(/(\.[^.]+)$/, '.promptsonar-fixed$1');
+            fs.writeFileSync(out, fixed, 'utf-8');
+            console.log(`  ${chalk.green('written')} ${path.relative(process.cwd(), out)} ${chalk.dim('(review, then replace the original)')}\n`);
+        }
+        fixedFiles += 1;
+        totalEdits += applied.length;
+    }
+
+    if (fixedFiles === 0) {
+        console.log(chalk.dim('  No deterministic fix applies here. Remaining findings need judgement — use the AI fix prompt or edit by hand.\n'));
+    } else {
+        console.log(chalk.bold.green(`[PromptSonar] ${totalEdits} exact fix${totalEdits === 1 ? '' : 'es'} across ${fixedFiles} file${fixedFiles === 1 ? '' : 's'}${options.dryRun ? ' (dry-run)' : ''}.\n`));
+    }
 }
 
 function writeOrPrint(output: string, outputPath?: string): void {
@@ -523,16 +658,41 @@ program
     .option('--html', 'Output repository report as HTML')
     .option('--output <file>', 'Write output to a file')
     .option('--waiver <file>', 'Path to a .promptsonar.json waiver file')
+    .option('--closure', 'Use discovery-first closure scanning instead of the default repository scan')
+    .option('--explain-selection', 'Show closure file lifecycle and selection details (requires --closure)')
+    .option('--discovery-report <file>', 'Write closure discovery, acquisition, and completeness details to JSON (requires --closure)')
+    .option('--max-files <n>', 'Maximum files to select during closure scans', '200')
+    .option('--max-bytes <n>', 'Maximum bytes to fetch during closure scans', String(5 * 1024 * 1024))
+    .option('--max-duration-ms <n>', 'Maximum closure scan duration in milliseconds', '30000')
+    .option('--max-reference-depth <n>', 'Maximum closure reference depth', '2')
+    .option('--max-api-requests <n>', 'Maximum API-style requests for closure-capable adapters')
+    .option('--fix', 'Apply deterministic, structure-preserving fixes (no AI) and verify by re-scan')
+    .option('--dry-run', 'Preview deterministic fixes without writing files')
     .action(async (targetPath: string, options: CliOptions) => {
         try {
-            const report = await buildRepositoryReport(targetPath, options);
+            if ((options.explainSelection || options.discoveryReport) && !options.closure) {
+                throw new Error('--explain-selection and --discovery-report require --closure.');
+            }
+            const { report, closure } = await buildRepositoryReport(targetPath, options);
+
+            if (options.fix) {
+                await applyRepositoryFixes(report, targetPath, options);
+            }
+
+            if (options.discoveryReport) {
+                if (!closure) {
+                    throw new Error('--discovery-report requires --closure.');
+                }
+                fs.writeFileSync(path.resolve(options.discoveryReport), JSON.stringify(discoveryReportPayload(closure), null, 2), 'utf-8');
+            }
+
             const output = options.sarif
                 ? formatRepositoryReportSarif(report)
                 : options.html
                     ? formatRepositoryReportHtml(report)
                     : options.json
                         ? formatRepositoryReportJson(report)
-                        : formatRepositoryTerminal(report);
+                        : `${formatRepositoryTerminal(report)}${options.explainSelection ? formatSelectionExplanation(closure) : ''}`;
 
             writeOrPrint(output, options.output);
         } catch (err: any) {
@@ -552,9 +712,15 @@ program
     .option('--json', 'Output execution graph as JSON')
     .option('--output <file>', 'Write output to a file')
     .option('--waiver <file>', 'Path to a .promptsonar.json waiver file')
+    .option('--closure', 'Use discovery-first closure scanning instead of the default repository scan')
+    .option('--max-files <n>', 'Maximum files to select during closure scans', '200')
+    .option('--max-bytes <n>', 'Maximum bytes to fetch during closure scans', String(5 * 1024 * 1024))
+    .option('--max-duration-ms <n>', 'Maximum closure scan duration in milliseconds', '30000')
+    .option('--max-reference-depth <n>', 'Maximum closure reference depth', '2')
+    .option('--max-api-requests <n>', 'Maximum API-style requests for closure-capable adapters')
     .action(async (targetPath: string, options: CliOptions) => {
         try {
-            const report = await buildRepositoryReport(targetPath, options);
+            const { report } = await buildRepositoryReport(targetPath, options);
             const output = options.json
                 ? JSON.stringify(report.executionMap, null, 2)
                 : formatExecutionMapTerminal(report);
@@ -613,6 +779,9 @@ function formatMcpTerminal(results: McpAuditResult[]): string {
             for (const finding of result.findings) {
                 const color = finding.severity === 'critical' ? chalk.red : finding.severity === 'high' ? chalk.hex('#FF8C00') : finding.severity === 'medium' ? chalk.yellow : chalk.blue;
                 lines.push(`${color('✗')} ${color(finding.severity.toUpperCase())} · ${chalk.bold(finding.rule_id)}${finding.server ? ` · server: "${finding.server}"` : ''}`);
+                if ((finding as any).context) {
+                    lines.push(`Verdict: ${contextualVerdictLabel((finding as any).context?.verdict)}`);
+                }
                 lines.push(`${finding.message}`);
                 lines.push(`Fix: ${finding.fix}`);
                 if (finding.workflow && (finding.severity === 'high' || finding.severity === 'critical')) {
@@ -652,8 +821,9 @@ function formatMcpSarif(results: McpAuditResult[]): string {
 
     for (const result of results) {
         const serverIndex = new Map((result.servers || []).map(s => [s.server, s]));
-        for (const finding of result.findings) {
+        for (const finding of result.findings.filter(finding => shouldIncludeIssueInSarif(finding as any))) {
             const serverSummary = finding.server ? serverIndex.get(finding.server) : undefined;
+            const contextualLevel = contextualVerdictToSarifLevel((finding as any).context?.verdict, finding.severity);
             ruleMap.set(finding.rule_id, {
                 id: finding.rule_id,
                 name: finding.rule_id,
@@ -662,10 +832,17 @@ function formatMcpSarif(results: McpAuditResult[]): string {
             });
             sarifResults.push({
                 ruleId: finding.rule_id,
-                level: finding.severity === 'critical' || finding.severity === 'high' ? 'error' : finding.severity === 'medium' ? 'warning' : 'note',
+                level: contextualLevel === 'omit'
+                    ? finding.severity === 'critical' || finding.severity === 'high' ? 'error' : finding.severity === 'medium' ? 'warning' : 'note'
+                    : contextualLevel,
+                rank: severityToSarifRank(finding.severity),
                 message: { text: `${finding.message} Fix: ${finding.fix}` },
                 properties: {
                     mcp_evidence: finding.evidence,
+                    contextual_verdict: (finding as any).context?.verdict,
+                    context: (finding as any).context,
+                    'security-severity': severityToSecuritySeverity(finding.severity),
+                    securitySeverity: severityToSecuritySeverity(finding.severity),
                     mcp_confidence_contribution: finding.confidence_contribution,
                     mcp_risk_score: serverSummary?.risk_score,
                     mcp_capabilities: serverSummary?.capabilities,
@@ -752,11 +929,23 @@ program
     .option('--output <file>', 'Write audit output to a file')
     .action((targetPath: string | undefined, options: CliOptions) => {
         try {
-            const results = auditDiscoveredMcpConfigs(targetPath);
+            const results = normalizeMcpAuditResultsContextual(auditDiscoveredMcpConfigs(targetPath));
             const selectedFormat = options.sarif ? 'sarif' : options.json ? 'json' : options.format;
             if (!['terminal', 'json', 'sarif'].includes(selectedFormat)) {
                 console.error(chalk.red(`[PromptSonar] MCP audit error: unknown format "${selectedFormat}". Use terminal, json, or sarif.`));
                 process.exit(1);
+            }
+
+            // When a directory was passed (or discovery ran) and no MCP config
+            // was found, show a friendly message for the human-readable format
+            // instead of an empty report. JSON/SARIF stay machine-readable.
+            if (results.length === 0 && selectedFormat === 'terminal') {
+                const scannedDir = targetPath && fs.existsSync(path.resolve(targetPath))
+                    && fs.statSync(path.resolve(targetPath)).isDirectory();
+                console.log(chalk.yellow(scannedDir
+                    ? `[PromptSonar] No MCP config files (claude_desktop_config.json, .cursor/mcp.json, mcp.json) found under "${targetPath}".`
+                    : `[PromptSonar] No MCP config files found. Pass a path to a config file or a directory that contains one.`));
+                process.exit(0);
             }
 
             const output = selectedFormat === 'sarif'

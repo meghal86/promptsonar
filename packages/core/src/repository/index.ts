@@ -2,3 +2,8 @@ export * from './types';
 export * from './confidence';
 export * from './analyzer';
 export * from './reporters';
+export * from './fixers';
+export * from './source';
+export * from './discovery';
+export * from './contentDiscovery';
+export * from './closure';

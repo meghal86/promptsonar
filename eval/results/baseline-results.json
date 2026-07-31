@@ -1,0 +1,295 @@
+{
+  "generatedAt": "2026-06-30T17:48:38.256Z",
+  "summary": {
+    "baseline": "SkillSpector --no-llm (deterministic)",
+    "version": "2.3.7",
+    "cases": 22,
+    "comparableCases": 12,
+    "outOfScopeCases": 10,
+    "onComparable": {
+      "TP": 4,
+      "FP": 0,
+      "FN": 5,
+      "TN": 3,
+      "precision": 1,
+      "recall": 0.444,
+      "f1": 0.615
+    },
+    "timing_s": {
+      "mean": 1.3,
+      "median": 1.3,
+      "max": 1.7
+    },
+    "skillspectorWithLLM": {
+      "run": false,
+      "reason": "Requires an API key and would violate the deterministic + no-cost constraint; recorded as not-run per CONSTRAINTS.",
+      "costUSD": 0
+    }
+  },
+  "cases": [
+    {
+      "id": "case-001",
+      "name": "single prompt with direct shell reference",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 8,
+        "issues": 1,
+        "flags": true,
+        "scanMs": 1336
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-002",
+      "name": "prompt → MCP server → shell (cross-file)",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1400
+      },
+      "scope": "out_of_scope"
+    },
+    {
+      "id": "case-003",
+      "name": "prompt → tool → external API with env credentials (cross-file)",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 6,
+        "issues": 2,
+        "flags": true,
+        "scanMs": 1409
+      },
+      "scope": "out_of_scope"
+    },
+    {
+      "id": "case-004",
+      "name": "MCP config with auto_approve enabled",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 8,
+        "issues": 2,
+        "flags": true,
+        "scanMs": 1714
+      },
+      "scope": "out_of_scope"
+    },
+    {
+      "id": "case-005",
+      "name": "MCP config with auto_approve disabled",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 8,
+        "issues": 2,
+        "flags": true,
+        "scanMs": 1351
+      },
+      "scope": "out_of_scope"
+    },
+    {
+      "id": "case-006",
+      "name": "autonomous deployment agent with shell privileges",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 6,
+        "issues": 2,
+        "flags": true,
+        "scanMs": 1544
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-007",
+      "name": "zero-width unicode injection in a prompt",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 15,
+        "issues": 1,
+        "flags": true,
+        "scanMs": 1329
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-008",
+      "name": "memory config referencing sensitive data",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1279
+      },
+      "scope": "out_of_scope"
+    },
+    {
+      "id": "case-009",
+      "name": "clean prompt (true negative)",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1293
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-010",
+      "name": "clean MCP config (true negative)",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1414
+      },
+      "scope": "out_of_scope"
+    },
+    {
+      "id": "case-011",
+      "name": "SKILL.md declaring shell capability",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1273
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-012",
+      "name": "agent config (CLAUDE.md) instructing shell escalation",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1271
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-013",
+      "name": "MCP filesystem capability (reversed tool-name tokens)",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1263
+      },
+      "scope": "out_of_scope"
+    },
+    {
+      "id": "case-014",
+      "name": "MCP network capability",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1277
+      },
+      "scope": "out_of_scope"
+    },
+    {
+      "id": "case-015",
+      "name": "MCP wildcard / allow-all permissions",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1342
+      },
+      "scope": "out_of_scope"
+    },
+    {
+      "id": "case-016",
+      "name": "prompt injection (OWASP LLM01)",
+      "skillspector": {
+        "severity": "MEDIUM",
+        "score": 40,
+        "issues": 2,
+        "flags": true,
+        "scanMs": 1328
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-017",
+      "name": "base64-encoded injection payload",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1279
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-018",
+      "name": "top-level memory/ directory classification",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1266
+      },
+      "scope": "out_of_scope"
+    },
+    {
+      "id": "case-019",
+      "name": "exclusion of build/test/config noise",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1339
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-020",
+      "name": "clean CI workflow (true negative)",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1297
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-021",
+      "name": "hardcoded secret (realistic format)",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1294
+      },
+      "scope": "comparable"
+    },
+    {
+      "id": "case-022",
+      "name": "co-location restraint (true negative on linkage)",
+      "skillspector": {
+        "severity": "LOW",
+        "score": 0,
+        "issues": 0,
+        "flags": false,
+        "scanMs": 1329
+      },
+      "scope": "comparable"
+    }
+  ]
+}

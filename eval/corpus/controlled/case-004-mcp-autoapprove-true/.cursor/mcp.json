@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "shell-runner": { "command": "node", "args": ["s.js"], "auto_approve": ["run_shell"], "tools": ["run_shell", "exec_command"] },
+    "fs-tool": { "command": "node", "args": ["f.js"], "auto_approve": ["read_file", "write_file"], "tools": ["read_file", "write_file", "delete_path", "list_directory"] }
+  }
+}

@@ -94,6 +94,22 @@ function hasAny(text: string, patterns: RegExp[]): boolean {
     return patterns.some(pattern => pattern.test(text));
 }
 
+// Remove comment and docstring PROSE so a description of privileged behavior
+// ("this function does NOT execute bash", "the actual bash commands are in CI")
+// is not matched as an executable sink. Strips Python triple-quoted strings and
+// # line comments, and JS/TS block/line comments. A `//` that is part of a URL
+// scheme (`https://`) is preserved (it is not a comment). Executable code and
+// non-comment string literals are left intact, so a real `subprocess.run(...)`
+// or a fenced code example (handled separately by non-production provenance)
+// still matches.
+function stripCommentsAndDocstrings(text: string): string {
+    return text
+        .replace(/"""[\s\S]*?"""|'''[\s\S]*?'''/g, ' ')   // Python docstrings
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')                 // block / JSDoc comments
+        .replace(/(^|[ \t])\/\/(?!\/)[^\n]*/g, '$1')       // // line comments (not URL `://`)
+        .replace(/(^|[ \t])#[^\n]*/g, '$1');               // # line comments
+}
+
 function severityFor(text: string): Severity {
     const hasSink = hasAny(text, SINK_PATTERNS);
     const hasEscalation = hasAny(text, ESCALATION_PATTERNS);
@@ -126,11 +142,15 @@ export function checkWorkflowEscalation(input: RuleInput): Finding[] {
     if (isBenign) {
         return [];
     }
-    const hasCritical = hasAny(text, CRITICAL_PATTERNS);
-    const hasHigh = hasAny(text, HIGH_PATTERNS);
-    const hasSink = hasAny(text, SINK_PATTERNS);
-    const hasEscalation = hasAny(text, ESCALATION_PATTERNS);
-    const hasMcp = hasAny(text, MCP_PATTERNS);
+    // Match the risk patterns against code with comment/docstring prose removed,
+    // so a docstring that merely describes or names a privileged action does not
+    // register as a real sink/escalation/MCP-poisoning site.
+    const code = stripCommentsAndDocstrings(text);
+    const hasCritical = hasAny(code, CRITICAL_PATTERNS);
+    const hasHigh = hasAny(code, HIGH_PATTERNS);
+    const hasSink = hasAny(code, SINK_PATTERNS);
+    const hasEscalation = hasAny(code, ESCALATION_PATTERNS);
+    const hasMcp = hasAny(code, MCP_PATTERNS);
 
     if ((hasSink && hasEscalation) || (hasCritical && hasHigh)) {
         const severity = severityFor(text);

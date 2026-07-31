@@ -1,5 +1,12 @@
 import { Finding } from '../rules/types';
 import { FindingWorkflow, workflowPathSummary, analyzeRootCause } from '../workflow';
+import {
+    contextualVerdictToSarifLevel,
+    severityToSarifRank,
+    severityToSecuritySeverity,
+    shouldIncludeIssueInSarif,
+    type CanonicalIssueContext,
+} from '../contextual';
 
 // Deterministic rule_id -> human-readable threat name, used for SARIF
 // root_cause / supporting_findings provenance metadata. Exported so the CLI
@@ -29,6 +36,7 @@ type SarifFinding = Finding & {
     confidence?: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
     docs_url?: string;
     workflow?: FindingWorkflow;
+    context?: CanonicalIssueContext;
 };
 
 function getOwaspMapping(ruleId: string): string | undefined {
@@ -59,13 +67,6 @@ function getSeverityLevel(severity: string): 'error' | 'warning' | 'note' {
     if (severity === 'critical' || severity === 'high') return 'error';
     if (severity === 'medium') return 'warning';
     return 'note';
-}
-
-function getSecuritySeverity(severity: string): string {
-    if (severity === 'critical') return '9.0';
-    if (severity === 'high') return '7.0';
-    if (severity === 'medium') return '5.0';
-    return '2.0';
 }
 
 function fingerprint(finding: SarifFinding, fallbackFilePath: string): string {
@@ -107,7 +108,8 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
         ? rootCauseAnalysis.supportingFindings.map(sf => humanRuleName(sf.rule_id))
         : [];
 
-    findings.forEach(f => {
+    findings.filter(f => shouldIncludeIssueInSarif(f)).forEach(f => {
+        const contextualLevel = contextualVerdictToSarifLevel(f.context?.verdict, f.severity);
         // Map rules to the driver
         if (!rulesSet.has(f.rule_id)) {
             rulesSet.add(f.rule_id);
@@ -134,10 +136,11 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                 properties: {
                     category: f.category,
                     severity: f.severity,
-                    securitySeverity: getSecuritySeverity(f.severity),
+                    securitySeverity: severityToSecuritySeverity(f.severity),
                     owasp: f.owasp || getOwaspMapping(f.rule_id),
                     confidence: f.confidence || "HIGH",
-                    precision: (f.confidence || "HIGH").toLowerCase().replace('_', '-')
+                    precision: (f.confidence || "HIGH").toLowerCase().replace('_', '-'),
+                    contextual_verdict: f.context?.verdict,
                 }
             });
         }
@@ -148,7 +151,8 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
 
         sarifOutput.runs[0].results.push({
             ruleId: f.rule_id,
-            level: getSeverityLevel(f.severity),
+            level: contextualLevel === 'omit' ? getSeverityLevel(f.severity) : contextualLevel,
+            rank: severityToSarifRank(f.severity),
             message: {
                 text: `${f.explanation} Recommendation: ${recommendation}`
             },
@@ -157,6 +161,10 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                 confidence: f.confidence || "HIGH",
                 recommendation,
                 evidence: f.evidence,
+                contextual_verdict: f.context?.verdict,
+                context: f.context,
+                'security-severity': severityToSecuritySeverity(f.severity),
+                securitySeverity: severityToSecuritySeverity(f.severity),
                 // Feature 5: deterministic provenance metadata (backward compatible —
                 // existing consumers ignore unknown property-bag keys).
                 confidence_score: f.workflow?.confidence_score,

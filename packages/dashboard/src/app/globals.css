@@ -97,3 +97,38 @@
   .ps-critical-node { animation: none; }
   .ps-skeleton      { animation: none; }
 }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Repository Explorer v2
+   Scoped utilities + page background. The background lives on a wrapper
+   class (`.repo-explorer-bg`) rather than `body`, so it never leaks into
+   the other dashboard routes.
+   ────────────────────────────────────────────────────────────────────── */
+
+/* Glass utility — use as className="glass" */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  -webkit-backdrop-filter: blur(20px) saturate(118%);
+  backdrop-filter: blur(20px) saturate(118%);
+  box-shadow:
+    0 10px 42px -12px rgba(28, 25, 23, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.glass-sm {
+  box-shadow:
+    0 6px 22px -12px rgba(28, 25, 23, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+/* Page background for the Repository Explorer shell. */
+.repo-explorer-bg {
+  background:
+    radial-gradient(680px 540px at 14% 2%, rgba(120, 178, 214, 0.28), transparent 60%),
+    radial-gradient(740px 600px at 96% 0%, rgba(235, 180, 70, 0.24), transparent 62%),
+    radial-gradient(800px 680px at 86% 99%, rgba(120, 170, 118, 0.22), transparent 60%),
+    linear-gradient(180deg, #eef0ec, #f3f1ec);
+  background-attachment: fixed;
+  color: #1c1917;
+}

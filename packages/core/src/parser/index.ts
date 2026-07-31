@@ -9,7 +9,7 @@ export * from './types';
 
 const FULL_FILE_EXTENSIONS = ['.prompt', '.ai', '.chat'];
 const CONFIG_FILE_EXTENSIONS = ['.json', '.yml', '.yaml'];
-const MARKDOWN_INSTRUCTION_FILES = new Set(['skill.md', 'skills.md', 'agent.md', 'agents.md']);
+const MARKDOWN_INSTRUCTION_FILES = new Set(['skill.md', 'skills.md', 'agent.md', 'agents.md', 'claude.md', 'prompt.md']);
 
 // Module-level cache for WASM languages
 const LANGUAGE_CACHE: Record<string, any> = {};
@@ -178,6 +178,25 @@ function containsPromptKeyword(text: string): boolean {
     return false;
 }
 
+// True when the string node is a docstring — a bare string expression that is
+// the FIRST statement of a module, class, or function body (Python; also covers
+// a leading bare-string expression in JS/TS). Such strings are documentation,
+// not prompts/instructions, so they must not be scanned as AI instruction text.
+// An assigned prompt string (SYSTEM_PROMPT = """…""") is NOT a docstring: its
+// parent is an assignment, not a bare expression_statement.
+function isDocstringNode(node: any): boolean {
+    try {
+        const stmt = node.parent;
+        if (!stmt || stmt.type !== 'expression_statement') return false;
+        const body = stmt.parent;
+        if (!body || (body.type !== 'module' && body.type !== 'block' && body.type !== 'program' && body.type !== 'statement_block')) return false;
+        const first = body.firstNamedChild;
+        return Boolean(first) && first.startIndex === stmt.startIndex && first.endIndex === stmt.endIndex;
+    } catch {
+        return false;
+    }
+}
+
 // Strip a string literal down to its body: remove Python/JS string prefixes
 // (f, r, b, u, rb, fr, ...) and the surrounding quotes so f-string and raw
 // string bodies are scanned like any other prompt text.
@@ -202,6 +221,30 @@ function isWorkflowRelevantInstructionFile(filePath: string): boolean {
         /(^|\/)(prompts|agents|ai|rag)\//.test(normalized) ||
         /(^|\/)[^/]+\.prompt\.[^/]+$/.test(normalized)
     );
+}
+
+function isGithubWorkflowYaml(filePath: string, ext: string): boolean {
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    return (ext === '.yml' || ext === '.yaml') && (
+        normalized.startsWith('.github/workflows/') ||
+        normalized.includes('/.github/workflows/')
+    );
+}
+
+function promptConfigFieldMatch(line: string): RegExpMatchArray | null {
+    return line.match(/^\s*(?:-\s*)?(system|user|messages|prompt|instruction|instructions)\s*:\s*(.*)$/i);
+}
+
+function indentationOf(line: string): number {
+    return line.match(/^\s*/)?.[0].length ?? 0;
+}
+
+function unquoteConfigValue(value: string): string {
+    const trimmed = value.trim();
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+        return trimmed.slice(1, -1);
+    }
+    return trimmed;
 }
 
 function isExecutablePermissionEntry(text: string): boolean {
@@ -229,7 +272,14 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
         }];
     }
 
-    if (ext === '.md' && MARKDOWN_INSTRUCTION_FILES.has(baseName) && containsPromptKeyword(content)) {
+    // A file literally named CLAUDE.md / AGENTS.md / SKILL.md / AGENT.md /
+    // PROMPT.md is agent instructions by definition, so its whole content is
+    // analyzed unconditionally — exactly like a .prompt file. The
+    // containsPromptKeyword gate is intentionally NOT applied here: it is
+    // injection-centric and would drop instruction files whose risk is
+    // capability invocation (e.g. "call shell_exec") rather than jailbreak
+    // phrasing, producing silent false negatives on dangerous agent configs.
+    if (ext === '.md' && MARKDOWN_INSTRUCTION_FILES.has(baseName)) {
         return [{
             filePath,
             startLine: 1,
@@ -253,9 +303,38 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
     if (CONFIG_FILE_EXTENSIONS.includes(ext) || filePath.includes('.github/workflows')) {
         // Simple regex for configs containing prompt keywords or fields
         const lines = content.split('\n');
-        let inBlock = false;
+        const isWorkflowYaml = isGithubWorkflowYaml(filePath, ext);
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const promptField = promptConfigFieldMatch(line);
+            if (!promptField) continue;
+
+            const value = promptField[2].trim();
+            const startLine = i + 1;
+            if (value === '|' || value === '>') {
+                const baseIndent = indentationOf(line);
+                const blockLines: string[] = [];
+                let endLine = startLine;
+                for (let j = i + 1; j < lines.length; j++) {
+                    if (lines[j].trim() && indentationOf(lines[j]) <= baseIndent) break;
+                    blockLines.push(lines[j]);
+                    endLine = j + 1;
+                }
+                const text = blockLines.join('\n').trim();
+                if (containsPromptKeyword(text)) {
+                    results.push({ filePath, startLine, endLine, text, sourceType: "config_file" });
+                }
+            } else {
+                const text = unquoteConfigValue(value);
+                if (containsPromptKeyword(text)) {
+                    results.push({ filePath, startLine, endLine: startLine, text, sourceType: "config_file" });
+                }
+            }
+        }
+
         // Restrict line-by-line heuristic to non-package.json config files to avoid "description" false positives
-        if (!filePath.endsWith('package.json') && !filePath.endsWith('package-lock.json')) {
+        if (!isWorkflowYaml && !filePath.endsWith('package.json') && !filePath.endsWith('package-lock.json')) {
             const lines = content.split('\n');
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
@@ -332,6 +411,11 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
                         };
 
                         if (capture.name.includes("prompt.string") && containsPromptKeyword(capture.node.text)) {
+                            // A docstring (a bare string that is the first statement of a
+                            // module/class/function body) is API documentation, not an
+                            // instruction — do not extract it as a prompt, so security rules
+                            // don't fire on prose like "…Args: api_key…" or "the bash tool".
+                            if (isDocstringNode(capture.node)) continue;
                             results.push({ ...nodeInfo, text: stripStringLiteral(capture.node.text), sourceType: "string_literal" });
                         } else if (capture.name.includes("prompt.named_string")) {
                             // A string explicitly assigned to a prompt variable
@@ -354,7 +438,7 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
 
     // Fallback: regex for triple-quoted strings + keyword search
     if (results.length === 0 && !tsLangName) {
-        const tripleQuoteRegex = /("""|'''|`)([\s\S]*?)\1/g;
+        const tripleQuoteRegex = /("""|'''|```|`)([\s\S]*?)\1/g;
         let match;
         while ((match = tripleQuoteRegex.exec(content)) !== null) {
             const matchText = match[2];

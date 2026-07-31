@@ -1,11 +1,24 @@
 import type { RepositoryExecutionReport, RepositoryRisk } from './types';
+import {
+    contextualVerdictToSarifLevel,
+    contextualVerdictLabel,
+    contextualVerdictSummary,
+    severityToSarifRank,
+    severityToSecuritySeverity,
+    shouldIncludeIssueInSarif,
+    type ContextualSarifOptions,
+} from '../contextual';
 
 function escapeHtml(value: unknown): string {
     return String(value ?? '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;');
+}
+
+function issueContextLabel(issue: RepositoryExecutionReport['issues'][number]): string {
+    return contextualVerdictLabel(issue.context?.verdict);
 }
 
 function sarifLevel(risk: RepositoryRisk): 'error' | 'warning' | 'note' {
@@ -18,10 +31,12 @@ export function formatRepositoryReportJson(report: RepositoryExecutionReport): s
     return JSON.stringify(report, null, 2);
 }
 
-export function formatRepositoryReportSarif(report: RepositoryExecutionReport): string {
+export function formatRepositoryReportSarif(report: RepositoryExecutionReport, options: ContextualSarifOptions = {}): string {
     const rules = new Map<string, any>();
-    const results = report.issues.map(issue => {
+    const includedIssues = report.issues.filter(issue => shouldIncludeIssueInSarif(issue, options));
+    const results = includedIssues.map(issue => {
         const ruleId = issue.ruleId;
+        const level = contextualVerdictToSarifLevel(issue.context?.verdict, String(issue.severity), options);
         rules.set(ruleId, {
             id: ruleId,
             shortDescription: { text: issue.issue },
@@ -30,12 +45,16 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport): 
             properties: {
                 category: issue.category,
                 precision: issue.confidence.score >= 85 ? 'high' : issue.confidence.score >= 70 ? 'medium' : 'low',
+                contextual_verdict: issue.context?.verdict,
+                'security-severity': severityToSecuritySeverity(String(issue.severity)),
+                securitySeverity: severityToSecuritySeverity(String(issue.severity)),
             },
         });
         const firstEvidence = issue.evidence[0];
         return {
             ruleId,
-            level: sarifLevel(issue.severity as RepositoryRisk),
+            level: level === 'omit' ? sarifLevel(issue.severity as RepositoryRisk) : level,
+            rank: severityToSarifRank(String(issue.severity)),
             message: {
                 text: issue.issue,
             },
@@ -52,6 +71,10 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport): 
                 impacted_files: issue.impactedFiles,
                 fix_suggestions: issue.fixSuggestions,
                 path_ids: issue.pathIds,
+                contextual_verdict: issue.context?.verdict,
+                context: issue.context,
+                'security-severity': severityToSecuritySeverity(String(issue.severity)),
+                securitySeverity: severityToSecuritySeverity(String(issue.severity)),
             },
             partialFingerprints: {
                 promptsonarIssue: issue.id,
@@ -84,9 +107,15 @@ export function formatRepositoryReportSarif(report: RepositoryExecutionReport): 
             results,
             properties: {
                 repository_summary: report.summary,
+                executive_summary: report.executiveSummary,
                 issue_summary: report.issueSummary,
+                scan_completeness: report.completeness,
+                schema_version: report.schemaVersion,
                 confidence_definitions: report.confidenceDefinitions,
-                issue_ids: report.issues.map(issue => issue.id),
+                issue_ids: includedIssues.map(issue => issue.id),
+                omitted_expected_capability_issue_ids: options.includeCapabilityInventory
+                    ? []
+                    : report.issues.filter(issue => issue.context?.verdict === 'expected_capability').map(issue => issue.id),
                 execution_nodes: report.executionMap.nodes.length,
                 execution_edges: report.executionMap.edges.length,
                 reachable_paths: report.reachablePaths,
@@ -165,7 +194,20 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
       <details><summary>Show validation errors</summary>${validation.errors.slice(0, 25).map(error => `<p><code>${escapeHtml(error.code)}</code> ${escapeHtml(error.message)}</p>`).join('')}</details>
     </section>` : `<p class="label">Path validation: passed (${validation ? validation.checkedPaths : 0} paths checked)</p>`}
     ${scanStats ? `<p class="label">Files: ${scanStats.filesConsidered} considered · ${scanStats.filesScanned} scanned · ${scanStats.filesSkipped} skipped${scanStats.truncated ? ' · <strong class="risk-high">scan truncated at file limit — results may be incomplete</strong>' : ''}</p>` : ''}
+    ${report.completeness ? `<section style="margin-bottom:18px">
+      <h2>Scan Completeness</h2>
+      <p><strong>Coverage:</strong> ${escapeHtml(report.completeness.coverageStatus)} · <strong>Scope:</strong> ${escapeHtml(report.completeness.verdictScope)}</p>
+      <p class="label">${report.completeness.files.inventoried} inventoried · ${report.completeness.files.selected} selected · ${report.completeness.files.fetched} fetched · ${report.completeness.files.analyzed} analyzed · ${report.completeness.references.resolved} references resolved</p>
+      ${report.completeness.unresolvedContext.length > 0 ? `<p class="risk-medium">${report.completeness.unresolvedContext.length} privileged capabilities are missing control context.</p>` : ''}
+      <p>${escapeHtml(report.completeness.coverageReason)}</p>
+    </section>` : ''}
     ${report.executionMap.pathsTruncated ? `<p class="label"><strong class="risk-high">Path enumeration capped at ${report.executionMap.pathEnumerationLimit} — additional paths exist but are not listed.</strong></p>` : ''}
+    ${report.executiveSummary ? `<section style="margin-bottom:18px">
+      <h2>Executive Summary</h2>
+      <p><strong>Overall Risk:</strong> ${escapeHtml(report.executiveSummary.overallRisk)} · <strong>Estimated Fix Effort:</strong> ${escapeHtml(report.executiveSummary.estimatedFixEffort)}</p>
+      <p class="label">Findings: ${report.executiveSummary.findingCounts.critical} critical · ${report.executiveSummary.findingCounts.high} high · ${report.executiveSummary.findingCounts.medium} medium · ${report.executiveSummary.findingCounts.low} low</p>
+      <p><strong>Highest Priority:</strong> ${report.executiveSummary.highestPriorityFindings.map(item => `<code>${escapeHtml(item.ruleId)}</code> ${escapeHtml(item.impactedFiles.join(', '))}`).join('<br>') || 'None'}</p>
+    </section>` : ''}
     <div class="grid">
       <div class="card"><div class="metric">${summary.aiSurfacesFound.prompts + summary.aiSurfacesFound.skills + summary.aiSurfacesFound.mcpServers + summary.aiSurfacesFound.tools + summary.aiSurfacesFound.workflows + summary.aiSurfacesFound.memorySystems}</div><div class="label">AI Surfaces</div></div>
       <div class="card"><div class="metric">${summary.executionGraph.nodes}</div><div class="label">Execution Nodes</div></div>
@@ -177,8 +219,8 @@ export function formatRepositoryReportHtml(report: RepositoryExecutionReport): s
     <section>
       <h2>Canonical Issues (${report.issueSummary.total})</h2>
       <table>
-        <tr><th>ID</th><th>Context</th><th>Severity</th><th>Plain-Language Explanation</th></tr>
-        ${report.issues.map(issue => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td>${escapeHtml(issue.provenance ?? 'production')}</td><td class="risk-${escapeHtml(issue.severity)}">${escapeHtml(String(issue.severity).toUpperCase())}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Quick Fix:</strong> ${escapeHtml(issue.fix.quickFix)}<br><br><strong>Recommended Fix:</strong> ${escapeHtml(issue.fix.recommendedFix)}<br><br><strong>Safe Pattern:</strong> <code>${escapeHtml(issue.fix.safePattern)}</code><br><br><strong>Effort:</strong> ${escapeHtml(issue.fix.effort)}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails.executionPath)}<br><strong>Evidence:</strong> ${issue.technicalDetails.evidence.map(item => `<code>${escapeHtml(item.file)}:${item.line || 1}</code> ${escapeHtml(item.snippet)}`).join('<br>')}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails.confidence.label)} (${issue.technicalDetails.confidence.score}%) · ${escapeHtml(issue.technicalDetails.confidence.definition)}</details></td></tr>`).join('') || '<tr><td colspan="4">No active issues.</td></tr>'}
+        <tr><th>ID</th><th>Context</th><th>Verdict</th><th>Severity</th><th>Plain-Language Explanation</th></tr>
+        ${report.issues.map(issue => `<tr><td><code>${escapeHtml(issue.id)}</code></td><td>${escapeHtml(issue.provenance ?? 'production')}</td><td>${escapeHtml(issueContextLabel(issue))}<br><span class="label">${escapeHtml(contextualVerdictSummary(issue.context?.verdict))}</span></td><td class="risk-${escapeHtml(issue.severity)}">${escapeHtml(String(issue.severity).toUpperCase())}</td><td><strong>Issue:</strong> ${escapeHtml(issue.issue)}<br><br><strong>Impact:</strong> ${escapeHtml(issue.impact)}<br><br><strong>Why this matters:</strong> ${escapeHtml(issue.whyThisMatters)}<br><br><strong>Quick Fix:</strong> ${escapeHtml(issue.fix.quickFix)}<br><br><strong>Recommended Fix:</strong> ${escapeHtml(issue.fix.recommendedFix)}<br><br><strong>Safe Pattern:</strong> <code>${escapeHtml(issue.fix.safePattern)}</code><br><br><strong>Effort:</strong> ${escapeHtml(issue.fix.effort)}<details><summary>Technical Details</summary><strong>Execution path:</strong> ${escapeHtml(issue.technicalDetails.executionPath)}<br><strong>Evidence:</strong> ${issue.technicalDetails.evidence.map(item => `<code>${escapeHtml(item.file)}:${item.line || 1}</code> ${escapeHtml(item.snippet)}`).join('<br>')}<br><strong>Confidence:</strong> ${escapeHtml(issue.technicalDetails.confidence.label)} (${issue.technicalDetails.confidence.score}%) · ${escapeHtml(issue.technicalDetails.confidence.definition)}</details></td></tr>`).join('') || '<tr><td colspan="5">No active issues.</td></tr>'}
       </table>
     </section>
     <section>

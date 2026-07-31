@@ -1,0 +1,7 @@
+type: session_memory
+persistence: local_file
+stores:
+  - user_preferences
+  - session_data
+  - api_key_seen: BACKEND_API_KEY
+retention: 30_days

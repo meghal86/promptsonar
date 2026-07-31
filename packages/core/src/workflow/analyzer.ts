@@ -85,7 +85,9 @@ const CREDENTIAL_PATTERNS: PatternDef[] = [
     { pattern: /\bcredential\s+store\b/i, reason: 'credential_store inferred from credential store wording.', confidence: 'high' },
     { pattern: /\bcredential\s+passthrough\b/i, reason: 'credential_store inferred from credential passthrough wording.', confidence: 'high' },
     { pattern: /\bpass\s+(?:through|host)\s+credentials?\b/i, reason: 'credential_store inferred from credential passthrough wording.', confidence: 'high' },
-    { pattern: /\b(?:api[_-]?key|secret|token|password)\b/i, reason: 'credential_store inferred from credential-like object reference.', confidence: 'medium' },
+    // Credential-shaped identifiers only — NOT bare "token", which matches LLM
+    // token counts (max_tokens) and control tokens (cancellation_token).
+    { pattern: /\b(?:api[_-]?keys?|access[_-]?tokens?|auth[_-]?tokens?|secrets?|passwords?|credentials?|bearer)\b/i, reason: 'credential_store inferred from credential-like object reference.', confidence: 'medium' },
 ];
 
 const TOOL_ROUTER_PATTERNS: PatternDef[] = [

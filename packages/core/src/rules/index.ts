@@ -13,6 +13,12 @@ import { checkEvasionPatterns } from './security/evasion';
 import { checkWorkflowEscalation } from './security/workflow_escalation';
 import { checkEthics } from './ethics';
 import { inferWorkflowForFinding } from '../workflow';
+import {
+    inferArtifactKind,
+    inferExecutionIntent,
+    type ArtifactKind,
+    type ExecutionIntent,
+} from '../artifacts';
 
 export * from './types';
 export { scanContentForSecrets, type ContentSecretMatch } from './security/pii';
@@ -33,11 +39,112 @@ function workflowPriority(finding: Finding): number {
     return 5;
 }
 
+const PROMPT_QUALITY_ARTIFACTS: ReadonlySet<ArtifactKind> = new Set(['prompt', 'claude', 'agents', 'agent', 'skill']);
+const SECURITY_ARTIFACTS: ReadonlySet<ArtifactKind> = new Set([
+    'prompt',
+    'claude',
+    'agents',
+    'agent',
+    'skill',
+    'workflow',
+    'mcp',
+    'mcp_config',
+    'mcp_server',
+    'tool',
+    'tool_router',
+    'router',
+    'deployment_config',
+    'documentation',
+    'test',
+    'fixture',
+    'example',
+    'source',
+    'unknown',
+]);
+
+const RULE_SUPPORTED_ARTIFACTS: Record<string, ReadonlySet<ArtifactKind>> = {
+    clarity_missing_quantifier: PROMPT_QUALITY_ARTIFACTS,
+    clarity_open_ended: PROMPT_QUALITY_ARTIFACTS,
+    clarity_vague_words: PROMPT_QUALITY_ARTIFACTS,
+    struct_missing_format_enforcer: PROMPT_QUALITY_ARTIFACTS,
+    bp_missing_persona: PROMPT_QUALITY_ARTIFACTS,
+    bp_missing_few_shot: PROMPT_QUALITY_ARTIFACTS,
+    bp_missing_cot: PROMPT_QUALITY_ARTIFACTS,
+    consist_contradiction: PROMPT_QUALITY_ARTIFACTS,
+    eff_token_budget: PROMPT_QUALITY_ARTIFACTS,
+    eff_token_bloat: PROMPT_QUALITY_ARTIFACTS,
+    eff_compression_potential: PROMPT_QUALITY_ARTIFACTS,
+    sec_workflow_escalation: SECURITY_ARTIFACTS,
+    sec_privileged_sink_access: SECURITY_ARTIFACTS,
+    sec_owasp_llm01_injection: SECURITY_ARTIFACTS,
+    sec_owasp_llm02_pii: SECURITY_ARTIFACTS,
+    sec_unbounded_persona: SECURITY_ARTIFACTS,
+    sec_unbounded_access: SECURITY_ARTIFACTS,
+    sec_rag_injection: SECURITY_ARTIFACTS,
+    sec_base64_encoded_payload: SECURITY_ARTIFACTS,
+    sec_zero_width_injection: SECURITY_ARTIFACTS,
+    sec_homoglyph_evasion: SECURITY_ARTIFACTS,
+    sec_unicode_math_homoglyph: SECURITY_ARTIFACTS,
+    sec_unicode_enclosed_obfuscation: SECURITY_ARTIFACTS,
+    sec_unicode_injection_obfuscation: SECURITY_ARTIFACTS,
+    ethics_bias_indicator: SECURITY_ARTIFACTS,
+    ethics_manipulation: SECURITY_ARTIFACTS,
+};
+
+function isPromptQualityFinding(finding: Finding): boolean {
+    return ['clarity', 'structure', 'best_practices', 'consistency', 'efficiency'].includes(finding.category);
+}
+
+function isAgentInstructionArtifact(artifactKind: ArtifactKind): boolean {
+    return artifactKind === 'claude' || artifactKind === 'agents' || artifactKind === 'agent' || artifactKind === 'skill';
+}
+
+function effectiveArtifactContext(input: RuleInput): { artifactKind: ArtifactKind; executionIntent: ExecutionIntent; hasExplicitPromptBlock: boolean } {
+    const inferredKind = inferArtifactKind(input.context.filePath);
+    const artifactKind = input.context.artifactKind || (inferredKind === 'source' ? 'prompt' : inferredKind);
+    const executionIntent = input.context.executionIntent || inferExecutionIntent(input.context.filePath, artifactKind);
+    return {
+        artifactKind,
+        executionIntent,
+        hasExplicitPromptBlock: Boolean(input.context.hasExplicitPromptBlock),
+    };
+}
+
+function isRuleEligible(finding: Finding, artifactKind: ArtifactKind, executionIntent: ExecutionIntent, hasExplicitPromptBlock: boolean): boolean {
+    const supportedArtifacts = RULE_SUPPORTED_ARTIFACTS[finding.rule_id];
+    if (isPromptQualityFinding(finding)) {
+        if (executionIntent !== 'executable') return false;
+        if (artifactKind === 'workflow') return hasExplicitPromptBlock;
+        return supportedArtifacts ? supportedArtifacts.has(artifactKind) : PROMPT_QUALITY_ARTIFACTS.has(artifactKind);
+    }
+    return supportedArtifacts ? supportedArtifacts.has(artifactKind) : true;
+}
+
+function findingPriorityBand(finding: Finding): number {
+    const verdict = finding.workflow?.path?.privilegedSinkReached ? 'vulnerability' : undefined;
+    if (finding.severity === 'critical' || verdict === 'vulnerability') return 0;
+    if (finding.category === 'security' && finding.severity === 'high') return 1;
+    if (finding.category === 'security') return 2;
+    if (finding.category === 'ethics') return 4;
+    if (isPromptQualityFinding(finding)) return 5;
+    return 4;
+}
+
 function upgradedSeverity(current: Severity, workflowRisk?: string): Severity {
     if (workflowRisk === 'critical') return 'critical';
     if (workflowRisk === 'high' && severityRank[current] > severityRank.high) return 'high';
     if (workflowRisk === 'medium' && severityRank[current] > severityRank.medium) return 'medium';
     return current;
+}
+
+function capSeverityForArtifact(finding: Finding, artifactKind: ArtifactKind, executionIntent: ExecutionIntent): Finding {
+    if ((executionIntent === 'reference' || executionIntent === 'test_fixture') && finding.category === 'security') {
+        return { ...finding, severity: 'low' };
+    }
+    if (isAgentInstructionArtifact(artifactKind) && finding.category === 'efficiency') {
+        return { ...finding, severity: 'low' };
+    }
+    return finding;
 }
 
 function scoreFindings(findings: Finding[]): { score: number; status: 'pass' | 'warn' | 'fail' } {
@@ -138,7 +245,41 @@ function scoreFindings(findings: Finding[]): { score: number; status: 'pass' | '
     return { score, status };
 }
 
+function groupFindingsByRootCause(findings: Finding[]): Finding[] {
+    const hasWorkflowEscalation = findings.some(f => f.rule_id === 'sec_workflow_escalation');
+    const hasPrivilegedSink = findings.some(f => f.rule_id === 'sec_privileged_sink_access');
+    const hasMcpPoisoning = findings.some(f => f.rule_id === 'sec_mcp_tool_poisoning');
+
+    if (hasWorkflowEscalation || hasPrivilegedSink || hasMcpPoisoning) {
+        const primaryRuleId = hasMcpPoisoning
+            ? 'sec_mcp_tool_poisoning'
+            : hasWorkflowEscalation
+                ? 'sec_workflow_escalation'
+                : 'sec_privileged_sink_access';
+
+        const supportingRuleIds = ['sec_workflow_escalation', 'sec_privileged_sink_access', 'sec_mcp_tool_poisoning']
+            .filter(id => id !== primaryRuleId && findings.some(f => f.rule_id === id));
+
+        const primaryFinding = findings.find(f => f.rule_id === primaryRuleId);
+        if (primaryFinding) {
+            primaryFinding.root_cause = primaryFinding.explanation;
+            primaryFinding.supporting_findings = supportingRuleIds.map(id => {
+                const f = findings.find(curr => curr.rule_id === id);
+                return f ? f.explanation : id;
+            });
+        }
+
+        findings.forEach(f => {
+            if (supportingRuleIds.includes(f.rule_id)) {
+                f.is_supporting = true;
+            }
+        });
+    }
+    return findings;
+}
+
 export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
+    const artifactContext = effectiveArtifactContext(input);
     const findings = [
         ...checkWorkflowEscalation(input),
         ...checkClarity(input),
@@ -153,7 +294,12 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
         ...checkRagInjection(input),
         ...checkEthics(input),
         ...checkTokenLimit(input, config?.efficiency?.token_budget || 8192),
-    ];
+    ].filter(finding => isRuleEligible(
+        finding,
+        artifactContext.artifactKind,
+        artifactContext.executionIntent,
+        artifactContext.hasExplicitPromptBlock,
+    ));
 
     const enrichedFindings = findings.map(f => {
         const workflow = f.category === 'security' || f.category === 'ethics'
@@ -165,10 +311,13 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
                 filePath: input.context.filePath,
             })
             : undefined;
-        return workflow
+        const enriched = workflow
             ? { ...f, severity: upgradedSeverity(f.severity, workflow.risk), workflow }
             : f;
+        return capSeverityForArtifact(enriched, artifactContext.artifactKind, artifactContext.executionIntent);
     }).sort((a, b) => {
+        const bandDelta = findingPriorityBand(a) - findingPriorityBand(b);
+        if (bandDelta !== 0) return bandDelta;
         const priorityDelta = workflowPriority(a) - workflowPriority(b);
         if (priorityDelta !== 0) return priorityDelta;
         const severityDelta = severityRank[a.severity] - severityRank[b.severity];
@@ -183,9 +332,11 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
         return rest;
     });
 
+    const groupedFindings = groupFindingsByRootCause(cleanFindings);
+
     return {
         score,
         status,
-        findings: cleanFindings as any
+        findings: groupedFindings as any
     };
 }

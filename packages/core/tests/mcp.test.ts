@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { auditMcpConfig, getMcpExitCode } from '../src/mcp';
+import { auditMcpConfig, getMcpExitCode, normalizeMcpAuditResultContextual } from '../src/mcp';
+import { analyzeRepositoryExecutionFromFiles, formatRepositoryReportSarif } from '../src/repository';
 
 describe('MCP config auditor', () => {
     it('flags MCP-001 unsafe transport and local/raw-IP exposure', () => {
@@ -285,7 +286,13 @@ describe('MCP config auditor', () => {
         const result = auditMcpConfig('mcp.json', config);
         const finding = result.findings.find(f => f.rule_id === 'MCP-104');
         expect(finding).toBeDefined();
-        expect(finding!.severity).toBe('critical');
+        expect(finding).toMatchObject({
+            severity: 'low',
+            context: { verdict: 'needs_more_context', capability: 'shell' },
+        });
+        expect(finding?.context?.vulnerabilityBasis).toBeUndefined();
+        expect(result.status).toBe('warn');
+        expect(getMcpExitCode([result])).toBe(1);
     });
 
     it('flags MCP-105 network capability', () => {
@@ -449,5 +456,106 @@ describe('MCP config auditor', () => {
         expect(result.status).toBe('pass');
         expect(result.findings).toHaveLength(0);
         expect(getMcpExitCode([result])).toBe(0);
+    });
+
+    it('normalizes capability-only MCP shell and network findings to needs_more_context', () => {
+        const config = JSON.stringify({
+            schemaVersion: '2026-05-20',
+            mcpServers: {
+                shell: {
+                    command: 'node',
+                    args: ['server.js'],
+                    capabilities: ['shell', 'network'],
+                },
+            },
+        });
+
+        const normalized = normalizeMcpAuditResultContextual(auditMcpConfig('mcp.json', config));
+        const shell = normalized.findings.find(finding => finding.rule_id === 'MCP-104');
+        const network = normalized.findings.find(finding => finding.rule_id === 'MCP-105');
+
+        expect(shell).toMatchObject({ severity: 'low', context: { verdict: 'needs_more_context', capability: 'shell' } });
+        expect(shell?.context?.vulnerabilityBasis).toBeUndefined();
+        expect(network).toMatchObject({ severity: 'low', context: { verdict: 'needs_more_context', capability: 'network' } });
+        expect(network?.context?.vulnerabilityBasis).toBeUndefined();
+        expect(getMcpExitCode([normalized])).toBe(1);
+    });
+
+    it('keeps raw MCP and repository contextual paths aligned for capability-only shell findings', () => {
+        const content = JSON.stringify({
+            schemaVersion: '2026-05-20',
+            mcpServers: {
+                shell: {
+                    command: 'node',
+                    args: ['server.js'],
+                    capabilities: ['shell'],
+                },
+            },
+        });
+        const raw = auditMcpConfig('/repo/mcp.json', content);
+        const normalizedRaw = normalizeMcpAuditResultContextual(raw);
+        const rawShell = normalizedRaw.findings.find(finding => finding.rule_id === 'MCP-104');
+        const report = analyzeRepositoryExecutionFromFiles('/repo', [{ path: 'mcp.json', content }], [{
+            filePath: '/repo/mcp.json',
+            findings: raw.findings.map(finding => ({
+                rule_id: finding.rule_id,
+                category: 'security',
+                severity: finding.severity,
+                line: finding.line || 1,
+                column: finding.column || 1,
+                message: finding.message,
+                fix: finding.fix,
+                recommendation: finding.fix,
+                evidence: finding.evidence || finding.path,
+                confidence: 'HIGH',
+            })),
+        }]);
+        const repoShell = report.issues.find(issue => issue.ruleId === 'MCP-104');
+        const sarif = JSON.parse(formatRepositoryReportSarif(report));
+
+        expect(rawShell?.severity).toBe(repoShell?.severity);
+        expect(rawShell?.context?.verdict).toBe(repoShell?.context?.verdict);
+        expect(repoShell?.severity).toBe('low');
+        expect(repoShell?.context?.vulnerabilityBasis).toBeUndefined();
+        expect(sarif.runs[0].results.find((result: any) => result.ruleId === 'MCP-104').level).toBe('note');
+    });
+
+    it('keeps direct and composite MCP vulnerabilities when an accepted basis exists', () => {
+        const secret = normalizeMcpAuditResultContextual(auditMcpConfig('mcp.json', JSON.stringify({
+            schemaVersion: '2026-05-20',
+            mcpServers: {
+                keyed: {
+                    command: 'node',
+                    args: ['server.js'],
+                    env: { OPENAI_API_KEY: 'sk-proj-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+                },
+            },
+        }))).findings.find(finding => finding.rule_id === 'MCP-005');
+        const composite = normalizeMcpAuditResultContextual(auditMcpConfig('mcp.json', JSON.stringify({
+            schemaVersion: '2026-05-20',
+            mcpServers: {
+                shell: {
+                    command: 'node',
+                    args: ['server.js'],
+                    capabilities: ['shell'],
+                    permissions: ['*'],
+                },
+            },
+        }))).findings.find(finding => finding.rule_id === 'MCP-108');
+
+        expect(secret).toMatchObject({
+            severity: 'high',
+            context: {
+                verdict: 'vulnerability',
+                vulnerabilityBasis: { kind: 'direct_evidence', directEvidenceClass: 'hardcoded_secret' },
+            },
+        });
+        expect(composite).toMatchObject({
+            severity: 'critical',
+            context: {
+                verdict: 'vulnerability',
+                vulnerabilityBasis: { kind: 'source_to_sink' },
+            },
+        });
     });
 });

@@ -1,0 +1,1 @@
+{ "mcpServers": { "net-tool": { "command": "node", "args": ["net.js"], "tools": ["http_get", "http_post", "fetch_url"] } } }

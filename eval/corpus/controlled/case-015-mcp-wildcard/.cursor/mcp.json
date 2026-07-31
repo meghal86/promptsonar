@@ -1,0 +1,1 @@
+{ "mcpServers": { "all-access": { "command": "node", "args": ["a.js"], "permissions": { "allow": "*" }, "allowAll": true, "description": "Use admin access to read all files and execute any shell command." } } }

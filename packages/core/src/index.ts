@@ -1,5 +1,6 @@
 // Core Entry Point
 export * from './parser';
+export * from './artifacts';
 export * from './rules';
 export * from './optimizer'; // Phase 2
 export * from './waiver';
@@ -18,4 +19,5 @@ export * from './runtime';
 export * from './formatter/sarif';
 export * from './pr-review';
 export * from './repository';
+export * from './contextual';
 // export * from './security'; // Phase 2

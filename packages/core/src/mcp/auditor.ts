@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import type { CanonicalIssueContext } from '../contextual';
 import { FindingWorkflow, inferWorkflowForFinding } from '../workflow';
+import { normalizeMcpAuditResultContextual } from './contextual';
 
 export type McpSeverity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -17,6 +19,7 @@ export interface McpFinding {
     confidence_contribution?: number;
     line?: number;
     column?: number;
+    context?: CanonicalIssueContext;
 }
 
 export type McpRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -169,7 +172,25 @@ function stableStringify(value: unknown): string {
     }
 }
 
-const FS_CAPABILITY_TOKENS = ['filesystem', 'file_write', 'file_read', 'disk_access', 'workspace_access', 'fs', 'files'];
+const FS_CAPABILITY_TOKENS = [
+    'filesystem', 'file_write', 'file_read', 'disk_access', 'workspace_access', 'fs', 'files',
+    // Real MCP filesystem tools name the verb before the noun (read_file, not
+    // file_read), which the original tokens missed entirely.
+    'read_file', 'write_file', 'delete_file', 'delete_path',
+    'list_directory', 'list_files', 'read_dir', 'readdir',
+    'mkdir', 'rmdir', 'rename_file', 'move_file', 'copy_file',
+];
+// Substring fallback for filesystem tool names that don't match an exact token
+// but clearly describe a file operation (e.g. "read_user_file", "listFolder"):
+// a file/dir/path target combined with a read/write/delete/list verb. Applied to
+// structured tool/capability names only — not free-text descriptions, which
+// produce false positives on safe scoped servers ("read documentation files").
+function looksLikeFilesystemCapability(text: string): boolean {
+    const lower = text.toLowerCase();
+    const hasTarget = lower.includes('file') || lower.includes('directory') || lower.includes('folder') || lower.includes('path');
+    const hasVerb = lower.includes('read') || lower.includes('write') || lower.includes('delete') || lower.includes('list');
+    return hasTarget && hasVerb;
+}
 const SHELL_CAPABILITY_TOKENS = ['shell', 'bash', 'terminal', 'exec', 'spawn', 'process', 'subprocess', 'shell_exec'];
 // Launcher binaries that are shells, and interpreters that execute arbitrary
 // code when given an inline-eval flag. Kept in sync with the repository-layer
@@ -278,7 +299,7 @@ function analyzeServerStructure(server: any): ServerStructuralAnalysis {
     for (const c of capabilities) collectStrings(c.value, capabilityStrings);
     for (const cap of capabilityStrings) {
         const fs = containsToken(cap, FS_CAPABILITY_TOKENS);
-        if (fs) analysis.fsCapabilities.push(cap);
+        if (fs || looksLikeFilesystemCapability(cap)) analysis.fsCapabilities.push(cap);
         const sh = containsToken(cap, SHELL_CAPABILITY_TOKENS);
         if (sh) analysis.shellCapabilities.push(cap);
         const nt = containsToken(cap, NETWORK_CAPABILITY_TOKENS);
@@ -370,6 +391,13 @@ function isFalsyApproval(value: unknown): boolean {
 
 function isTruthyFlag(value: unknown): boolean {
     return value === true || value === 'true' || value === 1 || value === '1' || value === 'yes' || value === 'on';
+}
+
+// A non-empty `auto_approve` allowlist (e.g. ["read_file", "write_file"]) means
+// those tools run without per-call approval — auto-execution, like the boolean
+// form. An empty list approves nothing and is not flagged.
+function isNonEmptyApprovalList(value: unknown): boolean {
+    return Array.isArray(value) && value.length > 0;
 }
 
 const RISK_WEIGHTS: Record<string, number> = {
@@ -649,7 +677,7 @@ function auditServer(name: string, server: any, serverPath: string, findings: Mc
     if (structure.autoExecute && isTruthyFlag(structure.autoExecute.value)) {
         autoExecuteEvidence.push(`${structure.autoExecute.key}=${stableStringify(structure.autoExecute.value)}`);
     }
-    if (structure.autoApprove && isTruthyFlag(structure.autoApprove.value)) {
+    if (structure.autoApprove && (isTruthyFlag(structure.autoApprove.value) || isNonEmptyApprovalList(structure.autoApprove.value))) {
         autoExecuteEvidence.push(`${structure.autoApprove.key}=${stableStringify(structure.autoApprove.value)}`);
     }
     if (structure.approvalRequired && isFalsyApproval(structure.approvalRequired.value)) {
@@ -892,30 +920,61 @@ export function auditMcpConfig(filePath: string, content: string): McpAuditResul
 
     const overallScore = computeRiskScore(findings);
 
-    return {
+    return normalizeMcpAuditResultContextual({
         filePath,
         status: statusFromFindings(findings),
         findings,
         risk_score: overallScore,
         servers: serverSummaries,
-    };
+    });
 }
+
+// Conventional project-local locations for an MCP config, relative to a
+// directory root. Shared by the global discovery pass and the directory-scan
+// path so both stay in sync.
+const PROJECT_MCP_CONFIG_RELATIVE_PATHS = [
+    'claude_desktop_config.json',
+    path.join('.cursor', 'mcp.json'),
+    'mcp.json',
+];
 
 export function discoverMcpConfigPaths(cwd = process.cwd()): string[] {
     const candidates = [
         path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'),
         path.join(os.homedir(), '.config', 'claude', 'claude_desktop_config.json'),
         process.env.APPDATA ? path.join(process.env.APPDATA, 'Claude', 'claude_desktop_config.json') : '',
-        path.join(cwd, 'claude_desktop_config.json'),
-        path.join(cwd, '.cursor', 'mcp.json'),
-        path.join(cwd, 'mcp.json'),
+        ...PROJECT_MCP_CONFIG_RELATIVE_PATHS.map(rel => path.join(cwd, rel)),
     ].filter(Boolean);
 
     return Array.from(new Set(candidates)).filter(candidate => fs.existsSync(candidate));
 }
 
+// Scan a directory for MCP config files at the conventional project-local
+// locations. Used when `audit-mcp` is pointed at a directory rather than a
+// specific config file, so a directory argument scans instead of crashing with
+// EISDIR when the directory is passed straight to readFileSync.
+export function discoverMcpConfigPathsInDir(dir: string): string[] {
+    return PROJECT_MCP_CONFIG_RELATIVE_PATHS
+        .map(rel => path.join(dir, rel))
+        .filter(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
+}
+
 export function auditDiscoveredMcpConfigs(targetPath?: string, cwd = process.cwd()): McpAuditResult[] {
-    const paths = targetPath ? [path.resolve(targetPath)] : discoverMcpConfigPaths(cwd);
+    let paths: string[];
+    if (targetPath) {
+        const resolved = path.resolve(targetPath);
+        if (!fs.existsSync(resolved)) {
+            throw new Error(`path not found: ${resolved}`);
+        }
+        // A directory argument must be scanned for config files, not read as a
+        // file (which throws EISDIR). An empty result here means "no MCP
+        // configs under this directory" and surfaces as a friendly message.
+        paths = fs.statSync(resolved).isDirectory()
+            ? discoverMcpConfigPathsInDir(resolved)
+            : [resolved];
+    } else {
+        paths = discoverMcpConfigPaths(cwd);
+    }
     return paths.map(filePath => {
         const content = fs.readFileSync(filePath, 'utf-8');
         return auditMcpConfig(filePath, content);

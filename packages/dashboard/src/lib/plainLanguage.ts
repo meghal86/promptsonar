@@ -118,3 +118,78 @@ export function toneClasses(tone: Tone): string {
 export function severityRank(severity = ""): number {
   return ({ critical: 4, high: 3, medium: 2, low: 1 } as Record<string, number>)[severity.toLowerCase()] || 0;
 }
+
+// Short human name for a finding's family, shown in the status line
+// (e.g. "MCP tool poisoning"). Mirrors the engine's own categorization so the
+// label always matches the plain-language issue text the analyzer produced.
+const RULE_FAMILY: Array<{ test: RegExp; label: string }> = [
+  { test: /poison|mcp|wildcard|auto.?approve|auto.?execute/, label: "MCP tool poisoning" },
+  { test: /inject|jailbreak|override|evasion|rag/, label: "Prompt injection" },
+  { test: /secret|credential|api.?key|password|token|pii/, label: "Secret exposure" },
+  { test: /shell|command|exec/, label: "Command execution" },
+  { test: /memory|persist|remember|session/, label: "Memory persistence" },
+  { test: /permission|privile|escalation/, label: "Excess permissions" },
+  { test: /workflow|autonomous|routing|sink/, label: "Unsafe automation" },
+];
+export function plainRuleFamily(ruleId = "", issue = ""): string {
+  const signal = `${ruleId} ${issue}`.toLowerCase();
+  for (const entry of RULE_FAMILY) if (entry.test.test(signal)) return entry.label;
+  return "Security finding";
+}
+
+// One-line, non-technical headline for a finding. Presentation copy only — the
+// canonical issue/impact/fix still come straight from the analyzer.
+//
+// `active` distinguishes a known-live instruction (production + repository-
+// verified) from a standalone / documentation file. When not active we must NOT
+// state risk as a runtime fact ("this file CAN expose secrets"); we describe the
+// pattern conditionally ("contains instructions that WOULD … if used as active
+// agent instructions").
+const FINDING_HEADLINE: Array<{ test: RegExp; active: string; potential: string }> = [
+  {
+    test: /poison|mcp|wildcard|auto.?approve|auto.?execute/,
+    active: "This file lets a tool reach your system — and run without asking.",
+    potential: "Contains settings that would let a tool act without approval if used as live configuration.",
+  },
+  {
+    test: /inject|jailbreak|override|evasion|rag/,
+    active: "Untrusted text can change what this AI does.",
+    potential: "Contains patterns that would let untrusted text change the AI's behaviour if used as active agent instructions.",
+  },
+  {
+    test: /secret|credential|api.?key|password|token|pii/,
+    active: "This file can expose secrets or private data.",
+    potential: "Contains instructions that would permit or encourage secret exposure if used as active agent instructions.",
+  },
+  {
+    test: /memory|persist|remember|session/,
+    active: "Unsafe instructions here can persist into future runs.",
+    potential: "Contains patterns that would let unsafe instructions persist into future runs if used as active agent instructions.",
+  },
+  {
+    test: /shell|command|exec|privile|escalation|sink|workflow|autonomous|routing/,
+    active: "Instructions here can trigger a real action on your system.",
+    potential: "Contains instructions that would trigger a real action if used as active agent instructions.",
+  },
+];
+export function plainFindingHeadline(ruleId = "", issue = "", active = true): string {
+  const signal = `${ruleId} ${issue}`.toLowerCase();
+  for (const entry of FINDING_HEADLINE) if (entry.test.test(signal)) return active ? entry.active : entry.potential;
+  return issue || (active ? "This file needs a security review." : "Contains a pattern that would need a security review if used as active agent instructions.");
+}
+
+// Group a finding into one of three lanes so the UI can filter and the fix
+// prompt can be assembled by category. Keyed off the rule signal so it stays
+// consistent with the analyzer's own categorization.
+export type FindingLane = "security" | "reliability" | "quality";
+export function findingLane(ruleId = "", issue = ""): FindingLane {
+  const signal = `${ruleId} ${issue}`.toLowerCase();
+  if (/sec_|secret|credential|api.?key|token|pii|inject|jailbreak|override|evasion|mcp|poison|wildcard|auto.?approve|shell|command|exec|privile|escalat|sink|workflow|routing/.test(signal)) return "security";
+  if (/cot|verif|validat|format|struct|consist|contradiction|schema|memory|persist/.test(signal)) return "reliability";
+  return "quality";
+}
+export const LANE_LABEL: Record<FindingLane, string> = {
+  security: "Security",
+  reliability: "Reliability",
+  quality: "Quality",
+};
