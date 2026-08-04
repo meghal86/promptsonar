@@ -15,6 +15,7 @@
         "ai"
     ],
     "publisher": "promptsonar-tools",
+    "license": "SEE LICENSE IN LICENSE",
     "repository": {
         "type": "git",
         "url": "https://github.com/meghal86/promptsonar.git"
@@ -184,7 +185,7 @@
         "compile": "node esbuild.js --production",
         "watch": "node esbuild.js --watch",
         "package": "vsce package --no-dependencies",
-        "publish:marketplace": "vsce publish --no-dependencies --packagePath promptsonar-1.4.3.vsix",
+        "publish:marketplace": "vsce publish --no-dependencies",
         "lint": "eslint src --ext ts",
         "test": "vitest run",
         "pretest": "npm run compile"
