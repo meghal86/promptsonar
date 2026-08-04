@@ -12,7 +12,7 @@ import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
 import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
 
-const VERSION = '1.4.3';
+const VERSION = '1.5.0';
 
 const program = new Command();
 type CliOptions = Record<string, any>;

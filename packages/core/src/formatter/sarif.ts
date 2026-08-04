@@ -88,7 +88,7 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                 tool: {
                     driver: {
                         name: "PromptSonar",
-                        version: "1.4.3",
+                        version: "1.5.0",
                         informationUri: "https://github.com/meghal86/promptsonar",
                         rules: [] as any[]
                     }

@@ -2,7 +2,7 @@
   "name": "@promptsonar/cursor-extension",
   "displayName": "PromptSonar for Cursor",
   "description": "Cursor integration for local PromptSonar execution-path analysis. No LLM calls, no telemetry.",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "private": true,
   "main": "./dist/extension.js",
   "engines": {

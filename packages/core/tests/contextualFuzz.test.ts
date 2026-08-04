@@ -231,7 +231,7 @@ function malformedIssue(seed: number): CanonicalAnalysisIssue & { fix?: { safePa
 function reportFor(issue: ReturnType<typeof issueFrom>): RepositoryExecutionReport {
     return {
         id: `report-${issue.id}`,
-        version: '1.4.3',
+        version: '1.5.0',
         schemaVersion: 'fuzz',
         generated_at: '2026-06-23T00:00:00.000Z',
         repository: { root: '/fuzz', name: 'fuzz' },

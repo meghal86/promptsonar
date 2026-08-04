@@ -1,1 +1,1 @@
-export const PROMPTSONAR_VERSION = "1.4.3";
+export const PROMPTSONAR_VERSION = "1.5.0";

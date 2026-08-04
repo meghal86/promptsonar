@@ -1,6 +1,6 @@
 {
   "name": "dashboard",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "private": true,
   "scripts": {
     "predev": "npm --prefix ../core run build && npm --prefix ../cli run build",

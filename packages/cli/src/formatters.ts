@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { analyzeRootCause, contextualVerdictLabel, humanRuleName } from '@promptsonar/core';
 import { ScanResult } from './scanner';
 
-const VERSION = '1.4.3';
+const VERSION = '1.5.0';
 
 // Severity color/emoji map
 const SEVERITY_DISPLAY: Record<string, { emoji: string; color: (s: string) => string; label: string }> = {

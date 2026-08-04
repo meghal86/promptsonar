@@ -1,6 +1,6 @@
 {
   "name": "@promptsonar/claude-code",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "description": "PromptSonar Claude Code execution-path guard. Local, deterministic, no LLM calls.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
