@@ -180,6 +180,9 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                     pathSummary: workflowPathSummary(f.workflow),
                     risk: f.workflow.risk,
                     confidence: f.workflow.confidence,
+                    confidence_score: f.workflow.confidence_score,
+                    confidence_level: f.workflow.confidence_level,
+                    workflow_evidence: f.workflow.workflow_evidence,
                     nodes: f.workflow.path.nodes.map(node => ({
                         id: node.id,
                         label: node.label,

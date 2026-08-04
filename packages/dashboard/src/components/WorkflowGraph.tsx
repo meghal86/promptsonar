@@ -358,7 +358,7 @@ const Connector: React.FC<{
   showBoundary?: boolean;
   compact?: boolean;
 }> = ({ style, label, showBoundary, compact }) => {
-  const width = compact ? 36 : 56;
+  const width = compact ? 48 : 80;
   const height = 36;
   return (
     <div
@@ -551,9 +551,7 @@ const CollapsedCard: React.FC<{
       onClick={onExpand}
       title={summary}
       aria-label={`${group.count} intermediate workflow steps collapsed. ${summary}. Click to expand.`}
-      className={`shrink-0 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-2.5 py-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
-        compact ? "min-w-[60px]" : "min-w-[72px]"
-      }`}
+      className={`shrink-0 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-2.5 py-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 min-w-[120px] min-h-[56px]`}
     >
       <div className="text-[8.5px] font-black uppercase tracking-widest text-slate-400">
         Collapsed
@@ -686,11 +684,11 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
 
       {/* Graph row */}
       <div
-        className="-mx-1 overflow-x-auto px-1 pb-2 scrollbar-none"
+        className="-mx-1 overflow-x-auto px-1 pb-2 scrollbar-none min-h-[250px] flex items-center justify-center w-full"
         role="group"
         aria-label="Inferred Prompt Flow from untrusted source to sensitive action"
       >
-        <ol className="flex items-stretch gap-1 sm:gap-1.5">
+        <ol className="flex items-center gap-4 sm:gap-6 px-4 py-2 justify-start m-auto min-w-max">
           {items.map((item, index) => {
             const isCollapsed = (item as CollapsedGroup).__collapsed === true;
             const nextItem = items[index + 1];

@@ -523,8 +523,42 @@ const getSortScore = (finding: any): number => {
   return score;
 };
 
+const getSeverityRank = (severity: string): number => {
+  const s = (severity || '').toLowerCase();
+  if (s === 'critical') return 4;
+  if (s === 'high') return 3;
+  if (s === 'medium') return 2;
+  if (s === 'low') return 1;
+  return 0; // info or unmapped
+};
+
+// Finding ordering (from codex/mcp-audit-launch-evidence): severity first, then
+// workflow-escalated paths, then rule priority, then penalty score.
+const getRulePriority = (ruleId: string): number => {
+  const r = (ruleId || '').toLowerCase();
+  if (r.includes('workflow_escalation')) return 5;
+  if (r.includes('mcp_poisoning') || r.includes('mcp_tool_poisoning')) return 4;
+  if (r.includes('injection') || r.includes('llm01')) return 3;
+  if (r.includes('rag')) return 2;
+  return 1; // others
+};
+
 const sortFindings = (findings: any[]) => {
-  return [...findings].sort((a, b) => getSortScore(b) - getSortScore(a));
+  return [...findings].sort((a, b) => {
+    const sevA = getSeverityRank(a.severity);
+    const sevB = getSeverityRank(b.severity);
+    if (sevA !== sevB) return sevB - sevA;
+
+    const privA = a.workflow?.path?.privilegedSinkReached ? 1 : 0;
+    const privB = b.workflow?.path?.privilegedSinkReached ? 1 : 0;
+    if (privA !== privB) return privB - privA;
+
+    const ruleA = getRulePriority(a.rule_id);
+    const ruleB = getRulePriority(b.rule_id);
+    if (ruleA !== ruleB) return ruleB - ruleA;
+
+    return (b.penalty_score || 0) - (a.penalty_score || 0);
+  });
 };
 
 const uiFindingFromRepositoryIssue = (issue: any) => ({
@@ -959,6 +993,22 @@ const createRepositoryHandoffFinding = (text: string): any | null => {
   };
 };
 
+// Plain-language finding summaries (from codex/mcp-audit-launch-evidence),
+// rendered alongside the technical explanation in renderDetailedFinding.
+const PLAIN_EXPLANATIONS: Record<string, string> = {
+  sec_workflow_escalation: "Untrusted instructions may influence actions that were supposed to remain protected.",
+  sec_privileged_sink_access: "This workflow could reach tools that run commands or modify files.",
+  sec_mcp_tool_poisoning: "Tool settings may allow unsafe actions without approval.",
+  sec_owasp_llm01_injection: "Hidden instructions may override your system's safety rules.",
+  sec_owasp_llm02_pii: "Secrets in prompts can leak to logs, dashboards, or model providers.",
+  sec_rag_injection: "User input passed directly to search can retrieve or modify unexpected data.",
+  sec_unbounded_access: "Unrestricted access lets the system read or change more than intended.",
+  sec_unbounded_persona: "Role changes without limits can bypass intended behavior boundaries.",
+  sec_base64_encoded_payload: "Encoded text may hide instructions that bypass normal checks.",
+  sec_homoglyph_evasion: "Lookalike characters can trick systems into accepting hidden commands.",
+  sec_zero_width_injection: "Invisible characters can smuggle instructions past basic filters.",
+};
+
 const getSecondaryGroup = (finding: any): string => {
   const ruleId = (finding.rule_id || '').toLowerCase();
   const category = (finding.category || '').toLowerCase();
@@ -1243,6 +1293,7 @@ export default function PlaygroundPage() {
         parsedFindings.unshift(repositoryHandoffFinding);
       }
 
+
       const initialExpanded: Record<string, boolean> = {};
       parsedFindings.forEach((f: any) => {
         initialExpanded[f.rule_id] = isPrimaryFinding(f);
@@ -1314,24 +1365,36 @@ export default function PlaygroundPage() {
     setExpandedSecondaryGroups(prev => ({ ...prev, [group]: !prev[group] }));
   };
 
-  const renderFindingCard = (item: any, index: number) => {
-    const isExpanded = !!expandedFindings[item.rule_id];
+  const renderDetailedFinding = (item: any, isExpanded: boolean, onToggle?: () => void) => {
     const remedy = getRemediation(item);
+    const plainExp = PLAIN_EXPLANATIONS[item.rule_id];
+    
+    // Severity indicator left border
+    const borderTint =
+      item.severity?.toLowerCase() === 'critical'
+        ? 'border-l-[#EF4444]'
+        : item.severity?.toLowerCase() === 'high'
+        ? 'border-l-[#F97316]'
+        : item.severity?.toLowerCase() === 'medium'
+        ? 'border-l-[#EAB308]'
+        : 'border-l-[#3B82F6]';
+
     return (
       <div 
-        key={`${item.rule_id}-${index}`} 
+        key={item.rule_id}
         id={`finding-${item.rule_id}`}
-        onClick={() => toggleFindingExpanded(item.rule_id)}
-        className="flex flex-col p-3.5 border border-[#E4E3DE]/60 bg-slate-50/40 rounded-xl space-y-2 hover:border-slate-350 transition-all select-text cursor-pointer group"
+        onClick={onToggle}
+        className={`flex flex-col p-4 border border-[#E4E3DE]/60 bg-white rounded-xl space-y-3 transition-all select-text border-l-4 ${borderTint} ${onToggle ? 'cursor-pointer hover:border-slate-350' : ''}`}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <span className={`rounded border px-1.5 py-0.5 text-[8.5px] font-black font-sans uppercase tracking-wider ${getSeverityBadgeColor(item.severity)}`}>
               {item.severity}
             </span>
-            <span className="font-mono text-xs font-black text-slate-800 tracking-tight">{item.rule_id}</span>
+            <span className="font-mono text-xs font-black text-slate-800 tracking-tight truncate">{item.rule_id}</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button 
               onClick={(e) => {
                 e.stopPropagation();
@@ -1341,42 +1404,59 @@ export default function PlaygroundPage() {
             >
               Exception config
             </button>
-            <span className="text-slate-400 text-[10px] font-bold select-none">{isExpanded ? '▼' : '►'}</span>
+            {onToggle && (
+              <span className="text-slate-400 text-[10px] font-bold select-none">{isExpanded ? '▼' : '►'}</span>
+            )}
           </div>
         </div>
 
-        <p className={`text-[11.5px] text-[#57534E] leading-normal font-medium mt-1 ${isExpanded ? '' : 'truncate'}`}>
+        {/* Short description */}
+        <p className={`text-[12px] text-[#57534E] leading-normal font-semibold ${isExpanded ? '' : 'truncate'}`}>
           {item.explanation}
         </p>
 
+        {/* Workflow mini path if not expanded */}
         {!isExpanded && item.workflow?.path?.nodes?.length ? (
           <div className="text-[9.5px] font-mono text-slate-500 truncate mt-1">
             Path: {workflowPathText(item.workflow)}
           </div>
         ) : null}
 
+        {/* Expanded Details */}
         {isExpanded && (
-          <div className="mt-3 pt-3 border-t border-slate-200/60 space-y-3" onClick={(e) => e.stopPropagation()}>
+          <div className="pt-3 border-t border-slate-200/60 space-y-3.5" onClick={(e) => e.stopPropagation()}>
+            
+            {/* Why This Matters Section (Fix 9) */}
+            {plainExp && (
+              <div className="rounded-lg border border-slate-200/80 bg-slate-50 p-3 text-xs leading-relaxed text-slate-700">
+                <span className="font-sans font-bold text-slate-800 text-[10px] uppercase block tracking-wider mb-0.5">WHY THIS MATTERS:</span>
+                <p className="font-semibold text-slate-900 leading-normal">
+                  {plainExp}
+                </p>
+              </div>
+            )}
+
             {/* Metadata Grid */}
-            <div className="grid grid-cols-1 gap-1.5 text-[10px] sm:grid-cols-3">
-              <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5">
+            <div className="grid grid-cols-3 gap-2 text-[10px]">
+              <div className="rounded-md border border-slate-200 bg-[#FAF9F6] px-2 py-1.5">
                 <span className="block font-bold uppercase tracking-wider text-slate-400">OWASP</span>
 	                <span className="font-mono font-bold text-slate-800">{getFindingOwasp(item)}</span>
 	                <span className="mt-1 block text-[9px] font-medium text-slate-500">Common security checklist for LLM apps.</span>
               </div>
-              <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5">
+              <div className="rounded-md border border-slate-200 bg-[#FAF9F6] px-2 py-1.5">
                 <span className="block font-bold uppercase tracking-wider text-slate-400">Confidence</span>
 	                <span className="font-mono font-bold text-slate-800">{getFindingConfidence(item)}</span>
 	                <span className="mt-1 block text-[9px] font-medium text-slate-500">How certain the scanner is that this path exists. Higher is more reliable.</span>
               </div>
-              <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5">
+              <div className="rounded-md border border-slate-200 bg-[#FAF9F6] px-2 py-1.5">
                 <span className="block font-bold uppercase tracking-wider text-slate-400">Evidence</span>
-                <span className="font-mono font-bold text-slate-800">{getFindingEvidence(item)}</span>
+                <span className="font-mono font-bold text-slate-800 truncate block">{getFindingEvidence(item)}</span>
               </div>
             </div>
 
+            {/* Suggested Fix */}
             {item.suggested_fix && (
-              <div className="bg-white border-l-2 border-slate-300 pl-2.5 py-1.5 pr-1.5 rounded-r-md font-mono text-[10.5px] text-[#57534E] leading-relaxed shadow-3xs">
+              <div className="bg-[#FAF9F6] border-l-2 border-slate-350 pl-2.5 py-1.5 pr-1.5 rounded-r-md font-mono text-[10.5px] text-[#57534E] leading-relaxed shadow-3xs">
                 <span className="font-sans font-bold text-slate-800 text-[10px] uppercase block tracking-wider mb-0.5">Suggested Fix:</span>
                 {item.suggested_fix}
               </div>
@@ -1393,18 +1473,16 @@ export default function PlaygroundPage() {
               )}
             </div>
 
-            {/* Remediation Diff */}
-            <div className="border border-slate-200/80 rounded-xl overflow-hidden shadow-3xs bg-white text-slate-800 mt-2">
+            {/* Before / After patterns with Color system cleanup (Fix 5) */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden shadow-3xs bg-white text-slate-800">
               <div className="bg-[#FAF9F6] border-b border-slate-200 px-3 py-2 flex items-center justify-between">
-                <span className="text-[9.5px] font-black uppercase tracking-widest text-slate-500">Safer Rewrite & Mitigation</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Safer Rewrite & Mitigation</span>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCopySnippet(remedy.after, remedy.type || 'pattern');
-                  }}
-                  className="rounded bg-white border border-[#E4E3DE] hover:bg-slate-50 hover:border-slate-350 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-slate-700 shadow-2xs transition-all flex items-center gap-1 shrink-0 cursor-pointer animate-none"
+                  onClick={() => handleCopySnippet(remedy.after, remedy.type || 'pattern')}
+                  title="Copy Safer Pattern"
+                  className="p-1 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-900 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
                 >
-                  📋 Copy Safer Pattern
+                  📋
                 </button>
               </div>
               
@@ -1420,32 +1498,37 @@ export default function PlaygroundPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
-                  {/* Before */}
-                  <div className="rounded-lg border border-red-200 bg-red-50/15 flex flex-col overflow-hidden">
-                    <div className="bg-red-50/55 border-b border-red-250/30 px-2.5 py-1 text-[8.5px] font-black uppercase tracking-wider text-red-750 font-sans select-none">
+                  {/* Before: RED outline, 10% red background, Solid left border */}
+                  <div className="rounded-lg border border-red-200 bg-[#EF4444]/10 border-l-4 border-l-[#EF4444] flex flex-col overflow-hidden">
+                    <div className="bg-[#EF4444]/10 border-b border-red-200/40 px-2.5 py-1 text-[8.5px] font-black uppercase tracking-wider text-[#EF4444] font-sans select-none">
                       🔴 Vulnerable Pattern
                     </div>
-                    <pre className="p-2.5 font-mono text-[10px] leading-relaxed text-red-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
+                    <pre className="p-2.5 font-mono text-[10px] leading-relaxed text-[#57534E] overflow-x-auto whitespace-pre-wrap select-text break-all">
                       {remedy.before}
                     </pre>
                   </div>
 
-                  {/* After */}
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/15 flex flex-col overflow-hidden">
-                    <div className="bg-emerald-50/55 border-b border-emerald-250/30 px-2.5 py-1 text-[8.5px] font-black uppercase tracking-wider text-emerald-750 font-sans select-none">
+                  {/* After: Solid green border, 10% green background, Gray container boundaries */}
+                  <div className="rounded-lg border border-slate-200/80 border-l-4 border-l-[#22C55E] bg-[#22C55E]/10 flex flex-col overflow-hidden">
+                    <div className="bg-[#22C55E]/10 border-b border-slate-200/40 px-2.5 py-1 text-[8.5px] font-black uppercase tracking-wider text-[#22C55E] font-sans select-none">
                       🟢 Safer Rewrite
                     </div>
-                    <pre className="p-2.5 font-mono text-[10px] leading-relaxed text-emerald-900 overflow-x-auto whitespace-pre-wrap select-text break-all">
+                    <pre className="p-2.5 font-mono text-[10px] leading-relaxed text-[#57534E] overflow-x-auto whitespace-pre-wrap select-text break-all">
                       {remedy.after}
                     </pre>
                   </div>
                 </div>
               </div>
             </div>
+
           </div>
         )}
       </div>
     );
+  };
+
+  const renderFindingCard = (item: any, index: number) => {
+    return renderDetailedFinding(item, !!expandedFindings[item.rule_id], () => toggleFindingExpanded(item.rule_id));
   };
 
   const renderExecutionRiskSummary = (findings: any[]) => {
@@ -1508,6 +1591,7 @@ export default function PlaygroundPage() {
       </div>
     );
   };
+
   
   
   // Custom toast notifications inside drawer
@@ -3062,7 +3146,8 @@ export default function PlaygroundPage() {
           <nav className="space-y-1">
             {[
               { label: 'Overview', icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z', href: '/projects' },
-              { label: 'Audits', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', href: '/playground', active: true },
+              { label: 'Try Scanner', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', href: '/try' },
+              { label: 'Playground', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', href: '/playground', active: true },
               { label: 'Intelligence', icon: 'M13 10V3L4 14h7v7l9-11h-7z', href: '/intelligence' },
               { label: 'Models', icon: 'M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 9.172V5L8 4z', href: '/models' },
               { label: 'Policies', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', href: '/policies' },
@@ -5184,28 +5269,12 @@ export default function PlaygroundPage() {
                           <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">Developer CLI</span>
                           <p className="text-[10px] text-[#57534E] leading-relaxed mt-1 font-semibold">Scan prompts from your terminal or CI pipeline.</p>
                         </div>
-                        <div className="space-y-1.5 font-mono text-[9px] text-[#78716C]">
-                          <div className="flex items-center justify-between bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-bold group">
-                            <span className="truncate">npm install -g @promptsonar/cli</span>
-                            <button 
-                              onClick={() => copyText("npm install -g @promptsonar/cli", "CLI install command copied.")}
-                              className="text-slate-400 hover:text-slate-900 ml-1.5 shrink-0 transition-colors"
-                              title="Copy"
-                            >
-                              📋
-                            </button>
-                          </div>
-                          <div className="flex items-center justify-between bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-bold group">
-                            <span className="truncate">npx @promptsonar/cli scan .</span>
-                            <button 
-                              onClick={() => copyText("npx @promptsonar/cli scan .", "CLI scan command copied.")}
-                              className="text-slate-400 hover:text-slate-900 ml-1.5 shrink-0 transition-colors"
-                              title="Copy"
-                            >
-                              📋
-                            </button>
-                          </div>
-                        </div>
+                        <button
+                          onClick={() => copyText("npx @promptsonar/cli scan .", "CLI scan command copied.")}
+                          className="w-full text-center py-2 bg-white hover:bg-slate-50 border border-[#E4E3DE] text-slate-800 font-bold rounded-lg text-[10px] uppercase tracking-wider transition-all shadow-3xs"
+                        >
+                          Copy CLI command
+                        </button>
                       </div>
 
                       <div className="rounded-xl border border-[#E4E3DE] bg-slate-50/40 p-3.5 flex flex-col justify-between gap-3">
@@ -5213,14 +5282,6 @@ export default function PlaygroundPage() {
                           <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">VS Code Extension</span>
                           <p className="text-[10px] text-[#57534E] leading-relaxed mt-1 font-semibold">Real-time analysis, warning highlights, and inline fixes as you write prompts.</p>
                         </div>
-                        <a 
-                          href="https://marketplace.visualstudio.com" 
-                          target="_blank" 
-                          rel="noreferrer"
-                          className="w-full text-center py-2 bg-white hover:bg-slate-50 border border-[#E4E3DE] text-slate-800 font-bold rounded-lg text-[10px] uppercase tracking-wider transition-all shadow-3xs"
-                        >
-                          View Marketplace →
-                        </a>
                       </div>
 
                       <div className="rounded-xl border border-[#E4E3DE] bg-slate-50/40 p-3.5 flex flex-col justify-between gap-3">
@@ -5235,8 +5296,7 @@ export default function PlaygroundPage() {
                           className="w-full text-center py-2 bg-white hover:bg-slate-50 border border-[#E4E3DE] text-slate-800 font-bold rounded-lg text-[10px] uppercase tracking-wider transition-all shadow-3xs flex items-center justify-center gap-1.5"
                           title="Add this step to your GitHub Actions workflow to scan prompts on every push."
                         >
-                          <span>Copy GitHub Action</span>
-                          <span className="text-[9px] opacity-60">📋</span>
+                          Copy GitHub Action
                         </button>
                       </div>
 
@@ -5245,10 +5305,8 @@ export default function PlaygroundPage() {
                           <span className="text-[9px] text-[#A8A29E] uppercase tracking-wider font-bold block">SARIF Export</span>
                           <p className="text-[10px] text-[#57534E] leading-relaxed mt-1 font-semibold">For GitHub code scanning and security tools.</p>
                         </div>
-                        <button 
-                          onClick={() => {
-                            triggerToast("SARIF report schema loaded: ready to pipe to GitHub Advanced Security.");
-                          }}
+                        <button
+                          onClick={() => triggerToast("SARIF report schema loaded.")}
                           className="w-full text-center py-2 bg-white hover:bg-slate-50 border border-[#E4E3DE] text-slate-800 font-bold rounded-lg text-[10px] uppercase tracking-wider transition-all shadow-3xs"
                         >
                           Check export format

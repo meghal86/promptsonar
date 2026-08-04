@@ -435,6 +435,69 @@ function applyPropagation(nodes: WorkflowNode[], edges: WorkflowEdge[]): void {
     }
 }
 
+function extractWorkflowEvidence(text: string): string[] {
+    const evidence: string[] = [];
+    if (/\bautoExecute\b|\bauto[-_\s]?execute\b|\bautomatic\s+execution\b/i.test(text)) {
+        evidence.push('autoExecute=true');
+    }
+    if (/\bwildcard\s+permissions?\b|"\*"/i.test(text)) {
+        evidence.push('permissions="*"');
+    }
+    if (/\bshell_exec\b|\bbash\b|\bexecute\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b|\brun\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i.test(text)) {
+        evidence.push('shell command detected');
+    }
+    if (/\bbypass\s+approval\b|\bdisable\s+approval\b|\bauto\s*approve\b|\bexecute\s+automatically\b|\bskip\s+confirmation\b|\bwithout\s+(?:approval|permission|confirmation)\b/i.test(text)) {
+        evidence.push('approval requirement missing');
+    }
+    if (/\bfilesystem_access\b|\bfilesystem\s+access\b|\bunrestricted\s+filesystem\b|\bread\s+(?:any|all)\s+files?\b|\bwrite\s+(?:any|all)\s+files?\b|\bdelete\s+(?:any|all)\s+files?\b/i.test(text)) {
+        evidence.push('filesystem modification access');
+    }
+    if (/\binternal_network_access\b|\bnetwork_access\b|\binternal\s+network\s+access\b|\bunrestricted\s+network\b|\bcall\s+internal\s+(?:api|service|network)\b|\bscan\s+internal\s+network\b|\bwebhook\b/i.test(text)) {
+        evidence.push('network connection activity');
+    }
+    if (/\bexternal_api\b|\bexternal\s+api\b|https?:\/\/[^\s"',)\\]+/i.test(text)) {
+        evidence.push('external API request');
+    }
+    if (/\bcredential_store\b|\bcredential\s+store\b|\bcredential\s+passthrough\b|\bpass\s+(?:through|host)\s+credentials?\b|\b(?:api[_-]?key|secret|token|password)\b/i.test(text)) {
+        evidence.push('credential storage read');
+    }
+    if (/\bagent\s+memory\b|\bpersist\s+instructions?\b|\bretain\s+instructions?\b|\bfuture\s+sessions?\b|\bsave\s+instructions?\b/i.test(text)) {
+        evidence.push('memory persistence active');
+    }
+    if (/\bretrieved\s+(?:context|instructions|content|documents?)\b|\brag\s+(?:context|instructions?|content)\b/i.test(text)) {
+        evidence.push('untrusted retrieval input');
+    }
+    return evidence;
+}
+
+function calculateWorkflowConfidence(text: string, path: WorkflowPath): { score: number; level: 'Low' | 'Medium' | 'High' } {
+    let score = 25; // Base confidence
+
+    // Strong indicators (+15% each)
+    if (/\bautoExecute\b|\bauto[-_\s]?execute\b|\bautomatic\s+execution\b/i.test(text)) score += 15;
+    if (/\bwildcard\s+permissions?\b|"\*"/i.test(text)) score += 15;
+    if (/\bshell_exec\b|\bbash\b|\bexecute\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b|\brun\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i.test(text)) score += 15;
+    if (path.privilegedSinkReached) score += 15;
+    if (path.nodes.some(n => n.type === 'credential_store' || n.privilegePropagated)) score += 15;
+
+    // Medium indicators (+10% each)
+    if (path.nodes.some(n => n.type === 'agent_memory') || /\bagent\s+memory\b|\bpersist\s+instructions?\b/i.test(text)) score += 10;
+    if (path.nodes.some(n => n.type === 'tool_router' || n.type === 'privileged_tool') || /\btool_router\b|\btool\s+router\b/i.test(text)) score += 10;
+    if (path.nodes.some(n => n.type === 'network_access' || n.type === 'external_api') || /\bnetwork_access\b|\bexternal_api\b/i.test(text)) score += 10;
+
+    // Weak indicators (+5% each)
+    if (/\bignore\s+(?:previous|all|prior|earlier|above)?\s*(?:instructions?|restrictions?|rules?)\b/i.test(text)) score += 5;
+    if (/\brewrite\s+(?:the\s+)?system\s+prompt\b/i.test(text)) score += 5;
+
+    score = Math.max(0, Math.min(100, score));
+
+    let level: 'Low' | 'Medium' | 'High' = 'Low';
+    if (score >= 80) level = 'High';
+    else if (score >= 50) level = 'Medium';
+
+    return { score, level };
+}
+
 function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[]): FindingWorkflow {
     const nodeSpecs = dedupeNodeSpecs(rawNodeSpecs);
     const sink = nodeSpecs[nodeSpecs.length - 1].type;
@@ -501,6 +564,7 @@ function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[])
 
     return enriched;
 }
+
 
 function inferExecutionSinks(text: string, input: WorkflowInferenceInput): NodeSpec[] {
     const sinks: NodeSpec[] = [];

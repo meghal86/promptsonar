@@ -229,8 +229,8 @@ export default function ModelsPage() {
               PromptSonar never calls models automatically.
             </p>
           </div>
-          <Link href="/playground" className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50">
-            Back to Playground
+          <Link href="/try" className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50">
+            Back to Try page
           </Link>
         </header>
 
