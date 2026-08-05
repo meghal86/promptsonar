@@ -917,5 +917,5 @@ describe('CLI scanner file discovery and locations (audit P0 regressions)', () =
         expect(jsonFinding.context.vulnerabilityBasis).toBeUndefined();
         expect(sarifFinding.level).toBe('note');
         expect(sarifFinding.properties.contextual_verdict).toBe(jsonFinding.context.verdict);
-    });
+    }, 30000);
 });

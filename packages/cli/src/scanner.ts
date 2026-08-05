@@ -113,6 +113,15 @@ function getOwaspRef(ruleId: string): string {
     ) return 'LLM01';
     if (ruleId.startsWith('sec_owasp_llm02')) return 'LLM02';
     if (ruleId === 'sec_unbounded_access' || ruleId === 'sec_rag_injection') return 'LLM07';
+    // LLM06 Excessive Agency: untrusted input reaching privileged execution, or
+    // tool configuration that acts without human approval.
+    if (
+        ruleId === 'sec_workflow_escalation' ||
+        ruleId === 'sec_privileged_sink_access' ||
+        ruleId === 'sec_mcp_tool_poisoning'
+    ) return 'LLM06';
+    // LLM10 Unbounded Consumption: prompt size beyond the configured budget.
+    if (ruleId === 'eff_token_budget' || ruleId === 'eff_token_bloat') return 'LLM10';
     return '';
 }
 

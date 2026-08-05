@@ -251,6 +251,67 @@ export function getExitCode(results: ScanResult[], failOn: string): number {
 
 import * as crypto from 'crypto';
 
+// ISO/IEC 42001:2023 control tags, derived per finding.
+//
+// These record which AI-management-system control a finding is EVIDENCE for.
+// They do not assert conformity: PromptSonar supports evidence collection and
+// does not determine or certify whether a system is compliant.
+//
+// Clause 6.2 is emitted on every record as the baseline "AI objectives and
+// planning" tag; the remaining tags are added only when a matching finding is
+// present, so an export reflects what was actually detected.
+const ISO42001_BASELINE = 'ISO42001-6.2';
+
+export function iso42001ControlsForRule(ruleId: string, category: string): string[] {
+    // Untrusted input reaching privileged execution, or tools acting without
+    // approval — evidence for responsible-use and operational controls.
+    if (
+        ruleId === 'sec_workflow_escalation' ||
+        ruleId === 'sec_privileged_sink_access' ||
+        ruleId === 'sec_mcp_tool_poisoning' ||
+        ruleId === 'sec_unbounded_access'
+    ) {
+        return ['ISO42001-A.9.2', 'ISO42001-A.6.2.6'];
+    }
+    // Injection and evasion — evidence for verification and validation.
+    if (
+        ruleId.startsWith('sec_owasp_llm01') ||
+        ruleId.startsWith('sec_unicode') ||
+        ruleId === 'sec_homoglyph_evasion' ||
+        ruleId === 'sec_zero_width_injection' ||
+        ruleId === 'sec_base64_encoded_payload' ||
+        ruleId === 'sec_rag_injection'
+    ) {
+        return ['ISO42001-A.6.2.4'];
+    }
+    // Credential and PII exposure — evidence for data-management controls.
+    if (ruleId.startsWith('sec_owasp_llm02')) {
+        return ['ISO42001-A.7.2'];
+    }
+    // Resource consumption — evidence for operation and monitoring.
+    if (category === 'efficiency') {
+        return ['ISO42001-A.6.2.6'];
+    }
+    // Ethics findings — evidence for AI system impact assessment.
+    if (category === 'ethics') {
+        return ['ISO42001-A.5.2'];
+    }
+    // Remaining quality categories describe specification completeness.
+    if (
+        category === 'clarity' ||
+        category === 'structure' ||
+        category === 'best_practices' ||
+        category === 'consistency'
+    ) {
+        return ['ISO42001-A.6.2.2'];
+    }
+    // Unmapped security rules still evidence verification and validation.
+    if (category === 'security') {
+        return ['ISO42001-A.6.2.4'];
+    }
+    return [];
+}
+
 /**
  * Formats scan results into the Article 19 JSONL export schema.
  */
@@ -260,13 +321,17 @@ export function formatArticle19(results: ScanResult[]): string {
     for (const r of results) {
         // Create a stable prompt_id from the file path
         const prompt_id = crypto.createHash('sha256').update(r.filePath).digest('hex').substring(0, 12);
-        
-        // Map OWASP rules into controls
+
+        // Derive controls from what was actually found, not a fixed tag.
         const controls = new Set<string>();
-        controls.add("ISO42001-6.2"); // Default standard compliance tag
+        controls.add(ISO42001_BASELINE);
         for (const f of r.findings) {
+            if (f.waived) continue;
             if (f.owasp_ref) {
                 controls.add(`OWASP-${f.owasp_ref}`);
+            }
+            for (const control of iso42001ControlsForRule(f.rule_id, f.category)) {
+                controls.add(control);
             }
         }
 
@@ -275,7 +340,8 @@ export function formatArticle19(results: ScanResult[]): string {
             prompt_id: prompt_id,
             model: "static-analysis", // Placeholder since we don't execute against a live model
             risk_score: Math.max(0, 100 - r.overall_score),
-            controls: Array.from(controls),
+            // Sorted so the export is byte-stable for the same input.
+            controls: Array.from(controls).sort(),
             outcome: r.status === 'fail' ? 'blocked' : 'success'
         };
 

@@ -56,6 +56,19 @@ function getOwaspMapping(ruleId: string): string | undefined {
     if (ruleId === 'sec_unbounded_access' || ruleId === 'sec_rag_injection') {
         return 'OWASP LLM07';
     }
+    // LLM06 Excessive Agency: untrusted input reaching privileged execution, or
+    // tool configuration that acts without human approval.
+    if (
+        ruleId === 'sec_workflow_escalation' ||
+        ruleId === 'sec_privileged_sink_access' ||
+        ruleId === 'sec_mcp_tool_poisoning'
+    ) {
+        return 'OWASP LLM06';
+    }
+    // LLM10 Unbounded Consumption: prompt size beyond the configured budget.
+    if (ruleId === 'eff_token_budget' || ruleId === 'eff_token_bloat') {
+        return 'OWASP LLM10';
+    }
     return undefined;
 }
 
@@ -138,6 +151,15 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                     severity: f.severity,
                     securitySeverity: severityToSecuritySeverity(f.severity),
                     owasp: f.owasp || getOwaspMapping(f.rule_id),
+                    // SARIF consumers (e.g. GitHub code scanning) filter on
+                    // properties.tags, so surface the category and OWASP
+                    // mapping there as well as in the dedicated owasp field.
+                    tags: [
+                        f.category,
+                        ...(f.owasp || getOwaspMapping(f.rule_id)
+                            ? [(f.owasp || getOwaspMapping(f.rule_id)) as string]
+                            : []),
+                    ],
                     confidence: f.confidence || "HIGH",
                     precision: (f.confidence || "HIGH").toLowerCase().replace('_', '-'),
                     contextual_verdict: f.context?.verdict,
