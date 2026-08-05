@@ -15,7 +15,7 @@
         "ai"
     ],
     "publisher": "promptsonar-tools",
-    "license": "SEE LICENSE IN LICENSE",
+    "license": "MIT",
     "repository": {
         "type": "git",
         "url": "https://github.com/meghal86/promptsonar.git"
