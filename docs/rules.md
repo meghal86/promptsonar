@@ -148,7 +148,7 @@ You are a support assistant, but only answer account setup questions. Never requ
 ### sec_unbounded_access
 
 - Severity: high
-- OWASP: LLM07 Insecure Plugin / Tool Design
+- OWASP: LLM06 Excessive Agency
 - Triggers when: Prompt text grants broad file, database, shell, admin, or network scope without path/table/domain restrictions.
 - Vulnerable snippet:
 
@@ -167,7 +167,7 @@ Read only files under ./docs and never execute shell commands.
 ### sec_rag_injection
 
 - Severity: high
-- OWASP: LLM07 Insecure Plugin / Tool Design
+- OWASP: LLM08 Vector and Embedding Weaknesses
 - Triggers when: Raw user input is passed directly into retrieval/search context without validation.
 - Vulnerable snippet:
 

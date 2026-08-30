@@ -256,7 +256,7 @@ export function generateMcpSarif(result: McpAuditResult): string {
         tool: {
           driver: {
             name: 'PromptSonar MCP Auditor',
-            version: '1.5.0',
+            version: '1.5.1',
             informationUri: 'https://github.com/meghal86/promptsonar',
             rules: [
               { id: 'MCP-001', shortDescription: { text: 'Untrusted Server URL' } },

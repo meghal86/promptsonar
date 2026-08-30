@@ -2216,7 +2216,8 @@ export default function PlaygroundPage() {
       finding.rule_id === 'sec_unbounded_persona'
     ) return 'OWASP LLM01';
     if (finding.rule_id.includes('llm02') || finding.rule_id.includes('pii')) return 'OWASP LLM02';
-    if (finding.rule_id === 'sec_rag_injection' || finding.rule_id === 'sec_unbounded_access') return 'OWASP LLM07';
+    if (finding.rule_id === 'sec_unbounded_access') return 'OWASP LLM06';
+    if (finding.rule_id === 'sec_rag_injection') return 'OWASP LLM08';
     return 'Unmapped';
   };
 
@@ -2531,8 +2532,11 @@ export default function PlaygroundPage() {
       if (finding.rule_id.includes('llm02') || finding.rule_id.includes('pii')) {
         labels.add('OWASP LLM02');
       }
-      if (finding.rule_id === 'sec_rag_injection' || finding.rule_id === 'sec_unbounded_access') {
-        labels.add('OWASP LLM07');
+      if (finding.rule_id === 'sec_unbounded_access') {
+        labels.add('OWASP LLM06');
+      }
+      if (finding.rule_id === 'sec_rag_injection') {
+        labels.add('OWASP LLM08');
       }
     });
     return Array.from(labels);

@@ -53,17 +53,20 @@ function getOwaspMapping(ruleId: string): string | undefined {
     if (ruleId.startsWith('sec_owasp_llm02')) {
         return 'OWASP LLM02';
     }
-    if (ruleId === 'sec_unbounded_access' || ruleId === 'sec_rag_injection') {
-        return 'OWASP LLM07';
-    }
-    // LLM06 Excessive Agency: untrusted input reaching privileged execution, or
-    // tool configuration that acts without human approval.
+    // OWASP LLM Top 10 (2025). LLM06 Excessive Agency covers untrusted input
+    // reaching privileged execution, tools acting without approval, and
+    // over-broad tool/data access.
     if (
         ruleId === 'sec_workflow_escalation' ||
         ruleId === 'sec_privileged_sink_access' ||
-        ruleId === 'sec_mcp_tool_poisoning'
+        ruleId === 'sec_mcp_tool_poisoning' ||
+        ruleId === 'sec_unbounded_access'
     ) {
         return 'OWASP LLM06';
+    }
+    // LLM08 Vector and Embedding Weaknesses: untrusted input steering retrieval.
+    if (ruleId === 'sec_rag_injection') {
+        return 'OWASP LLM08';
     }
     // LLM10 Unbounded Consumption: prompt size beyond the configured budget.
     if (ruleId === 'eff_token_budget' || ruleId === 'eff_token_bloat') {
@@ -101,7 +104,7 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                 tool: {
                     driver: {
                         name: "PromptSonar",
-                        version: "1.5.0",
+                        version: "1.5.1",
                         informationUri: "https://github.com/meghal86/promptsonar",
                         rules: [] as any[]
                     }

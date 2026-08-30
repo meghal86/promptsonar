@@ -178,7 +178,7 @@ If the prompt assigns a persona but contains none of these constraint keywords, 
 ### 4. Security — Unbounded Access (`sec_unbounded_access`)
 
 **File:** [unbounded_access.ts](../packages/core/src/rules/security/unbounded_access.ts)  
-**Severity:** `high` | **Penalty:** 15 pts | **OWASP:** LLM07
+**Severity:** `high` | **Penalty:** 15 pts | **OWASP:** LLM06
 
 Detects prompts granting unrestricted system/DB/file access.
 
@@ -195,7 +195,7 @@ Scope-limited prompts are exempted if they contain: `only from`, `restricted to`
 ### 5. Security — RAG Injection (`sec_rag_injection`)
 
 **File:** [rag_injection.ts](../packages/core/src/rules/security/rag_injection.ts)  
-**Severity:** `high` | **Penalty:** 15 pts | **OWASP:** LLM07
+**Severity:** `high` | **Penalty:** 15 pts | **OWASP:** LLM08
 
 Detects raw user input passed directly into retrieval/tool operations without validation.
 
@@ -425,8 +425,8 @@ Estimates dollar savings based on:
 | `sec_unicode_injection_obfuscation` | Security | Critical | 30 | LLM01 |
 | `sec_owasp_llm02_pii` | Security | High | 20 | LLM02 |
 | `sec_unbounded_persona` | Security | High | 15 | LLM01 |
-| `sec_unbounded_access` | Security | High | 15 | LLM07 |
-| `sec_rag_injection` | Security | High | 15 | LLM07 |
+| `sec_unbounded_access` | Security | High | 15 | LLM06 |
+| `sec_rag_injection` | Security | High | 15 | LLM08 |
 | `clarity_missing_quantifier` | Clarity | Medium | 10 | — |
 | `clarity_open_ended` | Clarity | Low | 5 | — |
 | `clarity_vague_words` | Clarity | Low | 5 | — |

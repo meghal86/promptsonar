@@ -5,14 +5,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
 import { scanFiles, generateSarif, ScanResult, scoreFromFindings, loadRepositoryIgnorePatterns } from './scanner';
-import { formatJson, formatTerminal, getExitCode, formatArticle19 } from './formatters';
+import { formatJson, formatTerminal, getExitCode, formatArticle19, normalizeFailOn, VALID_FAIL_ON } from './formatters';
 import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, evaluateRepositoryWithClosure, LocalCheckoutSource, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport, computeDeterministicEdits, applyDeterministicFixes, contextualVerdictLabel, contextualVerdictToSarifLevel, severityToSarifRank, severityToSecuritySeverity, shouldIncludeIssueInSarif, normalizeMcpAuditResultsContextual, type RepositoryClosureEvaluationResult, type ScanBudget } from '@promptsonar/core';
 import * as os from 'os';
 import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
 import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 
 const program = new Command();
 type CliOptions = Record<string, any>;
@@ -50,18 +50,43 @@ function isZodSchemaError(err: any): boolean {
     return err?.name === 'ZodError' || Array.isArray(err?.issues);
 }
 
-function formatPolicySchemaError(fileName: string): string {
-    return [
+// The example below MUST stay valid against GovernancePolicySchema in
+// packages/core/src/governance/schema.ts. It is exercised by a regression test
+// that feeds this exact example back in and asserts it is accepted — an error
+// message that recommends an unusable format is worse than no message at all.
+function formatPolicySchemaError(fileName: string, err?: any): string {
+    const lines = [
         `Policy file error: Invalid schema in ${fileName}`,
+        '',
         'Expected format:',
         '  policies:',
-        '    - name: my-policy',
-        '      rules:',
-        '        max_critical: 0',
-        '        max_high: 2',
+        '    - id: my-policy                  # required, unique identifier',
+        '      match:                         # optional, limits which files the rule applies to',
+        '        path: "prompts/**"           #   string or list of strings',
+        '        tags: ["production"]',
+        '      thresholds:                    # optional',
+        '        security_score_min: 80       #   fail if a file scores below this',
+        '      block_patterns:                # optional, findings matching these fail the policy',
+        '        - "ignore all previous instructions"',
+        '      require:                       # optional, required rule ids',
+        '        - sec_owasp_llm01_injection',
         '',
-        'See documentation: github.com/meghal86/promptsonar'
-    ].join('\n');
+        'Only "id" is required; match, thresholds, block_patterns and require are optional.',
+    ];
+
+    const issues = Array.isArray(err?.issues) ? err.issues : [];
+    if (issues.length > 0) {
+        lines.push('', 'Problems found:');
+        for (const issue of issues.slice(0, 10)) {
+            const where = Array.isArray(issue.path) && issue.path.length > 0
+                ? issue.path.join('.')
+                : '(root)';
+            lines.push(`  - ${where}: ${issue.message}`);
+        }
+    }
+
+    lines.push('', 'See documentation: github.com/meghal86/promptsonar');
+    return lines.join('\n');
 }
 
 function commandOption<T = any>(command: any, key: string): T {
@@ -511,13 +536,17 @@ program
     .option('--sarif', 'Output results in SARIF format')
     .option('--report <file>', 'Generate a visual HTML report')
     .option('--output <file>', 'Write results to a file')
-    .option('--fail-on <severity>', 'Exit code threshold (critical|high|medium|low)', 'critical')
+    .option('--fail-on <severity>', `Exit code threshold (${VALID_FAIL_ON.join('|')}), case-insensitive`, 'critical')
     .option('--waiver <file>', 'Path to a .promptsonar.json waiver file')
     .option('--policy-file <file>', 'Path to a .promptsonar-policy.yaml governance file')
     .option('--fix', 'Automatically repair scanned prompts for quality & safety issues')
     .option('--dry-run', 'Preview fixes without writing files')
     .action(async (targetPath: string, options: CliOptions) => {
         try {
+            // Validate the threshold before scanning so a mistyped --fail-on
+            // fails fast instead of after a full scan (and never silently passes).
+            normalizeFailOn(options.failOn);
+
             const results = await scanFiles(targetPath, {
                 verbose: options.verbose,
                 waiverFile: options.waiver
@@ -621,7 +650,7 @@ program
                     policy = parseGovernancePolicy(options.policyFile);
                 } catch (err: any) {
                     if (isZodSchemaError(err)) {
-                        console.error(chalk.red(formatPolicySchemaError(options.policyFile)));
+                        console.error(chalk.red(formatPolicySchemaError(options.policyFile, err)));
                         process.exit(1);
                     }
                     throw err;

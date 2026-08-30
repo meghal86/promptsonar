@@ -160,7 +160,8 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
                     finding.rule_id === 'sec_zero_width_injection'
                 ) owaspRef = 'OWASP LLM01 — Prompt Injection';
                 else if (finding.rule_id.startsWith('sec_owasp_llm02')) owaspRef = 'OWASP LLM02 — Sensitive Information Disclosure';
-                else if (finding.rule_id === 'sec_unbounded_access' || finding.rule_id === 'sec_rag_injection') owaspRef = 'OWASP LLM07 — Insecure Plugin Design';
+                else if (finding.rule_id === 'sec_unbounded_access') owaspRef = 'OWASP LLM06 — Excessive Agency';
+                else if (finding.rule_id === 'sec_rag_injection') owaspRef = 'OWASP LLM08 — Vector and Embedding Weaknesses';
 
                 const docsUrl = `https://github.com/meghal86/promptsonar/wiki/rules/${finding.rule_id}`;
 

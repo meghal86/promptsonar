@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { analyzeRootCause, contextualVerdictLabel, humanRuleName } from '@promptsonar/core';
 import { ScanResult } from './scanner';
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 
 // Severity color/emoji map
 const SEVERITY_DISPLAY: Record<string, { emoji: string; color: (s: string) => string; label: string }> = {
@@ -222,11 +222,34 @@ export function formatTerminal(results: ScanResult[]): string {
  * Determines the exit code based on findings severity and the --fail-on threshold.
  * Returns: 0 = clean, 1 = critical, 2 = high (no criticals), 3 = medium (no criticals/highs)
  */
+export const VALID_FAIL_ON = ['critical', 'high', 'medium', 'low', 'none'] as const;
+
+/**
+ * Normalizes and validates a --fail-on threshold.
+ *
+ * Case- and whitespace-insensitive, so `HIGH`, `High` and ` high ` all behave
+ * identically. Anything genuinely unrecognized throws rather than silently
+ * returning a passing exit code: a mistyped threshold used to make the gate
+ * fail open, which is the worst possible failure mode for a security check.
+ * An empty/unset value falls back to the fail-closed default instead.
+ */
+export function normalizeFailOn(failOn: string | undefined): string {
+    const normalized = (failOn ?? '').toLowerCase().trim();
+    if (normalized === '') return 'critical';
+    if (!(VALID_FAIL_ON as readonly string[]).includes(normalized)) {
+        throw new Error(
+            `Invalid --fail-on value: '${failOn}'. Expected one of: ${VALID_FAIL_ON.join(', ')}.`,
+        );
+    }
+    return normalized;
+}
+
 export function getExitCode(results: ScanResult[], failOn: string): number {
     const severityOrder = ['critical', 'high', 'medium', 'low', 'none'];
-    const failOnIndex = severityOrder.indexOf(failOn);
+    const threshold = normalizeFailOn(failOn);
+    const failOnIndex = severityOrder.indexOf(threshold);
 
-    if (failOn === 'none' || failOnIndex === -1) return 0;
+    if (threshold === 'none') return 0;
 
     let hasCritical = false;
     let hasHigh = false;

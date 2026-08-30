@@ -1,6 +1,6 @@
 {
   "name": "@promptsonar/core",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Core engine for PromptSonar — Static security scanner for LLM prompts",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,6 +19,7 @@
   "homepage": "https://github.com/meghal86/promptsonar#readme",
   "scripts": {
     "build": "tsc -b",
+    "prepublishOnly": "rimraf dist tsconfig.tsbuildinfo && npm run build",
     "watch": "tsc -w",
     "clean": "rm -rf dist",
     "test": "vitest run --coverage"

@@ -79,6 +79,27 @@ When the scanner cannot infer a high-confidence source-to-sink path, the panel s
 
 -----
 
+## What's New in 1.5.1
+
+- ✅ **Compliance evidence is derived per finding** — the Article 19 export tags each
+  record with the ISO/IEC 42001 controls the findings actually evidence, instead of a
+  single fixed `ISO42001-6.2` on every line. Controls are sorted, so the export is
+  byte-stable for the same input.
+- ✅ **OWASP LLM06 and LLM10 mapped** — excessive-agency and unbounded-consumption
+  rules now carry OWASP identifiers, and every SARIF rule exposes `properties.tags`
+  so GitHub code scanning can filter on them.
+- ✅ **OWASP mapping standardized on the 2025 Top 10** — `sec_unbounded_access` moved
+  to LLM06 Excessive Agency and `sec_rag_injection` to LLM08 Vector and Embedding
+  Weaknesses. Previously both reported LLM07 using 2023 naming.
+- ✅ **`--fail-on` is case-insensitive and no longer fails open** — an unrecognized
+  value now errors instead of silently exiting 0.
+- ✅ **Published packages always ship a fresh build** — `prepublishOnly` rebuilds
+  `dist/` from source, so a release can no longer contain stale compiled output.
+
+See the [1.5.1 release note](docs/releases/1.5.1.md).
+
+-----
+
 ## What's New in 1.4
 
 PromptSonar 1.4 bundles the engine work into one release. The scanner no longer
@@ -530,13 +551,19 @@ Open a pull request from that branch. Expected behavior:
 
 ## OWASP LLM Top 10 + Agentic Coverage
 
-| Risk area | PromptSonar coverage |
-| --- | --- |
-| LLM01 Prompt Injection | Direct injection strings, persona override, Base64 payloads, homoglyphs, zero-width characters |
-| LLM02 Sensitive Information Disclosure | API keys, passwords, tokens, SSNs, credit cards, hardcoded credentials |
-| LLM07 Insecure Plugin / Tool Design | RAG injection, unbounded access, MCP tool scope, missing MCP auth indicators |
-| Agentic Tool Poisoning | Suspicious MCP tool descriptions, unknown domains, broad write/delete scope, host credential passthrough, and unpinned mutable tool packages |
-| Governance Evidence | JSON, SARIF v2.1.0, HTML reports, Prompt SBOM, policy checks |
+Mapped against the **OWASP LLM Top 10 (2025)**. These identifiers are emitted as
+`properties.owasp` and `properties.tags` on every SARIF rule, so the table below
+matches what a scan actually reports.
+
+| Risk area | Rules | PromptSonar coverage |
+| --- | --- | --- |
+| LLM01 Prompt Injection | `sec_owasp_llm01_injection`, `sec_unbounded_persona`, `sec_base64_encoded_payload`, `sec_homoglyph_evasion`, `sec_zero_width_injection` | Direct injection strings, persona override, Base64 payloads, homoglyphs, zero-width characters |
+| LLM02 Sensitive Information Disclosure | `sec_owasp_llm02_pii` | API keys, passwords, tokens, SSNs, credit cards, hardcoded credentials |
+| LLM06 Excessive Agency | `sec_workflow_escalation`, `sec_privileged_sink_access`, `sec_mcp_tool_poisoning`, `sec_unbounded_access` | Untrusted input reaching privileged execution, tools acting without approval, over-broad tool/data access |
+| LLM08 Vector and Embedding Weaknesses | `sec_rag_injection` | Untrusted input steering retrieval or poisoning retrieved context |
+| LLM10 Unbounded Consumption | `eff_token_budget`, `eff_token_bloat` | Prompt size beyond the configured token budget |
+| Agentic Tool Poisoning | `MCP-*` | Suspicious MCP tool descriptions, unknown domains, broad write/delete scope, host credential passthrough, and unpinned mutable tool packages |
+| Governance Evidence | — | JSON, SARIF v2.1.0, HTML reports, Prompt SBOM, ISO 42001 / Article 19 export, policy checks |
 
 -----
 

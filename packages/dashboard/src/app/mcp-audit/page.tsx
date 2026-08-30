@@ -23,7 +23,9 @@ interface McpServerConfig {
   trusted: boolean;
 }
 
-const INITIAL_SERVERS: McpServerConfig[] = [
+// Fixed demo data used to illustrate the report format. This page performs no
+// real scan; see the disclosure banner rendered at the top of the page.
+const DEMO_SERVERS: McpServerConfig[] = [
   {
     name: 'sqlite-local',
     status: 'passed',
@@ -41,7 +43,7 @@ const INITIAL_SERVERS: McpServerConfig[] = [
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-postgres', 'postgresql://192.168.1.104:5432/production_db', '--unrestricted'],
     env: {
-      "PGPASSWORD": "sk-live-51Nz8P3J2lK9qP8t5U8w2Y9x0..."
+      "PGPASSWORD": "sk-live-EXAMPLE-NOT-A-REAL-KEY"
     },
     violations: [
       {
@@ -63,7 +65,7 @@ const INITIAL_SERVERS: McpServerConfig[] = [
         severity: 'high',
         title: 'Hardcoded Credentials in Environment',
         explanation: 'Detected a hardcoded API token/password pattern matching standard system variables committed directly inside environmental keys.',
-        fix: 'Move the database credentials to dynamic environment parameters or secret vaults and rotate the exposed sk-live token.'
+        fix: 'Move the database credentials to dynamic environment parameters or secret vaults and rotate the exposed token.'
       }
     ],
     trusted: false
@@ -114,7 +116,7 @@ const INITIAL_SERVERS: McpServerConfig[] = [
 ];
 
 export default function McpAuditPage() {
-  const [servers, setServers] = useState<McpServerConfig[]>(INITIAL_SERVERS);
+  const [servers, setServers] = useState<McpServerConfig[]>(DEMO_SERVERS);
   const [selectedServerName, setSelectedServerName] = useState<string>('postgres-dev-unsecured');
   const [fuzzingState, setFuzzingState] = useState<Record<string, { fuzzing: boolean; results?: string[] }>>({});
 
@@ -146,7 +148,7 @@ export default function McpAuditPage() {
         ];
       } else {
         fuzzerFindings = [
-          '✅ Fuzz simulation complete. Zero trust leaks or command escalations detected.'
+          '✅ Simulated walkthrough complete. No issues in this example configuration.'
         ];
       }
 
@@ -161,13 +163,36 @@ export default function McpAuditPage() {
     <div className="min-h-screen bg-[#FAF9F6] text-[#1C1917] font-sans antialiased">
       <main className="mx-auto max-w-6xl px-6 py-12">
         
+        {/* Demo disclosure — this page renders fixed example data, never a real scan.
+            PromptSonar does not present fabricated findings as real results. */}
+        <div
+          role="note"
+          className="mb-8 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4"
+        >
+          <p className="text-xs font-black uppercase tracking-widest text-amber-800">
+            Demo data — not a real scan
+          </p>
+          <p className="mt-2 text-sm leading-6 text-amber-900">
+            The servers, findings, and credentials shown below are fixed examples used to
+            illustrate the report format. They are not from your machine, and nothing on this
+            page inspects your environment. For a real audit of your own MCP configuration,
+            run{' '}
+            <code className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[12px] font-bold">
+              promptsonar audit-mcp &lt;path-to-config&gt;
+            </code>{' '}
+            locally.
+          </p>
+        </div>
+
         {/* Navigation & Header */}
         <header className="mb-10 flex flex-col gap-4 border-b border-[#E4E3DE] pb-8 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">Desktop & CLI Auditing</p>
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-[#A8A29E]">Desktop &amp; CLI Auditing</p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">MCP Server Security Audits</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#57534E]">
-              Evaluate Model Context Protocol (MCP) server trust structures, verify hardcoded secrets, and discover tool poisoning threats in your local environment.
+              An example report showing how PromptSonar evaluates Model Context Protocol (MCP)
+              server trust structures, hardcoded secrets, and tool poisoning risks. Run the CLI
+              locally to audit your own environment.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 shrink-0">
@@ -395,15 +420,18 @@ export default function McpAuditPage() {
             <div className="border-t border-[#E4E3DE] pt-6 flex flex-col gap-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                  <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-900">Manual Fuzzer Simulator</h3>
-                  <p className="text-xs text-[#57534E] mt-1">Inject adversarial overrides to verify server resilience against tool poisoning leaks.</p>
+                  <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-900">Fuzzer Walkthrough (Simulated)</h3>
+                  <p className="text-xs text-[#57534E] mt-1">
+                    Replays a scripted example of adversarial override testing against the demo
+                    config above. This runs nothing on your machine and reaches no server.
+                  </p>
                 </div>
                 <button
                   onClick={() => runFuzzer(selectedServer.name)}
                   disabled={fuzzingState[selectedServer.name]?.fuzzing}
                   className="rounded-full bg-slate-950 px-5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50 shrink-0 uppercase tracking-wider"
                 >
-                  {fuzzingState[selectedServer.name]?.fuzzing ? 'Simulating Fuzzing...' : 'Trigger Local Fuzzer'}
+                  {fuzzingState[selectedServer.name]?.fuzzing ? 'Replaying Simulation...' : 'Play Simulated Walkthrough'}
                 </button>
               </div>
 
@@ -411,7 +439,7 @@ export default function McpAuditPage() {
               {fuzzingState[selectedServer.name] && (
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 font-mono text-[11px] text-slate-200 flex flex-col gap-2">
                   <div className="flex justify-between items-center border-b border-slate-800 pb-2 mb-1">
-                    <span className="text-slate-400 uppercase tracking-widest text-[9px] font-bold">Fuzzer Audit Terminal</span>
+                    <span className="text-slate-400 uppercase tracking-widest text-[9px] font-bold">Fuzzer Audit Terminal (Simulated)</span>
                     <span className={`w-2 h-2 rounded-full ${fuzzingState[selectedServer.name]?.fuzzing ? 'bg-amber-500 animate-ping' : 'bg-emerald-500'}`}></span>
                   </div>
                   
