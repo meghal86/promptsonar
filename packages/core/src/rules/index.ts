@@ -22,6 +22,7 @@ import {
 
 export * from './types';
 export { scanContentForSecrets, type ContentSecretMatch } from './security/pii';
+export { findingConfidence, type FindingConfidence } from './confidence';
 
 const severityRank: Record<Severity, number> = {
     critical: 0,

@@ -26,6 +26,7 @@ import {
     McpFinding,
     normalizeMcpFindingContextual,
     type CanonicalIssueContext,
+    findingConfidence,
 } from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
@@ -73,19 +74,6 @@ function getOwaspRef(ruleId: string): string {
     if (ruleId.startsWith('sec_owasp_llm02')) return 'LLM02';
     if (ruleId === 'sec_unbounded_access' || ruleId === 'sec_rag_injection') return 'LLM07';
     return '';
-}
-
-function getConfidenceForFinding(ruleId: string, severity: string): ScanFinding['confidence'] {
-    if (severity === 'critical') return 'VERY_HIGH';
-    if (
-        ruleId === 'sec_base64_encoded_payload' ||
-        ruleId === 'sec_zero_width_injection' ||
-        ruleId === 'sec_homoglyph_evasion' ||
-        ruleId.startsWith('sec_owasp_llm02') ||
-        ruleId.startsWith('MCP-')
-    ) return 'HIGH';
-    if (severity === 'high' || severity === 'medium') return 'MEDIUM';
-    return 'LOW';
 }
 
 function getRuleDocsUrl(ruleId: string): string {
@@ -220,7 +208,7 @@ function mapMcpFinding(finding: McpFinding, filePath: string): ScanFinding {
         evidence: contextualFinding.evidence
             ? `${contextualFinding.server ? `server: ${contextualFinding.server}; ` : ''}${contextualFinding.evidence}`
             : (contextualFinding.server ? `server: ${contextualFinding.server}; path: ${contextualFinding.path}` : contextualFinding.path),
-        confidence: getConfidenceForFinding(contextualFinding.rule_id, contextualFinding.severity),
+        confidence: findingConfidence(contextualFinding.rule_id),
         docs_url: getRuleDocsUrl(contextualFinding.rule_id),
         why: contextualFinding.message,
         risk: getRiskExplanation(contextualFinding.rule_id),
@@ -425,7 +413,7 @@ export async function scanFiles(targetPath: string, options: {
                         owasp,
                         recommendation,
                         evidence: extractEvidence(content, prompt.startLine, f.rule_id),
-                        confidence: getConfidenceForFinding(f.rule_id, f.severity),
+                        confidence: findingConfidence(f.rule_id, f.evidenceKind),
                         docs_url: getRuleDocsUrl(f.rule_id),
                         why: f.explanation,
                         risk,
@@ -520,7 +508,7 @@ export async function scanFileContent(filePath: string, content: string, options
                     owasp,
                     recommendation,
                     evidence: extractEvidence(content, prompt.startLine, f.rule_id),
-                    confidence: getConfidenceForFinding(f.rule_id, f.severity),
+                    confidence: findingConfidence(f.rule_id, f.evidenceKind),
                     docs_url: getRuleDocsUrl(f.rule_id),
                     why: f.explanation,
                     risk,

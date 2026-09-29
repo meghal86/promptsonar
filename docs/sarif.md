@@ -20,6 +20,25 @@ The SARIF output includes:
 - Confidence enum in result properties.
 - Partial fingerprints for GitHub deduplication.
 
+## Confidence vs. severity
+
+`confidence` (and the rule-level `precision` derived from it) answers *how sure
+PromptSonar is that a finding is real*. `level` / `severity` answers *how bad it
+would be if real*. The two are independent: a critical finding produced by a
+phrase match is reported with the confidence of that phrase match, not with the
+confidence implied by its severity.
+
+Confidence is derived only from how a rule detects its finding:
+
+| Confidence | Detection method | Examples |
+| --- | --- | --- |
+| `HIGH` | Exact signature: specific characters, encodings, credential formats, structural MCP config checks | `sec_zero_width_injection`, `sec_homoglyph_evasion`, `sec_base64_encoded_payload`, `sec_owasp_llm02_pii`, `MCP-*` |
+| `MEDIUM` | Phrase or keyword match | `sec_owasp_llm01_injection`, `sec_workflow_escalation`, `sec_privileged_sink_access`, `clarity_*` |
+| `LOW` | Inferred from the absence of text in a prompt | `bp_missing_cot`, `bp_missing_persona`, `bp_missing_few_shot`, `struct_missing_format_enforcer` |
+
+`VERY_HIGH` remains a valid value of the enum but is not produced from rule
+evidence alone.
+
 ## GitHub Action Example
 
 ```yaml

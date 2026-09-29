@@ -1,7 +1,7 @@
 import * as path from 'path';
 import type { CapabilityType } from '../contextual/types';
 import { auditMcpConfig } from '../mcp';
-import { evaluatePrompt, scanContentForSecrets } from '../rules';
+import { evaluatePrompt, findingConfidence, scanContentForSecrets } from '../rules';
 import { inferWorkflowForFinding } from '../workflow';
 import { parseFile } from '../parser';
 import { inferArtifactKind, inferExecutionIntent } from '../artifacts';
@@ -225,13 +225,6 @@ function isRecognizedMcpConfig(filePath: string): boolean {
         || normalized === 'claude_desktop_config.json';
 }
 
-function confidenceForFinding(severity: string): string {
-    if (severity === 'critical') return 'VERY_HIGH';
-    if (severity === 'high') return 'HIGH';
-    if (severity === 'medium') return 'MEDIUM';
-    return 'LOW';
-}
-
 function evidenceKindForRule(ruleId: string, explicit?: 'direct' | 'absence'): 'direct' | 'absence' {
     return explicit || (ABSENCE_REQUIREMENTS[ruleId] ? 'absence' : 'direct');
 }
@@ -316,7 +309,7 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
                 evidence: finding.evidence
                     ? `${finding.server ? `server: ${finding.server}; ` : ''}${finding.evidence}`
                     : (finding.server ? `server: ${finding.server}; path: ${finding.path}` : finding.path),
-                confidence: confidenceForFinding(finding.severity),
+                confidence: findingConfidence(finding.rule_id),
                 why: finding.message,
                 risk: 'MCP configuration may expose tools, credentials, or execution capability beyond the agent workflow trust boundary.',
                 waived: false,
@@ -374,7 +367,7 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
                         : undefined,
                     scopeStartLine: evidenceKind === 'absence' ? prompt.startLine : undefined,
                     scopeEndLine: evidenceKind === 'absence' ? prompt.endLine : undefined,
-                    confidence: confidenceForFinding(finding.severity),
+                    confidence: findingConfidence(finding.rule_id, evidenceKind),
                     why: finding.explanation,
                     risk: finding.explanation,
                     waived: false,

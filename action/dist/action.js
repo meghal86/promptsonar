@@ -40,12 +40,6 @@ function getOwaspRef(ruleId) {
   if (ruleId === "sec_unbounded_access" || ruleId === "sec_rag_injection") return "LLM07";
   return "";
 }
-function getConfidenceForFinding(ruleId, severity) {
-  if (severity === "critical") return "VERY_HIGH";
-  if (ruleId === "sec_base64_encoded_payload" || ruleId === "sec_zero_width_injection" || ruleId === "sec_homoglyph_evasion" || ruleId.startsWith("sec_owasp_llm02") || ruleId.startsWith("MCP-")) return "HIGH";
-  if (severity === "high" || severity === "medium") return "MEDIUM";
-  return "LOW";
-}
 function getRuleDocsUrl(ruleId) {
   return `https://github.com/meghal86/promptsonar/blob/main/docs/rules.md#${ruleId.toLowerCase()}`;
 }
@@ -153,7 +147,7 @@ ${contextualFinding.fix}`,
     owasp: "",
     recommendation,
     evidence: contextualFinding.evidence ? `${contextualFinding.server ? `server: ${contextualFinding.server}; ` : ""}${contextualFinding.evidence}` : contextualFinding.server ? `server: ${contextualFinding.server}; path: ${contextualFinding.path}` : contextualFinding.path,
-    confidence: getConfidenceForFinding(contextualFinding.rule_id, contextualFinding.severity),
+    confidence: (0, import_core.findingConfidence)(contextualFinding.rule_id),
     docs_url: getRuleDocsUrl(contextualFinding.rule_id),
     why: contextualFinding.message,
     risk: getRiskExplanation(contextualFinding.rule_id),
@@ -372,7 +366,7 @@ async function scanFiles(targetPath, options) {
             owasp,
             recommendation,
             evidence: extractEvidence(content, prompt.startLine, f.rule_id),
-            confidence: getConfidenceForFinding(f.rule_id, f.severity),
+            confidence: (0, import_core.findingConfidence)(f.rule_id, f.evidenceKind),
             docs_url: getRuleDocsUrl(f.rule_id),
             why: f.explanation,
             risk,
@@ -457,7 +451,7 @@ async function scanFileContent(filePath, content, options) {
           owasp,
           recommendation,
           evidence: extractEvidence(content, prompt.startLine, f.rule_id),
-          confidence: getConfidenceForFinding(f.rule_id, f.severity),
+          confidence: (0, import_core.findingConfidence)(f.rule_id, f.evidenceKind),
           docs_url: getRuleDocsUrl(f.rule_id),
           why: f.explanation,
           risk,

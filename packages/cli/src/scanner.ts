@@ -19,6 +19,7 @@ import {
     McpFinding,
     normalizeMcpFindingContextual,
     scanContentForSecrets,
+    findingConfidence,
     inferArtifactKind,
     inferExecutionIntent,
     type ArtifactKind,
@@ -149,19 +150,6 @@ function getPenaltyForSeverity(severity: string): number {
         case 'low': return 5;
         default: return 5;
     }
-}
-
-function getConfidenceForFinding(ruleId: string, severity: string): ScanFinding['confidence'] {
-    if (severity === 'critical') return 'VERY_HIGH';
-    if (
-        ruleId === 'sec_base64_encoded_payload' ||
-        ruleId === 'sec_zero_width_injection' ||
-        ruleId === 'sec_homoglyph_evasion' ||
-        ruleId.startsWith('sec_owasp_llm02') ||
-        ruleId.startsWith('MCP-')
-    ) return 'HIGH';
-    if (severity === 'high' || severity === 'medium') return 'MEDIUM';
-    return 'LOW';
 }
 
 function getRuleDocsUrl(ruleId: string): string {
@@ -978,7 +966,7 @@ function mapMcpFinding(finding: McpFinding, filePath: string): ScanFinding {
         evidence: contextualFinding.evidence
             ? `${contextualFinding.server ? `server: ${contextualFinding.server}; ` : ''}${contextualFinding.evidence}`
             : (contextualFinding.server ? `server: ${contextualFinding.server}; path: ${contextualFinding.path}` : contextualFinding.path),
-        confidence: getConfidenceForFinding(contextualFinding.rule_id, contextualFinding.severity),
+        confidence: findingConfidence(contextualFinding.rule_id),
         why: contextualFinding.message,
         risk: 'MCP configuration may expose tools, credentials, or execution capability beyond the agent workflow trust boundary.',
         docs_url: getRuleDocsUrl(contextualFinding.rule_id),
@@ -1149,7 +1137,7 @@ export async function scanFiles(targetPath: string, options: {
                             : undefined,
                         scopeStartLine: evidenceKind === 'absence' ? prompt.startLine : undefined,
                         scopeEndLine: evidenceKind === 'absence' ? prompt.endLine : undefined,
-                        confidence: getConfidenceForFinding(f.rule_id, severity),
+                        confidence: findingConfidence(f.rule_id, evidenceKind),
                         why: message,
                         risk,
                         docs_url: getRuleDocsUrl(f.rule_id),
@@ -1184,7 +1172,7 @@ export async function scanFiles(targetPath: string, options: {
                     owasp_ref: getOwaspRef('sec_owasp_llm02_pii'),
                     owasp: getOwaspRef('sec_owasp_llm02_pii'),
                     evidence: redactSecretEvidenceLine(content.split(/\r?\n/)[secret.line - 1] || secret.matchedText, secret.matchedText),
-                    confidence: getConfidenceForFinding('sec_owasp_llm02_pii', severity),
+                    confidence: findingConfidence('sec_owasp_llm02_pii'),
                     why: secretFindingWhy(secret.name, artifactKind, executionIntent),
                     risk: getRiskExplanation('sec_owasp_llm02_pii'),
                     docs_url: getRuleDocsUrl('sec_owasp_llm02_pii'),
