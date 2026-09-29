@@ -6,7 +6,7 @@
     "description": "GitHub Action for PromptSonar prompt security scanning",
     "main": "dist/action.js",
     "scripts": {
-        "build": "tsup src/action.ts --format cjs --clean",
+        "build": "tsup",
         "dev": "ts-node src/action.ts",
         "test": "vitest run tests"
     },

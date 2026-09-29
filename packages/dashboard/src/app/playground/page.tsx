@@ -995,6 +995,11 @@ const createRepositoryHandoffFinding = (text: string): any | null => {
 
 // Plain-language finding summaries (from codex/mcp-audit-launch-evidence),
 // rendered alongside the technical explanation in renderDetailedFinding.
+// Workflow steps for the "Copy GitHub Action" buttons. The Action lives in the
+// action/ directory of this repository and scans the whole checkout, so it
+// needs actions/checkout first; it has no `path` input.
+const GITHUB_ACTION_SNIPPET = "- uses: actions/checkout@v4\n- uses: meghal86/promptsonar/action@main\n  with:\n    fail-on: critical";
+
 const PLAIN_EXPLANATIONS: Record<string, string> = {
   sec_workflow_escalation: "Untrusted instructions may influence actions that were supposed to remain protected.",
   sec_privileged_sink_access: "This workflow could reach tools that run commands or modify files.",
@@ -5295,7 +5300,7 @@ export default function PlaygroundPage() {
                         </div>
                         <button 
                           onClick={() => {
-                            copyText("- uses: promptsonar/action@v1\n  with:\n    path: './prompts'", "GitHub Action workflow step copied.");
+                            copyText(GITHUB_ACTION_SNIPPET, "GitHub Action workflow step copied.");
                           }}
                           className="w-full text-center py-2 bg-white hover:bg-slate-50 border border-[#E4E3DE] text-slate-800 font-bold rounded-lg text-[10px] uppercase tracking-wider transition-all shadow-3xs flex items-center justify-center gap-1.5"
                           title="Add this step to your GitHub Actions workflow to scan prompts on every push."
@@ -5573,7 +5578,7 @@ export default function PlaygroundPage() {
                     <button onClick={copyWorkflowJson} disabled={!primaryWorkflowFinding} title="Machine-readable details for debugging or bug reports." className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700 disabled:opacity-45">
                       Copy finding
                     </button>
-                    <button onClick={() => copyText("- uses: promptsonar/action@v1\n  with:\n    path: './prompts'", "GitHub Action workflow step copied.")} title="Add this step to your GitHub Actions workflow to scan prompts on every push." className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700">
+                    <button onClick={() => copyText(GITHUB_ACTION_SNIPPET, "GitHub Action workflow step copied.")} title="Add this step to your GitHub Actions workflow to scan prompts on every push." className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700">
                       Copy GitHub Action
                     </button>
                     <button onClick={() => triggerToast("SARIF report schema loaded: ready to pipe to GitHub Advanced Security.")} title="SARIF format — use this to import results into GitHub Code Scanning or other security tools." className="rounded-lg border border-[#E4E3DE] bg-[#FAF9F6] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700">

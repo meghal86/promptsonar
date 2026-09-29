@@ -1,5 +1,5 @@
 name: 'PromptSonar — Prompt Security Scan'
-description: 'Scans LLM prompts for OWASP LLM01-LLM07 vulnerabilities.'
+description: 'Scans prompts, agent instructions and MCP configs for OWASP LLM Top 10 (2025) risks.'
 author: 'PromptSonar'
 
 inputs:

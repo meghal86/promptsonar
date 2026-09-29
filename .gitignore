@@ -4,8 +4,13 @@ node_modules/
 
 # Build outputs
 dist/
+# Except the GitHub Action bundle: GitHub runs it straight from the committed
+# files without `npm install`, so action/dist is the shipped artifact.
+!action/dist/
 build/
 out/
+# The Action's tree-sitter grammars ship in a directory named out/.
+!action/dist/tree-sitter-wasms/out/
 .next/
 
 # Test and coverage artifacts
