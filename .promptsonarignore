@@ -12,6 +12,9 @@ benchmarks/**
 evidence/**
 scratch/**
 results/**
+# Generated evaluation output. `results/**` above is anchored to the repo root,
+# so it does not cover this nested directory.
+eval/results/**
 Agentsabha-angigravity/**
 custom-writer-skill/**
 my-writer-agent/**
