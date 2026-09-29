@@ -20,6 +20,7 @@ import {
     normalizeMcpFindingContextual,
     scanContentForSecrets,
     findingConfidence,
+    owaspRefForRule,
     inferArtifactKind,
     inferExecutionIntent,
     type ArtifactKind,
@@ -100,33 +101,6 @@ export interface ScanFinding {
 interface WorkspaceIgnoreMatcher {
     rootPath: string;
     matcher: Ignore;
-}
-
-// Maps rule IDs to their OWASP references
-function getOwaspRef(ruleId: string): string {
-    if (
-        ruleId.startsWith('sec_owasp_llm01') ||
-        ruleId.startsWith('sec_unicode') ||
-        ruleId === 'sec_unbounded_persona' ||
-        ruleId === 'sec_base64_encoded_payload' ||
-        ruleId === 'sec_homoglyph_evasion' ||
-        ruleId === 'sec_zero_width_injection'
-    ) return 'LLM01';
-    if (ruleId.startsWith('sec_owasp_llm02')) return 'LLM02';
-    // OWASP LLM Top 10 (2025). LLM06 Excessive Agency covers untrusted input
-    // reaching privileged execution, tools acting without approval, and
-    // over-broad tool/data access.
-    if (
-        ruleId === 'sec_workflow_escalation' ||
-        ruleId === 'sec_privileged_sink_access' ||
-        ruleId === 'sec_mcp_tool_poisoning' ||
-        ruleId === 'sec_unbounded_access'
-    ) return 'LLM06';
-    // LLM08 Vector and Embedding Weaknesses: untrusted input steering retrieval.
-    if (ruleId === 'sec_rag_injection') return 'LLM08';
-    // LLM10 Unbounded Consumption: prompt size beyond the configured budget.
-    if (ruleId === 'eff_token_budget' || ruleId === 'eff_token_bloat') return 'LLM10';
-    return '';
 }
 
 // Map rule_id to its category
@@ -1094,7 +1068,7 @@ export async function scanFiles(targetPath: string, options: {
 
                 fileFindings.push(...evalResult.findings.map(f => {
                     const configSuppression = isFindingSuppressed(f.rule_id, filePath, activeSuppressions);
-                    const owasp = getOwaspRef(f.rule_id);
+                    const owasp = owaspRefForRule(f.rule_id);
                     const category = getCategoryForRule(f.rule_id);
                     const severity = displayedSeverityForArtifact(f.severity, category, promptArtifactKind, promptExecutionIntent);
                     const recommendation = getRecommendationForArtifact(f.rule_id, f.suggested_fix || '', promptArtifactKind, promptExecutionIntent);
@@ -1169,8 +1143,8 @@ export async function scanFiles(targetPath: string, options: {
                     message,
                     fix: recommendation,
                     recommendation,
-                    owasp_ref: getOwaspRef('sec_owasp_llm02_pii'),
-                    owasp: getOwaspRef('sec_owasp_llm02_pii'),
+                    owasp_ref: owaspRefForRule('sec_owasp_llm02_pii'),
+                    owasp: owaspRefForRule('sec_owasp_llm02_pii'),
                     evidence: redactSecretEvidenceLine(content.split(/\r?\n/)[secret.line - 1] || secret.matchedText, secret.matchedText),
                     confidence: findingConfidence('sec_owasp_llm02_pii'),
                     why: secretFindingWhy(secret.name, artifactKind, executionIntent),

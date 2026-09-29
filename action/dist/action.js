@@ -34,12 +34,6 @@ var path = __toESM(require("path"));
 var import_fast_glob = __toESM(require("fast-glob"));
 var import_core = require("@promptsonar/core");
 var import_sarif = require("@promptsonar/core/dist/formatter/sarif");
-function getOwaspRef(ruleId) {
-  if (ruleId.startsWith("sec_owasp_llm01") || ruleId.startsWith("sec_unicode") || ruleId === "sec_unbounded_persona" || ruleId === "sec_base64_encoded_payload" || ruleId === "sec_homoglyph_evasion" || ruleId === "sec_zero_width_injection") return "LLM01";
-  if (ruleId.startsWith("sec_owasp_llm02")) return "LLM02";
-  if (ruleId === "sec_unbounded_access" || ruleId === "sec_rag_injection") return "LLM07";
-  return "";
-}
 function getRuleDocsUrl(ruleId) {
   return `https://github.com/meghal86/promptsonar/blob/main/docs/rules.md#${ruleId.toLowerCase()}`;
 }
@@ -340,7 +334,7 @@ async function scanFiles(targetPath, options) {
         );
         const scanFindings = evalResult.findings.map((f) => {
           const suppression = (0, import_core.isFindingSuppressed)(f.rule_id, filePath, activeSuppressions);
-          const owasp = getOwaspRef(f.rule_id);
+          const owasp = (0, import_core.owaspRefForRule)(f.rule_id);
           const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || "");
           const risk = getRiskExplanation(f.rule_id);
           const workflow = (0, import_core.inferWorkflowForFinding)({
@@ -426,7 +420,7 @@ async function scanFileContent(filePath, content, options) {
       const scanFindings = evalResult.findings.map((f) => {
         const suppression = (0, import_core.isFindingSuppressed)(f.rule_id, filePath, activeSuppressions);
         const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions);
-        const owasp = getOwaspRef(f.rule_id);
+        const owasp = (0, import_core.owaspRefForRule)(f.rule_id);
         const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || "");
         const risk = getRiskExplanation(f.rule_id);
         const workflow = (0, import_core.inferWorkflowForFinding)({

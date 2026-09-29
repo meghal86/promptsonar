@@ -27,6 +27,7 @@ import {
     normalizeMcpFindingContextual,
     type CanonicalIssueContext,
     findingConfidence,
+    owaspRefForRule,
 } from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
@@ -60,20 +61,6 @@ export interface ScanFinding {
     context?: CanonicalIssueContext;
     suppression_reason?: string;
     suppression_source?: string;
-}
-
-function getOwaspRef(ruleId: string): string {
-    if (
-        ruleId.startsWith('sec_owasp_llm01') ||
-        ruleId.startsWith('sec_unicode') ||
-        ruleId === 'sec_unbounded_persona' ||
-        ruleId === 'sec_base64_encoded_payload' ||
-        ruleId === 'sec_homoglyph_evasion' ||
-        ruleId === 'sec_zero_width_injection'
-    ) return 'LLM01';
-    if (ruleId.startsWith('sec_owasp_llm02')) return 'LLM02';
-    if (ruleId === 'sec_unbounded_access' || ruleId === 'sec_rag_injection') return 'LLM07';
-    return '';
 }
 
 function getRuleDocsUrl(ruleId: string): string {
@@ -387,7 +374,7 @@ export async function scanFiles(targetPath: string, options: {
 
                 const scanFindings: ScanFinding[] = evalResult.findings.map(f => {
                     const suppression = isFindingSuppressed(f.rule_id, filePath, activeSuppressions);
-                    const owasp = getOwaspRef(f.rule_id);
+                    const owasp = owaspRefForRule(f.rule_id);
                     const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || '');
                     const risk = getRiskExplanation(f.rule_id);
                     const workflow = inferWorkflowForFinding({
@@ -483,7 +470,7 @@ export async function scanFileContent(filePath: string, content: string, options
             const scanFindings: ScanFinding[] = evalResult.findings.map(f => {
                 const suppression = isFindingSuppressed(f.rule_id, filePath, activeSuppressions);
                 const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions);
-                const owasp = getOwaspRef(f.rule_id);
+                const owasp = owaspRefForRule(f.rule_id);
                 const recommendation = getDeterministicRecommendation(f.rule_id, f.suggested_fix || '');
                 const risk = getRiskExplanation(f.rule_id);
                 const workflow = inferWorkflowForFinding({
