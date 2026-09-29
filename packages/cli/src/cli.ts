@@ -14,6 +14,15 @@ import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamp
 
 const VERSION = '1.5.1';
 
+// On POSIX, Node writes to pipes asynchronously, and many commands call
+// process.exit() right after printing. That dropped everything beyond the first
+// 64 KB when output was piped (`promptsonar scan . --sarif | jq`), producing
+// truncated, invalid JSON. Blocking writes make every exit path safe without
+// restructuring each command. Files and TTYs are already synchronous.
+for (const stream of [process.stdout, process.stderr]) {
+    (stream as any)._handle?.setBlocking?.(true);
+}
+
 const program = new Command();
 type CliOptions = Record<string, any>;
 type RepositoryBuildResult = {
