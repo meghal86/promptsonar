@@ -1,26 +1,32 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
     analyzeFetchedFiles,
     analyzeRepositoryArtifactsFromFiles,
+    detectFileSensitiveActions,
     detectSensitiveActions,
+    loadCodeCapabilityGrammars,
 } from '../src';
 
 /**
- * Metamorphic and near-miss tests for the two keyword-based capability
- * detectors:
+ * Metamorphic and near-miss tests for capability detection:
  *
- *   - detectSensitiveActions()  (repository/analyzer.ts)   — what an AI artifact
- *     can do; strips negated clauses first.
+ *   - detectSensitiveActions()  (repository/analyzer.ts)   — keyword detection of
+ *     what an AI artifact can do; strips negated clauses first. Used for prose
+ *     (prompts, markdown, configs) and as the fallback for code.
+ *   - detectFileSensitiveActions() (repository/analyzer.ts) — reads supported
+ *     source code (TS/JS/Python) from its syntax tree, else falls back to the
+ *     keyword detector.
  *   - analyzeFetchedFiles()     (repository/contentDiscovery.ts) — capability and
- *     control signals used to rank and connect files during discovery.
+ *     control signals used to rank and connect files during discovery; also
+ *     syntax-tree based for supported source code.
  *
  * Near-miss negatives pair a real capability with a look-alike that has none.
  * Metamorphic cases change a file in a way that must not change the answer
  * (renaming a wrapper) or must remove it (the keyword only in a comment).
  *
  * `it` cases record behaviour that is correct today and must not regress.
- * `it.fails` cases record known gaps where the detectors match words rather
- * than behaviour. Each holds exactly one expectation so that fixing one gap
+ * `it.fails` cases record known gaps where the keyword detector matches words
+ * rather than behaviour; the syntax-tree path closes them for source code. Each holds exactly one expectation so that fixing one gap
  * makes exactly one test "unexpectedly pass" — vitest then fails the suite,
  * which is the cue to turn that case into a plain `it` regression test.
  *
@@ -55,10 +61,27 @@ const TEXT = {
     denoCommand: 'const p = new Deno.Command(cmd, { args });\nawait p.output();',
 };
 
+const PYTHON_FIXTURES = new Set<string>([
+    TEXT.defensiveShellValidator, TEXT.shellEscape, TEXT.docstring, TEXT.osSystem, TEXT.subprocessRun,
+]);
+
+/** The file name a fixture would have in a real repository. */
+function pathFor(content: string): string {
+    return PYTHON_FIXTURES.has(content) ? 'src/module.py' : 'src/module.ts';
+}
+
 function discovery(content: string) {
-    const [file] = analyzeFetchedFiles([{ path: 'src/module.ts', content }]).successful;
+    const [file] = analyzeFetchedFiles([{ path: pathFor(content), content }]).successful;
     return { capabilities: file.capabilitySignals, controls: file.controlSignals };
 }
+
+function fileActions(content: string) {
+    return detectFileSensitiveActions(pathFor(content), content);
+}
+
+beforeAll(async () => {
+    await loadCodeCapabilityGrammars();
+});
 
 describe('detectSensitiveActions — behaviour that holds today', () => {
     it('keeps Shell when the exec wrapper is renamed (metamorphic)', () => {
@@ -88,7 +111,7 @@ describe('detectSensitiveActions — behaviour that holds today', () => {
     });
 });
 
-describe('detectSensitiveActions — known gaps (matches words, not behaviour)', () => {
+describe('detectSensitiveActions — known keyword gaps (prose and fallback only)', () => {
     it.fails('FP_KEYWORD_COLLISION: a shell-command validator is not Shell', () => {
         expect(detectSensitiveActions(TEXT.defensiveShellValidator)).not.toContain('Shell');
     });
@@ -126,6 +149,72 @@ describe('detectSensitiveActions — known gaps (matches words, not behaviour)',
     });
 });
 
+describe('detectFileSensitiveActions — syntax tree closes the keyword gaps for source code', () => {
+    it('keeps Shell when the exec wrapper is renamed (metamorphic)', () => {
+        expect(detectFileSensitiveActions('src/a.ts', EXEC_WRAPPER('runShell'))).toContain('Shell');
+        expect(detectFileSensitiveActions('src/a.ts', EXEC_WRAPPER('performAction')))
+            .toEqual(detectFileSensitiveActions('src/a.ts', EXEC_WRAPPER('runShell')));
+    });
+
+    it('detects subprocess.run as Shell', () => {
+        expect(fileActions(TEXT.subprocessRun)).toContain('Shell');
+    });
+
+    it('FP_KEYWORD_COLLISION: a shell-command validator is not Shell', () => {
+        expect(fileActions(TEXT.defensiveShellValidator)).not.toContain('Shell');
+    });
+
+    it('FP_KEYWORD_COLLISION: shell_escape() is not Shell', () => {
+        expect(fileActions(TEXT.shellEscape)).not.toContain('Shell');
+    });
+
+    it('FP_KEYWORD_COLLISION: a regex that recognises API keys is not Secrets', () => {
+        expect(fileActions(TEXT.apiKeyRegex)).not.toContain('Secrets');
+    });
+
+    it('FP_KEYWORD_COLLISION: reading NODE_ENV is not Secrets', () => {
+        expect(fileActions(TEXT.nodeEnvRead)).not.toContain('Secrets');
+    });
+
+    it('FP_NEGATION_IGNORED / FP_COMMENT_MENTION: exec() in a comment is not Shell', () => {
+        expect(fileActions(TEXT.negatedComment)).not.toContain('Shell');
+        expect(fileActions(TEXT.neutralComment)).not.toContain('Shell');
+    });
+
+    it('FP_STRING_LITERAL: a log message about shell access is not Shell', () => {
+        expect(fileActions(TEXT.logString)).not.toContain('Shell');
+    });
+
+    it('FP_DOCSTRING: "shell" in a docstring is not Shell', () => {
+        expect(fileActions(TEXT.docstring)).not.toContain('Shell');
+    });
+
+    it('FN_ALIASED_CALL: cp.execSync() through a namespace import is Shell', () => {
+        expect(fileActions(TEXT.aliasedExecSync)).toContain('Shell');
+    });
+
+    it('FN_UNLISTED_SINK: os.system() and Deno.Command are Shell', () => {
+        expect(fileActions(TEXT.osSystem)).toContain('Shell');
+        expect(fileActions(TEXT.denoCommand)).toContain('Shell');
+    });
+
+    it('reads a tool description with the natural-language rules', () => {
+        const tool = "export const tool = { name: 'run', description: 'Run shell commands in the workspace' };";
+        expect(detectFileSensitiveActions('src/tools.ts', tool)).toEqual(expect.arrayContaining(['Shell', 'Filesystem']));
+    });
+
+    it('falls back to keyword detection for prose and unsupported languages', () => {
+        const prose = 'Use the shell tool to run commands.';
+        expect(detectFileSensitiveActions('SKILL.md', prose)).toEqual(detectSensitiveActions(prose));
+        expect(detectFileSensitiveActions('main.go', 'exec.Command("sh")')).toEqual(detectSensitiveActions('exec.Command("sh")'));
+    });
+
+    it('falls back to keyword detection when the file does not parse cleanly', () => {
+        const broken = "import { exec } from 'child_process';\nexec(cmd, {";
+        expect(detectFileSensitiveActions('src/a.ts', broken)).toEqual(detectSensitiveActions(broken));
+    });
+});
+
 describe('discovery signals — behaviour that holds today', () => {
     it('keeps the shell signal when the exec wrapper is renamed (metamorphic)', () => {
         expect(discovery(EXEC_WRAPPER('runShell')).capabilities).toContain('shell');
@@ -150,39 +239,50 @@ describe('discovery signals — behaviour that holds today', () => {
     });
 });
 
-describe('discovery signals — known gaps (matches words, not behaviour)', () => {
-    it.fails('FP_NEGATION_IGNORED: "never call exec()" is not a shell capability', () => {
+describe('discovery signals — keyword gaps closed by the syntax tree', () => {
+    it('FP_NEGATION_IGNORED: "never call exec()" is not a shell capability', () => {
         expect(discovery(TEXT.negatedComment).capabilities).not.toContain('shell');
     });
 
-    it.fails('FP_COMMENT_MENTION: exec() mentioned only in a comment is not a shell capability', () => {
+    it('FP_COMMENT_MENTION: exec() mentioned only in a comment is not a shell capability', () => {
         expect(discovery(TEXT.neutralComment).capabilities).not.toContain('shell');
     });
 
-    it.fails('FP_STRING_LITERAL: a log message about shell access is not a shell capability', () => {
+    it('FP_STRING_LITERAL: a log message about shell access is not a shell capability', () => {
         expect(discovery(TEXT.logString).capabilities).not.toContain('shell');
     });
 
-    it.fails('FP_DOCSTRING: "shell" in a docstring is not a shell capability', () => {
+    it('FP_DOCSTRING: "shell" in a docstring is not a shell capability', () => {
         expect(discovery(TEXT.docstring).capabilities).not.toContain('shell');
     });
 
-    it.fails('FP_KEYWORD_COLLISION: LLM token-budget prose is not a secret capability', () => {
+    it('FP_KEYWORD_COLLISION: LLM token-budget prose is not a secret capability (keyword fallback)', () => {
         expect(discovery(TEXT.tokenBudgetProse).capabilities).not.toContain('secret');
     });
 
-    it.fails('FP_KEYWORD_COLLISION: reading NODE_ENV is not a secret capability', () => {
+    it('FP_KEYWORD_COLLISION: reading NODE_ENV is not a secret capability', () => {
         expect(discovery(TEXT.nodeEnvRead).capabilities).not.toContain('secret');
     });
 
-    it.fails('FP_CONTROL_PROXIMITY: a "permission denied" message is not an allowlist control', () => {
+    it('FP_CONTROL_PROXIMITY: a "permission denied" message is not an allowlist control', () => {
         // exec(userInput) right after it is unconstrained; the word "permission"
-        // alone must not be credited as an enforcing control.
+        // inside an error message must not be credited as an enforcing control.
         expect(discovery(TEXT.permissionErrorThenExec).controls).not.toContain('allowlist');
     });
 
-    it.fails('FN_UNLISTED_SINK: Deno.Command is a shell capability', () => {
+    it('FN_UNLISTED_SINK: Deno.Command is a shell capability', () => {
         expect(discovery(TEXT.denoCommand).capabilities).toContain('shell');
+    });
+});
+
+describe('discovery signals — syntax tree keeps real controls', () => {
+    it('credits a control named in code or configured as a value', () => {
+        expect(discovery("import { exec } from 'child_process';\nif (!allowlist.has(cmd)) throw new Error('no');\nexec(cmd);").controls).toContain('allowlist');
+        expect(discovery("export const config = { mode: 'sandbox' };").controls).toContain('sandbox');
+    });
+
+    it('does not credit a control mentioned only in a comment', () => {
+        expect(discovery('// TODO: add an allowlist\nexport const x = 1;').controls).not.toContain('allowlist');
     });
 });
 

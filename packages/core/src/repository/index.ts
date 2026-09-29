@@ -7,3 +7,4 @@ export * from './source';
 export * from './discovery';
 export * from './contentDiscovery';
 export * from './closure';
+export * from './codeCapabilities';

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { analyzeRepositoryExecutionFromFiles, type RepositoryExecutionReport, type RepositoryScanResult } from '@promptsonar/core';
+import { analyzeRepositoryExecutionFromFiles, loadCodeCapabilityGrammars, type RepositoryExecutionReport, type RepositoryScanResult } from '@promptsonar/core';
 import { scanFiles, type ScanResult } from '@promptsonar/cli';
 import { cacheRepositoryReport } from '@/lib/repositoryReportCache';
 import {
@@ -139,6 +139,8 @@ export async function POST(request: Request) {
         scanResults = Array.isArray(body?.scanResults)
           ? (body.scanResults as ScanResult[]).map(reportScanResult) as unknown as RepositoryScanResult[]
           : scanUploadedFiles(bounded.files);
+        // Syntax-tree capability detection needs its grammars loaded before the synchronous analysis.
+        await loadCodeCapabilityGrammars();
         report = analyzeRepositoryExecutionFromFiles(
           REPORT_ROOT,
           bounded.files,

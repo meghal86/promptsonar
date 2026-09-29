@@ -25,6 +25,7 @@ import {
     repositoryConfidenceDefinition,
 } from './confidence';
 import { NON_PRODUCTION_PROVENANCE } from './types';
+import { analyzeCodeCapabilities, type CodeCapability } from './codeCapabilities';
 import type {
     AnalyzeRepositoryOptions,
     EvaluateCanonicalFindingsInput,
@@ -345,6 +346,34 @@ export function detectSensitiveActions(text: string): RepositorySensitiveAction[
     return Array.from(actions);
 }
 
+const CODE_CAPABILITY_ACTIONS: Record<CodeCapability, RepositorySensitiveAction[]> = {
+    shell: ['Shell'],
+    filesystem: ['Filesystem'],
+    network: ['Network', 'External APIs'],
+    secret: ['Secrets'],
+};
+
+/**
+ * Sensitive actions for a file. Source code in a language with a loaded
+ * grammar is read from its syntax tree: a capability needs a call to a known
+ * sink (after resolving import aliases), so comments, log messages, docstrings
+ * and look-alike helpers such as validate_shell_command() no longer count.
+ * Strings that declare a capability (tool descriptions, @tool docstrings) are
+ * still read with the natural-language rules. Everything else — prompts,
+ * markdown, configs, unsupported languages, files that do not parse cleanly —
+ * uses keyword detection, as before.
+ */
+export function detectFileSensitiveActions(filePath: string, content: string): RepositorySensitiveAction[] {
+    const code = analyzeCodeCapabilities(filePath, content);
+    if (!code) return detectSensitiveActions(content);
+    const actions = new Set<RepositorySensitiveAction>();
+    for (const capability of code.capabilities) {
+        for (const action of CODE_CAPABILITY_ACTIONS[capability]) actions.add(action);
+    }
+    for (const action of detectSensitiveActions(code.declarationText)) actions.add(action);
+    return Array.from(actions);
+}
+
 const SHELL_BINARIES = new Set(['bash', 'sh', 'zsh', 'fish', 'dash', 'ksh', 'powershell', 'pwsh', 'cmd', 'cmd.exe']);
 const SHELL_VALUE_TOKENS = ['shell', 'bash', 'terminal', 'exec', 'spawn', 'subprocess', 'shell_exec', 'process.run'];
 const FS_VALUE_TOKENS = ['filesystem', 'file_write', 'file_read', 'file.write', 'file.read', 'fs.', 'disk_access', 'workspace_access', 'files'];
@@ -638,7 +667,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         add('SKILL', path.basename(path.dirname(filePath)) || path.basename(filePath), 'Agent skill instructions discovered.', ['skill-instructions'], [lineEvidence(content, /skill|tool|capabilit|constraint|use when/i, relativePath)], {
             capabilities: Array.from(content.matchAll(/\b(?:capabilit(?:y|ies)|use when|supports?)[:\s-]+(.+)/gi)).map(match => match[1].trim()).slice(0, 10),
             constraints: Array.from(content.matchAll(/\b(?:do not|never|only|must|important)[:\s-]+(.+)/gi)).map(match => match[0].trim()).slice(0, 10),
-            sensitiveActions: detectSensitiveActions(content),
+            sensitiveActions: detectFileSensitiveActions(filePath, content),
             references: extractReferences(content),
         });
         return artifacts;
@@ -647,7 +676,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     if (lower === 'agents.md' || lower === 'agent.md' || lower === 'claude.md' || lower.startsWith('agents/') || lower.endsWith('/agents.md') || lower.endsWith('/agent.md') || lower.endsWith('/claude.md') || lower.includes('/agents/') || basename === '.cursorrules') {
         add('AGENT_CONFIG', path.basename(filePath), 'Repository agent instruction file discovered.', ['agent-instructions'], [lineEvidence(content, /agent|codex|cursor|claude|instructions/i, relativePath)], {
             constraints: Array.from(content.matchAll(/\b(?:do not|never|only|must|important)[:\s-]+(.+)/gi)).map(match => match[0].trim()).slice(0, 10),
-            sensitiveActions: detectSensitiveActions(content),
+            sensitiveActions: detectFileSensitiveActions(filePath, content),
             references: extractReferences(content),
         });
         return artifacts;
@@ -655,7 +684,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
 
     if (lower.startsWith('.cursor/') || lower.includes('/.cursor/') || lower.startsWith('.claude/') || lower.includes('/.claude/') || lower.startsWith('.agents/') || lower.includes('/.agents/') || lower.startsWith('.github/copilot/') || lower.includes('/.github/copilot/')) {
         add('AGENT_CONFIG', path.basename(filePath), 'Agent configuration discovered.', ['agent-config'], [lineEvidence(content, /agent|prompt|tool|mcp|instruction|model/i, relativePath)], {
-            sensitiveActions: detectSensitiveActions(content),
+            sensitiveActions: detectFileSensitiveActions(filePath, content),
             references: extractReferences(content),
         });
         return artifacts;
@@ -663,7 +692,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
 
     if (!nonProductionArtifact && (basename.includes('memory') || lower.startsWith('memory/') || lower.includes('/memory/'))) {
         add('MEMORY', path.basename(filePath), 'Agent memory artifact discovered.', ['memory-store'], [lineEvidence(content, /memory|remember|persist|session|history/i, relativePath)], {
-            sensitiveActions: detectSensitiveActions(content),
+            sensitiveActions: detectFileSensitiveActions(filePath, content),
             references: extractReferences(content),
         });
         return artifacts;
@@ -678,7 +707,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     const isWorkflowConfigName = (basename.includes('workflow') || basename.includes('pipeline')) && WORKFLOW_CONFIG_EXTENSIONS.has(ext);
     if (!nonProductionArtifact && (isGithubWorkflow || isActionManifest || isWorkflowConfigName)) {
         add(basename.startsWith('action.') ? 'ACTION' : 'WORKFLOW', path.basename(filePath), 'Workflow or action orchestration file discovered.', ['workflow-config'], [lineEvidence(content, /workflow|jobs|steps|uses|run|tool|prompt|mcp/i, relativePath)], {
-            sensitiveActions: detectSensitiveActions(content),
+            sensitiveActions: detectFileSensitiveActions(filePath, content),
             references: extractReferences(content),
         });
         return artifacts;
@@ -687,7 +716,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
     if (!nonProductionArtifact && !isPromptPath && (basename.includes('tool') || basename.includes('router') || basename.includes('registry') || /\b(tool router|tool_registry|function call|tools\s*[:=]|toolDefinitions)\b/i.test(content))) {
         add('TOOL', path.basename(filePath), 'Tool registry or tool-routing artifact discovered.', ['tool-definition'], [lineEvidence(content, /tool|router|function call|execute|invoke/i, relativePath)], {
             tools: Array.from(content.matchAll(/\b(?:tool|name|function)\s*[:=]\s*["'`]?([A-Za-z0-9_.-]{3,})/gi)).map(match => match[1]).slice(0, 20),
-            sensitiveActions: detectSensitiveActions(content),
+            sensitiveActions: detectFileSensitiveActions(filePath, content),
             references: extractReferences(content),
         });
         return artifacts;
@@ -701,7 +730,7 @@ function classifyFile(root: string, filePath: string, content: string): Reposito
         (ext === '.md' && /\b(prompt template|system instructions|assistant instructions)\b/i.test(content))
     )) {
         add('PROMPT', path.basename(filePath), 'Prompt or prompt template discovered.', ['prompt-template'], [lineEvidence(content, /prompt template|system prompt|assistant prompt|developer prompt|instructions|tool|shell|filesystem|mcp|{{/i, relativePath)], {
-            sensitiveActions: detectSensitiveActions(content),
+            sensitiveActions: detectFileSensitiveActions(filePath, content),
             references: extractReferences(content),
         });
     }

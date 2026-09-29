@@ -21656,6 +21656,9 @@ var require_parser = __commonJS({
       for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.grammarForPath = grammarForPath;
+    exports2.loadGrammars = loadGrammars;
+    exports2.parseWithLoadedGrammar = parseWithLoadedGrammar;
     exports2.parseFile = parseFile2;
     var Parser2 = require_tree_sitter();
     var fs11 = __importStar(require("fs"));
@@ -21739,6 +21742,25 @@ var require_parser = __commonJS({
         LANGUAGE_CACHE[langName] = await Parser2.Language.load(wasmPath);
       }
       return LANGUAGE_CACHE[langName];
+    }
+    function grammarForPath(filePath) {
+      return getLanguageName(path6.extname(filePath).toLowerCase());
+    }
+    async function loadGrammars(langNames) {
+      for (const langName of langNames)
+        await getLanguage(langName);
+    }
+    function parseWithLoadedGrammar(langName, content) {
+      const lang = LANGUAGE_CACHE[langName];
+      if (!lang)
+        return void 0;
+      const parser = new Parser2();
+      try {
+        parser.setLanguage(lang);
+        return parser.parse(content);
+      } finally {
+        parser.delete();
+      }
     }
     function getLanguageName(extension) {
       switch (extension) {
@@ -53930,6 +53952,425 @@ var require_confidence2 = __commonJS({
   }
 });
 
+// ../packages/core/dist/repository/codeCapabilities.js
+var require_codeCapabilities = __commonJS({
+  "../packages/core/dist/repository/codeCapabilities.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.loadCodeCapabilityGrammars = loadCodeCapabilityGrammars2;
+    exports2.analyzeCodeCapabilities = analyzeCodeCapabilities;
+    var parser_1 = require_parser();
+    var CODE_CAPABILITY_GRAMMARS = ["typescript", "python"];
+    async function loadCodeCapabilityGrammars2() {
+      try {
+        await (0, parser_1.loadGrammars)(CODE_CAPABILITY_GRAMMARS);
+      } catch {
+      }
+    }
+    var FS_METHODS = [
+      "readFile",
+      "readFileSync",
+      "writeFile",
+      "writeFileSync",
+      "appendFile",
+      "appendFileSync",
+      "unlink",
+      "unlinkSync",
+      "rm",
+      "rmSync",
+      "rmdir",
+      "rmdirSync",
+      "mkdir",
+      "mkdirSync",
+      "rename",
+      "renameSync",
+      "copyFile",
+      "copyFileSync",
+      "cp",
+      "cpSync",
+      "readdir",
+      "readdirSync",
+      "createReadStream",
+      "createWriteStream",
+      "open",
+      "openSync"
+    ];
+    var VSCODE_FS_METHODS = ["readFile", "writeFile", "delete", "rename", "copy", "createDirectory", "readDirectory"];
+    var HTTP_VERBS = ["get", "post", "put", "delete", "patch", "head", "request"];
+    var SCRIPT_SINKS = {
+      shell: /* @__PURE__ */ new Set([
+        "child_process.exec",
+        "child_process.execSync",
+        "child_process.execFile",
+        "child_process.execFileSync",
+        "child_process.spawn",
+        "child_process.spawnSync",
+        "child_process.fork",
+        "Deno.Command",
+        "Deno.run",
+        "Bun.spawn",
+        "Bun.spawnSync"
+      ]),
+      filesystem: /* @__PURE__ */ new Set([
+        ...FS_METHODS.map((method) => `fs.${method}`),
+        // VS Code extensions reach the filesystem through workspace.fs.
+        ...VSCODE_FS_METHODS.map((method) => `vscode.workspace.fs.${method}`)
+      ]),
+      network: /* @__PURE__ */ new Set([
+        "fetch",
+        "axios",
+        ...HTTP_VERBS.map((verb) => `axios.${verb}`),
+        "http.get",
+        "http.request",
+        "https.get",
+        "https.request",
+        "net.connect",
+        "net.createConnection",
+        "WebSocket"
+      ]),
+      secret: /* @__PURE__ */ new Set()
+    };
+    var PYTHON_SINKS = {
+      shell: /* @__PURE__ */ new Set([
+        "subprocess.run",
+        "subprocess.call",
+        "subprocess.check_call",
+        "subprocess.check_output",
+        "subprocess.Popen",
+        "subprocess.getoutput",
+        "subprocess.getstatusoutput",
+        "os.system",
+        "os.popen",
+        "os.execv",
+        "os.execve",
+        "os.execvp",
+        "os.execvpe",
+        "os.execl",
+        "os.execle",
+        "os.execlp",
+        "os.spawnl",
+        "os.spawnv",
+        "os.spawnvp"
+      ]),
+      filesystem: /* @__PURE__ */ new Set([
+        "open",
+        "os.remove",
+        "os.unlink",
+        "os.rmdir",
+        "os.mkdir",
+        "os.makedirs",
+        "os.rename",
+        "os.replace",
+        "shutil.rmtree",
+        "shutil.copy",
+        "shutil.copyfile",
+        "shutil.copytree",
+        "shutil.move"
+      ]),
+      network: /* @__PURE__ */ new Set([
+        ...HTTP_VERBS.map((verb) => `requests.${verb}`),
+        "requests.Session",
+        ...HTTP_VERBS.map((verb) => `httpx.${verb}`),
+        "httpx.Client",
+        "httpx.AsyncClient",
+        "urllib.request.urlopen",
+        "aiohttp.ClientSession",
+        "socket.create_connection"
+      ]),
+      secret: /* @__PURE__ */ new Set()
+    };
+    var DECLARATION_KEYS = /* @__PURE__ */ new Set(["description", "instructions", "prompt", "system", "system_prompt", "systemPrompt"]);
+    function isCredentialName(name) {
+      const words = name.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+      const has = (word) => words.includes(word);
+      const pair = (a, b) => words.some((word, i) => word === a && words[i + 1] === b);
+      return has("SECRET") || has("PASSWORD") || has("PASSWD") || has("CREDENTIAL") || has("CREDENTIALS") || has("TOKEN") || has("APIKEY") || pair("API", "KEY") || pair("PRIVATE", "KEY") || pair("ACCESS", "KEY");
+    }
+    function normalizeModule(name) {
+      return name.replace(/^node:/, "").replace(/^fs\/promises$/, "fs");
+    }
+    function normalizeCallee(name) {
+      return name.replace(/^node:/, "").replace(/^fs\.promises\./, "fs.").replace(/^fs\/promises\./, "fs.");
+    }
+    function stringValue(node) {
+      const parts = (node.namedChildren || []).filter((child) => child.type === "string_fragment" || child.type === "string_content").map((child) => child.text);
+      if (parts.length > 0)
+        return parts.join("");
+      return String(node.text || "").replace(/^[`'"]+|[`'"]+$/g, "");
+    }
+    function isStringNode(node) {
+      return node?.type === "string" || node?.type === "template_string";
+    }
+    function walk(node, visit) {
+      visit(node);
+      for (const child of node.namedChildren || [])
+        walk(child, visit);
+    }
+    function dottedPath(node) {
+      if (!node)
+        return void 0;
+      if (node.type === "identifier" || node.type === "property_identifier")
+        return node.text;
+      if (node.type === "member_expression") {
+        const object = dottedPath(node.childForFieldName("object"));
+        const property = node.childForFieldName("property");
+        return object && property ? `${object}.${property.text}` : void 0;
+      }
+      if (node.type === "attribute") {
+        const object = dottedPath(node.childForFieldName("object"));
+        const attribute = node.childForFieldName("attribute");
+        return object && attribute ? `${object}.${attribute.text}` : void 0;
+      }
+      if (node.type === "call_expression") {
+        const fn = node.childForFieldName("function");
+        const args2 = node.childForFieldName("arguments");
+        const first = args2?.namedChildren?.[0];
+        if (fn?.type === "identifier" && fn.text === "require" && isStringNode(first)) {
+          return normalizeModule(stringValue(first));
+        }
+      }
+      return void 0;
+    }
+    function resolve4(path6, aliases) {
+      const [head, ...rest] = path6.split(".");
+      const mapped = aliases.get(head);
+      return normalizeCallee(mapped ? [mapped, ...rest].join(".") : path6);
+    }
+    var Collector = class {
+      sinks;
+      evidence = [];
+      declarations = [];
+      constructor(sinks) {
+        this.sinks = sinks;
+      }
+      call(fqn, node) {
+        for (const capability of Object.keys(this.sinks)) {
+          if (this.sinks[capability].has(fqn))
+            this.add(capability, fqn, node);
+        }
+      }
+      add(capability, via, node) {
+        this.evidence.push({ capability, via, line: node.startPosition.row + 1 });
+      }
+      result(executableText2) {
+        const evidence = this.evidence.sort((a, b) => a.line - b.line || a.via.localeCompare(b.via) || a.capability.localeCompare(b.capability));
+        return {
+          capabilities: Array.from(new Set(evidence.map((item) => item.capability))).sort(),
+          evidence,
+          declarationText: this.declarations.join("\n"),
+          executableText: executableText2
+        };
+      }
+    };
+    function scriptAliases(root) {
+      const aliases = /* @__PURE__ */ new Map();
+      walk(root, (node) => {
+        if (node.type === "import_statement") {
+          const source = node.childForFieldName("source");
+          if (!source)
+            return;
+          const moduleName = normalizeModule(stringValue(source));
+          walk(node, (child) => {
+            if (child.type === "namespace_import") {
+              const id = child.namedChildren.find((c) => c.type === "identifier");
+              if (id)
+                aliases.set(id.text, moduleName);
+            } else if (child.type === "import_clause") {
+              const id = child.namedChildren.find((c) => c.type === "identifier");
+              if (id)
+                aliases.set(id.text, moduleName);
+            } else if (child.type === "import_specifier") {
+              const name = child.childForFieldName("name");
+              const alias = child.childForFieldName("alias");
+              if (name)
+                aliases.set((alias || name).text, `${moduleName}.${name.text}`);
+            }
+          });
+        } else if (node.type === "variable_declarator") {
+          const value = node.childForFieldName("value");
+          const moduleName = value ? dottedPath(value) : void 0;
+          if (!moduleName || value.type !== "call_expression")
+            return;
+          const name = node.childForFieldName("name");
+          if (name?.type === "identifier") {
+            aliases.set(name.text, moduleName);
+          } else if (name?.type === "object_pattern") {
+            for (const property of name.namedChildren) {
+              if (property.type === "shorthand_property_identifier_pattern") {
+                aliases.set(property.text, `${moduleName}.${property.text}`);
+              } else if (property.type === "pair_pattern") {
+                const key = property.childForFieldName("key");
+                const local = property.childForFieldName("value");
+                if (key && local?.type === "identifier")
+                  aliases.set(local.text, `${moduleName}.${key.text}`);
+              }
+            }
+          }
+        }
+      });
+      return aliases;
+    }
+    function analyzeScript(root, content) {
+      const aliases = scriptAliases(root);
+      const collector = new Collector(SCRIPT_SINKS);
+      walk(root, (node) => {
+        if (node.type === "call_expression" || node.type === "new_expression") {
+          const callee = node.childForFieldName(node.type === "call_expression" ? "function" : "constructor");
+          const path6 = dottedPath(callee);
+          if (path6)
+            collector.call(resolve4(path6, aliases), node);
+        } else if (node.type === "member_expression" || node.type === "subscript_expression") {
+          if (dottedPath(node.childForFieldName("object")) !== "process.env")
+            return;
+          const key = node.type === "member_expression" ? node.childForFieldName("property")?.text : isStringNode(node.childForFieldName("index")) ? stringValue(node.childForFieldName("index")) : void 0;
+          if (key && isCredentialName(key))
+            collector.add("secret", `process.env.${key}`, node);
+        } else if (node.type === "pair") {
+          const key = node.childForFieldName("key");
+          const value = node.childForFieldName("value");
+          const keyName = key ? isStringNode(key) ? stringValue(key) : key.text : "";
+          if (DECLARATION_KEYS.has(keyName) && isStringNode(value))
+            collector.declarations.push(stringValue(value));
+        }
+      });
+      return collector.result(executableText(root, content));
+    }
+    function pythonAliases(root) {
+      const aliases = /* @__PURE__ */ new Map();
+      walk(root, (node) => {
+        if (node.type === "import_statement") {
+          for (const child of node.namedChildren) {
+            if (child.type === "aliased_import") {
+              const name = child.childForFieldName("name");
+              const alias = child.childForFieldName("alias");
+              if (name && alias)
+                aliases.set(alias.text, name.text);
+            }
+          }
+        } else if (node.type === "import_from_statement") {
+          const moduleName = node.childForFieldName("module_name")?.text;
+          if (!moduleName)
+            return;
+          for (const child of node.namedChildren) {
+            if (child === node.childForFieldName("module_name"))
+              continue;
+            if (child.type === "dotted_name") {
+              aliases.set(child.text, `${moduleName}.${child.text}`);
+            } else if (child.type === "aliased_import") {
+              const name = child.childForFieldName("name");
+              const alias = child.childForFieldName("alias");
+              if (name && alias)
+                aliases.set(alias.text, `${moduleName}.${name.text}`);
+            }
+          }
+        }
+      });
+      return aliases;
+    }
+    function isToolDecorator(decorator) {
+      const target = decorator.namedChildren?.[0];
+      const expression = target?.type === "call" ? target.childForFieldName("function") : target;
+      const path6 = dottedPath(expression);
+      return Boolean(path6 && (path6 === "tool" || path6.endsWith(".tool")));
+    }
+    function docstring(functionNode) {
+      const first = functionNode.childForFieldName("body")?.namedChildren?.[0];
+      const expr = first?.type === "expression_statement" ? first.namedChildren?.[0] : void 0;
+      return expr?.type === "string" ? stringValue(expr) : void 0;
+    }
+    function analyzePython(root, content) {
+      const aliases = pythonAliases(root);
+      const collector = new Collector(PYTHON_SINKS);
+      walk(root, (node) => {
+        if (node.type === "call") {
+          const path6 = dottedPath(node.childForFieldName("function"));
+          if (!path6)
+            return;
+          const fqn = resolve4(path6, aliases);
+          collector.call(fqn, node);
+          if (fqn === "os.getenv" || fqn === "os.environ.get") {
+            const first = node.childForFieldName("arguments")?.namedChildren?.[0];
+            if (isStringNode(first) && isCredentialName(stringValue(first))) {
+              collector.add("secret", `${fqn}('${stringValue(first)}')`, node);
+            }
+          }
+        } else if (node.type === "subscript") {
+          const value = dottedPath(node.childForFieldName("value"));
+          const key = node.childForFieldName("subscript");
+          if (value && resolve4(value, aliases) === "os.environ" && isStringNode(key) && isCredentialName(stringValue(key))) {
+            collector.add("secret", `os.environ['${stringValue(key)}']`, node);
+          }
+        } else if (node.type === "keyword_argument") {
+          const name = node.childForFieldName("name")?.text || "";
+          const value = node.childForFieldName("value");
+          if (DECLARATION_KEYS.has(name) && isStringNode(value))
+            collector.declarations.push(stringValue(value));
+        } else if (node.type === "pair") {
+          const key = node.childForFieldName("key");
+          const value = node.childForFieldName("value");
+          if (isStringNode(key) && DECLARATION_KEYS.has(stringValue(key)) && isStringNode(value)) {
+            collector.declarations.push(stringValue(value));
+          }
+        } else if (node.type === "decorated_definition") {
+          const definition = node.childForFieldName("definition");
+          const decorators = node.namedChildren.filter((child) => child.type === "decorator");
+          if (definition?.type === "function_definition" && decorators.some(isToolDecorator)) {
+            const doc = docstring(definition);
+            if (doc)
+              collector.declarations.push(doc);
+          }
+        }
+      });
+      return collector.result(executableText(root, content));
+    }
+    function isConfigValue(node) {
+      const parent2 = node.parent;
+      if (!parent2)
+        return false;
+      if (parent2.type !== "pair" && parent2.type !== "keyword_argument")
+        return false;
+      const value = parent2.childForFieldName("value");
+      return Boolean(value && value.startIndex === node.startIndex && value.endIndex === node.endIndex);
+    }
+    function executableText(root, source) {
+      const blanked = [];
+      walk(root, (node) => {
+        if (node.type === "comment" || isStringNode(node) && !isConfigValue(node)) {
+          blanked.push([node.startIndex, node.endIndex]);
+        }
+      });
+      if (blanked.length === 0)
+        return source;
+      const chars = source.split("");
+      for (const [start2, end] of blanked) {
+        for (let i = start2; i < end && i < chars.length; i++) {
+          if (chars[i] !== "\n")
+            chars[i] = " ";
+        }
+      }
+      return chars.join("");
+    }
+    function hasSyntaxError(root) {
+      return typeof root.hasError === "function" ? root.hasError() : Boolean(root.hasError);
+    }
+    function analyzeCodeCapabilities(filePath, content) {
+      const grammar = (0, parser_1.grammarForPath)(filePath);
+      if (!grammar || !CODE_CAPABILITY_GRAMMARS.includes(grammar))
+        return void 0;
+      const tree = (0, parser_1.parseWithLoadedGrammar)(grammar, content);
+      if (!tree)
+        return void 0;
+      try {
+        if (hasSyntaxError(tree.rootNode))
+          return void 0;
+        return grammar === "python" ? analyzePython(tree.rootNode, content) : analyzeScript(tree.rootNode, content);
+      } finally {
+        tree.delete();
+      }
+    }
+  }
+});
+
 // ../packages/core/dist/repository/analyzer.js
 var require_analyzer2 = __commonJS({
   "../packages/core/dist/repository/analyzer.js"(exports2) {
@@ -53973,6 +54414,7 @@ var require_analyzer2 = __commonJS({
     })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.detectSensitiveActions = detectSensitiveActions;
+    exports2.detectFileSensitiveActions = detectFileSensitiveActions;
     exports2.analyzeRepositoryArtifacts = analyzeRepositoryArtifacts;
     exports2.analyzeRepositoryArtifactsFromFiles = analyzeRepositoryArtifactsFromFiles;
     exports2.analyzeRepository = analyzeRepository;
@@ -53992,6 +54434,7 @@ var require_analyzer2 = __commonJS({
     var analyzer_1 = require_analyzer();
     var confidence_1 = require_confidence2();
     var types_1 = require_types6();
+    var codeCapabilities_1 = require_codeCapabilities();
     var WORKFLOW_CONFIG_EXTENSIONS = /* @__PURE__ */ new Set([".yml", ".yaml", ".json", ".toml"]);
     var REPORT_VERSION = "1.5.1";
     var REPORT_SCHEMA_VERSION = "2026-06-23.contextual-v1";
@@ -54235,6 +54678,25 @@ var require_analyzer2 = __commonJS({
         actions.add("Secrets");
       if (/\bfetch\s*\(|\b(?:axios|httpx|urllib2?|superagent|node[-_]?fetch)\b|\brequests\.(?:get|post|put|delete|patch|head|request|session)\b|\bhttp2?\.(?:get|post|request|client|Agent)\b|\bhttps\.(?:get|request)\b|\bXMLHttpRequest\b|\bWebSocket\b|\bcurl\s+-|\bexternal\s+apis?\b/i.test(text))
         actions.add("External APIs");
+      return Array.from(actions);
+    }
+    var CODE_CAPABILITY_ACTIONS = {
+      shell: ["Shell"],
+      filesystem: ["Filesystem"],
+      network: ["Network", "External APIs"],
+      secret: ["Secrets"]
+    };
+    function detectFileSensitiveActions(filePath, content) {
+      const code = (0, codeCapabilities_1.analyzeCodeCapabilities)(filePath, content);
+      if (!code)
+        return detectSensitiveActions(content);
+      const actions = /* @__PURE__ */ new Set();
+      for (const capability of code.capabilities) {
+        for (const action5 of CODE_CAPABILITY_ACTIONS[capability])
+          actions.add(action5);
+      }
+      for (const action5 of detectSensitiveActions(code.declarationText))
+        actions.add(action5);
       return Array.from(actions);
     }
     var SHELL_BINARIES = /* @__PURE__ */ new Set(["bash", "sh", "zsh", "fish", "dash", "ksh", "powershell", "pwsh", "cmd", "cmd.exe"]);
@@ -54494,7 +54956,7 @@ var require_analyzer2 = __commonJS({
         add("SKILL", path6.basename(path6.dirname(filePath)) || path6.basename(filePath), "Agent skill instructions discovered.", ["skill-instructions"], [lineEvidence(content, /skill|tool|capabilit|constraint|use when/i, relativePath)], {
           capabilities: Array.from(content.matchAll(/\b(?:capabilit(?:y|ies)|use when|supports?)[:\s-]+(.+)/gi)).map((match) => match[1].trim()).slice(0, 10),
           constraints: Array.from(content.matchAll(/\b(?:do not|never|only|must|important)[:\s-]+(.+)/gi)).map((match) => match[0].trim()).slice(0, 10),
-          sensitiveActions: detectSensitiveActions(content),
+          sensitiveActions: detectFileSensitiveActions(filePath, content),
           references: extractReferences(content)
         });
         return artifacts;
@@ -54502,21 +54964,21 @@ var require_analyzer2 = __commonJS({
       if (lower === "agents.md" || lower === "agent.md" || lower === "claude.md" || lower.startsWith("agents/") || lower.endsWith("/agents.md") || lower.endsWith("/agent.md") || lower.endsWith("/claude.md") || lower.includes("/agents/") || basename4 === ".cursorrules") {
         add("AGENT_CONFIG", path6.basename(filePath), "Repository agent instruction file discovered.", ["agent-instructions"], [lineEvidence(content, /agent|codex|cursor|claude|instructions/i, relativePath)], {
           constraints: Array.from(content.matchAll(/\b(?:do not|never|only|must|important)[:\s-]+(.+)/gi)).map((match) => match[0].trim()).slice(0, 10),
-          sensitiveActions: detectSensitiveActions(content),
+          sensitiveActions: detectFileSensitiveActions(filePath, content),
           references: extractReferences(content)
         });
         return artifacts;
       }
       if (lower.startsWith(".cursor/") || lower.includes("/.cursor/") || lower.startsWith(".claude/") || lower.includes("/.claude/") || lower.startsWith(".agents/") || lower.includes("/.agents/") || lower.startsWith(".github/copilot/") || lower.includes("/.github/copilot/")) {
         add("AGENT_CONFIG", path6.basename(filePath), "Agent configuration discovered.", ["agent-config"], [lineEvidence(content, /agent|prompt|tool|mcp|instruction|model/i, relativePath)], {
-          sensitiveActions: detectSensitiveActions(content),
+          sensitiveActions: detectFileSensitiveActions(filePath, content),
           references: extractReferences(content)
         });
         return artifacts;
       }
       if (!nonProductionArtifact && (basename4.includes("memory") || lower.startsWith("memory/") || lower.includes("/memory/"))) {
         add("MEMORY", path6.basename(filePath), "Agent memory artifact discovered.", ["memory-store"], [lineEvidence(content, /memory|remember|persist|session|history/i, relativePath)], {
-          sensitiveActions: detectSensitiveActions(content),
+          sensitiveActions: detectFileSensitiveActions(filePath, content),
           references: extractReferences(content)
         });
         return artifacts;
@@ -54526,7 +54988,7 @@ var require_analyzer2 = __commonJS({
       const isWorkflowConfigName = (basename4.includes("workflow") || basename4.includes("pipeline")) && WORKFLOW_CONFIG_EXTENSIONS.has(ext);
       if (!nonProductionArtifact && (isGithubWorkflow || isActionManifest || isWorkflowConfigName)) {
         add(basename4.startsWith("action.") ? "ACTION" : "WORKFLOW", path6.basename(filePath), "Workflow or action orchestration file discovered.", ["workflow-config"], [lineEvidence(content, /workflow|jobs|steps|uses|run|tool|prompt|mcp/i, relativePath)], {
-          sensitiveActions: detectSensitiveActions(content),
+          sensitiveActions: detectFileSensitiveActions(filePath, content),
           references: extractReferences(content)
         });
         return artifacts;
@@ -54534,7 +54996,7 @@ var require_analyzer2 = __commonJS({
       if (!nonProductionArtifact && !isPromptPath && (basename4.includes("tool") || basename4.includes("router") || basename4.includes("registry") || /\b(tool router|tool_registry|function call|tools\s*[:=]|toolDefinitions)\b/i.test(content))) {
         add("TOOL", path6.basename(filePath), "Tool registry or tool-routing artifact discovered.", ["tool-definition"], [lineEvidence(content, /tool|router|function call|execute|invoke/i, relativePath)], {
           tools: Array.from(content.matchAll(/\b(?:tool|name|function)\s*[:=]\s*["'`]?([A-Za-z0-9_.-]{3,})/gi)).map((match) => match[1]).slice(0, 20),
-          sensitiveActions: detectSensitiveActions(content),
+          sensitiveActions: detectFileSensitiveActions(filePath, content),
           references: extractReferences(content)
         });
         return artifacts;
@@ -54542,7 +55004,7 @@ var require_analyzer2 = __commonJS({
       const referenceOnly = types_1.NON_PRODUCTION_PROVENANCE.has(provenance) && !isPromptPath;
       if (!referenceOnly && (isPromptPath || /\b(system|assistant|developer)\s+prompt\b/i.test(content) || /\{\{[^}]+}}/.test(content) || ext === ".md" && /\b(prompt template|system instructions|assistant instructions)\b/i.test(content))) {
         add("PROMPT", path6.basename(filePath), "Prompt or prompt template discovered.", ["prompt-template"], [lineEvidence(content, /prompt template|system prompt|assistant prompt|developer prompt|instructions|tool|shell|filesystem|mcp|{{/i, relativePath)], {
-          sensitiveActions: detectSensitiveActions(content),
+          sensitiveActions: detectFileSensitiveActions(filePath, content),
           references: extractReferences(content)
         });
       }
@@ -57721,6 +58183,7 @@ var require_contentDiscovery = __commonJS({
     exports2.findControlNeighborhood = findControlNeighborhood;
     var path6 = __importStar(require("path"));
     var discovery_1 = require_discovery();
+    var codeCapabilities_1 = require_codeCapabilities();
     var FRAMEWORK_PATTERNS = [
       [/\bopenai\b/i, "OpenAI"],
       [/\banthropic\b/i, "Anthropic"],
@@ -57743,8 +58206,10 @@ var require_contentDiscovery = __commonJS({
       [/\b(?:requests|fetch|axios|socket|ssh|curl)\b/i, "network"],
       [/\b(?:docker|kubectl|terraform)\b/i, "deployment"],
       [/\b(?:boto|aws|gcp|azure)\b/i, "cloud"],
-      [/\b(?:secret|credential|process\.env|os\.environ|api[_-]?key|token)\b/i, "secret"]
+      // Credential-shaped tokens only: a bare "token" is usually an LLM token count.
+      [/\b(?:secret|credential|process\.env|os\.environ|api[_-]?key|(?:access|auth|api|bearer|refresh|github|gh|npm|slack)[_-]?tokens?)\b/i, "secret"]
     ];
+    var KEYWORD_ONLY_CAPABILITIES = /* @__PURE__ */ new Set(["deployment", "cloud"]);
     var CONTROL_PATTERNS = [
       [/\b(?:approve|approval|human_in_the_loop|confirmation)\b/i, "approval"],
       [/\b(?:allowlist|denylist|allowed_paths|scope|permission)\b/i, "allowlist"],
@@ -57761,6 +58226,25 @@ var require_contentDiscovery = __commonJS({
     }
     function matchedSignals(content, patterns) {
       return uniqueSorted(patterns.filter(([pattern]) => pattern.test(content)).map(([, signal]) => signal));
+    }
+    function capabilityAndControlSignals(filePath, content) {
+      const code = (0, codeCapabilities_1.analyzeCodeCapabilities)(filePath, content);
+      if (!code) {
+        return {
+          capabilitySignals: matchedSignals(content, CAPABILITY_PATTERNS),
+          controlSignals: matchedSignals(content, CONTROL_PATTERNS)
+        };
+      }
+      const keywordOnly = CAPABILITY_PATTERNS.filter(([, signal]) => KEYWORD_ONLY_CAPABILITIES.has(signal));
+      return {
+        capabilitySignals: uniqueSorted([
+          ...code.capabilities,
+          ...matchedSignals(code.executableText, keywordOnly),
+          ...matchedSignals(code.declarationText, CAPABILITY_PATTERNS)
+        ]),
+        controlSignals: matchedSignals(`${code.executableText}
+${code.declarationText}`, CONTROL_PATTERNS)
+      };
     }
     function pathSegments(filePath) {
       return normalizeRepositoryPath(filePath).toLowerCase().split("/").filter(Boolean);
@@ -57874,8 +58358,7 @@ var require_contentDiscovery = __commonJS({
           path: filePath,
           content,
           status: "analyzed",
-          capabilitySignals: matchedSignals(content, CAPABILITY_PATTERNS),
-          controlSignals: matchedSignals(content, CONTROL_PATTERNS),
+          ...capabilityAndControlSignals(filePath, content),
           frameworkSignals: matchedSignals(content, FRAMEWORK_PATTERNS),
           references: extractReferenceStrings(filePath, content)
         });
@@ -58008,6 +58491,7 @@ var require_closure = __commonJS({
     var rules_1 = require_rules();
     var workflow_1 = require_workflow();
     var parser_1 = require_parser();
+    var codeCapabilities_1 = require_codeCapabilities();
     var artifacts_1 = require_artifacts();
     var analyzer_1 = require_analyzer2();
     var contentDiscovery_1 = require_contentDiscovery();
@@ -58411,6 +58895,7 @@ var require_closure = __commonJS({
     async function evaluateRepositoryWithClosure(options) {
       const mode = options.mode || "bounded";
       const started = Date.now();
+      await (0, codeCapabilities_1.loadCodeCapabilityGrammars)();
       const inventory = (await options.source.inventory()).map((file) => ({
         ...file,
         path: normalizeRepositoryPath(file.path)
@@ -58591,6 +59076,7 @@ var require_repository = __commonJS({
     __exportStar(require_discovery(), exports2);
     __exportStar(require_contentDiscovery(), exports2);
     __exportStar(require_closure(), exports2);
+    __exportStar(require_codeCapabilities(), exports2);
   }
 });
 
@@ -140957,6 +141443,7 @@ async function run2() {
     }
     let worstScore = 100;
     for (const r of results) worstScore = Math.min(worstScore, r.overall_score);
+    await (0, import_core13.loadCodeCapabilityGrammars)();
     const repositoryReport = (0, import_core13.analyzeRepositoryExecution)(workspace, results);
     const counts = {
       critical: repositoryReport.issueSummary.critical,

@@ -29,7 +29,7 @@ import { isPromptSonarIgnoredPath, parsePromptSonarIgnore, PromptSonarIgnoreMatc
 import { executionPathText, pickWorstWorkflowFinding, reportText } from '../shared/model';
 import { applyAllFixes, workflowDiffReport, workflowDiffReportBetween } from '../shared/quickfix';
 // @ts-ignore
-import { parseFile, evaluatePrompt, compressPromptLLMLingua, auditMcpConfig, formatToSarif, analyzeRepositoryExecution, contextualVerdictLabel } from '@promptsonar/core';
+import { parseFile, evaluatePrompt, compressPromptLLMLingua, auditMcpConfig, formatToSarif, analyzeRepositoryExecution, contextualVerdictLabel, loadCodeCapabilityGrammars } from '@promptsonar/core';
 
 let client: LanguageClient;
 
@@ -900,6 +900,8 @@ export function activate(context: ExtensionContext) {
             }
         }
 
+        // Syntax-tree capability detection needs its grammars loaded before the synchronous analysis.
+        await loadCodeCapabilityGrammars();
         return analyzeRepositoryExecution(root, scanResults);
     }
 

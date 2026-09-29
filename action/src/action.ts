@@ -4,6 +4,7 @@ import * as path from 'path';
 import {
     analyzeRootCause,
     analyzeRepositoryExecution,
+    loadCodeCapabilityGrammars,
     auditMcpConfig,
     buildPrReviewSummaryMarkdown,
     computeWorkflowDiff,
@@ -346,6 +347,8 @@ async function run(): Promise<void> {
 
         let worstScore = 100;
         for (const r of results) worstScore = Math.min(worstScore, r.overall_score);
+        // Syntax-tree capability detection needs its grammars loaded before the synchronous analysis.
+        await loadCodeCapabilityGrammars();
         const repositoryReport = analyzeRepositoryExecution(workspace, results as any);
         const counts = {
             critical: repositoryReport.issueSummary.critical,

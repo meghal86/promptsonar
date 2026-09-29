@@ -101,6 +101,37 @@ async function getLanguage(langName: string): Promise<any> {
     return LANGUAGE_CACHE[langName];
 }
 
+/** The tree-sitter grammar name for a source file, or null if unsupported. */
+export function grammarForPath(filePath: string): string | null {
+    return getLanguageName(path.extname(filePath).toLowerCase());
+}
+
+/**
+ * Load grammars ahead of time. Loading is asynchronous, but once a grammar is
+ * loaded, parseWithLoadedGrammar() can parse synchronously — which lets the
+ * synchronous repository analysis use syntax trees.
+ */
+export async function loadGrammars(langNames: string[]): Promise<void> {
+    for (const langName of langNames) await getLanguage(langName);
+}
+
+/**
+ * Parse synchronously with an already-loaded grammar. Returns undefined when
+ * the grammar has not been loaded. The caller owns the tree and must call
+ * tree.delete() to release its WASM memory.
+ */
+export function parseWithLoadedGrammar(langName: string, content: string): any | undefined {
+    const lang = LANGUAGE_CACHE[langName];
+    if (!lang) return undefined;
+    const parser = new Parser();
+    try {
+        parser.setLanguage(lang);
+        return parser.parse(content);
+    } finally {
+        parser.delete();
+    }
+}
+
 function getLanguageName(extension: string): string | null {
     switch (extension) {
         case '.py': return 'python';

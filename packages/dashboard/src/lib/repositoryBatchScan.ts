@@ -2,6 +2,7 @@ import * as path from 'path';
 import {
   auditMcpConfig,
   analyzeRepositoryExecutionFromFiles,
+  loadCodeCapabilityGrammars,
   evaluateRepositoryWithClosure,
   evaluatePrompt,
   InMemoryRepositorySource,
@@ -211,6 +212,8 @@ export async function buildUploadedRepositoryReport(
   }
 
   const scanResults = scanUploadedFiles(files);
+  // Syntax-tree capability detection needs its grammars loaded before the synchronous analysis.
+  await loadCodeCapabilityGrammars();
   const report = analyzeRepositoryExecutionFromFiles(
     REPORT_ROOT,
     files,

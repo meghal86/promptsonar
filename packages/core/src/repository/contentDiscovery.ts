@@ -7,6 +7,7 @@ import {
     type BudgetCategory,
     type MetadataCandidate,
 } from './discovery';
+import { analyzeCodeCapabilities } from './codeCapabilities';
 
 export type ArtifactProvenance =
     | 'production'
@@ -83,8 +84,12 @@ const CAPABILITY_PATTERNS: Array<[RegExp, string]> = [
     [/\b(?:requests|fetch|axios|socket|ssh|curl)\b/i, 'network'],
     [/\b(?:docker|kubectl|terraform)\b/i, 'deployment'],
     [/\b(?:boto|aws|gcp|azure)\b/i, 'cloud'],
-    [/\b(?:secret|credential|process\.env|os\.environ|api[_-]?key|token)\b/i, 'secret'],
+    // Credential-shaped tokens only: a bare "token" is usually an LLM token count.
+    [/\b(?:secret|credential|process\.env|os\.environ|api[_-]?key|(?:access|auth|api|bearer|refresh|github|gh|npm|slack)[_-]?tokens?)\b/i, 'secret'],
 ];
+
+// Signals the syntax tree cannot see; still matched by keyword in code files.
+const KEYWORD_ONLY_CAPABILITIES = new Set(['deployment', 'cloud']);
 
 const CONTROL_PATTERNS: Array<[RegExp, string]> = [
     [/\b(?:approve|approval|human_in_the_loop|confirmation)\b/i, 'approval'],
@@ -108,6 +113,32 @@ function uniqueSorted(values: Iterable<string>): string[] {
 
 function matchedSignals(content: string, patterns: Array<[RegExp, string]>): string[] {
     return uniqueSorted(patterns.filter(([pattern]) => pattern.test(content)).map(([, signal]) => signal));
+}
+
+/**
+ * Capability and control signals. For source code with a loaded grammar,
+ * capabilities come from calls to known sinks in the syntax tree, plus keyword
+ * matches in capability-declaring strings (tool descriptions); controls are
+ * matched against the code with comments and message strings removed. Other
+ * files, and code that does not parse cleanly, use keyword matching.
+ */
+function capabilityAndControlSignals(filePath: string, content: string): { capabilitySignals: string[]; controlSignals: string[] } {
+    const code = analyzeCodeCapabilities(filePath, content);
+    if (!code) {
+        return {
+            capabilitySignals: matchedSignals(content, CAPABILITY_PATTERNS),
+            controlSignals: matchedSignals(content, CONTROL_PATTERNS),
+        };
+    }
+    const keywordOnly = CAPABILITY_PATTERNS.filter(([, signal]) => KEYWORD_ONLY_CAPABILITIES.has(signal));
+    return {
+        capabilitySignals: uniqueSorted([
+            ...code.capabilities,
+            ...matchedSignals(code.executableText, keywordOnly),
+            ...matchedSignals(code.declarationText, CAPABILITY_PATTERNS),
+        ]),
+        controlSignals: matchedSignals(`${code.executableText}\n${code.declarationText}`, CONTROL_PATTERNS),
+    };
 }
 
 function pathSegments(filePath: string): string[] {
@@ -211,8 +242,7 @@ export function analyzeFetchedFiles(
             path: filePath,
             content,
             status: 'analyzed',
-            capabilitySignals: matchedSignals(content, CAPABILITY_PATTERNS),
-            controlSignals: matchedSignals(content, CONTROL_PATTERNS),
+            ...capabilityAndControlSignals(filePath, content),
             frameworkSignals: matchedSignals(content, FRAMEWORK_PATTERNS),
             references: extractReferenceStrings(filePath, content),
         });

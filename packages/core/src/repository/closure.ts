@@ -4,6 +4,7 @@ import { auditMcpConfig } from '../mcp';
 import { evaluatePrompt, findingConfidence, scanContentForSecrets } from '../rules';
 import { inferWorkflowForFinding } from '../workflow';
 import { parseFile } from '../parser';
+import { loadCodeCapabilityGrammars } from './codeCapabilities';
 import { inferArtifactKind, inferExecutionIntent } from '../artifacts';
 import {
     analyzeRepositoryArtifactsFromFiles,
@@ -573,6 +574,8 @@ export async function evaluateRepositoryWithClosure(
 ): Promise<RepositoryClosureEvaluationResult> {
     const mode = options.mode || 'bounded';
     const started = Date.now();
+    // Syntax-tree capability detection is synchronous once grammars are loaded.
+    await loadCodeCapabilityGrammars();
     const inventory = (await options.source.inventory()).map(file => ({
         ...file,
         path: normalizeRepositoryPath(file.path),

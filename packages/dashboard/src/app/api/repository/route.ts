@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { createRequire } from 'module';
-import { analyzeRepositoryExecution, type RepositoryExecutionReport } from '@promptsonar/core';
+import { analyzeRepositoryExecution, loadCodeCapabilityGrammars, type RepositoryExecutionReport } from '@promptsonar/core';
 import { scanFiles } from '@promptsonar/cli';
 import { buildUploadedRepositoryReport } from '@/lib/repositoryBatchScan';
 import { cacheRepositoryReport, repositoryReportCache } from '@/lib/repositoryReportCache';
@@ -163,6 +163,8 @@ export async function POST(request: Request) {
     if (!report) {
       const runScan = (async () => {
         const scanResults = await scanFiles(root!, {});
+        // Syntax-tree capability detection needs its grammars loaded before the synchronous analysis.
+        await loadCodeCapabilityGrammars();
         return analyzeRepositoryExecution(root!, scanResults as any);
       })();
       if (IS_SERVERLESS) {
