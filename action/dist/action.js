@@ -21719,6 +21719,9 @@ var require_parser = __commonJS({
             wasmPath = path6.join(root, "node_modules", "web-tree-sitter", "tree-sitter.wasm");
           }
         }
+        if (!fs11.existsSync(wasmPath)) {
+          throw new Error(`tree-sitter runtime not found: ${wasmPath}`);
+        }
         await Parser2.init({
           locateFile() {
             return wasmPath;

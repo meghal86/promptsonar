@@ -68,6 +68,13 @@ async function initParser() {
                 wasmPath = path.join(root, 'node_modules', 'web-tree-sitter', 'tree-sitter.wasm');
             }
         }
+        // web-tree-sitter aborts with an uncaught exception, and never settles
+        // its init promise, when the runtime file is missing. Fail normally
+        // instead so callers can fall back (e.g. a serverless bundle without
+        // the asset would otherwise hang every request).
+        if (!fs.existsSync(wasmPath)) {
+            throw new Error(`tree-sitter runtime not found: ${wasmPath}`);
+        }
 
         await Parser.init({
             locateFile() {

@@ -7,12 +7,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // runtime. On serverless (Vercel) Next's file tracing bundles the JS but not
 // these assets, so the scan fails in the cloud. Force-include the .wasm files
 // (and the built CLI/core) into the scan API functions. Globs cover both a
-// hoisted root node_modules and a local one.
+// hoisted root node_modules, a local one, and core's own node_modules (where
+// npm currently installs them, since only @promptsonar/core depends on them).
 const SCAN_ASSET_INCLUDES = [
   '../../node_modules/web-tree-sitter/*.wasm',
   '../../node_modules/tree-sitter-wasms/out/*.wasm',
   './node_modules/web-tree-sitter/*.wasm',
   './node_modules/tree-sitter-wasms/out/*.wasm',
+  '../core/node_modules/web-tree-sitter/*.wasm',
+  '../core/node_modules/tree-sitter-wasms/out/*.wasm',
 ];
 
 /** @type {import('next').NextConfig} */
