@@ -28,15 +28,54 @@ const INJECTION_SOURCES: RegExp[] = [
     /exfiltrate|leak\s+(system\s+prompt|instructions)/i,
     /reveal\s+(system\s+prompt|instructions)/i,
 
-    // Encoding / obfuscation attempts
-    /(?:rot13|base64|hex|encoded|decode)\s+(?:text|string|prompt|instructions|output)/i,
+    // Encoding / obfuscation attempts: encoded instructions, or decoding
+    // something and then acting on it. Plain "decode text" (a programming
+    // lesson, a converter tool) is not an attack.
+    /(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
+    /\bdecode\b[^.\n]{0,60}\b(?:and|then)\s+(?:then\s+)?(?:follow|execute|run|obey|apply|carry\s+out)\b/i,
 
     // Tool / privilege abuse
     /use\s+(tool|function|command)\s+without\s+permission/i,
-    /bypass\s+guardrails|safety\s+controls/i,
+    /bypass\s+(?:guardrails|safety\s+controls)/i,
     /delete_(all_)?users?/i
 ];
 
+
+// A negator that directly governs the match: "never ignore…", "you must not
+// enter developer mode", "do not follow new instructions", "never, under any
+// circumstances, ignore…". Only connecting words from a fixed list may sit
+// between them: arbitrary words would let "don't hesitate to ignore…" or
+// "never fail to disregard…" (which mean the opposite) read as prohibitions.
+const NEGATOR = String.raw`(?:never|do\s+not|does\s+not|don'?t|doesn'?t|must\s+not|mustn'?t|should\s+not|shouldn'?t|shall\s+not|cannot|can\s+not|can'?t|will\s+not|won'?t|may\s+not|not\s+to|refuse\s+to|avoid(?:ing)?|under\s+no\s+circumstances|no)`;
+const CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as)`;
+const GOVERNING_NEGATION = new RegExp(String.raw`\b${NEGATOR}\s*(?:,\s*under\s+any\s+circumstances\s*,\s*)?(?:${CONNECTING_WORD}\s+){0,4}$`);
+const NEGATOR_WORD = new RegExp(String.raw`\b${NEGATOR}\b`, 'g');
+// Phrases that start with a negator but negate nothing that follows.
+const NON_GOVERNING_NEGATION = /\b(?:never\s+mind|no\s+(?:worries|problem|need))\b/;
+// Clause boundaries: the negator must be in the same clause as the match.
+const CLAUSE_BOUNDARY = /[.!?;:\n]|,(?!\s*under\s+any\s+circumstances)|\b(?:but|instead|however|now|actually|then)\b/g;
+
+/**
+ * True when the match at `index` is the object of a prohibition — e.g. a
+ * system prompt telling the model never to follow injected instructions.
+ * Only the clause containing the match is considered, so an attack placed
+ * after "never mind," or "…but" is still reported.
+ */
+function isNegatedMatch(text: string, index: number): boolean {
+    const before = text.slice(Math.max(0, index - 120), index);
+    let clauseStart = 0;
+    for (const boundary of before.matchAll(CLAUSE_BOUNDARY)) {
+        // ", under any circumstances," stays inside the clause (lookahead above);
+        // its closing comma must not start a new clause either.
+        const tail = before.slice(0, boundary.index);
+        if (boundary[0] === ',' && /,\s*under\s+any\s+circumstances\s*$/.test(tail)) continue;
+        clauseStart = (boundary.index ?? 0) + boundary[0].length;
+    }
+    const clause = before.slice(clauseStart);
+    // Two negators ("no reason not to…", "never refuse to…") cancel out.
+    const negators = clause.match(NEGATOR_WORD)?.length ?? 0;
+    return negators === 1 && GOVERNING_NEGATION.test(clause) && !NON_GOVERNING_NEGATION.test(clause);
+}
 
 export function checkOwaspPatterns(input: RuleInput): Finding[] {
     const findings: Finding[] = [];
@@ -76,9 +115,17 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
     // D. Lowercase for pattern matching
     const searchResult = normalizedText.toLowerCase();
 
-    // 1. Single-pass evaluation checking each source explicitly
-    for (const regex of INJECTION_SOURCES) {
-        const match = regex.exec(searchResult);
+    // 1. Check every occurrence of each source; report the first one that is
+    // not the object of a prohibition ("never ignore previous instructions").
+    for (const source of INJECTION_SOURCES) {
+        const regex = new RegExp(source.source, source.flags.includes('g') ? source.flags : `${source.flags}g`);
+        let match: RegExpExecArray | null = null;
+        for (const candidate of searchResult.matchAll(regex)) {
+            if (!isNegatedMatch(searchResult, candidate.index ?? 0)) {
+                match = candidate as RegExpExecArray;
+                break;
+            }
+        }
         if (match) {
             findings.push({
                 rule_id: "sec_owasp_llm01_injection",

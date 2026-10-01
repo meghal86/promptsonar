@@ -22414,13 +22414,35 @@ var require_owasp_patterns = __commonJS({
       /send\s+to\s+(email|http|url|server)/i,
       /exfiltrate|leak\s+(system\s+prompt|instructions)/i,
       /reveal\s+(system\s+prompt|instructions)/i,
-      // Encoding / obfuscation attempts
-      /(?:rot13|base64|hex|encoded|decode)\s+(?:text|string|prompt|instructions|output)/i,
+      // Encoding / obfuscation attempts: encoded instructions, or decoding
+      // something and then acting on it. Plain "decode text" (a programming
+      // lesson, a converter tool) is not an attack.
+      /(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
+      /\bdecode\b[^.\n]{0,60}\b(?:and|then)\s+(?:then\s+)?(?:follow|execute|run|obey|apply|carry\s+out)\b/i,
       // Tool / privilege abuse
       /use\s+(tool|function|command)\s+without\s+permission/i,
-      /bypass\s+guardrails|safety\s+controls/i,
+      /bypass\s+(?:guardrails|safety\s+controls)/i,
       /delete_(all_)?users?/i
     ];
+    var NEGATOR = String.raw`(?:never|do\s+not|does\s+not|don'?t|doesn'?t|must\s+not|mustn'?t|should\s+not|shouldn'?t|shall\s+not|cannot|can\s+not|can'?t|will\s+not|won'?t|may\s+not|not\s+to|refuse\s+to|avoid(?:ing)?|under\s+no\s+circumstances|no)`;
+    var CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as)`;
+    var GOVERNING_NEGATION = new RegExp(String.raw`\b${NEGATOR}\s*(?:,\s*under\s+any\s+circumstances\s*,\s*)?(?:${CONNECTING_WORD}\s+){0,4}$`);
+    var NEGATOR_WORD = new RegExp(String.raw`\b${NEGATOR}\b`, "g");
+    var NON_GOVERNING_NEGATION = /\b(?:never\s+mind|no\s+(?:worries|problem|need))\b/;
+    var CLAUSE_BOUNDARY = /[.!?;:\n]|,(?!\s*under\s+any\s+circumstances)|\b(?:but|instead|however|now|actually|then)\b/g;
+    function isNegatedMatch(text, index2) {
+      const before = text.slice(Math.max(0, index2 - 120), index2);
+      let clauseStart = 0;
+      for (const boundary of before.matchAll(CLAUSE_BOUNDARY)) {
+        const tail = before.slice(0, boundary.index);
+        if (boundary[0] === "," && /,\s*under\s+any\s+circumstances\s*$/.test(tail))
+          continue;
+        clauseStart = (boundary.index ?? 0) + boundary[0].length;
+      }
+      const clause = before.slice(clauseStart);
+      const negators = clause.match(NEGATOR_WORD)?.length ?? 0;
+      return negators === 1 && GOVERNING_NEGATION.test(clause) && !NON_GOVERNING_NEGATION.test(clause);
+    }
     function checkOwaspPatterns(input) {
       const findings = [];
       let normalizedText = input.text;
@@ -22497,8 +22519,15 @@ var require_owasp_patterns = __commonJS({
       };
       normalizedText = normalizedText.split("").map((char) => homoglyphMap[char] || char).join("");
       const searchResult = normalizedText.toLowerCase();
-      for (const regex of INJECTION_SOURCES) {
-        const match = regex.exec(searchResult);
+      for (const source of INJECTION_SOURCES) {
+        const regex = new RegExp(source.source, source.flags.includes("g") ? source.flags : `${source.flags}g`);
+        let match = null;
+        for (const candidate of searchResult.matchAll(regex)) {
+          if (!isNegatedMatch(searchResult, candidate.index ?? 0)) {
+            match = candidate;
+            break;
+          }
+        }
         if (match) {
           findings.push({
             rule_id: "sec_owasp_llm01_injection",
