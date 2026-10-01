@@ -14,6 +14,8 @@ const TEST_CARD_NUMBERS = new Set([
     '2223003122003222', '378282246310005', '371449635398431', '378734493671000',
     '6011111111111117', '6011000990139424', '3566002020360505', '30569309025904',
     '38520000023237', '6200000000000005',
+    // Paystack and Flutterwave documentation test cards; Stripe's decline card.
+    '4084084084084081', '5531886652142950', '4000000000000002',
 ]);
 
 /** A digit run that could be a real payment card number. */

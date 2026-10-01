@@ -5,7 +5,8 @@ const INJECTION_SOURCES: RegExp[] = [
     /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
     /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
     /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
-    /new\s+(?:instructions|task|role|persona|query|command)/i,
+    // \b: "new personal access token" is not "new persona".
+    /new\s+(?:instructions|task|role|persona|query|command)\b/i,
 
     // Role-playing / persona switches
     /you\s+are\s+now\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan|ai\s+without)/i,
@@ -16,7 +17,11 @@ const INJECTION_SOURCES: RegExp[] = [
     // DAN & variants (very common jailbreaks)
     /\bDAN\b\s*(?:\d+\.?\d*)?\s*(mode|persona|version)?/i,
     /do\s+anything\s+now/i,
-    /(developer\s+mode|devmode)/i,
+    // Developer mode as a jailbreak, not the real setting in Discord, Android
+    // or a browser ("enable Developer Mode (User Settings → Advanced)").
+    /\b(?:you\s+are|you're|you\s+will\s+be)\s+(?:now\s+)?(?:in|running\s+in|operating\s+in)\s+(?:developer\s+mode|devmode)\b/i,
+    /\b(?:developer\s+mode|devmode)\s+(?:enabled|activated|is\s+on|output|response)\b/i,
+    /\b(?:enter|activate|enable|switch\s+to)\s+(?:developer\s+mode|devmode)\b[^.\n]{0,80}\b(?:no|without|unrestricted|uncensored|unfiltered)\b/i,
     /hypothetical\s+response/i,
     /unrestricted\s+(mode|access|persona)/i,
     /ignore\s+(?:safety\s+|content\s+)?(?:guidelines|filters|limitations|restrictions|rules)/i,
@@ -164,12 +169,17 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
         });
     }
 
-    // Heuristic: If we still have many non-ascii characters and common injection words are present
-    const nonAsciiCount = (normalizedText.match(/[^\x00-\x7F]/g) || []).length;
+    // Heuristic: many non-ASCII letters near injection words. Only letters and
+    // combining marks count (diacritic-stacked "ḯḡṅøṝẽ" and Cyrillic do);
+    // arrows, dashes, quotes, bullets and emoji, common in docs and connector
+    // instructions, are not obfuscation.
+    const OBFUSCATING_LETTER = /(?![\x00-\x7F])[\p{L}\p{M}]/u;
+    const nonAsciiCount = Array.from(normalizedText).filter(char => OBFUSCATING_LETTER.test(char)).length;
     const hasInjectionKeyword = /ignore|reveal|prompt|instruction|system/i.test(normalizedText);
-    const hasProximity = 
-      /[^\x00-\x7F].{0,20}(?:ignore|reveal|system)/i.test(normalizedText) ||
-      /(?:ignore|reveal|system).{0,20}[^\x00-\x7F]/i.test(normalizedText);
+    const obfuscatingSource = OBFUSCATING_LETTER.source;
+    const hasProximity =
+      new RegExp(`${obfuscatingSource}.{0,20}(?:ignore|reveal|system)`, 'iu').test(normalizedText) ||
+      new RegExp(`(?:ignore|reveal|system).{0,20}${obfuscatingSource}`, 'iu').test(normalizedText);
     if (nonAsciiCount > 10 && hasInjectionKeyword && hasProximity) {
         findings.push({
             rule_id: "sec_unicode_injection_obfuscation",

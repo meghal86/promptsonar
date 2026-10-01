@@ -22395,7 +22395,8 @@ var require_owasp_patterns = __commonJS({
       /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
       /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
       /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
-      /new\s+(?:instructions|task|role|persona|query|command)/i,
+      // \b: "new personal access token" is not "new persona".
+      /new\s+(?:instructions|task|role|persona|query|command)\b/i,
       // Role-playing / persona switches
       /you\s+are\s+now\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan|ai\s+without)/i,
       /(?:act\s+as|pretend\s+to\s+be)\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan)/i,
@@ -22404,7 +22405,11 @@ var require_owasp_patterns = __commonJS({
       // DAN & variants (very common jailbreaks)
       /\bDAN\b\s*(?:\d+\.?\d*)?\s*(mode|persona|version)?/i,
       /do\s+anything\s+now/i,
-      /(developer\s+mode|devmode)/i,
+      // Developer mode as a jailbreak, not the real setting in Discord, Android
+      // or a browser ("enable Developer Mode (User Settings → Advanced)").
+      /\b(?:you\s+are|you're|you\s+will\s+be)\s+(?:now\s+)?(?:in|running\s+in|operating\s+in)\s+(?:developer\s+mode|devmode)\b/i,
+      /\b(?:developer\s+mode|devmode)\s+(?:enabled|activated|is\s+on|output|response)\b/i,
+      /\b(?:enter|activate|enable|switch\s+to)\s+(?:developer\s+mode|devmode)\b[^.\n]{0,80}\b(?:no|without|unrestricted|uncensored|unfiltered)\b/i,
       /hypothetical\s+response/i,
       /unrestricted\s+(mode|access|persona)/i,
       /ignore\s+(?:safety\s+|content\s+)?(?:guidelines|filters|limitations|restrictions|rules)/i,
@@ -22563,9 +22568,11 @@ var require_owasp_patterns = __commonJS({
           penalty_score: 20
         });
       }
-      const nonAsciiCount = (normalizedText.match(/[^\x00-\x7F]/g) || []).length;
+      const OBFUSCATING_LETTER = /(?![\x00-\x7F])[\p{L}\p{M}]/u;
+      const nonAsciiCount = Array.from(normalizedText).filter((char) => OBFUSCATING_LETTER.test(char)).length;
       const hasInjectionKeyword = /ignore|reveal|prompt|instruction|system/i.test(normalizedText);
-      const hasProximity = /[^\x00-\x7F].{0,20}(?:ignore|reveal|system)/i.test(normalizedText) || /(?:ignore|reveal|system).{0,20}[^\x00-\x7F]/i.test(normalizedText);
+      const obfuscatingSource = OBFUSCATING_LETTER.source;
+      const hasProximity = new RegExp(`${obfuscatingSource}.{0,20}(?:ignore|reveal|system)`, "iu").test(normalizedText) || new RegExp(`(?:ignore|reveal|system).{0,20}${obfuscatingSource}`, "iu").test(normalizedText);
       if (nonAsciiCount > 10 && hasInjectionKeyword && hasProximity) {
         findings.push({
           rule_id: "sec_unicode_injection_obfuscation",
@@ -22851,7 +22858,11 @@ var require_pii = __commonJS({
       "3566002020360505",
       "30569309025904",
       "38520000023237",
-      "6200000000000005"
+      "6200000000000005",
+      // Paystack and Flutterwave documentation test cards; Stripe's decline card.
+      "4084084084084081",
+      "5531886652142950",
+      "4000000000000002"
     ]);
     function isPlausibleCardNumber(value) {
       const digits = value.replace(/\D/g, "");
