@@ -20,7 +20,8 @@ export function checkTokenLimit(input: RuleInput, tokenBudget: number = 8192): F
         findings.push({
             rule_id: "eff_token_bloat",
             category: "efficiency",
-            severity: "high",
+            // A cost/truncation concern, not a security risk: at most MEDIUM.
+            severity: "medium",
             explanation: `Prompt exceeds 8000 chars (~2000 tokens) – risk of truncation or high cost.`,
             suggested_fix: `Shorten the prompt or rely on RAG.`,
             penalty_score: 20

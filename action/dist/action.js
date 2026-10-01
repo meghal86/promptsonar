@@ -22832,10 +22832,39 @@ var require_pii = __commonJS({
     exports2.checkPii = checkPii;
     exports2.scanContentForSecrets = scanContentForSecrets;
     var secrets_1 = require_secrets();
+    var CARD_CANDIDATE = /(?<![\w.-])\d(?:[ -]?\d){12,18}(?![\w-]|\.\d)/g;
+    var TEST_CARD_NUMBERS = /* @__PURE__ */ new Set([
+      "4111111111111111",
+      "4242424242424242",
+      "4012888888881881",
+      "4000056655665556",
+      "4222222222222",
+      "5555555555554444",
+      "5105105105105100",
+      "5200828282828210",
+      "2223003122003222",
+      "378282246310005",
+      "371449635398431",
+      "378734493671000",
+      "6011111111111117",
+      "6011000990139424",
+      "3566002020360505",
+      "30569309025904",
+      "38520000023237",
+      "6200000000000005"
+    ]);
+    function isPlausibleCardNumber(value) {
+      const digits = value.replace(/\D/g, "");
+      if (!/^[2-6]/.test(digits))
+        return false;
+      if (TEST_CARD_NUMBERS.has(digits))
+        return false;
+      return isLuhnValid(value);
+    }
     var PII_REGEXES = [
       { name: "Email Address", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i },
       { name: "SSN", pattern: /\b\d{3}-\d{2}-\d{4}\b/ },
-      { name: "Credit Card", pattern: /\b(?:\d[ -]?){13,16}\b/ },
+      { name: "Credit Card", pattern: CARD_CANDIDATE },
       { name: "OpenAI API Key", pattern: /sk-(?:live|test|proj)-[a-zA-Z0-9]{32,}/i },
       { name: "Anthropic API Key", pattern: /sk-ant-[a-zA-Z0-9_-]{8,}/i },
       { name: "GitHub PAT", pattern: /ghp_[a-zA-Z0-9]{36}/i },
@@ -22905,7 +22934,7 @@ var require_pii = __commonJS({
       const text = (0, secrets_1.redactSecretReferences)(input.text);
       for (const pii of PII_REGEXES) {
         pii.pattern.lastIndex = 0;
-        const match = text.match(pii.pattern);
+        const match = pii.pattern === CARD_CANDIDATE ? Array.from(text.matchAll(CARD_CANDIDATE)).find((candidate) => isPlausibleCardNumber(candidate[0])) ?? null : text.match(pii.pattern);
         if (match && !looksLikePlaceholder(match[0])) {
           findings.push({
             rule_id: "sec_owasp_llm02_pii",
@@ -22930,7 +22959,7 @@ var require_pii = __commonJS({
       { name: "Stripe Restricted Key", pattern: /rk_live_[a-zA-Z0-9]{24,}/g },
       { name: "JWT Token", pattern: /eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g },
       { name: "SSN", pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
-      { name: "Credit Card", pattern: /\b(?:\d[ -]?){13,16}\b/g }
+      { name: "Credit Card", pattern: CARD_CANDIDATE }
     ];
     function scanContentForSecrets(content, filePath) {
       const matches = [];
@@ -22943,7 +22972,7 @@ var require_pii = __commonJS({
           pattern.lastIndex = 0;
           let match;
           while ((match = pattern.exec(line)) !== null) {
-            if (name === "Credit Card" && !isLuhnValid(match[0]))
+            if (name === "Credit Card" && !isPlausibleCardNumber(match[0]))
               continue;
             if (looksLikePlaceholder(match[0]))
               continue;
@@ -23001,7 +23030,8 @@ var require_token_limit = __commonJS({
         findings.push({
           rule_id: "eff_token_bloat",
           category: "efficiency",
-          severity: "high",
+          // A cost/truncation concern, not a security risk: at most MEDIUM.
+          severity: "medium",
           explanation: `Prompt exceeds 8000 chars (~2000 tokens) \u2013 risk of truncation or high cost.`,
           suggested_fix: `Shorten the prompt or rely on RAG.`,
           penalty_score: 20
@@ -23165,7 +23195,33 @@ var require_evasion = __commonJS({
       /bypass\s+(?:guardrails|safety\s+controls|safety\s+filters)/i
     ];
     var BASE64_CANDIDATE = /(?:[A-Za-z0-9+/]{4}){16,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?/g;
-    var ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF]/;
+    var ZERO_WIDTH_CHARS_GLOBAL = /[\u200B\u200C\u200D\uFEFF]/g;
+    var EMOJI_BEFORE_JOINER = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\uFE0F]/u;
+    var EMOJI_AFTER_JOINER = new RegExp("\\p{Extended_Pictographic}", "u");
+    var SCRIPT_CHAR = /[\p{L}\p{M}]/u;
+    var LATIN_OR_COMMON = /[\p{Script=Latin}\p{Script=Common}]/u;
+    function codePointBefore(text, index2) {
+      if (index2 <= 0)
+        return "";
+      const low = text.charCodeAt(index2 - 1);
+      if (low >= 56320 && low <= 57343 && index2 >= 2)
+        return text.slice(index2 - 2, index2);
+      return text[index2 - 1];
+    }
+    function codePointAfter(text, index2) {
+      const codePoint = text.codePointAt(index2 + 1);
+      return codePoint === void 0 ? "" : String.fromCodePoint(codePoint);
+    }
+    function isTextJoiner(text, index2) {
+      const joiner = text[index2];
+      if (joiner !== "\u200D" && joiner !== "\u200C")
+        return false;
+      const before = codePointBefore(text, index2);
+      const after = codePointAfter(text, index2);
+      if (joiner === "\u200D" && EMOJI_BEFORE_JOINER.test(before) && EMOJI_AFTER_JOINER.test(after))
+        return true;
+      return SCRIPT_CHAR.test(before) && SCRIPT_CHAR.test(after) && !LATIN_OR_COMMON.test(before) && !LATIN_OR_COMMON.test(after);
+    }
     var CYRILLIC_HOMOGLYPHS = /[АВЕЅІЈКМНОРСТУХаесорухіјкпѕ]/u;
     function decodedLooksInjectable(encoded) {
       try {
@@ -23210,12 +23266,14 @@ var require_evasion = __commonJS({
         });
       }
       let zeroWidthMatch;
-      const firstZwIdx = input.text.search(ZERO_WIDTH_CHARS);
-      if (firstZwIdx === 0 && input.text.charCodeAt(0) === 65279) {
-        const after = input.text.slice(1).match(ZERO_WIDTH_CHARS);
-        zeroWidthMatch = after ? after[0] : void 0;
-      } else if (firstZwIdx !== -1) {
-        zeroWidthMatch = input.text[firstZwIdx];
+      for (const match of input.text.matchAll(ZERO_WIDTH_CHARS_GLOBAL)) {
+        const index2 = match.index ?? 0;
+        if (index2 === 0 && match[0] === "\uFEFF")
+          continue;
+        if (isTextJoiner(input.text, index2))
+          continue;
+        zeroWidthMatch = match[0];
+        break;
       }
       if (zeroWidthMatch) {
         findings.push({

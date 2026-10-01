@@ -10,7 +10,40 @@ const INJECTION_PATTERNS: RegExp[] = [
 ];
 
 const BASE64_CANDIDATE = /(?:[A-Za-z0-9+/]{4}){16,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?/g;
-const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF]/;
+const ZERO_WIDTH_CHARS_GLOBAL = /[\u200B\u200C\u200D\uFEFF]/g;
+const EMOJI_BEFORE_JOINER = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\uFE0F]/u;
+const EMOJI_AFTER_JOINER = /\p{Extended_Pictographic}/u;
+const SCRIPT_CHAR = /[\p{L}\p{M}]/u;
+const LATIN_OR_COMMON = /[\p{Script=Latin}\p{Script=Common}]/u;
+
+function codePointBefore(text: string, index: number): string {
+    if (index <= 0) return '';
+    const low = text.charCodeAt(index - 1);
+    if (low >= 0xDC00 && low <= 0xDFFF && index >= 2) return text.slice(index - 2, index);
+    return text[index - 1];
+}
+
+function codePointAfter(text: string, index: number): string {
+    const codePoint = text.codePointAt(index + 1);
+    return codePoint === undefined ? '' : String.fromCodePoint(codePoint);
+}
+
+/**
+ * A joiner (ZWJ U+200D / ZWNJ U+200C) that is part of the text rather than
+ * hidden in it: inside an emoji sequence (the joiner in a technologist or
+ * family emoji), or between letters of a script that uses joiners (Persian,
+ * Devanagari). Injection hides invisible characters inside Latin words, so a
+ * joiner next to a Latin letter still counts.
+ */
+function isTextJoiner(text: string, index: number): boolean {
+    const joiner = text[index];
+    if (joiner !== '\u200D' && joiner !== '\u200C') return false;
+    const before = codePointBefore(text, index);
+    const after = codePointAfter(text, index);
+    if (joiner === '\u200D' && EMOJI_BEFORE_JOINER.test(before) && EMOJI_AFTER_JOINER.test(after)) return true;
+    return SCRIPT_CHAR.test(before) && SCRIPT_CHAR.test(after)
+        && !LATIN_OR_COMMON.test(before) && !LATIN_OR_COMMON.test(after);
+}
 const CYRILLIC_HOMOGLYPHS = /[АВЕЅІЈКМНОРСТУХаесорухіјкпѕ]/u;
 
 function hasMathHomoglyph(text: string): boolean {
@@ -70,15 +103,15 @@ export function checkEvasionPatterns(input: RuleInput): Finding[] {
     }
 
     // A U+FEFF at offset 0 is a UTF-8 byte-order mark (a file-encoding artifact),
-    // not an injection — ignore only that case. The same character anywhere else,
-    // or any other zero-width character (U+200B/C/D), still fires.
+    // and a joiner inside an emoji sequence or a non-Latin word is part of the
+    // text — ignore those. Any other zero-width character still fires.
     let zeroWidthMatch: string | undefined;
-    const firstZwIdx = input.text.search(ZERO_WIDTH_CHARS);
-    if (firstZwIdx === 0 && input.text.charCodeAt(0) === 0xFEFF) {
-        const after = input.text.slice(1).match(ZERO_WIDTH_CHARS);
-        zeroWidthMatch = after ? after[0] : undefined;
-    } else if (firstZwIdx !== -1) {
-        zeroWidthMatch = input.text[firstZwIdx];
+    for (const match of input.text.matchAll(ZERO_WIDTH_CHARS_GLOBAL)) {
+        const index = match.index ?? 0;
+        if (index === 0 && match[0] === '\uFEFF') continue;
+        if (isTextJoiner(input.text, index)) continue;
+        zeroWidthMatch = match[0];
+        break;
     }
     if (zeroWidthMatch) {
         findings.push({

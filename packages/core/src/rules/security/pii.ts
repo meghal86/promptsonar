@@ -1,10 +1,35 @@
 import { RuleInput, Finding } from '../types';
 import { redactSecretReferences } from '../../contextual/secrets';
 
+// 13-19 digits, optionally separated by single spaces or dashes, starting and
+// ending on a digit. It must not be part of a larger token: not inside a UUID
+// or hex id (00000000-0000-…, abcd1234-0000-…) and not the fraction of a
+// decimal (1.959963984540054), both of which produced false positives.
+const CARD_CANDIDATE = /(?<![\w.-])\d(?:[ -]?\d){12,18}(?![\w-]|\.\d)/g;
+
+// Published processor test numbers: not anyone's card.
+const TEST_CARD_NUMBERS = new Set([
+    '4111111111111111', '4242424242424242', '4012888888881881', '4000056655665556',
+    '4222222222222', '5555555555554444', '5105105105105100', '5200828282828210',
+    '2223003122003222', '378282246310005', '371449635398431', '378734493671000',
+    '6011111111111117', '6011000990139424', '3566002020360505', '30569309025904',
+    '38520000023237', '6200000000000005',
+]);
+
+/** A digit run that could be a real payment card number. */
+function isPlausibleCardNumber(value: string): boolean {
+    const digits = value.replace(/\D/g, '');
+    // Card numbers are issued with a 2-6 first digit (Mastercard, Visa, Amex,
+    // Discover, JCB, UnionPay, Diners).
+    if (!/^[2-6]/.test(digits)) return false;
+    if (TEST_CARD_NUMBERS.has(digits)) return false;
+    return isLuhnValid(value);
+}
+
 const PII_REGEXES = [
     { name: "Email Address", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i },
     { name: "SSN", pattern: /\b\d{3}-\d{2}-\d{4}\b/ },
-    { name: "Credit Card", pattern: /\b(?:\d[ -]?){13,16}\b/ },
+    { name: "Credit Card", pattern: CARD_CANDIDATE },
     { name: "OpenAI API Key", pattern: /sk-(?:live|test|proj)-[a-zA-Z0-9]{32,}/i },
     { name: "Anthropic API Key", pattern: /sk-ant-[a-zA-Z0-9_-]{8,}/i },
     { name: "GitHub PAT", pattern: /ghp_[a-zA-Z0-9]{36}/i },
@@ -83,7 +108,11 @@ export function checkPii(input: RuleInput): Finding[] {
 
     for (const pii of PII_REGEXES) {
         pii.pattern.lastIndex = 0;
-        const match = text.match(pii.pattern);
+        // Cards: the first plausible candidate, so a rejected look-alike (a
+        // UUID or test number) does not hide a real card later in the text.
+        const match = pii.pattern === CARD_CANDIDATE
+            ? Array.from(text.matchAll(CARD_CANDIDATE)).find(candidate => isPlausibleCardNumber(candidate[0])) ?? null
+            : text.match(pii.pattern);
         // Only fire on a real value-shaped match, not a documentation placeholder.
         if (match && !looksLikePlaceholder(match[0])) {
             findings.push({
@@ -116,7 +145,7 @@ const STRUCTURED_SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
     { name: 'Stripe Restricted Key', pattern: /rk_live_[a-zA-Z0-9]{24,}/g },
     { name: 'JWT Token', pattern: /eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g },
     { name: 'SSN', pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
-    { name: 'Credit Card', pattern: /\b(?:\d[ -]?){13,16}\b/g },
+    { name: 'Credit Card', pattern: CARD_CANDIDATE },
 ];
 
 export interface ContentSecretMatch {
@@ -138,8 +167,8 @@ export function scanContentForSecrets(content: string, filePath?: string): Conte
             let match: RegExpExecArray | null;
             while ((match = pattern.exec(line)) !== null) {
                 // Credit-card regex also matches long digit runs; require a
-                // value that passes the Luhn checksum to stay precise.
-                if (name === 'Credit Card' && !isLuhnValid(match[0])) continue;
+                // plausible card (issuer prefix, not a test number, Luhn-valid).
+                if (name === 'Credit Card' && !isPlausibleCardNumber(match[0])) continue;
                 // A commented-out or placeholder value is documentation, not a
                 // live secret (e.g. `# API_KEY = "your-key-here"`).
                 if (looksLikePlaceholder(match[0])) continue;
