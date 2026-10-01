@@ -8,6 +8,7 @@ import {
     type MetadataCandidate,
 } from './discovery';
 import { analyzeCodeCapabilities } from './codeCapabilities';
+import { isDocumentationFileName } from '../artifacts';
 
 export type ArtifactProvenance =
     | 'production'
@@ -151,7 +152,7 @@ function provenanceForPath(filePath: string): ArtifactProvenance {
     if (segments.some(segment => ['node_modules', 'dist', 'build', 'out', 'coverage', 'vendor'].includes(segment)) || basename.endsWith('.map')) return 'generated';
     if (segments.some(segment => ['fixtures', 'fixture', 'samples', 'sample-repos'].includes(segment))) return 'fixture';
     if (segments.some(segment => ['tests', 'test', '__tests__', '__mocks__'].includes(segment)) || /\.(?:test|spec)\.[a-z0-9]+$/.test(basename)) return 'test';
-    if (segments.some(segment => ['docs', 'doc', 'documentation', 'wiki'].includes(segment)) || basename === 'readme.md') return 'documentation';
+    if (segments.some(segment => ['docs', 'doc', 'documentation', 'wiki'].includes(segment)) || isDocumentationFileName(basename)) return 'documentation';
     if (segments.some(segment => ['examples', 'example', 'demo', 'demos'].includes(segment))) return 'example';
     return 'production';
 }

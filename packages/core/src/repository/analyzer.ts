@@ -18,7 +18,7 @@ import {
     type VerdictInput,
     type VulnerabilityBasis,
 } from '../contextual';
-import { inferArtifactKind, inferExecutionIntent } from '../artifacts';
+import { inferArtifactKind, inferExecutionIntent, isDocumentationFileName } from '../artifacts';
 import { stripNegatedClauses } from '../workflow/analyzer';
 import {
     REPOSITORY_CONFIDENCE_DEFINITIONS,
@@ -543,7 +543,7 @@ function classifyRepositoryProvenance(relativePath: string, content: string): Re
         hasSegment('docs', 'doc', 'documentation', 'wiki', 'wikis', 'blog', 'blogs',
             'website', 'site', 'tutorial', 'tutorials', 'guide', 'guides', 'man', 'manual', 'handbook') ||
         segments.some(segment => segment.startsWith('docs') || segment.startsWith('documentation')) ||
-        ['readme.md', 'readme.mdx', 'changelog.md', 'contributing.md', 'code_of_conduct.md', 'security.md', 'history.md', 'authors.md', 'notice.md'].includes(basename)
+        isDocumentationFileName(basename)
     )) {
         return 'documentation';
     }

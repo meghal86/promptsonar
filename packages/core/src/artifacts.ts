@@ -31,6 +31,19 @@ function basename(filePath: string): string {
     return normalized.split('/').filter(Boolean).pop() || normalized;
 }
 
+// Project documentation files by name. A locale or variant suffix is allowed,
+// so translations (README.es.md, README.zh-CN.md, README_ja.md,
+// CONTRIBUTING.pt-BR.md) are documentation just like README.md. A documentation
+// extension is required (bare README excepted) so source files such as
+// security.ts or history.py are never mistaken for docs.
+const DOCUMENTATION_FILE_NAME =
+    /^(?:(?:readme|changelog|contributing|code_of_conduct|security|history|authors|notice)(?:[._-][a-z]{2,3}(?:[-_][a-z0-9]{2,4})?)?\.(?:md|mdx|markdown|rst|txt|adoc)|readme)$/;
+
+/** True for README/CHANGELOG/CONTRIBUTING-style files, including translations. */
+export function isDocumentationFileName(fileName: string): boolean {
+    return DOCUMENTATION_FILE_NAME.test(basename(fileName));
+}
+
 export function isGithubWorkflowPath(filePath: string): boolean {
     const normalized = normalizePath(filePath);
     return /\.(?:ya?ml)$/.test(normalized) && (
@@ -85,10 +98,7 @@ function isReferencePath(normalizedPath: string, base: string): boolean {
     return (
         segments.some(segment => ['docs', 'doc', 'documentation', 'wiki', 'research', 'tutorial', 'tutorials'].includes(segment)) ||
         segments.some(segment => ['examples', 'example', 'benchmarks', 'benchmark'].includes(segment)) ||
-        base === 'readme' ||
-        base === 'readme.md' ||
-        base === 'changelog.md' ||
-        base === 'contributing.md' ||
+        isDocumentationFileName(base) ||
         /(?:compatibility|matrix|tutorial|guide|reference|benchmark|research)/.test(base)
     );
 }

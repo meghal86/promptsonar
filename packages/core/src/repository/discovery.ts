@@ -1,5 +1,6 @@
 import * as path from 'path';
 import type { RepositoryFileMetadata } from './source';
+import { isDocumentationFileName } from '../artifacts';
 
 export type BudgetCategory = 'entry_point' | 'capability' | 'control' | 'reference' | 'supporting_context';
 
@@ -184,7 +185,7 @@ export function discoverRepositoryCandidates(inventory: RepositoryFileMetadata[]
             addSignal(artifactNameSignals, reasons, 'manifest', 'manifest or build configuration filename');
             initialPriority += 45;
         }
-        if (hasSegment(lower, SUPPORTING_DOC_SEGMENTS) || name === 'readme.md') {
+        if (hasSegment(lower, SUPPORTING_DOC_SEGMENTS) || isDocumentationFileName(name)) {
             addSignal(pathSignals, reasons, 'documentation', 'documentation path');
             initialPriority += 20;
         }

@@ -22099,6 +22099,7 @@ var require_artifacts = __commonJS({
   "../packages/core/dist/artifacts.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.isDocumentationFileName = isDocumentationFileName;
     exports2.isGithubWorkflowPath = isGithubWorkflowPath;
     exports2.inferArtifactKind = inferArtifactKind;
     exports2.inferExecutionIntent = inferExecutionIntent;
@@ -22108,6 +22109,10 @@ var require_artifacts = __commonJS({
     function basename4(filePath) {
       const normalized = normalizePath(filePath);
       return normalized.split("/").filter(Boolean).pop() || normalized;
+    }
+    var DOCUMENTATION_FILE_NAME = /^(?:(?:readme|changelog|contributing|code_of_conduct|security|history|authors|notice)(?:[._-][a-z]{2,3}(?:[-_][a-z0-9]{2,4})?)?\.(?:md|mdx|markdown|rst|txt|adoc)|readme)$/;
+    function isDocumentationFileName(fileName) {
+      return DOCUMENTATION_FILE_NAME.test(basename4(fileName));
     }
     function isGithubWorkflowPath(filePath) {
       const normalized = normalizePath(filePath);
@@ -22158,7 +22163,7 @@ var require_artifacts = __commonJS({
     }
     function isReferencePath(normalizedPath, base) {
       const segments = normalizedPath.split("/").filter(Boolean);
-      return segments.some((segment) => ["docs", "doc", "documentation", "wiki", "research", "tutorial", "tutorials"].includes(segment)) || segments.some((segment) => ["examples", "example", "benchmarks", "benchmark"].includes(segment)) || base === "readme" || base === "readme.md" || base === "changelog.md" || base === "contributing.md" || /(?:compatibility|matrix|tutorial|guide|reference|benchmark|research)/.test(base);
+      return segments.some((segment) => ["docs", "doc", "documentation", "wiki", "research", "tutorial", "tutorials"].includes(segment)) || segments.some((segment) => ["examples", "example", "benchmarks", "benchmark"].includes(segment)) || isDocumentationFileName(base) || /(?:compatibility|matrix|tutorial|guide|reference|benchmark|research)/.test(base);
     }
     function inferExecutionIntent(filePath, artifactKind = inferArtifactKind(filePath)) {
       const normalized = normalizePath(filePath);
@@ -54838,7 +54843,7 @@ var require_analyzer2 = __commonJS({
         return "test";
       }
       const isAiInstructionSurface = ["agents.md", "agent.md", "claude.md", "skill.md", ".cursorrules"].includes(basename4) || hasSegment("prompts", "skills", ".claude", ".cursor", ".agents", ".codex");
-      if (!isAiInstructionSurface && (hasSegment("docs", "doc", "documentation", "wiki", "wikis", "blog", "blogs", "website", "site", "tutorial", "tutorials", "guide", "guides", "man", "manual", "handbook") || segments.some((segment) => segment.startsWith("docs") || segment.startsWith("documentation")) || ["readme.md", "readme.mdx", "changelog.md", "contributing.md", "code_of_conduct.md", "security.md", "history.md", "authors.md", "notice.md"].includes(basename4))) {
+      if (!isAiInstructionSurface && (hasSegment("docs", "doc", "documentation", "wiki", "wikis", "blog", "blogs", "website", "site", "tutorial", "tutorials", "guide", "guides", "man", "manual", "handbook") || segments.some((segment) => segment.startsWith("docs") || segment.startsWith("documentation")) || (0, artifacts_1.isDocumentationFileName)(basename4))) {
         return "documentation";
       }
       if (hasSegment("examples", "example", "demo", "demos", "scratch", "evidence", "benchmarks", "research", "results", "tmp", "output", "sample", "samples", "cookbook", "cookbooks", "recipes", "playground", "quickstart", "quickstarts")) {
@@ -57924,6 +57929,7 @@ var require_discovery = __commonJS({
     exports2.rankRepositoryCandidates = rankRepositoryCandidates;
     exports2.selectInitialAcquisitionSet = selectInitialAcquisitionSet;
     var path6 = __importStar(require("path"));
+    var artifacts_1 = require_artifacts();
     var CATEGORY_RANK = {
       entry_point: 5,
       control: 4,
@@ -58061,7 +58067,7 @@ var require_discovery = __commonJS({
           addSignal(artifactNameSignals, reasons, "manifest", "manifest or build configuration filename");
           initialPriority += 45;
         }
-        if (hasSegment(lower, SUPPORTING_DOC_SEGMENTS) || name === "readme.md") {
+        if (hasSegment(lower, SUPPORTING_DOC_SEGMENTS) || (0, artifacts_1.isDocumentationFileName)(name)) {
           addSignal(pathSignals, reasons, "documentation", "documentation path");
           initialPriority += 20;
         }
@@ -58187,6 +58193,7 @@ var require_contentDiscovery = __commonJS({
     var path6 = __importStar(require("path"));
     var discovery_1 = require_discovery();
     var codeCapabilities_1 = require_codeCapabilities();
+    var artifacts_1 = require_artifacts();
     var FRAMEWORK_PATTERNS = [
       [/\bopenai\b/i, "OpenAI"],
       [/\banthropic\b/i, "Anthropic"],
@@ -58261,7 +58268,7 @@ ${code.declarationText}`, CONTROL_PATTERNS)
         return "fixture";
       if (segments.some((segment) => ["tests", "test", "__tests__", "__mocks__"].includes(segment)) || /\.(?:test|spec)\.[a-z0-9]+$/.test(basename4))
         return "test";
-      if (segments.some((segment) => ["docs", "doc", "documentation", "wiki"].includes(segment)) || basename4 === "readme.md")
+      if (segments.some((segment) => ["docs", "doc", "documentation", "wiki"].includes(segment)) || (0, artifacts_1.isDocumentationFileName)(basename4))
         return "documentation";
       if (segments.some((segment) => ["examples", "example", "demo", "demos"].includes(segment)))
         return "example";
