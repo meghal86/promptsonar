@@ -1,11 +1,28 @@
 # PromptSonar
 
-**Execution path analysis for AI systems.**
+**A static security scanner for MCP configs, agent instructions and prompts.**
+It shows what your AI tooling can reach — shell, filesystem, network, secrets — before it ships.
+Local, deterministic, zero LLM calls.
 
-PromptSonar traces prompts, agent instructions, MCP configs, memory, tools, and AI workflows before they reach filesystem access, network actions, shell execution, or other privileged operations.
+[![CI](https://github.com/meghal86/promptsonar/actions/workflows/ci.yml/badge.svg)](https://github.com/meghal86/promptsonar/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@promptsonar/cli)](https://www.npmjs.com/package/@promptsonar/cli)
+[![npm downloads](https://img.shields.io/npm/dm/@promptsonar/cli)](https://www.npmjs.com/package/@promptsonar/cli)
+[![VS Code](https://img.shields.io/visual-studio-marketplace/v/promptsonar-tools.promptsonar)](https://marketplace.visualstudio.com/items?itemName=promptsonar-tools.promptsonar)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![OWASP LLM Top 10](https://img.shields.io/badge/OWASP%20LLM%20Top%2010-aligned-brightgreen)](docs/rules.md)
+
+## Quick start
 
 ```bash
+# Audit the MCP servers your editor and agents use
+# (auto-discovers Claude Desktop, Claude Code .mcp.json, Cursor and VS Code configs)
+npx @promptsonar/cli audit-mcp
+
+# Scan a repository: prompts, agent instructions, MCP configs, and prompts embedded in code
 npx @promptsonar/cli scan .
+
+# See it fail loudly on known-bad examples
+npx @promptsonar/cli demo
 ```
 
 ```text
@@ -22,157 +39,36 @@ Confidence: HIGH
 Root Cause: MCP Tool Poisoning
 ```
 
-It explains:
-
-- Where execution can go
-- Why the path exists
-- How confident it is
-- What root cause created it
-- How remediation changes the path
-
-PromptSonar runs locally, makes zero LLM calls, and integrates with the places developers already work:
-
-- CLI
-- VS Code
-- Cursor
-- Claude Code
-- GitHub Actions
-- GitHub PR Reviews
-- SARIF
-- CI/CD
-
-Think of PromptSonar as:
-
-**npm audit for prompts, MCP servers, and AI execution paths.**
-
-```bash
-npm install -g @promptsonar/cli
-promptsonar scan .
-```
-
-[![npm](https://img.shields.io/npm/v/@promptsonar/cli)](https://www.npmjs.com/package/@promptsonar/cli)
-[![VS Code](https://img.shields.io/visual-studio-marketplace/v/promptsonar-tools.promptsonar)](https://marketplace.visualstudio.com/items?itemName=promptsonar-tools.promptsonar)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![OWASP LLM Top 10](https://img.shields.io/badge/OWASP%20LLM%20Top%2010-aligned-brightgreen)](docs/rules.md)
-
 ![PromptSonar playground showing a vulnerable prompt failing security checks](docs/assets/playground-faulty.png)
 
 -----
 
-## Visual AI Workflow Graph
+## What it finds
 
-The playground renders a visual node/edge graph for any finding that emits a `workflow` path — the same deterministic source-to-sink chain the scanner uses for triage, just drawn instead of described.
+- **MCP configs** with plain-HTTP or raw-IP endpoints, hardcoded tokens, host credential passthrough, unpinned `npx`/`uvx` packages, root filesystem or shell scope, auto-approval, wildcard permissions, and tool descriptions that carry injected instructions — each scored into a per-server **MCP Risk Score**.
+- **Execution paths** from untrusted input through agents, tools and MCP servers to privileged actions (shell, filesystem, network, secrets), with the evidence, a confidence level and the root cause.
+- **Prompt injection and jailbreak strings** committed into prompt templates and agent instructions, including hidden Unicode, zero-width, homoglyph and Base64 obfuscation.
+- **Hardcoded secrets** — API keys, tokens, passwords — in prompts and configs.
+- **Unsafe tool and RAG instructions** that grant broad access or pass raw user input.
 
-It tells one risk story:
+Every finding maps to the [OWASP Top 10 for LLM Applications (2025)](docs/rules.md) and carries a confidence level separate from its severity.
 
-> untrusted AI input → trust boundary → privileged execution
+## Languages and files
 
-- **Real scanner output.** Nodes and edges come straight from `finding.workflow.path` (the inference engine in `packages/core/src/workflow`). There is no synthetic graph data, no fake demo path, and no LLM call involved in producing the diagram.
-- **Trust-coloured nodes.** Untrusted sources, semi-trusted context, MCP / tool routers, and privileged sinks each get a distinct, muted palette. Trust state, confidence, taint, and privilege propagation are shown as small chips and a confidence dot trio — never colour alone.
-- **Edge intent is visible.** A dashed amber line marks a trust-boundary crossing; a solid rose line marks privileged propagation; tainted flow is highlighted; ordinary data flow stays quiet.
-- **Bounded complexity.** Long chains are simplified to ≤ 6 visible nodes, preserving the source, the sink, and any node where the trust level changes. Collapsed middle steps appear as a `+N steps` placeholder that expands on demand.
-- **Calm and developer-first.** Deterministic left-to-right layout, no physics, no neon, no SOC dashboard. Designed to be screenshot-worthy at a glance and readable on mobile via a controlled horizontal scroll.
-- **Local-first.** Renders fully client-side in the dashboard. No telemetry, no cloud calls, no auth, no database.
-- **No exploit guarantee.** The graph visualises a *statically inferred* execution path. It does not prove dynamic exploitability; downstream sandboxing, allowlists, and approval gates can still neutralise the chain at runtime.
+| Kind | Supported |
+|---|---|
+| Source code (prompts embedded in strings, capabilities from real calls) | **Python**, TypeScript, JavaScript, Go, Java, Rust, C# |
+| Prompt and instruction files | `.prompt`, `.ai`, `.chat`, `SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, prompt directories |
+| MCP and agent configs | `mcp.json`, `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `claude_desktop_config.json`, `.claude/` |
+| CI | GitHub Actions workflows |
 
-When the scanner cannot infer a high-confidence source-to-sink path, the panel shows a neutral empty state — "No high-confidence source-to-sink execution path inferred." — rather than declaring the prompt safe.
-
------
-
-## What's New in 1.5.1
-
-- ✅ **Compliance evidence is derived per finding** — the Article 19 export tags each
-  record with the ISO/IEC 42001 controls the findings actually evidence, instead of a
-  single fixed `ISO42001-6.2` on every line. Controls are sorted, so the export is
-  byte-stable for the same input.
-- ✅ **OWASP LLM06 and LLM10 mapped** — excessive-agency and unbounded-consumption
-  rules now carry OWASP identifiers, and every SARIF rule exposes `properties.tags`
-  so GitHub code scanning can filter on them.
-- ✅ **OWASP mapping standardized on the 2025 Top 10** — `sec_unbounded_access` moved
-  to LLM06 Excessive Agency and `sec_rag_injection` to LLM08 Vector and Embedding
-  Weaknesses. Previously both reported LLM07 using 2023 naming.
-- ✅ **`--fail-on` is case-insensitive and no longer fails open** — an unrecognized
-  value now errors instead of silently exiting 0.
-- ✅ **Published packages always ship a fresh build** — `prepublishOnly` rebuilds
-  `dist/` from source, so a release can no longer contain stale compiled output.
-
-See the [1.5.1 release note](docs/releases/1.5.1.md).
-
------
-
-## What's New in 1.4
-
-PromptSonar 1.4 bundles the engine work into one release. The scanner no longer
-just reports *what is wrong* — it explains **where execution can go, why the path
-exists, how confident it is, and how remediation changes the path**.
-
-- ✅ **Repo-scale scan guardrails in 1.4.3** — CLI and VS Code workspace scans now respect `.gitignore` and `.promptsonarignore`, skip large/generated files, cap very large workspaces, deduplicate repeated findings, and summarize noisy low-risk findings so reports stay usable on real repositories.
-- ✅ **MCP Safety Engine v2** — auto-approval, wildcard permissions, filesystem/shell/network capabilities, credential propagation, chained execution, privilege escalation, and approval bypass, each scored into an MCP Risk Score.
-- ✅ **Workflow Provenance** — every workflow node/edge traces back to a concrete rule match (no invented paths).
-- ✅ **Confidence Scoring** — a deterministic 0–100 execution-path confidence with LOW/MEDIUM/HIGH levels.
-- ✅ **Root Cause Analysis** — clusters related findings under the one that best explains them, with supporting findings.
-- ✅ **Workflow Diff Engine** — a before/after execution graph proving whether the dangerous path was removed, with a deterministic risk-reduction %.
-- ✅ **Runtime Execution Path Review** — `analyzeExecutionPath()` reviews planned tool, memory, and MCP execution before an agent runs it, returning `ALLOW`, `WARN`, or `BLOCK`.
-
-These surface consistently across the **Playground**, **CLI** (human, JSON, SARIF), and **CI/SARIF** outputs from the same core engine. See the [1.4.0 release note](docs/releases/1.4.0.md).
-
------
-
-## How the Playground Works — Input-First Flow
-
-PromptSonar is **workflow-first security analysis**. The playground opens on a clean prompt
-input — never on demo findings — and walks you through a single, linear path:
-
-```
-Paste Prompt  →  Scan Prompt  →  Workflow Analysis  →  Findings  →  Hardening
-```
-
-1. **Input.** You land directly on a large, full-width prompt editor above the fold. Paste a
-   system prompt, agent instruction, or MCP-style config — or pick one from **Load Example**.
-   Nothing else is on screen: no findings, no workflow graph, no report card.
-2. **Scan.** Click **Scan Prompt** (the primary call to action). Analysis runs locally — no
-   data leaves your machine and no LLM is called.
-3. **Workflow Analysis.** Once results exist, the page reveals the executive verdict and the
-   visual AI workflow graph tracing how untrusted input could reach tools, memory, MCP
-   servers, and execution sinks.
-4. **Findings.** Prioritized security findings and secondary hygiene observations appear,
-   sorted by real execution potential (see *Workflow-First Security Triage*, below).
-5. **Hardening.** Copy the hardened prompt preview and per-finding safer rewrites to fix
-   issues before merge.
-
-Analysis UI renders **only after a scan result exists** — there are no preloaded, demo, or
-stale findings on first load.
-
------
-
-## Why PromptSonar?
-
-AI applications now ship prompts, agent instructions, tool descriptions, and MCP configs as production infrastructure. Those files deserve the same pre-merge security checks as package dependencies.
-
-PromptSonar helps catch:
-
-- Prompt injection and jailbreak strings committed into prompt templates.
-- Hidden Unicode, zero-width, homoglyph, and Base64 obfuscation.
-- Hardcoded API keys, passwords, tokens, SSNs, and credit-card-like values in prompts.
-- Unsafe tool or RAG instructions that grant broad access or pass raw user input.
-- MCP configs with HTTP endpoints, missing auth indicators, hardcoded tokens, overbroad filesystem/shell scope, host credential passthrough, or mutable/unpinned tool packages.
-- MCP execution and privilege risks: automatic tool execution, wildcard permissions, filesystem/shell/network capabilities, credential propagation, chained MCP routing, privilege-escalation paths, and approval bypass — each scored into a per-server **MCP Risk Score**.
-- Runtime execution risks before agent tool use: planned shell/filesystem/network/MCP calls, privileged tool definitions, persistent memory writes, and high-confidence source-to-sink workflows.
-- CI regressions before merge through JSON, SARIF, and GitHub Actions workflows.
-
------
+PromptSonar is installed with npm, but it scans repositories in any of these languages — no Node.js code required in your project.
 
 ## Install
 
 ```bash
 npm install -g @promptsonar/cli
 promptsonar scan ./src
-```
-
-Use without installing:
-
-```bash
-npx @promptsonar/cli scan .
 ```
 
 Common outputs:
@@ -188,12 +84,16 @@ promptsonar scan . --sarif --output promptsonar.sarif
 promptsonar audit-mcp
 promptsonar audit-mcp ./.cursor/mcp.json --format sarif --output mcp.sarif
 
+# Whole-repository execution-path report
+promptsonar repo . --json
+
 # Prompt SBOM
 promptsonar sbom ./src --output prompt-sbom.json
-
-# Built-in demo
-promptsonar demo
 ```
+
+It runs where you already work: CLI, VS Code, Cursor, Claude Code, GitHub Actions (with SARIF in the Security tab and PR review comments), and any CI.
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
 
 -----
 
@@ -453,7 +353,16 @@ See [docs/claude-code-integration.md](docs/claude-code-integration.md) and [exam
 
 ### GitHub Actions / CI
 
-Use the CLI in CI and upload SARIF to GitHub Code Scanning:
+Use the PromptSonar GitHub Action. It scans the pull request, posts review comments and uploads SARIF to the Security tab:
+
+```yaml
+- uses: actions/checkout@v4
+- uses: meghal86/promptsonar/action@main
+  with:
+    fail-on: critical   # default: none (report findings without failing the build)
+```
+
+Or use the CLI in any CI and upload SARIF to GitHub Code Scanning:
 
 ```yaml
 - name: PromptSonar scan
@@ -603,11 +512,59 @@ These are static-analysis signals, not confirmed exploits, CVEs, or maintainer-v
 
 - PromptSonar is static analysis only. It does not prove exploitability.
 - Findings require human review, especially in docs, tests, examples, and synthetic prompts.
+- Findings in example, documentation and test files are shown at LOW severity so they do not drown out live code. The output says when this happened and what the severity would be in a live prompt or config (`original_severity` and `severity_note` in JSON).
 - False positives are possible.
 - PromptSonar makes no external model calls during scanning.
 - Waivers are supported with `--waiver <file>`.
 - `.gitignore`, `.promptsonarignore`, YAML suppressions, and inline ignore comments are documented in [docs/suppressions.md](docs/suppressions.md).
 - Dependency audit status and any residual moderate advisories are tracked in [docs/security-audit.md](docs/security-audit.md).
+
+-----
+
+## Visual AI Workflow Graph
+
+The playground renders a visual node/edge graph for any finding that emits a `workflow` path — the same deterministic source-to-sink chain the scanner uses for triage, just drawn instead of described.
+
+It tells one risk story:
+
+> untrusted AI input → trust boundary → privileged execution
+
+- **Real scanner output.** Nodes and edges come straight from `finding.workflow.path` (the inference engine in `packages/core/src/workflow`). There is no synthetic graph data, no fake demo path, and no LLM call involved in producing the diagram.
+- **Trust-coloured nodes.** Untrusted sources, semi-trusted context, MCP / tool routers, and privileged sinks each get a distinct, muted palette. Trust state, confidence, taint, and privilege propagation are shown as small chips and a confidence dot trio — never colour alone.
+- **Edge intent is visible.** A dashed amber line marks a trust-boundary crossing; a solid rose line marks privileged propagation; tainted flow is highlighted; ordinary data flow stays quiet.
+- **Bounded complexity.** Long chains are simplified to ≤ 6 visible nodes, preserving the source, the sink, and any node where the trust level changes. Collapsed middle steps appear as a `+N steps` placeholder that expands on demand.
+- **Calm and developer-first.** Deterministic left-to-right layout, no physics, no neon, no SOC dashboard. Designed to be screenshot-worthy at a glance and readable on mobile via a controlled horizontal scroll.
+- **Local-first.** Renders fully client-side in the dashboard. No telemetry, no cloud calls, no auth, no database.
+- **No exploit guarantee.** The graph visualises a *statically inferred* execution path. It does not prove dynamic exploitability; downstream sandboxing, allowlists, and approval gates can still neutralise the chain at runtime.
+
+When the scanner cannot infer a high-confidence source-to-sink path, the panel shows a neutral empty state — "No high-confidence source-to-sink execution path inferred." — rather than declaring the prompt safe.
+
+-----
+
+## How the Playground Works — Input-First Flow
+
+PromptSonar is **workflow-first security analysis**. The playground opens on a clean prompt
+input — never on demo findings — and walks you through a single, linear path:
+
+```
+Paste Prompt  →  Scan Prompt  →  Workflow Analysis  →  Findings  →  Hardening
+```
+
+1. **Input.** You land directly on a large, full-width prompt editor above the fold. Paste a
+   system prompt, agent instruction, or MCP-style config — or pick one from **Load Example**.
+   Nothing else is on screen: no findings, no workflow graph, no report card.
+2. **Scan.** Click **Scan Prompt** (the primary call to action). Analysis runs locally — no
+   data leaves your machine and no LLM is called.
+3. **Workflow Analysis.** Once results exist, the page reveals the executive verdict and the
+   visual AI workflow graph tracing how untrusted input could reach tools, memory, MCP
+   servers, and execution sinks.
+4. **Findings.** Prioritized security findings and secondary hygiene observations appear,
+   sorted by real execution potential (see *Workflow-First Security Triage*, below).
+5. **Hardening.** Copy the hardened prompt preview and per-finding safer rewrites to fix
+   issues before merge.
+
+Analysis UI renders **only after a scan result exists** — there are no preloaded, demo, or
+stale findings on first load.
 
 -----
 
