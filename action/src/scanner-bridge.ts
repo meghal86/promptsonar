@@ -154,6 +154,8 @@ function isInlineSuppressed(ruleId: string, promptStartLine: number, inlineSuppr
 function isRecognizedMcpConfig(filePath: string): boolean {
     const normalized = filePath.replace(/\\/g, '/').toLowerCase();
     return normalized.endsWith('/mcp.json')
+        || normalized.endsWith('/.mcp.json')
+        || normalized === '.mcp.json'
         || normalized.endsWith('/.vscode/mcp.json')
         || normalized.endsWith('/claude_desktop_config.json')
         || normalized === 'mcp.json'
@@ -278,6 +280,14 @@ const DEFAULT_IGNORE_PATTERNS = [
     '**/package-lock.json',
     '**/pnpm-lock.yaml',
     '**/yarn.lock',
+    // The Action's own output files. Rescanning them on the next run in a
+    // reused workspace made each report contain the last one, growing to
+    // multi-MB files until the scan ran out of memory.
+    '**/promptsonar-results.sarif',
+    '**/repository-report.json',
+    '**/repository-report.html',
+    '**/repository-report.sarif',
+    '**/execution-map.json',
     '**/.promptsonar-waivers.yaml',
     '**/.promptsonarignore',
     '**/.promptsonar-policy.yaml',
@@ -289,6 +299,8 @@ const DEFAULT_IGNORE_PATTERNS = [
     '**/test_parser.*',
     '**/test_parse.*',
 ];
+
+const MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
 function getLanguageForExt(ext: string): string {
     switch (ext) {
@@ -321,15 +333,20 @@ export async function scanFiles(targetPath: string, options: {
 
     if (fs.statSync(resolvedPath).isDirectory()) {
         const patterns = SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
+        // dot: true, as in the CLI: MCP and agent configs live in dot
+        // directories (.cursor/mcp.json, .vscode/mcp.json, .mcp.json,
+        // .claude/). Without it the Action never audited them.
         files = await fg(patterns, {
             cwd: resolvedPath,
             absolute: true,
+            dot: true,
             ignore: DEFAULT_IGNORE_PATTERNS,
         });
 
         const markdownPromptFiles = await fg(['**/*.md'], {
             cwd: resolvedPath,
             absolute: true,
+            dot: true,
             ignore: DEFAULT_IGNORE_PATTERNS,
         });
         files.push(
@@ -343,6 +360,12 @@ export async function scanFiles(targetPath: string, options: {
     }
 
     for (const filePath of files) {
+        // Same limit as the CLI: very large files are generated data, not
+        // prompts, and whole-file rules on them can exhaust memory.
+        if (fs.statSync(filePath).size > MAX_FILE_SIZE_BYTES) {
+            console.warn(`[PromptSonar] Skipping ${filePath}: file is larger than ${MAX_FILE_SIZE_BYTES} bytes`);
+            continue;
+        }
         const content = fs.readFileSync(filePath, 'utf-8');
         const ext = path.extname(filePath).toLowerCase();
         const language = getLanguageForExt(ext);

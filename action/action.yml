@@ -4,8 +4,8 @@ author: 'PromptSonar'
 
 inputs:
   fail-on:
-    description: 'Severity threshold: critical|high|medium|none'
-    default: 'critical'
+    description: 'Fail the build at this severity or above: critical|high|medium|none. Default none reports findings without failing; set critical or high to gate merges.'
+    default: 'none'
   waiver-file:
     description: 'Path to .promptsonar-waivers.yaml'
     default: '.promptsonar-waivers.yaml'

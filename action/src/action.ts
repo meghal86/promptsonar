@@ -275,7 +275,8 @@ function computeWorkflowDiffForFile(args: { before: ScanResult[]; after: ScanRes
 
 async function run(): Promise<void> {
     try {
-        const failOn = core.getInput('fail-on') || 'critical';
+        // Report-only unless the workflow opts in to a gate (see action.yml).
+        const failOn = core.getInput('fail-on') || 'none';
         const waiverFile = core.getInput('waiver-file') || '.promptsonar-waivers.yaml';
         const uploadSarif = core.getInput('upload-sarif') === 'true';
         const diffOnlyInput = core.getInput('diff-only') === 'true';
