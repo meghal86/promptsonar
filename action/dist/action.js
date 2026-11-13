@@ -53042,6 +53042,9 @@ ${finding.fix}`,
     var PROJECT_MCP_CONFIG_RELATIVE_PATHS = [
       "claude_desktop_config.json",
       path6.join(".cursor", "mcp.json"),
+      path6.join(".vscode", "mcp.json"),
+      // Claude Code's project-scoped MCP config.
+      ".mcp.json",
       "mcp.json"
     ];
     function discoverMcpConfigPaths(cwd = process.cwd()) {
@@ -53049,6 +53052,8 @@ ${finding.fix}`,
         path6.join(os8.homedir(), "Library", "Application Support", "Claude", "claude_desktop_config.json"),
         path6.join(os8.homedir(), ".config", "claude", "claude_desktop_config.json"),
         process.env.APPDATA ? path6.join(process.env.APPDATA, "Claude", "claude_desktop_config.json") : "",
+        // Cursor's global (all projects) MCP config.
+        path6.join(os8.homedir(), ".cursor", "mcp.json"),
         ...PROJECT_MCP_CONFIG_RELATIVE_PATHS.map((rel) => path6.join(cwd, rel))
       ].filter(Boolean);
       return Array.from(new Set(candidates)).filter((candidate) => fs11.existsSync(candidate));
