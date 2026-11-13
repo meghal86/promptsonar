@@ -25,6 +25,7 @@ import {
     repositoryConfidenceDefinition,
 } from './confidence';
 import { NON_PRODUCTION_PROVENANCE } from './types';
+import { PROMPTSONAR_VERSION } from '../version';
 import { analyzeCodeCapabilities, type CodeCapability } from './codeCapabilities';
 import type {
     AnalyzeRepositoryOptions,
@@ -64,7 +65,7 @@ import type {
 // mentions "workflow" in its name.
 const WORKFLOW_CONFIG_EXTENSIONS = new Set(['.yml', '.yaml', '.json', '.toml']);
 
-const REPORT_VERSION = '1.5.1';
+const REPORT_VERSION = PROMPTSONAR_VERSION;
 const REPORT_SCHEMA_VERSION = '2026-06-23.contextual-v1';
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;

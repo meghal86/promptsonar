@@ -1,8 +1,8 @@
 import chalk from 'chalk';
-import { analyzeRootCause, contextualVerdictLabel, humanRuleName } from '@promptsonar/core';
+import { analyzeRootCause, contextualVerdictLabel, humanRuleName, PROMPTSONAR_VERSION } from '@promptsonar/core';
 import { ScanResult } from './scanner';
 
-const VERSION = '1.5.1';
+const VERSION = PROMPTSONAR_VERSION;
 
 // Severity color/emoji map
 const SEVERITY_DISPLAY: Record<string, { emoji: string; color: (s: string) => string; label: string }> = {

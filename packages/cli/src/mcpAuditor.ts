@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { PROMPTSONAR_VERSION } from '@promptsonar/core';
 
 export interface McpFinding {
   rule_id: string;
@@ -256,7 +257,7 @@ export function generateMcpSarif(result: McpAuditResult): string {
         tool: {
           driver: {
             name: 'PromptSonar MCP Auditor',
-            version: '1.5.1',
+            version: PROMPTSONAR_VERSION,
             informationUri: 'https://github.com/meghal86/promptsonar',
             rules: [
               { id: 'MCP-001', shortDescription: { text: 'Untrusted Server URL' } },

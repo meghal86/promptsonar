@@ -1,5 +1,6 @@
 import { Finding } from '../rules/types';
 import { owaspRefForRule } from '../rules/owasp';
+import { PROMPTSONAR_VERSION } from '../version';
 import { FindingWorkflow, workflowPathSummary, analyzeRootCause } from '../workflow';
 import {
     contextualVerdictToSarifLevel,
@@ -74,7 +75,7 @@ export function formatToSarif(findings: SarifFinding[], filePath: string): strin
                 tool: {
                     driver: {
                         name: "PromptSonar",
-                        version: "1.5.1",
+                        version: PROMPTSONAR_VERSION,
                         informationUri: "https://github.com/meghal86/promptsonar",
                         rules: [] as any[]
                     }

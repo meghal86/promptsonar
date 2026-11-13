@@ -1,4 +1,5 @@
 // Core Entry Point
+export * from './version';
 export * from './parser';
 export * from './artifacts';
 export * from './rules';

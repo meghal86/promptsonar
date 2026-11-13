@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    PROMPTSONAR_VERSION,
     CAPABILITY_PRIVILEGES,
     CONTEXT_AVAILABILITIES,
     CONTROL_STATES,
@@ -231,7 +232,7 @@ function malformedIssue(seed: number): CanonicalAnalysisIssue & { fix?: { safePa
 function reportFor(issue: ReturnType<typeof issueFrom>): RepositoryExecutionReport {
     return {
         id: `report-${issue.id}`,
-        version: '1.5.1',
+        version: PROMPTSONAR_VERSION,
         schemaVersion: 'fuzz',
         generated_at: '2026-06-23T00:00:00.000Z',
         repository: { root: '/fuzz', name: 'fuzz' },

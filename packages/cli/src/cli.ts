@@ -6,13 +6,13 @@ import * as path from 'path';
 import chalk from 'chalk';
 import { scanFiles, generateSarif, ScanResult, scoreFromFindings, loadRepositoryIgnorePatterns } from './scanner';
 import { formatJson, formatTerminal, getExitCode, formatArticle19, normalizeFailOn, VALID_FAIL_ON } from './formatters';
-import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, evaluateRepositoryWithClosure, loadCodeCapabilityGrammars, LocalCheckoutSource, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport, computeDeterministicEdits, applyDeterministicFixes, contextualVerdictLabel, contextualVerdictToSarifLevel, severityToSarifRank, severityToSecuritySeverity, shouldIncludeIssueInSarif, normalizeMcpAuditResultsContextual, type RepositoryClosureEvaluationResult, type ScanBudget } from '@promptsonar/core';
+import { generateHtmlReport, calculateROI, compressPromptLLMLingua, generatePromptSBOM, parseGovernancePolicy, evaluateGovernancePolicy, validatePromptAgainstContract, runCrossModelEvaluation, auditDiscoveredMcpConfigs, getMcpExitCode, McpAuditResult, evaluatePrompt, compareModelOutputs, ModelComparisonInput, ModelComparisonResult, analyzeRepositoryExecution, evaluateRepositoryWithClosure, loadCodeCapabilityGrammars, PROMPTSONAR_VERSION, LocalCheckoutSource, formatRepositoryReportHtml, formatRepositoryReportJson, formatRepositoryReportSarif, RepositoryExecutionReport, computeDeterministicEdits, applyDeterministicFixes, contextualVerdictLabel, contextualVerdictToSarifLevel, severityToSarifRank, severityToSecuritySeverity, shouldIncludeIssueInSarif, normalizeMcpAuditResultsContextual, type RepositoryClosureEvaluationResult, type ScanBudget } from '@promptsonar/core';
 import * as os from 'os';
 import { runPromptTests } from './tester';
 import { benchmarkToMarkdown, benchmarkToTerminal, runBenchmark } from './benchmark';
 import { exampleToMarkdown, exampleToTerminal, examplesListToTerminal, listExamples, loadExample } from './examples';
 
-const VERSION = '1.5.1';
+const VERSION = PROMPTSONAR_VERSION;
 
 // On POSIX, Node writes to pipes asynchronously, and many commands call
 // process.exit() right after printing. That dropped everything beyond the first

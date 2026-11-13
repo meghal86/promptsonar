@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    PROMPTSONAR_VERSION,
     CAPABILITY_PRIVILEGES,
     CONTEXT_AVAILABILITIES,
     CONTROL_STATES,
@@ -591,7 +592,7 @@ describe('contextual adapter seams and report schema', () => {
             }],
         }]);
 
-        expect(report.version).toBe('1.5.1');
+        expect(report.version).toBe(PROMPTSONAR_VERSION);
         expect(report.schemaVersion).toBe('2026-06-23.contextual-v1');
         expect(report.schemaVersion).not.toBe(report.version);
         expect(report.issues[0]).not.toHaveProperty('schemaVersion');
