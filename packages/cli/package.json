@@ -1,7 +1,7 @@
 {
     "name": "@promptsonar/cli",
     "version": "1.6.0",
-    "description": "Static security scanner for LLM prompts — CLI tool",
+    "description": "Static security scanner for MCP configs, agent instructions and prompts. Local, zero LLM calls. CLI.",
     "bin": {
         "promptsonar": "dist/cli.js"
     },
@@ -28,10 +28,23 @@
     },
     "keywords": [
         "cli",
-        "llm",
-        "security",
+        "mcp",
+        "model-context-protocol",
+        "mcp-security",
+        "ai-security",
+        "llm-security",
+        "prompt-injection",
         "prompt-security",
-        "scanner"
+        "agent-security",
+        "owasp",
+        "owasp-llm-top-10",
+        "sarif",
+        "static-analysis",
+        "security",
+        "scanner",
+        "llm",
+        "claude",
+        "cursor"
     ],
     "author": "Meghal Parikh",
     "license": "MIT",

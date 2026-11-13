@@ -60,3 +60,6 @@ promptsonar_cover*.jpg
 # eval wild-corpus clones (never commit)
 eval/corpus/wild/clones/
 eval/corpus/wild/clone-log.txt
+
+# Local screenshot output
+output/playwright/

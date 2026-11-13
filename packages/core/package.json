@@ -1,7 +1,7 @@
 {
   "name": "@promptsonar/core",
   "version": "1.6.0",
-  "description": "Core engine for PromptSonar — Static security scanner for LLM prompts",
+  "description": "Engine for the PromptSonar static security scanner: MCP configs, agent instructions and prompts. Deterministic, zero LLM calls.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -25,10 +25,23 @@
     "test": "vitest run --coverage"
   },
   "keywords": [
-    "llm",
-    "security",
+    "mcp",
+    "model-context-protocol",
+    "mcp-security",
+    "ai-security",
+    "llm-security",
     "prompt-injection",
+    "prompt-security",
+    "agent-security",
+    "owasp",
+    "owasp-llm-top-10",
+    "sarif",
     "static-analysis",
+    "security",
+    "scanner",
+    "llm",
+    "claude",
+    "cursor",
     "ai-safety"
   ],
   "author": "Meghal Parikh",

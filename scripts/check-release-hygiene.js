@@ -24,6 +24,8 @@ const blockedPatterns = [
   /^custom-writer-skill\//,
   /^my-writer-agent\//,
   /^scratch\//,
+  /^output\/playwright\//,
+  /\.tgz$/,
 ];
 
 const offenders = tracked.filter(file => {
