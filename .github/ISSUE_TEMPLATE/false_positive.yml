@@ -1,0 +1,63 @@
+name: False positive / missed finding
+description: PromptSonar flagged something that is not a risk, used the wrong severity, or missed a real one.
+labels: ["detection-quality"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These reports are how the rules get more precise. Reduce the example to the smallest snippet that still reproduces it.
+        If this is a real vulnerability in someone else's project, report it to that project privately instead.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong?
+      options:
+        - False positive (flagged, but not a risk)
+        - Wrong severity
+        - Missed finding (a real risk was not flagged)
+    validations:
+      required: true
+  - type: input
+    id: rule
+    attributes:
+      label: Rule id
+      description: e.g. sec_owasp_llm01_injection, MCP-001. Leave empty for a missed finding.
+  - type: input
+    id: location
+    attributes:
+      label: File path and line
+      description: e.g. prompts/system.prompt:12, .cursor/mcp.json
+    validations:
+      required: true
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Minimal snippet
+      description: The smallest content that reproduces the result. Remove any real secrets.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: No finding, a different severity, or the finding you expected.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PromptSonar version
+      description: Output of `promptsonar --version`, or the Action ref you use.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did you see it?
+      options:
+        - CLI
+        - GitHub Action
+        - VS Code / Cursor
+        - Claude Code
+        - Dashboard / playground
