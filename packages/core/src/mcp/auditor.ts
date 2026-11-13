@@ -935,6 +935,9 @@ export function auditMcpConfig(filePath: string, content: string): McpAuditResul
 const PROJECT_MCP_CONFIG_RELATIVE_PATHS = [
     'claude_desktop_config.json',
     path.join('.cursor', 'mcp.json'),
+    path.join('.vscode', 'mcp.json'),
+    // Claude Code's project-scoped MCP config.
+    '.mcp.json',
     'mcp.json',
 ];
 
@@ -943,6 +946,8 @@ export function discoverMcpConfigPaths(cwd = process.cwd()): string[] {
         path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'),
         path.join(os.homedir(), '.config', 'claude', 'claude_desktop_config.json'),
         process.env.APPDATA ? path.join(process.env.APPDATA, 'Claude', 'claude_desktop_config.json') : '',
+        // Cursor's global (all projects) MCP config.
+        path.join(os.homedir(), '.cursor', 'mcp.json'),
         ...PROJECT_MCP_CONFIG_RELATIVE_PATHS.map(rel => path.join(cwd, rel)),
     ].filter(Boolean);
 

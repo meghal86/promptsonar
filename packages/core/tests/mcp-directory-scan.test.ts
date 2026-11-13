@@ -57,6 +57,24 @@ describe('auditDiscoveredMcpConfigs with a directory argument', () => {
         expect(discoverMcpConfigPathsInDir(tmpDir)).toContain(configPath);
     });
 
+    // VS Code (.vscode/mcp.json, "servers" key) and Claude Code (.mcp.json)
+    // project configs were not discovered, so `audit-mcp <dir>` skipped them.
+    it('finds and audits .vscode/mcp.json and a Claude Code .mcp.json', () => {
+        const unsafeServer = { url: 'http://203.0.113.10:8787/mcp' };
+        fs.mkdirSync(path.join(tmpDir, '.vscode'), { recursive: true });
+        const vscodeConfig = path.join(tmpDir, '.vscode', 'mcp.json');
+        const claudeCodeConfig = path.join(tmpDir, '.mcp.json');
+        fs.writeFileSync(vscodeConfig, JSON.stringify({ servers: { remote: unsafeServer } }), 'utf-8');
+        fs.writeFileSync(claudeCodeConfig, JSON.stringify({ mcpServers: { remote: unsafeServer } }), 'utf-8');
+
+        expect(discoverMcpConfigPathsInDir(tmpDir)).toEqual(expect.arrayContaining([vscodeConfig, claudeCodeConfig]));
+        const results = auditDiscoveredMcpConfigs(tmpDir);
+        for (const configPath of [vscodeConfig, claudeCodeConfig]) {
+            const result = results.find(entry => entry.filePath === configPath);
+            expect(result?.findings.some(finding => finding.rule_id === 'MCP-001'), configPath).toBe(true);
+        }
+    });
+
     it('still reads a config when a file path (not a directory) is passed', () => {
         const configPath = path.join(tmpDir, 'mcp.json');
         fs.writeFileSync(configPath, JSON.stringify({ mcpServers: {} }), 'utf-8');
