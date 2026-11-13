@@ -94,6 +94,10 @@ export interface ScanFinding {
     context?: CanonicalIssueContext;
     artifactKind?: ArtifactKind;
     executionIntent?: ExecutionIntent;
+    /** Rule severity before the file's context lowered it (examples, docs, tests). */
+    original_severity?: string;
+    /** Why the displayed severity differs from original_severity. */
+    severity_note?: string;
     suppression_reason?: string;
     suppression_source?: string;
 }
@@ -315,6 +319,22 @@ function displayedSeverityForArtifact(severity: string, category: string, artifa
     if (isReferenceOrTestArtifact(artifactKind, executionIntent) && category === 'security') return 'low';
     if (isAgentInstructionArtifact(artifactKind) && category === 'efficiency') return 'low';
     return severity;
+}
+
+/**
+ * When context lowered a finding's severity, say so: a known injection in
+ * examples/vulnerable-prompts/ shows as LOW, which reads as "safe" unless the
+ * output explains that the same text in a live prompt is CRITICAL.
+ */
+function severityContext(ruleSeverity: string, displayedSeverity: string, artifactKind: ArtifactKind, executionIntent: ExecutionIntent): Pick<ScanFinding, 'original_severity' | 'severity_note'> {
+    if (displayedSeverity === ruleSeverity) return {};
+    const where = artifactKind === 'test' || artifactKind === 'fixture' || executionIntent === 'test_fixture'
+        ? 'a test or fixture'
+        : 'an example or documentation';
+    return {
+        original_severity: ruleSeverity,
+        severity_note: `Lowered from ${ruleSeverity.toUpperCase()} because this is ${where} file. In a live prompt or config it would be ${ruleSeverity.toUpperCase()}.`,
+    };
 }
 
 function getRecommendationForArtifact(ruleId: string, fallback: string, artifactKind: ArtifactKind, executionIntent: ExecutionIntent): string {
@@ -1094,6 +1114,7 @@ export async function scanFiles(targetPath: string, options: {
                         rule_id: f.rule_id,
                         category,
                         severity,
+                        ...severityContext(f.originalSeverity ?? f.severity, severity, promptArtifactKind, promptExecutionIntent),
                         line: evidenceLine,
                         column: evidenceColumn,
                         message,
@@ -1138,6 +1159,7 @@ export async function scanFiles(targetPath: string, options: {
                     rule_id: 'sec_owasp_llm02_pii',
                     category: 'security',
                     severity,
+                    ...severityContext('high', severity, artifactKind, executionIntent),
                     line: secret.line,
                     column: secret.column,
                     message,

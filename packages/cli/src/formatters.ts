@@ -164,6 +164,9 @@ export function formatTerminal(results: ScanResult[]): string {
                 } else {
                     lines.push(`  ${sev.emoji} ${sev.color(sev.label.padEnd(10))} ${chalk.bold(f.rule_id)}${repeatLabel}`);
                     lines.push(`     Line ${f.line}:${f.column} — ${f.message}`);
+                    if (f.severity_note) {
+                        lines.push(chalk.yellow(`     Note: ${f.severity_note}`));
+                    }
                     if (f.evidence) {
                         lines.push(`     Evidence: ${f.evidence}`);
                     }

@@ -8,6 +8,8 @@ export interface Finding {
     rule_id: string;
     category: "clarity" | "security" | "efficiency" | "structure" | "consistency" | "best_practices" | "ethics";
     severity: Severity;
+    /** Severity before file context (example, docs, test) capped it; unset when not capped. */
+    originalSeverity?: Severity;
     explanation: string;
     suggested_fix?: string;
     workflow?: FindingWorkflow;

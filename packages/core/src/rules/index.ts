@@ -141,10 +141,10 @@ function upgradedSeverity(current: Severity, workflowRisk?: string): Severity {
 
 function capSeverityForArtifact(finding: Finding, artifactKind: ArtifactKind, executionIntent: ExecutionIntent): Finding {
     if ((executionIntent === 'reference' || executionIntent === 'test_fixture') && finding.category === 'security') {
-        return { ...finding, severity: 'low' };
+        return finding.severity === 'low' ? finding : { ...finding, severity: 'low', originalSeverity: finding.originalSeverity ?? finding.severity };
     }
     if (isAgentInstructionArtifact(artifactKind) && finding.category === 'efficiency') {
-        return { ...finding, severity: 'low' };
+        return finding.severity === 'low' ? finding : { ...finding, severity: 'low', originalSeverity: finding.originalSeverity ?? finding.severity };
     }
     return finding;
 }
