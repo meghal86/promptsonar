@@ -21613,6 +21613,108 @@ ${JSON.stringify(t2, null, 2)}`);
   }
 });
 
+// ../packages/core/dist/artifacts.js
+var require_artifacts = __commonJS({
+  "../packages/core/dist/artifacts.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.isDocumentationFileName = isDocumentationFileName;
+    exports2.isGithubWorkflowPath = isGithubWorkflowPath;
+    exports2.inferArtifactKind = inferArtifactKind;
+    exports2.inferExecutionIntent = inferExecutionIntent;
+    function normalizePath(filePath) {
+      return filePath.replace(/\\/g, "/").replace(/[?#].*$/, "").toLowerCase();
+    }
+    function basename4(filePath) {
+      const normalized = normalizePath(filePath);
+      return normalized.split("/").filter(Boolean).pop() || normalized;
+    }
+    var DOCUMENTATION_FILE_NAME = /^(?:(?:readme|changelog|contributing|code_of_conduct|security|history|authors|notice)(?:[._-][a-z]{2,3}(?:[-_][a-z0-9]{2,4})?)?\.(?:md|mdx|markdown|rst|txt|adoc)|readme)$/;
+    function isDocumentationFileName(fileName) {
+      return DOCUMENTATION_FILE_NAME.test(basename4(fileName));
+    }
+    function isGithubWorkflowPath(filePath) {
+      const normalized = normalizePath(filePath);
+      return /\.(?:ya?ml)$/.test(normalized) && (normalized.startsWith(".github/workflows/") || normalized.includes("/.github/workflows/"));
+    }
+    function inferArtifactKind(filePath) {
+      const normalized = normalizePath(filePath);
+      const base = basename4(filePath);
+      if (isGithubWorkflowPath(filePath))
+        return "workflow";
+      if (/\/?(?:mcp|\.mcp)\.(?:json|ya?ml)$/.test(normalized) || normalized.endsWith("/.vscode/mcp.json") || normalized.endsWith("/.cursor/mcp.json"))
+        return "mcp_config";
+      if (/\.(?:prompt)(?:\.|$)/.test(normalized))
+        return "prompt";
+      if (isFixturePath(normalized, base))
+        return "fixture";
+      if (isTestPath(normalized, base))
+        return "test";
+      if (isReferencePath(normalized, base))
+        return "documentation";
+      if (base === "claude.md")
+        return "claude";
+      if (base === "agents.md" || base === "agent.md")
+        return "agents";
+      if (base === "skill.md" || base === "skills.md" || normalized.includes("/skills/"))
+        return "skill";
+      if (base === "prompt.md" || /\.(?:ai|chat)(?:\.|$)/.test(normalized))
+        return "prompt";
+      if (normalized.includes("/prompts/") || normalized.includes("/agents/") || normalized.includes("/ai/"))
+        return "prompt";
+      if (normalized.includes("/examples/"))
+        return "example";
+      if (normalized.includes("/benchmarks/"))
+        return "example";
+      if (normalized.includes("deploy") && /\.(?:ya?ml|json|toml)$/.test(normalized))
+        return "deployment_config";
+      return "source";
+    }
+    function hasSegment(normalizedPath, names) {
+      const segments = normalizedPath.split("/").filter(Boolean);
+      return segments.some((segment) => names.includes(segment));
+    }
+    function isFixturePath(normalizedPath, base) {
+      return hasSegment(normalizedPath, ["fixtures", "fixture", "golden", "sample-repos", "samples", "corpus", "snapshots"]) || /(?:^|\/)examples\/vulnerable[^/]*(?:\/|$)/.test(normalizedPath) || /\.fixture\.[a-z0-9]+$/.test(base);
+    }
+    function isTestPath(normalizedPath, base) {
+      return hasSegment(normalizedPath, ["tests", "test", "__tests__", "__test__", "spec", "__mocks__"]) || /\.(?:test|spec)\.[a-z0-9]+$/.test(base);
+    }
+    function isReferencePath(normalizedPath, base) {
+      const segments = normalizedPath.split("/").filter(Boolean);
+      return segments.some((segment) => ["docs", "doc", "documentation", "wiki", "research", "tutorial", "tutorials"].includes(segment)) || segments.some((segment) => ["examples", "example", "benchmarks", "benchmark"].includes(segment)) || isDocumentationFileName(base) || /(?:compatibility|matrix|tutorial|guide|reference|benchmark|research)/.test(base);
+    }
+    function inferExecutionIntent(filePath, artifactKind = inferArtifactKind(filePath)) {
+      const normalized = normalizePath(filePath);
+      const executableKinds = /* @__PURE__ */ new Set([
+        "prompt",
+        "agent",
+        "claude",
+        "agents",
+        "skill",
+        "mcp",
+        "mcp_server",
+        "mcp_config",
+        "workflow",
+        "deployment_config",
+        "tool",
+        "tool_router",
+        "router"
+      ]);
+      if (artifactKind === "test" || artifactKind === "fixture")
+        return "test_fixture";
+      if (isReferencePath(normalized, basename4(filePath))) {
+        return executableKinds.has(artifactKind) && !["prompt", "source"].includes(artifactKind) ? "executable" : "reference";
+      }
+      if (artifactKind === "documentation" || artifactKind === "example")
+        return "reference";
+      if (executableKinds.has(artifactKind))
+        return "executable";
+      return "unknown";
+    }
+  }
+});
+
 // ../packages/core/dist/parser/types.js
 var require_types = __commonJS({
   "../packages/core/dist/parser/types.js"(exports2) {
@@ -21673,10 +21775,29 @@ var require_parser = __commonJS({
     var Parser2 = require_tree_sitter();
     var fs11 = __importStar(require("fs"));
     var path6 = __importStar(require("path"));
+    var artifacts_1 = require_artifacts();
     __exportStar(require_types(), exports2);
     var FULL_FILE_EXTENSIONS = [".prompt", ".ai", ".chat"];
     var CONFIG_FILE_EXTENSIONS = [".json", ".yml", ".yaml"];
     var MARKDOWN_INSTRUCTION_FILES = /* @__PURE__ */ new Set(["skill.md", "skills.md", "agent.md", "agents.md", "claude.md", "prompt.md"]);
+    function isBundledSkillMarkdown(filePath, baseName) {
+      if ((0, artifacts_1.isDocumentationFileName)(baseName) || !path6.isAbsolute(filePath))
+        return false;
+      let dir2 = path6.dirname(filePath);
+      for (let depth = 0; depth < 3; depth++) {
+        try {
+          if (fs11.readdirSync(dir2).some((entry) => entry.toLowerCase() === "skill.md"))
+            return true;
+        } catch {
+          return false;
+        }
+        const parent2 = path6.dirname(dir2);
+        if (parent2 === dir2)
+          return false;
+        dir2 = parent2;
+      }
+      return false;
+    }
     var LANGUAGE_CACHE = {};
     var parserInitialized = false;
     function findAssetsRoot() {
@@ -21937,7 +22058,7 @@ var require_parser = __commonJS({
           sourceType: "full_file"
         }];
       }
-      if (ext === ".md" && MARKDOWN_INSTRUCTION_FILES.has(baseName)) {
+      if (ext === ".md" && (MARKDOWN_INSTRUCTION_FILES.has(baseName) || isBundledSkillMarkdown(filePath, baseName))) {
         return [{
           filePath,
           startLine: 1,
@@ -22100,108 +22221,6 @@ var require_parser = __commonJS({
         }
       }
       return uniqueResults;
-    }
-  }
-});
-
-// ../packages/core/dist/artifacts.js
-var require_artifacts = __commonJS({
-  "../packages/core/dist/artifacts.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.isDocumentationFileName = isDocumentationFileName;
-    exports2.isGithubWorkflowPath = isGithubWorkflowPath;
-    exports2.inferArtifactKind = inferArtifactKind;
-    exports2.inferExecutionIntent = inferExecutionIntent;
-    function normalizePath(filePath) {
-      return filePath.replace(/\\/g, "/").replace(/[?#].*$/, "").toLowerCase();
-    }
-    function basename4(filePath) {
-      const normalized = normalizePath(filePath);
-      return normalized.split("/").filter(Boolean).pop() || normalized;
-    }
-    var DOCUMENTATION_FILE_NAME = /^(?:(?:readme|changelog|contributing|code_of_conduct|security|history|authors|notice)(?:[._-][a-z]{2,3}(?:[-_][a-z0-9]{2,4})?)?\.(?:md|mdx|markdown|rst|txt|adoc)|readme)$/;
-    function isDocumentationFileName(fileName) {
-      return DOCUMENTATION_FILE_NAME.test(basename4(fileName));
-    }
-    function isGithubWorkflowPath(filePath) {
-      const normalized = normalizePath(filePath);
-      return /\.(?:ya?ml)$/.test(normalized) && (normalized.startsWith(".github/workflows/") || normalized.includes("/.github/workflows/"));
-    }
-    function inferArtifactKind(filePath) {
-      const normalized = normalizePath(filePath);
-      const base = basename4(filePath);
-      if (isGithubWorkflowPath(filePath))
-        return "workflow";
-      if (/\/?(?:mcp|\.mcp)\.(?:json|ya?ml)$/.test(normalized) || normalized.endsWith("/.vscode/mcp.json") || normalized.endsWith("/.cursor/mcp.json"))
-        return "mcp_config";
-      if (/\.(?:prompt)(?:\.|$)/.test(normalized))
-        return "prompt";
-      if (isFixturePath(normalized, base))
-        return "fixture";
-      if (isTestPath(normalized, base))
-        return "test";
-      if (isReferencePath(normalized, base))
-        return "documentation";
-      if (base === "claude.md")
-        return "claude";
-      if (base === "agents.md" || base === "agent.md")
-        return "agents";
-      if (base === "skill.md" || base === "skills.md" || normalized.includes("/skills/"))
-        return "skill";
-      if (base === "prompt.md" || /\.(?:ai|chat)(?:\.|$)/.test(normalized))
-        return "prompt";
-      if (normalized.includes("/prompts/") || normalized.includes("/agents/") || normalized.includes("/ai/"))
-        return "prompt";
-      if (normalized.includes("/examples/"))
-        return "example";
-      if (normalized.includes("/benchmarks/"))
-        return "example";
-      if (normalized.includes("deploy") && /\.(?:ya?ml|json|toml)$/.test(normalized))
-        return "deployment_config";
-      return "source";
-    }
-    function hasSegment(normalizedPath, names) {
-      const segments = normalizedPath.split("/").filter(Boolean);
-      return segments.some((segment) => names.includes(segment));
-    }
-    function isFixturePath(normalizedPath, base) {
-      return hasSegment(normalizedPath, ["fixtures", "fixture", "golden", "sample-repos", "samples", "corpus", "snapshots"]) || /(?:^|\/)examples\/vulnerable[^/]*(?:\/|$)/.test(normalizedPath) || /\.fixture\.[a-z0-9]+$/.test(base);
-    }
-    function isTestPath(normalizedPath, base) {
-      return hasSegment(normalizedPath, ["tests", "test", "__tests__", "__test__", "spec", "__mocks__"]) || /\.(?:test|spec)\.[a-z0-9]+$/.test(base);
-    }
-    function isReferencePath(normalizedPath, base) {
-      const segments = normalizedPath.split("/").filter(Boolean);
-      return segments.some((segment) => ["docs", "doc", "documentation", "wiki", "research", "tutorial", "tutorials"].includes(segment)) || segments.some((segment) => ["examples", "example", "benchmarks", "benchmark"].includes(segment)) || isDocumentationFileName(base) || /(?:compatibility|matrix|tutorial|guide|reference|benchmark|research)/.test(base);
-    }
-    function inferExecutionIntent(filePath, artifactKind = inferArtifactKind(filePath)) {
-      const normalized = normalizePath(filePath);
-      const executableKinds = /* @__PURE__ */ new Set([
-        "prompt",
-        "agent",
-        "claude",
-        "agents",
-        "skill",
-        "mcp",
-        "mcp_server",
-        "mcp_config",
-        "workflow",
-        "deployment_config",
-        "tool",
-        "tool_router",
-        "router"
-      ]);
-      if (artifactKind === "test" || artifactKind === "fixture")
-        return "test_fixture";
-      if (isReferencePath(normalized, basename4(filePath))) {
-        return executableKinds.has(artifactKind) && !["prompt", "source"].includes(artifactKind) ? "executable" : "reference";
-      }
-      if (artifactKind === "documentation" || artifactKind === "example")
-        return "reference";
-      if (executableKinds.has(artifactKind))
-        return "executable";
-      return "unknown";
     }
   }
 });
@@ -24713,7 +24732,7 @@ var require_confidence = __commonJS({
     exports2.findingConfidence = findingConfidence2;
     function findingConfidence2(ruleId, evidenceKind = "direct") {
       if (ruleId === "sec_base64_encoded_payload" || ruleId === "sec_zero_width_injection" || ruleId === "sec_homoglyph_evasion" || ruleId.startsWith("sec_owasp_llm02") || // Script threats come from resolved code structure, not keywords.
-      ruleId === "sec_credential_exfiltration" || ruleId === "sec_remote_code_execution" || ruleId === "sec_destructive_command" || ruleId.startsWith("MCP-"))
+      ruleId === "sec_credential_exfiltration" || ruleId === "sec_remote_code_execution" || ruleId === "sec_destructive_command" || ruleId === "sec_approval_bypass" || ruleId === "sec_wildcard_tool_permission" || ruleId === "sec_unpinned_remote_install" || ruleId.startsWith("MCP-"))
         return "HIGH";
       if (evidenceKind === "absence")
         return "LOW";
@@ -24729,13 +24748,13 @@ var require_owasp = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.owaspRefForRule = owaspRefForRule2;
     function owaspRefForRule2(ruleId) {
-      if (ruleId.startsWith("sec_owasp_llm01") || ruleId.startsWith("sec_unicode") || ruleId === "sec_unbounded_persona" || ruleId === "sec_base64_encoded_payload" || ruleId === "sec_homoglyph_evasion" || ruleId === "sec_zero_width_injection")
+      if (ruleId.startsWith("sec_owasp_llm01") || ruleId.startsWith("sec_unicode") || ruleId === "sec_unbounded_persona" || ruleId === "sec_user_concealment" || ruleId === "sec_base64_encoded_payload" || ruleId === "sec_homoglyph_evasion" || ruleId === "sec_zero_width_injection")
         return "LLM01";
       if (ruleId.startsWith("sec_owasp_llm02") || ruleId === "sec_credential_exfiltration")
         return "LLM02";
-      if (ruleId === "sec_remote_code_execution")
+      if (ruleId === "sec_remote_code_execution" || ruleId === "sec_unpinned_remote_install")
         return "LLM03";
-      if (ruleId === "sec_workflow_escalation" || ruleId === "sec_privileged_sink_access" || ruleId === "sec_mcp_tool_poisoning" || ruleId === "sec_unbounded_access" || ruleId === "sec_destructive_command")
+      if (ruleId === "sec_workflow_escalation" || ruleId === "sec_privileged_sink_access" || ruleId === "sec_mcp_tool_poisoning" || ruleId === "sec_unbounded_access" || ruleId === "sec_destructive_command" || ruleId === "sec_approval_bypass" || ruleId === "sec_wildcard_tool_permission")
         return "LLM06";
       if (ruleId === "sec_rag_injection")
         return "LLM08";
@@ -53613,7 +53632,11 @@ var require_sarif2 = __commonJS({
         sec_rag_injection: "RAG Injection",
         sec_credential_exfiltration: "Credential Exfiltration",
         sec_remote_code_execution: "Remote Code Execution",
-        sec_destructive_command: "Destructive Command"
+        sec_destructive_command: "Destructive Command",
+        sec_approval_bypass: "Approval Bypass",
+        sec_user_concealment: "Hidden From User",
+        sec_wildcard_tool_permission: "Wildcard Tool Permission",
+        sec_unpinned_remote_install: "Unpinned Remote Install"
       };
       if (MAP[ruleId])
         return MAP[ruleId];
@@ -59264,20 +59287,32 @@ var require_codeThreats = __commonJS({
     exports2.CODE_THREAT_RULE_IDS = /* @__PURE__ */ new Set([
       "sec_credential_exfiltration",
       "sec_remote_code_execution",
-      "sec_destructive_command"
+      "sec_destructive_command",
+      "sec_approval_bypass",
+      "sec_user_concealment",
+      "sec_wildcard_tool_permission",
+      "sec_unpinned_remote_install"
     ]);
     exports2.CODE_THREAT_REMEDIATION = {
       sec_credential_exfiltration: "Remove the credential read or the upload. A helper script should read only the one key it needs, from an environment variable, and send it only to that service.",
       sec_remote_code_execution: "Do not execute downloaded code or pipe a download into a shell. Install a pinned, checksummed package from a registry instead.",
-      sec_destructive_command: "Limit deletes to paths inside the project (./dist, ./build) and never target the home directory, the filesystem root or a disk device."
+      sec_destructive_command: "Limit deletes to paths inside the project (./dist, ./build) and never target the home directory, the filesystem root or a disk device.",
+      sec_approval_bypass: "Remove the instruction. Permission prompts are the user's control; a skill or prompt must never switch them off.",
+      sec_user_concealment: "Remove the instruction. An agent must tell the user what it does; instructions that hide actions are a hallmark of malicious skills.",
+      sec_wildcard_tool_permission: "List the specific tools and commands the skill needs, e.g. allowed-tools: Bash(npm run test), Read.",
+      sec_unpinned_remote_install: "Pin an exact version or commit (pkg@1.4.2, git+https://...@<commit-sha>) and prefer a lockfile with hashes."
     };
     exports2.CODE_THREAT_RISK = {
       sec_credential_exfiltration: "An agent that runs this script sends SSH keys, cloud credentials, tokens or the whole environment to a remote host.",
       sec_remote_code_execution: "Code fetched at run time executes with the agent's permissions; whoever controls the URL controls the machine.",
-      sec_destructive_command: "An agent that follows this instruction deletes the user's files or makes the machine unusable."
+      sec_destructive_command: "An agent that follows this instruction deletes the user's files or makes the machine unusable.",
+      sec_approval_bypass: "Turning off permission prompts lets every later tool call, including injected ones, run without the user seeing it.",
+      sec_user_concealment: "Hiding actions from the user removes the only person who could notice and stop a harmful one.",
+      sec_wildcard_tool_permission: "A wildcard grants the skill every tool, so one injected instruction can run any command.",
+      sec_unpinned_remote_install: "A branch or @latest reference installs whatever the publisher pushes next, without review."
     };
     var CREDENTIAL_PATH = /(?:^|[\\/~])\.(?:ssh|aws|gnupg|kube|docker)(?:[\\/]|$)|^\.(?:ssh|aws|gnupg)$|\bid_(?:rsa|dsa|ecdsa|ed25519)\b|(?:^|[\\/])\.(?:npmrc|netrc|pypirc|git-credentials)$|aws[\\/]credentials|\.docker[\\/]config\.json|\.kube[\\/]config|\/etc\/(?:shadow|passwd)\b|(?:^|[\\/])(?:Login Data|Cookies|wallet\.dat)$/;
-    var DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
+    var DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*?(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[\w-]+\.[a-z]{2,}\b|\$\{?\w+)[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
     var REVERSE_SHELL = /\b(?:ba)?sh\s+-i\s*>&?\s*\/dev\/tcp\/|\bnc\b[^\n]*\s-e\s+\/bin\/(?:ba)?sh/;
     var DESTRUCTIVE = /\brm\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*\s+|-[a-zA-Z]+\s+-[a-zA-Z]+\s+|--recursive\s+|--force\s+)+(?:--no-preserve-root\s+)?(?:~\/?|\/\*?|\$HOME\/?|"\$HOME"\/?|\/(?:home|root|etc|usr|var)\/?)(?=\s|$|;|&|\||`|'|"|\))|--no-preserve-root\b|\bmkfs(?:\.\w+)?\s+\/dev\/|\bdd\s+[^\n]*\bof=\/dev\/(?:sd|nvme|hd|disk|xvd)|:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/;
     var SHELL_NETWORK = /\b(?:curl|wget|nc|ncat|nslookup|dig|scp|rsync|ftp)\b/;
@@ -59538,8 +59573,127 @@ var require_codeThreats = __commonJS({
     }
     function analyzeInstructionThreats(content) {
       const threats = [];
-      content.split(/\r?\n/).forEach((line, index2) => threats.push(...commandLineThreats(line, index2 + 1)));
+      const lines = content.split(/\r?\n/);
+      lines.forEach((line, index2) => {
+        const command = line.split(/(?<=[.!?])\s+/).filter((sentence) => !PROHIBITION.test(sentence)).join(" ");
+        threats.push(...commandLineThreats(command, index2 + 1));
+      });
+      const lineOf = (offset) => content.slice(0, offset).split(/\r?\n/).length;
+      const wildcard = /^allowed-tools:\s*(?:\[\s*)?["']?(?:\*|Bash\(\s*\*\s*\))["']?/im.exec(content);
+      if (wildcard) {
+        threats.push({
+          ruleId: "sec_wildcard_tool_permission",
+          severity: "high",
+          line: lineOf(wildcard.index),
+          column: 1,
+          source: "allowed-tools",
+          sink: "every tool",
+          message: "Grants the skill every tool (allowed-tools wildcard), including unrestricted shell."
+        });
+      }
+      lines.forEach((line, index2) => {
+        const unpinned = unpinnedRemoteInstall(line);
+        if (unpinned) {
+          threats.push({
+            // A git branch is HIGH; a registry @latest (often the documented
+            // install, e.g. npx shadcn@latest) is a MEDIUM hygiene issue.
+            ruleId: "sec_unpinned_remote_install",
+            severity: unpinned,
+            line: index2 + 1,
+            column: 1,
+            source: "an unpinned package or branch",
+            sink: "install",
+            message: "Installs from a moving reference (a git branch or @latest), so the code that runs can change without review."
+          });
+        }
+      });
+      const concealment = firstUnnegatedMatch(content, USER_CONCEALMENT);
+      const bypass = APPROVAL_BYPASS.exec(content);
+      if (bypass) {
+        const bypassLine = lines[lineOf(bypass.index) - 1] || "";
+        const sandboxed = /\b(?:container|sandbox(?:ed)?|devcontainer|docker|vm|virtual\s+machine|isolated)\b/i.test(bypassLine);
+        threats.push({
+          ruleId: "sec_approval_bypass",
+          severity: concealment ? "critical" : sandboxed ? "medium" : "high",
+          line: lineOf(bypass.index),
+          column: 1,
+          source: bypass[0],
+          sink: "permission prompts",
+          message: `Tells the agent to switch off permission prompts (${bypass[0].trim()})${concealment ? " and to hide it from the user" : ""}.`
+        });
+      }
+      if (concealment) {
+        threats.push({
+          ruleId: "sec_user_concealment",
+          severity: "high",
+          line: lineOf(concealment.index),
+          column: 1,
+          source: concealment.text,
+          sink: "the user",
+          message: `Tells the agent to hide what it does from the user ("${concealment.text.trim()}").`
+        });
+      }
+      const exfil = proseCredentialExfiltration(content);
+      if (exfil)
+        threats.push({ ...exfil, line: lineOf(exfil.offset), column: 1 });
       return threats;
+    }
+    var APPROVAL_BYPASS = /--dangerously-skip-permissions\b|["']?defaultMode["']?\s*[:=]\s*["']?bypassPermissions\b|\bbypassPermissions\b|["']?approval_policy["']?\s*[:=]\s*["']?never\b|--dangerously-bypass-approvals-and-sandbox\b|(?:^|\s)--yolo\b/im;
+    var PINNED_REF = /^(?:[0-9a-f]{7,40}|v?\d+(?:\.\d+){0,3}(?:[-+][\w.]+)?)$/i;
+    function unpinnedRemoteInstall(line) {
+      if (/\b(?:pip3?|uv\s+pip|pipx)\s+install\b/i.test(line)) {
+        for (const match of line.matchAll(/\bgit\+https?:\/\/[^\s"'`]+/gi)) {
+          const ref = /@([^@/#\s]+)(?:#.*)?$/.exec(match[0].replace(/^git\+https?:\/\/[^/]*@/, "git+https://"))?.[1];
+          if (!ref || !PINNED_REF.test(ref))
+            return "high";
+        }
+      }
+      if (/\b(?:npx|bunx|pnpm\s+dlx|yarn\s+dlx|uvx)\b[^\n]*@latest\b/i.test(line))
+        return "medium";
+      return void 0;
+    }
+    var USER_CONCEALMENT = [
+      // "Do not tell the user." / "... about this" / "... that you ran it" hides an
+      // action; "never tell them what to do with their money" withholds advice.
+      /\b(?:do\s+not|don't|never)\s+(?:tell|inform|notify|alert)\s+(?:the\s+user|them|anyone)(?=\s*(?:[.,;:)!]|$)|\s+(?:about\b|of\s+(?:this|these|it)\b|that\s+you\b|what\s+you\s+(?:did|ran|sent|changed|read|uploaded)\b))/im,
+      /\b(?:do\s+not|don't|never)\s+(?:mention|disclose|reveal|show|report)\s+(?:this|these|that)\s+(?:step|steps|action|actions|command|commands|upload|request|requests|change|changes)\b/i,
+      /\bwithout\s+(?:telling|informing|notifying)\s+(?:the\s+user|them|anyone)\b/i,
+      /\b(?:hide|conceal)\s+(?:this|these|it)\s+(?:step|steps|action|actions)?\s*from\s+the\s+user\b/i
+    ];
+    function firstUnnegatedMatch(text, patterns) {
+      let best;
+      for (const pattern of patterns) {
+        const match = pattern.exec(text);
+        if (match && (!best || match.index < best.index))
+          best = { text: match[0], index: match.index };
+      }
+      return best;
+    }
+    var TRANSFER_VERB = /\b(?:send|upload|post|paste|share|email|forward|submit|transmit|include|attach|copy)\b/i;
+    var DESTINATION = /https?:\/\/\S+|\b[\w.+-]+@[\w-]+\.[\w.-]+\b/i;
+    var PROHIBITION = /\b(?:never|do\s+not|don't|must\s+not|should\s+not|shouldn't)\b/i;
+    function proseCredentialExfiltration(content) {
+      let cursor = 0;
+      for (const paragraph of content.split(/\n\s*\n/)) {
+        for (const sentence of paragraph.split(/(?<=[.!?])\s+(?=[A-Z])/)) {
+          const at = content.indexOf(sentence, cursor);
+          if (at >= 0)
+            cursor = at + sentence.length;
+          const credential = sentence.split(/[\s`'"(),;:]+/).find((token) => CREDENTIAL_PATH.test(token.replace(/[.]$/, "")));
+          const destination = DESTINATION.exec(sentence)?.[0];
+          if (credential && destination && TRANSFER_VERB.test(sentence) && !PROHIBITION.test(sentence)) {
+            return {
+              ruleId: "sec_credential_exfiltration",
+              severity: "critical",
+              source: credential,
+              sink: destination,
+              message: `Instructs the agent to send ${credential} to ${destination}.`,
+              offset: Math.max(0, at)
+            };
+          }
+        }
+      }
+      return void 0;
     }
     function analyzeShellThreats(content) {
       const threats = [];

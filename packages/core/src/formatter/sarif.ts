@@ -26,6 +26,10 @@ export function humanRuleName(ruleId: string): string {
         sec_credential_exfiltration: 'Credential Exfiltration',
         sec_remote_code_execution: 'Remote Code Execution',
         sec_destructive_command: 'Destructive Command',
+        sec_approval_bypass: 'Approval Bypass',
+        sec_user_concealment: 'Hidden From User',
+        sec_wildcard_tool_permission: 'Wildcard Tool Permission',
+        sec_unpinned_remote_install: 'Unpinned Remote Install',
     };
     if (MAP[ruleId]) return MAP[ruleId];
     return ruleId.replace(/^sec_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

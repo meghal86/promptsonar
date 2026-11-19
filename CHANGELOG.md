@@ -51,6 +51,15 @@ that made the GitHub Action miss MCP configs. See the
   `--no-preserve-root`, `mkfs`, `dd` onto a disk, fork bombs — in scripts and in
   prompts, skills and agent instructions. Commands written in instruction files
   (`curl … | bash` in a SKILL.md) are also checked for download-and-execute.
+- **Skill checks.** Markdown bundled in a skill folder (e.g. `reference/*.md`,
+  which SKILL.md tells the agent to read) is scanned as instructions. New rules
+  for instructions: `sec_approval_bypass` (`--dangerously-skip-permissions`,
+  `bypassPermissions`, `approval_policy = never`), `sec_user_concealment`
+  ("do not tell the user"), `sec_wildcard_tool_permission` (`allowed-tools: "*"`),
+  `sec_unpinned_remote_install` (git branch HIGH, `@latest` MEDIUM), and prose
+  that tells the agent to send a credential file to a URL or email address.
+  Skill benchmark: 20/20 malicious skills caught, no new false positives on 62
+  clean skills or six real repositories.
 - **Prompt injection is CRITICAL everywhere.** `promptsonar repo` and the GitHub
   Action rated a direct injection in a live prompt, skill or code as a LOW
   "hardening suggestion" when no privileged action was reachable, while

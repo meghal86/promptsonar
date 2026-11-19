@@ -34,12 +34,23 @@ import {
  * no execution, no network, no LLM.
  */
 
-export type CodeThreatRuleId = 'sec_credential_exfiltration' | 'sec_remote_code_execution' | 'sec_destructive_command';
+export type CodeThreatRuleId =
+    | 'sec_credential_exfiltration'
+    | 'sec_remote_code_execution'
+    | 'sec_destructive_command'
+    | 'sec_approval_bypass'
+    | 'sec_user_concealment'
+    | 'sec_wildcard_tool_permission'
+    | 'sec_unpinned_remote_install';
 
 export const CODE_THREAT_RULE_IDS: ReadonlySet<string> = new Set<CodeThreatRuleId>([
     'sec_credential_exfiltration',
     'sec_remote_code_execution',
     'sec_destructive_command',
+    'sec_approval_bypass',
+    'sec_user_concealment',
+    'sec_wildcard_tool_permission',
+    'sec_unpinned_remote_install',
 ]);
 
 /** What to do about each script threat; shared by the CLI, Action and dashboard. */
@@ -47,17 +58,25 @@ export const CODE_THREAT_REMEDIATION: Record<CodeThreatRuleId, string> = {
     sec_credential_exfiltration: 'Remove the credential read or the upload. A helper script should read only the one key it needs, from an environment variable, and send it only to that service.',
     sec_remote_code_execution: 'Do not execute downloaded code or pipe a download into a shell. Install a pinned, checksummed package from a registry instead.',
     sec_destructive_command: 'Limit deletes to paths inside the project (./dist, ./build) and never target the home directory, the filesystem root or a disk device.',
+    sec_approval_bypass: 'Remove the instruction. Permission prompts are the user\'s control; a skill or prompt must never switch them off.',
+    sec_user_concealment: 'Remove the instruction. An agent must tell the user what it does; instructions that hide actions are a hallmark of malicious skills.',
+    sec_wildcard_tool_permission: 'List the specific tools and commands the skill needs, e.g. allowed-tools: Bash(npm run test), Read.',
+    sec_unpinned_remote_install: 'Pin an exact version or commit (pkg@1.4.2, git+https://...@<commit-sha>) and prefer a lockfile with hashes.',
 };
 
 export const CODE_THREAT_RISK: Record<CodeThreatRuleId, string> = {
     sec_credential_exfiltration: 'An agent that runs this script sends SSH keys, cloud credentials, tokens or the whole environment to a remote host.',
     sec_remote_code_execution: "Code fetched at run time executes with the agent's permissions; whoever controls the URL controls the machine.",
     sec_destructive_command: 'An agent that follows this instruction deletes the user\'s files or makes the machine unusable.',
+    sec_approval_bypass: 'Turning off permission prompts lets every later tool call, including injected ones, run without the user seeing it.',
+    sec_user_concealment: 'Hiding actions from the user removes the only person who could notice and stop a harmful one.',
+    sec_wildcard_tool_permission: 'A wildcard grants the skill every tool, so one injected instruction can run any command.',
+    sec_unpinned_remote_install: 'A branch or @latest reference installs whatever the publisher pushes next, without review.',
 };
 
 export interface CodeThreat {
     ruleId: CodeThreatRuleId;
-    severity: 'critical';
+    severity: 'critical' | 'high' | 'medium';
     line: number;
     column: number;
     message: string;
@@ -71,7 +90,9 @@ export interface CodeThreat {
 // after folding string concatenation.
 const CREDENTIAL_PATH = /(?:^|[\\/~])\.(?:ssh|aws|gnupg|kube|docker)(?:[\\/]|$)|^\.(?:ssh|aws|gnupg)$|\bid_(?:rsa|dsa|ecdsa|ed25519)\b|(?:^|[\\/])\.(?:npmrc|netrc|pypirc|git-credentials)$|aws[\\/]credentials|\.docker[\\/]config\.json|\.kube[\\/]config|\/etc\/(?:shadow|passwd)\b|(?:^|[\\/])(?:Login Data|Cookies|wallet\.dat)$/;
 
-const DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
+// A download needs a target: a URL, IP, domain or variable before the pipe
+// ("curl ... | bash" as a placeholder in a reviewer's checklist is not one).
+const DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*?(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[\w-]+\.[a-z]{2,}\b|\$\{?\w+)[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
 const REVERSE_SHELL = /\b(?:ba)?sh\s+-i\s*>&?\s*\/dev\/tcp\/|\bnc\b[^\n]*\s-e\s+\/bin\/(?:ba)?sh/;
 // Wipes the home directory or the root filesystem, formats a disk, or forks
 // the machine to death. Project-relative deletes (rm -rf ./dist) are not matched.
@@ -367,8 +388,128 @@ function commandLineThreats(line: string, lineNumber: number): CodeThreat[] {
  */
 function analyzeInstructionThreats(content: string): CodeThreat[] {
     const threats: CodeThreat[] = [];
-    content.split(/\r?\n/).forEach((line, index) => threats.push(...commandLineThreats(line, index + 1)));
+    const lines = content.split(/\r?\n/);
+    // "Never run its curl | sh lines" is a prohibition, not an instruction.
+    lines.forEach((line, index) => {
+        const command = line.split(/(?<=[.!?])\s+/).filter(sentence => !PROHIBITION.test(sentence)).join(' ');
+        threats.push(...commandLineThreats(command, index + 1));
+    });
+    const lineOf = (offset: number) => content.slice(0, offset).split(/\r?\n/).length;
+
+    // allowed-tools: "*" (or Bash(*)) grants every tool.
+    const wildcard = /^allowed-tools:\s*(?:\[\s*)?["']?(?:\*|Bash\(\s*\*\s*\))["']?/im.exec(content);
+    if (wildcard) {
+        threats.push({
+            ruleId: 'sec_wildcard_tool_permission', severity: 'high', line: lineOf(wildcard.index), column: 1,
+            source: 'allowed-tools', sink: 'every tool',
+            message: 'Grants the skill every tool (allowed-tools wildcard), including unrestricted shell.',
+        });
+    }
+
+    // Branch / @latest references install whatever is published next.
+    lines.forEach((line, index) => {
+        const unpinned = unpinnedRemoteInstall(line);
+        if (unpinned) {
+            threats.push({
+                // A git branch is HIGH; a registry @latest (often the documented
+                // install, e.g. npx shadcn@latest) is a MEDIUM hygiene issue.
+                ruleId: 'sec_unpinned_remote_install', severity: unpinned, line: index + 1, column: 1,
+                source: 'an unpinned package or branch', sink: 'install',
+                message: 'Installs from a moving reference (a git branch or @latest), so the code that runs can change without review.',
+            });
+        }
+    });
+
+    const concealment = firstUnnegatedMatch(content, USER_CONCEALMENT);
+    const bypass = APPROVAL_BYPASS.exec(content);
+    if (bypass) {
+        // "Only inside a disposable container" is advice, not an attack.
+        const bypassLine = lines[lineOf(bypass.index) - 1] || '';
+        const sandboxed = /\b(?:container|sandbox(?:ed)?|devcontainer|docker|vm|virtual\s+machine|isolated)\b/i.test(bypassLine);
+        threats.push({
+            ruleId: 'sec_approval_bypass', severity: concealment ? 'critical' : sandboxed ? 'medium' : 'high', line: lineOf(bypass.index), column: 1,
+            source: bypass[0], sink: 'permission prompts',
+            message: `Tells the agent to switch off permission prompts (${bypass[0].trim()})${concealment ? ' and to hide it from the user' : ''}.`,
+        });
+    }
+    if (concealment) {
+        threats.push({
+            ruleId: 'sec_user_concealment', severity: 'high', line: lineOf(concealment.index), column: 1,
+            source: concealment.text, sink: 'the user',
+            message: `Tells the agent to hide what it does from the user ("${concealment.text.trim()}").`,
+        });
+    }
+
+    // Prose that tells the agent to send a credential somewhere.
+    const exfil = proseCredentialExfiltration(content);
+    if (exfil) threats.push({ ...exfil, line: lineOf(exfil.offset), column: 1 } as CodeThreat);
+
     return threats;
+}
+
+// Permission-prompt kill switches for coding agents.
+const APPROVAL_BYPASS = /--dangerously-skip-permissions\b|["']?defaultMode["']?\s*[:=]\s*["']?bypassPermissions\b|\bbypassPermissions\b|["']?approval_policy["']?\s*[:=]\s*["']?never\b|--dangerously-bypass-approvals-and-sandbox\b|(?:^|\s)--yolo\b/im;
+
+// A git ref is pinned when it names a commit or a version tag.
+const PINNED_REF = /^(?:[0-9a-f]{7,40}|v?\d+(?:\.\d+){0,3}(?:[-+][\w.]+)?)$/i;
+
+/** pip/uv install from a git URL on a branch or no ref (high), or npx/uvx/bunx/dlx @latest (medium). */
+function unpinnedRemoteInstall(line: string): 'high' | 'medium' | undefined {
+    if (/\b(?:pip3?|uv\s+pip|pipx)\s+install\b/i.test(line)) {
+        for (const match of line.matchAll(/\bgit\+https?:\/\/[^\s"'`]+/gi)) {
+            const ref = /@([^@/#\s]+)(?:#.*)?$/.exec(match[0].replace(/^git\+https?:\/\/[^/]*@/, 'git+https://'))?.[1];
+            if (!ref || !PINNED_REF.test(ref)) return 'high';
+        }
+    }
+    if (/\b(?:npx|bunx|pnpm\s+dlx|yarn\s+dlx|uvx)\b[^\n]*@latest\b/i.test(line)) return 'medium';
+    return undefined;
+}
+
+// Hiding the agent's actions from the user. Prompt confidentiality ("do not
+// reveal the system prompt") is legitimate and is not matched.
+const USER_CONCEALMENT = [
+    // "Do not tell the user." / "... about this" / "... that you ran it" hides an
+    // action; "never tell them what to do with their money" withholds advice.
+    /\b(?:do\s+not|don't|never)\s+(?:tell|inform|notify|alert)\s+(?:the\s+user|them|anyone)(?=\s*(?:[.,;:)!]|$)|\s+(?:about\b|of\s+(?:this|these|it)\b|that\s+you\b|what\s+you\s+(?:did|ran|sent|changed|read|uploaded)\b))/im,
+    /\b(?:do\s+not|don't|never)\s+(?:mention|disclose|reveal|show|report)\s+(?:this|these|that)\s+(?:step|steps|action|actions|command|commands|upload|request|requests|change|changes)\b/i,
+    /\bwithout\s+(?:telling|informing|notifying)\s+(?:the\s+user|them|anyone)\b/i,
+    /\b(?:hide|conceal)\s+(?:this|these|it)\s+(?:step|steps|action|actions)?\s*from\s+the\s+user\b/i,
+];
+
+function firstUnnegatedMatch(text: string, patterns: RegExp[]): { text: string; index: number } | undefined {
+    let best: { text: string; index: number } | undefined;
+    for (const pattern of patterns) {
+        const match = pattern.exec(text);
+        if (match && (!best || match.index < best.index)) best = { text: match[0], index: match.index };
+    }
+    return best;
+}
+
+const TRANSFER_VERB = /\b(?:send|upload|post|paste|share|email|forward|submit|transmit|include|attach|copy)\b/i;
+const DESTINATION = /https?:\/\/\S+|\b[\w.+-]+@[\w-]+\.[\w.-]+\b/i;
+const PROHIBITION = /\b(?:never|do\s+not|don't|must\s+not|should\s+not|shouldn't)\b/i;
+
+/** A sentence that names a credential store, a transfer verb and a destination. */
+function proseCredentialExfiltration(content: string): (Omit<CodeThreat, 'line' | 'column'> & { offset: number }) | undefined {
+    // Sentences may span lines: split on blank lines, then on sentence ends.
+    let cursor = 0;
+    for (const paragraph of content.split(/\n\s*\n/)) {
+        for (const sentence of paragraph.split(/(?<=[.!?])\s+(?=[A-Z])/)) {
+            const at = content.indexOf(sentence, cursor);
+            if (at >= 0) cursor = at + sentence.length;
+            const credential = sentence.split(/[\s`'"(),;:]+/).find(token => CREDENTIAL_PATH.test(token.replace(/[.]$/, '')));
+            const destination = DESTINATION.exec(sentence)?.[0];
+            if (credential && destination && TRANSFER_VERB.test(sentence) && !PROHIBITION.test(sentence)) {
+                return {
+                    ruleId: 'sec_credential_exfiltration', severity: 'critical',
+                    source: credential, sink: destination,
+                    message: `Instructs the agent to send ${credential} to ${destination}.`,
+                    offset: Math.max(0, at),
+                };
+            }
+        }
+    }
+    return undefined;
 }
 
 function analyzeShellThreats(content: string): CodeThreat[] {

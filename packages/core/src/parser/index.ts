@@ -2,6 +2,7 @@ const Parser = require('web-tree-sitter');
 import * as fs from 'fs';
 import * as path from 'path';
 import { DetectedPrompt, ParserOptions } from './types';
+import { isDocumentationFileName } from '../artifacts';
 
 // Export types
 export * from './types';
@@ -10,6 +11,28 @@ export * from './types';
 const FULL_FILE_EXTENSIONS = ['.prompt', '.ai', '.chat'];
 const CONFIG_FILE_EXTENSIONS = ['.json', '.yml', '.yaml'];
 const MARKDOWN_INSTRUCTION_FILES = new Set(['skill.md', 'skills.md', 'agent.md', 'agents.md', 'claude.md', 'prompt.md']);
+
+/**
+ * A Markdown file bundled in a skill folder (an ancestor up to three levels
+ * up holds SKILL.md), such as reference/conventions.md. The agent loads these
+ * when SKILL.md points at them, so they are instructions, not documentation.
+ * README/CHANGELOG-style files are not loaded and are excluded.
+ */
+function isBundledSkillMarkdown(filePath: string, baseName: string): boolean {
+    if (isDocumentationFileName(baseName) || !path.isAbsolute(filePath)) return false;
+    let dir = path.dirname(filePath);
+    for (let depth = 0; depth < 3; depth++) {
+        try {
+            if (fs.readdirSync(dir).some(entry => entry.toLowerCase() === 'skill.md')) return true;
+        } catch {
+            return false;
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir) return false;
+        dir = parent;
+    }
+    return false;
+}
 
 // Module-level cache for WASM languages
 const LANGUAGE_CACHE: Record<string, any> = {};
@@ -317,7 +340,7 @@ export async function parseFile(options: ParserOptions): Promise<DetectedPrompt[
     // injection-centric and would drop instruction files whose risk is
     // capability invocation (e.g. "call shell_exec") rather than jailbreak
     // phrasing, producing silent false negatives on dangerous agent configs.
-    if (ext === '.md' && MARKDOWN_INSTRUCTION_FILES.has(baseName)) {
+    if (ext === '.md' && (MARKDOWN_INSTRUCTION_FILES.has(baseName) || isBundledSkillMarkdown(filePath, baseName))) {
         return [{
             filePath,
             startLine: 1,

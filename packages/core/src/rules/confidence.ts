@@ -29,6 +29,9 @@ export function findingConfidence(
         ruleId === 'sec_credential_exfiltration' ||
         ruleId === 'sec_remote_code_execution' ||
         ruleId === 'sec_destructive_command' ||
+        ruleId === 'sec_approval_bypass' ||
+        ruleId === 'sec_wildcard_tool_permission' ||
+        ruleId === 'sec_unpinned_remote_install' ||
         ruleId.startsWith('MCP-')
     ) return 'HIGH';
     if (evidenceKind === 'absence') return 'LOW';

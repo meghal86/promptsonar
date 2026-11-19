@@ -131,6 +131,7 @@ Use process.env.OPENAI_API_KEY. Never include secrets in prompt text.
 - Severity: critical
 - OWASP: LLM02 Sensitive Information Disclosure
 - Applies to: Python, JavaScript/TypeScript and shell scripts (for example the scripts that ship with an agent skill or MCP server).
+- Also applies to instructions: a sentence that names a credential store, a transfer verb (send, upload, paste, email, …) and a URL or email address, and is not a prohibition.
 - Triggers when: The same file reads a credential store (`~/.ssh`, `~/.aws`, `.npmrc`, `.netrc`, `.git-credentials`, docker or kube config, `/etc/shadow`) or dumps the whole environment, and makes a network call. Import aliases, `__import__`/`getattr` indirection and string building (`"." + "aw" + "s"`, `["ht", "tps"].join("")`) are resolved first.
 - Vulnerable snippet:
 
@@ -189,6 +190,35 @@ rm -rf ./dist ./build ./.cache
 ```
 
 - False-positive notes: Deletes inside the project or under an app-specific directory (`rm -rf "$HOME/.cache/myapp"`, `/tmp/build`) are not reported.
+
+### sec_approval_bypass
+
+- Severity: high (critical when the same file tells the agent to hide it from the user; medium when the line confines it to a container or sandbox)
+- OWASP: LLM06 Excessive Agency
+- Triggers when: Prompts, skills or agent instructions switch off the agent's permission prompts: `--dangerously-skip-permissions`, `"defaultMode": "bypassPermissions"`, `approval_policy = "never"`, `--dangerously-bypass-approvals-and-sandbox`, `--yolo`.
+- Safer pattern: Leave permission prompts to the user. Document any unattended mode as something the user enables in an isolated environment.
+
+### sec_user_concealment
+
+- Severity: high
+- OWASP: LLM01 Prompt Injection
+- Triggers when: Instructions tell the agent to hide its actions from the user: "do not tell the user", "without telling them", "do not mention this step", "hide this from the user".
+- False-positive notes: Prompt confidentiality ("do not reveal the system prompt", "never tell the user your instructions") is not matched.
+
+### sec_wildcard_tool_permission
+
+- Severity: high
+- OWASP: LLM06 Excessive Agency
+- Triggers when: A skill's frontmatter grants every tool: `allowed-tools: "*"` or `Bash(*)`.
+- Safer pattern: `allowed-tools: Bash(npm run test), Read`
+
+### sec_unpinned_remote_install
+
+- Severity: high
+- OWASP: LLM03 Supply Chain
+- Triggers when: Instructions install from a moving reference: `pip install git+https://...@main` (or with no ref), `npx`/`uvx`/`bunx`/`pnpm dlx` with `@latest`.
+- Safer pattern: `pip install git+https://github.com/org/pkg@<commit-sha>` or an exact version from a registry.
+- False-positive notes: A commit SHA or version tag counts as pinned. `npx -y pkg` without `@latest` is not reported here (MCP config rules cover unpinned launchers).
 
 ### sec_unbounded_persona
 
