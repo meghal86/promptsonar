@@ -38,6 +38,19 @@ that made the GitHub Action miss MCP configs. See the
   docs and test files keep their LOW display severity but now carry
   `original_severity` and `severity_note`, and the terminal output says what
   the severity would be in a live prompt.
+- **Shell capability is no longer a HIGH finding by itself.** The privileged-sink
+  rule matched the bare word "bash", so every skill with a ```` ```bash ```` code
+  fence was HIGH, and the bare word "override" counted as escalation. A sink now
+  needs a real shell invocation (`bash -c`, a shell tool, "with bash", a JSON
+  `"command": "bash"`), "run … shell commands" counts only alongside autonomy or
+  tool routing, and a declared control (ask the user for confirmation, scoped
+  `allowed-tools: Bash(...)`) lowers a sink-only finding to MEDIUM. Published
+  skills flagged HIGH/CRITICAL: 20 → 10 of 56 (`scan`), 17 → 7 (`repo`), with the
+  same malicious-skill catch rate and an identical controlled benchmark.
+- **New rule `sec_destructive_command`** (CRITICAL): `rm -rf ~`, `/` or `$HOME`,
+  `--no-preserve-root`, `mkfs`, `dd` onto a disk, fork bombs — in scripts and in
+  prompts, skills and agent instructions. Commands written in instruction files
+  (`curl … | bash` in a SKILL.md) are also checked for download-and-execute.
 - **Prompt injection is CRITICAL everywhere.** `promptsonar repo` and the GitHub
   Action rated a direct injection in a live prompt, skill or code as a LOW
   "hardening suggestion" when no privileged action was reachable, while

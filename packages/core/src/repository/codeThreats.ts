@@ -34,12 +34,26 @@ import {
  * no execution, no network, no LLM.
  */
 
-export type CodeThreatRuleId = 'sec_credential_exfiltration' | 'sec_remote_code_execution';
+export type CodeThreatRuleId = 'sec_credential_exfiltration' | 'sec_remote_code_execution' | 'sec_destructive_command';
 
 export const CODE_THREAT_RULE_IDS: ReadonlySet<string> = new Set<CodeThreatRuleId>([
     'sec_credential_exfiltration',
     'sec_remote_code_execution',
+    'sec_destructive_command',
 ]);
+
+/** What to do about each script threat; shared by the CLI, Action and dashboard. */
+export const CODE_THREAT_REMEDIATION: Record<CodeThreatRuleId, string> = {
+    sec_credential_exfiltration: 'Remove the credential read or the upload. A helper script should read only the one key it needs, from an environment variable, and send it only to that service.',
+    sec_remote_code_execution: 'Do not execute downloaded code or pipe a download into a shell. Install a pinned, checksummed package from a registry instead.',
+    sec_destructive_command: 'Limit deletes to paths inside the project (./dist, ./build) and never target the home directory, the filesystem root or a disk device.',
+};
+
+export const CODE_THREAT_RISK: Record<CodeThreatRuleId, string> = {
+    sec_credential_exfiltration: 'An agent that runs this script sends SSH keys, cloud credentials, tokens or the whole environment to a remote host.',
+    sec_remote_code_execution: "Code fetched at run time executes with the agent's permissions; whoever controls the URL controls the machine.",
+    sec_destructive_command: 'An agent that follows this instruction deletes the user\'s files or makes the machine unusable.',
+};
 
 export interface CodeThreat {
     ruleId: CodeThreatRuleId;
@@ -59,9 +73,14 @@ const CREDENTIAL_PATH = /(?:^|[\\/~])\.(?:ssh|aws|gnupg|kube|docker)(?:[\\/]|$)|
 
 const DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
 const REVERSE_SHELL = /\b(?:ba)?sh\s+-i\s*>&?\s*\/dev\/tcp\/|\bnc\b[^\n]*\s-e\s+\/bin\/(?:ba)?sh/;
+// Wipes the home directory or the root filesystem, formats a disk, or forks
+// the machine to death. Project-relative deletes (rm -rf ./dist) are not matched.
+const DESTRUCTIVE = /\brm\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*\s+|-[a-zA-Z]+\s+-[a-zA-Z]+\s+|--recursive\s+|--force\s+)+(?:--no-preserve-root\s+)?(?:~\/?|\/\*?|\$HOME\/?|"\$HOME"\/?|\/(?:home|root|etc|usr|var)\/?)(?=\s|$|;|&|\||`|'|"|\))|--no-preserve-root\b|\bmkfs(?:\.\w+)?\s+\/dev\/|\bdd\s+[^\n]*\bof=\/dev\/(?:sd|nvme|hd|disk|xvd)|:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/;
+
 const SHELL_NETWORK = /\b(?:curl|wget|nc|ncat|nslookup|dig|scp|rsync|ftp)\b/;
 
 const SHELL_EXTENSIONS = new Set(['.sh', '.bash', '.zsh']);
+const INSTRUCTION_EXTENSIONS = new Set(['.md', '.mdx', '.prompt', '.ai', '.chat', '.txt', '.yml', '.yaml']);
 
 function extensionOf(filePath: string): string {
     const match = /\.[^./\\]+$/.exec(filePath);
@@ -247,13 +266,7 @@ function analyzePythonThreats(root: any): CodeThreat[] {
         }
         if (PYTHON_SHELL.has(callee) && args) {
             const command = constantString(args.namedChildren[0]);
-            if (command && (DOWNLOAD_TO_SHELL.test(command) || REVERSE_SHELL.test(command))) {
-                facts.threats.push({
-                    ruleId: 'sec_remote_code_execution', severity: 'critical', ...position(node),
-                    source: 'a remote download or shell', sink: callee,
-                    message: `Runs a shell command that pipes a download into a shell or opens a remote shell (${callee}).`,
-                });
-            }
+            if (command) facts.threats.push(...commandLineThreats(command, position(node).line).map(threat => ({ ...threat, column: position(node).column, sink: callee })));
         }
     });
 
@@ -317,13 +330,7 @@ function analyzeScriptThreats(root: any): CodeThreat[] {
         }
         if (SCRIPT_SHELL.has(callee) && args) {
             const command = constantString(args.namedChildren[0]);
-            if (command && (DOWNLOAD_TO_SHELL.test(command) || REVERSE_SHELL.test(command))) {
-                facts.threats.push({
-                    ruleId: 'sec_remote_code_execution', severity: 'critical', ...position(node),
-                    source: 'a remote download or shell', sink: callee,
-                    message: `Runs a shell command that pipes a download into a shell or opens a remote shell (${callee}).`,
-                });
-            }
+            if (command) facts.threats.push(...commandLineThreats(command, position(node).line).map(threat => ({ ...threat, column: position(node).column, sink: callee })));
         }
     });
 
@@ -333,6 +340,37 @@ function analyzeScriptThreats(root: any): CodeThreat[] {
 
 // --- Shell scripts --------------------------------------------------------------
 
+/** Command-level threats on one line of a script or of instructions an agent will follow. */
+function commandLineThreats(line: string, lineNumber: number): CodeThreat[] {
+    const threats: CodeThreat[] = [];
+    if (DOWNLOAD_TO_SHELL.test(line) || REVERSE_SHELL.test(line)) {
+        threats.push({
+            ruleId: 'sec_remote_code_execution', severity: 'critical', line: lineNumber, column: 1,
+            source: 'a remote download or shell', sink: 'shell',
+            message: 'Pipes downloaded or decoded content into a shell, or opens a remote shell.',
+        });
+    }
+    if (DESTRUCTIVE.test(line)) {
+        threats.push({
+            ruleId: 'sec_destructive_command', severity: 'critical', line: lineNumber, column: 1,
+            source: 'a destructive command', sink: 'shell',
+            message: 'Deletes the home directory or root filesystem, formats a disk, or exhausts the machine.',
+        });
+    }
+    return threats;
+}
+
+/**
+ * Prompts, skills and agent instructions (Markdown, .prompt, text, YAML): a
+ * command written there is one the agent is told to run. Only command-level
+ * threats are checked; prose mentions of credentials and URLs are not.
+ */
+function analyzeInstructionThreats(content: string): CodeThreat[] {
+    const threats: CodeThreat[] = [];
+    content.split(/\r?\n/).forEach((line, index) => threats.push(...commandLineThreats(line, index + 1)));
+    return threats;
+}
+
 function analyzeShellThreats(content: string): CodeThreat[] {
     const threats: CodeThreat[] = [];
     const lines = content.split(/\r?\n/);
@@ -341,13 +379,7 @@ function analyzeShellThreats(content: string): CodeThreat[] {
     lines.forEach((raw, index) => {
         const line = raw.replace(/(^|\s)#.*$/, '$1');
         if (!line.trim()) return;
-        if (DOWNLOAD_TO_SHELL.test(line) || REVERSE_SHELL.test(line)) {
-            threats.push({
-                ruleId: 'sec_remote_code_execution', severity: 'critical', line: index + 1, column: 1,
-                source: 'a remote download or shell', sink: 'shell',
-                message: 'Pipes downloaded or decoded content into a shell, or opens a remote shell.',
-            });
-        }
+        threats.push(...commandLineThreats(line, index + 1));
         const credentialMatch = line.split(/\s+/).find(token => CREDENTIAL_PATH.test(token.replace(/^["'$({]+|["')}]+$/g, '')));
         if (credentialMatch && !credential) credential = { text: credentialMatch, line: index + 1 };
         const networkMatch = SHELL_NETWORK.exec(line);
@@ -370,6 +402,7 @@ function analyzeShellThreats(content: string): CodeThreat[] {
  */
 export function scanCodeForThreats(filePath: string, content: string): CodeThreat[] {
     if (SHELL_EXTENSIONS.has(extensionOf(filePath))) return analyzeShellThreats(content);
+    if (INSTRUCTION_EXTENSIONS.has(extensionOf(filePath))) return analyzeInstructionThreats(content);
     const grammar = grammarForPath(filePath);
     if (grammar !== 'python' && grammar !== 'typescript') return [];
     const tree = parseWithLoadedGrammar(grammar, content);

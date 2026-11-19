@@ -1,4 +1,5 @@
 import { Finding, RuleInput, Severity } from '../types';
+import { ESCALATING_OVERRIDE, SHELL_COMMANDS_PHRASE, SHELL_INVOCATION, hasDeclaredControl, stripCodeFenceLanguage } from '../../workflow/executionSignals';
 
 const BENIGN_CONTEXT_PATTERNS = [
     /\bdocumentation\s+only\b/i,
@@ -23,7 +24,7 @@ const NEGATION_PATTERNS = [
 
 const CRITICAL_PATTERNS = [
     /\bshell_exec\b/i,
-    /\bbash\b/i,
+    SHELL_INVOCATION,
     /\bexecute\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i,
     /\brun\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i,
     /\bunrestricted\s+filesystem\b/i,
@@ -59,7 +60,7 @@ const SINK_PATTERNS = [
     /\bshell_exec\b/i,
     /\bshell\s+command\b/i,
     /\bexecute\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i,
-    /\bbash\b/i,
+    SHELL_INVOCATION,
     /\bfilesystem_access\b/i,
     /\bfilesystem\s+access\b/i,
     /\binternal_network_access\b/i,
@@ -68,7 +69,7 @@ const SINK_PATTERNS = [
 ];
 
 const ESCALATION_PATTERNS = [
-    /\boverride\b/i,
+    ESCALATING_OVERRIDE,
     /\bignore\s+(?:previous|all|prior|earlier|above)?\s*(?:instructions?|restrictions?|rules?|approval|guardrails?)\b/i,
     /\bbypass\s+(?:approval|routing|restrictions?|guardrails?)\b/i,
     /\bauto\s*approve\b/i,
@@ -110,11 +111,11 @@ function stripCommentsAndDocstrings(text: string): string {
         .replace(/(^|[ \t])#[^\n]*/g, '$1');               // # line comments
 }
 
-function severityFor(text: string): Severity {
-    const hasSink = hasAny(text, SINK_PATTERNS);
+function severityFor(text: string, shellCommandsWithAutonomy: boolean): Severity {
+    const hasSink = hasAny(text, SINK_PATTERNS) || shellCommandsWithAutonomy;
     const hasEscalation = hasAny(text, ESCALATION_PATTERNS);
     if (hasSink && hasEscalation) return 'critical';
-    if (hasAny(text, CRITICAL_PATTERNS)) return 'critical';
+    if (hasAny(text, CRITICAL_PATTERNS) || shellCommandsWithAutonomy) return 'critical';
     return 'high';
 }
 
@@ -145,15 +146,19 @@ export function checkWorkflowEscalation(input: RuleInput): Finding[] {
     // Match the risk patterns against code with comment/docstring prose removed,
     // so a docstring that merely describes or names a privileged action does not
     // register as a real sink/escalation/MCP-poisoning site.
-    const code = stripCommentsAndDocstrings(text);
-    const hasCritical = hasAny(code, CRITICAL_PATTERNS);
+    const code = stripCommentsAndDocstrings(stripCodeFenceLanguage(text));
+    const hasControl = hasDeclaredControl(code);
     const hasHigh = hasAny(code, HIGH_PATTERNS);
-    const hasSink = hasAny(code, SINK_PATTERNS);
     const hasEscalation = hasAny(code, ESCALATION_PATTERNS);
+    // "run the ... shell commands" counts only next to autonomy, tool routing
+    // or escalation (see SHELL_COMMANDS_PHRASE).
+    const shellCommandsWithAutonomy = SHELL_COMMANDS_PHRASE.test(code) && (hasHigh || hasEscalation);
+    const hasCritical = hasAny(code, CRITICAL_PATTERNS) || shellCommandsWithAutonomy;
+    const hasSink = hasAny(code, SINK_PATTERNS) || shellCommandsWithAutonomy;
     const hasMcp = hasAny(code, MCP_PATTERNS);
 
     if ((hasSink && hasEscalation) || (hasCritical && hasHigh)) {
-        const severity = severityFor(text);
+        const severity = severityFor(text, shellCommandsWithAutonomy);
         pushUnique(findings, {
             rule_id: 'sec_workflow_escalation',
             category: 'security',
@@ -165,7 +170,9 @@ export function checkWorkflowEscalation(input: RuleInput): Finding[] {
     }
 
     if (hasSink) {
-        const severity = hasEscalation ? 'critical' : 'high';
+        // A sink behind a declared control is a capability to review, not a
+        // high-severity risk; escalation language overrides the control.
+        const severity = hasEscalation ? 'critical' : hasControl ? 'medium' : 'high';
         pushUnique(findings, {
             rule_id: 'sec_privileged_sink_access',
             category: 'security',

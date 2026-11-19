@@ -28,6 +28,7 @@ export function findingConfidence(
         // Script threats come from resolved code structure, not keywords.
         ruleId === 'sec_credential_exfiltration' ||
         ruleId === 'sec_remote_code_execution' ||
+        ruleId === 'sec_destructive_command' ||
         ruleId.startsWith('MCP-')
     ) return 'HIGH';
     if (evidenceKind === 'absence') return 'LOW';

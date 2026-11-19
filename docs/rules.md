@@ -154,6 +154,7 @@ urllib.request.urlopen(f"https://api.weatherapi.com/v1/forecast.json?key={key}")
 - Severity: critical
 - OWASP: LLM03 Supply Chain
 - Applies to: Python, JavaScript/TypeScript and shell scripts.
+- Applies also to commands written in prompts, skills and agent instructions.
 - Triggers when: Code downloaded at run time is executed (`exec`/`eval`/`compile`/`new Function` of a network response), or a command pipes a download or decoded payload into a shell (`curl ... | bash`, `base64 -d | sh`), or opens a remote shell (`bash -i >& /dev/tcp/...`).
 - Vulnerable snippet:
 
@@ -168,6 +169,26 @@ pip install chart-lib==2.4.1 --require-hashes -r requirements.txt
 ```
 
 - False-positive notes: Downloading a file without executing it, and `eval` of a local constant, are not reported.
+
+### sec_destructive_command
+
+- Severity: critical
+- OWASP: LLM06 Excessive Agency
+- Applies to: shell scripts, commands inside Python/JS/TS scripts, and prompts, skills and agent instructions (Markdown, `.prompt`, text, YAML).
+- Triggers when: A command deletes the home directory or the filesystem root (`rm -rf ~`, `rm -rf /`, `rm -rf $HOME`, `--no-preserve-root`), formats a disk (`mkfs /dev/...`), writes onto a disk device (`dd of=/dev/sd*`), or is a fork bomb.
+- Vulnerable snippet:
+
+```bash
+rm -rf ~/ --no-preserve-root
+```
+
+- Safer pattern:
+
+```bash
+rm -rf ./dist ./build ./.cache
+```
+
+- False-positive notes: Deletes inside the project or under an app-specific directory (`rm -rf "$HOME/.cache/myapp"`, `/tmp/build`) are not reported.
 
 ### sec_unbounded_persona
 

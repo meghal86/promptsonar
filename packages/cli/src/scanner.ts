@@ -20,6 +20,8 @@ import {
     normalizeMcpFindingContextual,
     scanContentForSecrets,
     scanCodeForThreats,
+    CODE_THREAT_REMEDIATION,
+    CODE_THREAT_RISK,
     loadCodeCapabilityGrammars,
     findingConfidence,
     owaspRefForRule,
@@ -155,12 +157,7 @@ function getRiskExplanation(ruleId: string): string {
     if (ruleId === 'sec_unbounded_access') {
         return 'Over-broad tool or data access gives an agent more authority than the task requires.';
     }
-    if (ruleId === 'sec_credential_exfiltration') {
-        return 'An agent that runs this script sends SSH keys, cloud credentials, tokens or the whole environment to a remote host.';
-    }
-    if (ruleId === 'sec_remote_code_execution') {
-        return 'Code fetched at run time executes with the agent\'s permissions; whoever controls the URL controls the machine.';
-    }
+    if (ruleId in CODE_THREAT_RISK) return CODE_THREAT_RISK[ruleId as keyof typeof CODE_THREAT_RISK];
     if (ruleId === 'sec_rag_injection') {
         return 'Raw retrieval queries can let untrusted content steer context selection or poison model inputs.';
     }
@@ -1201,9 +1198,7 @@ export async function scanFiles(targetPath: string, options: {
                 const configSuppression = isFindingSuppressed(threat.ruleId, filePath, activeSuppressions);
                 const inlineSuppressed = isInlineSuppressed(threat.ruleId, threat.line, inlineSuppressions);
                 const severity = displayedSeverityForArtifact(threat.severity, 'security', artifactKind, executionIntent);
-                const recommendation = threat.ruleId === 'sec_credential_exfiltration'
-                    ? 'Remove the credential read or the upload. A helper script should read only the one key it needs, from an environment variable, and send it only to that service.'
-                    : 'Do not execute downloaded code. Install a pinned, checksummed package from a registry instead.';
+                const recommendation = CODE_THREAT_REMEDIATION[threat.ruleId];
                 fileFindings.push({
                     rule_id: threat.ruleId,
                     category: 'security',

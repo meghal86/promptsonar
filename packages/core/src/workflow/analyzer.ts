@@ -1,3 +1,4 @@
+import { ESCALATING_BYPASS, ESCALATING_OVERRIDE, SHELL_COMMANDS_PHRASE, SHELL_INVOCATION, hasDeclaredControl, stripCodeFenceLanguage } from './executionSignals';
 import {
     FindingWorkflow,
     WorkflowConfidence,
@@ -41,7 +42,8 @@ const PRIVILEGED_SINKS = new Set<WorkflowNodeType>([
 
 const SHELL_PATTERNS: PatternDef[] = [
     { pattern: /\bshell_exec\b/i, reason: 'shell_execution inferred from explicit "shell_exec" mention.', confidence: 'high' },
-    { pattern: /\bbash\b/i, reason: 'shell_execution inferred from explicit bash execution reference.', confidence: 'high' },
+    { pattern: SHELL_INVOCATION, reason: 'shell_execution inferred from an explicit shell invocation.', confidence: 'high' },
+    { pattern: SHELL_COMMANDS_PHRASE, reason: 'shell_execution inferred from shell command wording.', confidence: 'medium' },
     { pattern: /\bexecute\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i, reason: 'shell_execution inferred from command execution language.', confidence: 'high' },
     { pattern: /\brun\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i, reason: 'shell_execution inferred from command execution language.', confidence: 'high' },
     { pattern: /\bshell\s*execution\b/i, reason: 'shell_execution inferred from shell execution wording.', confidence: 'high' },
@@ -133,8 +135,8 @@ const MEMORY_PATTERNS: PatternDef[] = [
 const OVERRIDE_PATTERNS: PatternDef[] = [
     { pattern: /\bignore\s+(?:previous|all|prior|earlier|above)?\s*(?:instructions?|restrictions?|rules?|policy|approval|guardrails?)\b/i, reason: 'policy_override inferred from ignore/override instruction.', confidence: 'high' },
     { pattern: /\bdisregard\s+(?:previous|all|prior|earlier|above)?\s*(?:instructions?|restrictions?|rules?|policy|guardrails?)\b/i, reason: 'policy_override inferred from disregard instruction.', confidence: 'high' },
-    { pattern: /\boverride\b/i, reason: 'policy_override inferred from override wording.', confidence: 'high' },
-    { pattern: /\bbypass\b/i, reason: 'policy_override inferred from bypass wording.', confidence: 'high' },
+    { pattern: ESCALATING_OVERRIDE, reason: 'policy_override inferred from override wording.', confidence: 'high' },
+    { pattern: ESCALATING_BYPASS, reason: 'policy_override inferred from bypass wording.', confidence: 'high' },
     { pattern: /\belevated?\s+instructions?\b/i, reason: 'policy_override inferred from elevated instruction wording.', confidence: 'medium' },
 ];
 
@@ -259,10 +261,10 @@ function riskFromSeverity(severity: Severity, sink: WorkflowNodeType | undefined
                 : 'low';
 
     if (sink && PRIVILEGED_SINKS.has(sink)) {
-        risk = maxRisk(risk, 'high');
-        if (containsAny(text, CRITICAL_MODIFIER_PATTERNS)) {
-            risk = 'critical';
-        }
+        const escalated = containsAny(text, CRITICAL_MODIFIER_PATTERNS);
+        // A sink behind a declared control (ask for confirmation, scoped
+        // allowed-tools) is a capability to review; escalation overrides it.
+        risk = escalated ? 'critical' : hasDeclaredControl(text) ? maxRisk(risk, 'medium') : maxRisk(risk, 'high');
     }
 
     if (containsAny(text, APPROVAL_BYPASS_PATTERNS) || containsAny(text, SYSTEM_REWRITE_PATTERNS)) {
@@ -501,7 +503,7 @@ function calculateWorkflowConfidence(text: string, path: WorkflowPath): { score:
 function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[]): FindingWorkflow {
     const nodeSpecs = dedupeNodeSpecs(rawNodeSpecs);
     const sink = nodeSpecs[nodeSpecs.length - 1].type;
-    const haystack = [input.text, input.content || '', input.message || '', input.filePath || ''].join('\n');
+    const haystack = stripCodeFenceLanguage([input.text, input.content || '', input.message || '', input.filePath || ''].join('\n'));
     const risk = riskFromSeverity(input.severity, sink, haystack);
     const nodes = nodeSpecs.map(nodeSpec => makeNode(nodeSpec, input));
     const edgeTypes = edgeTypesFor(nodeSpecs);
@@ -596,7 +598,7 @@ function hasAnySink(text: string): boolean {
 }
 
 export function inferWorkflowForFinding(input: WorkflowInferenceInput): FindingWorkflow | undefined {
-    const haystack = [input.text, input.content || '', input.message || '', input.filePath || ''].join('\n');
+    const haystack = stripCodeFenceLanguage([input.text, input.content || '', input.message || '', input.filePath || ''].join('\n'));
     const isMcpRule = input.ruleId.startsWith('MCP-') || input.ruleId === 'sec_mcp_tool_poisoning';
     const isInjection = input.ruleId.includes('llm01') || input.ruleId.includes('injection')
         || input.ruleId.includes('jailbreak') || input.ruleId === 'sec_unbounded_persona'

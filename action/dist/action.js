@@ -23312,12 +23312,51 @@ var require_evasion = __commonJS({
   }
 });
 
+// ../packages/core/dist/workflow/executionSignals.js
+var require_executionSignals = __commonJS({
+  "../packages/core/dist/workflow/executionSignals.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.DECLARED_CONTROL_PATTERNS = exports2.ESCALATING_BYPASS = exports2.ESCALATING_OVERRIDE = exports2.SHELL_COMMANDS_PHRASE = exports2.SHELL_INVOCATION = void 0;
+    exports2.hasDeclaredControl = hasDeclaredControl;
+    exports2.stripCodeFenceLanguage = stripCodeFenceLanguage;
+    exports2.SHELL_INVOCATION = new RegExp([
+      String.raw`\b(?:ba|z)?sh\s+-[a-z]*c\b`,
+      // bash -c, sh -lc
+      String.raw`\b(?:bash|shell)\s+tool\b`,
+      // a bash/shell tool
+      String.raw`\b(?:with|using|via|through)\s+(?:a\s+)?(?:bash|shell)\b`,
+      // execute ... with bash
+      String.raw`"command"\s*:\s*"(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh"`
+      // MCP/JSON launcher
+    ].join("|"), "i");
+    exports2.SHELL_COMMANDS_PHRASE = /\b(?:run|execute)\s+(?:the\s+|any\s+|all\s+)?(?:[\w-]+\s+){0,2}shell\s+commands?\b/i;
+    exports2.ESCALATING_OVERRIDE = /\boverride\s+(?:the\s+|any\s+|all\s+|its\s+|your\s+)?(?:previous\s+|system\s+|safety\s+)?(?:instructions?|system|safety|approvals?|restrictions?|guardrails?|polic(?:y|ies)|permissions?)\b/i;
+    exports2.ESCALATING_BYPASS = /\bbypass(?:es|ing)?\s+(?:the\s+|any\s+|all\s+)?(?:\w+\s+)?(?:approvals?|restrictions?|guardrails?|safety|security|checks?|filters?|sandbox(?:ing)?|permissions?|reviews?|auth(?:entication|orization)?|routing|controls?)\b/i;
+    exports2.DECLARED_CONTROL_PATTERNS = [
+      /\b(?:ask|asks|asking)\s+(?:the\s+user\s+)?(?:for\s+)?(?:explicit\s+)?(?:confirmation|approval|permission)\b/i,
+      /\b(?:ask|check|confirm)\s+with\s+the\s+user\b/i,
+      /\bask\s+the\s+user\s+before\b/i,
+      /\b(?:require|requires|required|wait\s+for)\s+(?:explicit\s+|human\s+|user\s+)?(?:approval|confirmation)\b/i,
+      /\bhuman[-\s]in[-\s]the[-\s]loop\b/i,
+      /^allowed-tools:\s*["']?Bash\(/im
+    ];
+    function hasDeclaredControl(text) {
+      return exports2.DECLARED_CONTROL_PATTERNS.some((pattern) => pattern.test(text));
+    }
+    function stripCodeFenceLanguage(text) {
+      return text.replace(/^(\s*(?:```|~~~))[\w+-]+/gm, "$1");
+    }
+  }
+});
+
 // ../packages/core/dist/rules/security/workflow_escalation.js
 var require_workflow_escalation = __commonJS({
   "../packages/core/dist/rules/security/workflow_escalation.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.checkWorkflowEscalation = checkWorkflowEscalation;
+    var executionSignals_1 = require_executionSignals();
     var BENIGN_CONTEXT_PATTERNS = [
       /\bdocumentation\s+only\b/i,
       /\beducational\s+example\b/i,
@@ -23339,7 +23378,7 @@ var require_workflow_escalation = __commonJS({
     ];
     var CRITICAL_PATTERNS = [
       /\bshell_exec\b/i,
-      /\bbash\b/i,
+      executionSignals_1.SHELL_INVOCATION,
       /\bexecute\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i,
       /\brun\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i,
       /\bunrestricted\s+filesystem\b/i,
@@ -23373,7 +23412,7 @@ var require_workflow_escalation = __commonJS({
       /\bshell_exec\b/i,
       /\bshell\s+command\b/i,
       /\bexecute\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i,
-      /\bbash\b/i,
+      executionSignals_1.SHELL_INVOCATION,
       /\bfilesystem_access\b/i,
       /\bfilesystem\s+access\b/i,
       /\binternal_network_access\b/i,
@@ -23381,7 +23420,7 @@ var require_workflow_escalation = __commonJS({
       /\binternal\s+network\s+access\b/i
     ];
     var ESCALATION_PATTERNS = [
-      /\boverride\b/i,
+      executionSignals_1.ESCALATING_OVERRIDE,
       /\bignore\s+(?:previous|all|prior|earlier|above)?\s*(?:instructions?|restrictions?|rules?|approval|guardrails?)\b/i,
       /\bbypass\s+(?:approval|routing|restrictions?|guardrails?)\b/i,
       /\bauto\s*approve\b/i,
@@ -23407,12 +23446,12 @@ var require_workflow_escalation = __commonJS({
     function stripCommentsAndDocstrings(text) {
       return text.replace(/"""[\s\S]*?"""|'''[\s\S]*?'''/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[ \t])\/\/(?!\/)[^\n]*/g, "$1").replace(/(^|[ \t])#[^\n]*/g, "$1");
     }
-    function severityFor(text) {
-      const hasSink = hasAny(text, SINK_PATTERNS);
+    function severityFor(text, shellCommandsWithAutonomy) {
+      const hasSink = hasAny(text, SINK_PATTERNS) || shellCommandsWithAutonomy;
       const hasEscalation = hasAny(text, ESCALATION_PATTERNS);
       if (hasSink && hasEscalation)
         return "critical";
-      if (hasAny(text, CRITICAL_PATTERNS))
+      if (hasAny(text, CRITICAL_PATTERNS) || shellCommandsWithAutonomy)
         return "critical";
       return "high";
     }
@@ -23434,14 +23473,16 @@ var require_workflow_escalation = __commonJS({
       if (isBenign) {
         return [];
       }
-      const code = stripCommentsAndDocstrings(text);
-      const hasCritical = hasAny(code, CRITICAL_PATTERNS);
+      const code = stripCommentsAndDocstrings((0, executionSignals_1.stripCodeFenceLanguage)(text));
+      const hasControl = (0, executionSignals_1.hasDeclaredControl)(code);
       const hasHigh = hasAny(code, HIGH_PATTERNS);
-      const hasSink = hasAny(code, SINK_PATTERNS);
       const hasEscalation = hasAny(code, ESCALATION_PATTERNS);
+      const shellCommandsWithAutonomy = executionSignals_1.SHELL_COMMANDS_PHRASE.test(code) && (hasHigh || hasEscalation);
+      const hasCritical = hasAny(code, CRITICAL_PATTERNS) || shellCommandsWithAutonomy;
+      const hasSink = hasAny(code, SINK_PATTERNS) || shellCommandsWithAutonomy;
       const hasMcp = hasAny(code, MCP_PATTERNS);
       if (hasSink && hasEscalation || hasCritical && hasHigh) {
-        const severity = severityFor(text);
+        const severity = severityFor(text, shellCommandsWithAutonomy);
         pushUnique(findings, {
           rule_id: "sec_workflow_escalation",
           category: "security",
@@ -23452,7 +23493,7 @@ var require_workflow_escalation = __commonJS({
         });
       }
       if (hasSink) {
-        const severity = hasEscalation ? "critical" : "high";
+        const severity = hasEscalation ? "critical" : hasControl ? "medium" : "high";
         pushUnique(findings, {
           rule_id: "sec_privileged_sink_access",
           category: "security",
@@ -24100,6 +24141,7 @@ var require_analyzer = __commonJS({
     exports2.stripNegatedClauses = stripNegatedClauses;
     exports2.inferWorkflowForFinding = inferWorkflowForFinding2;
     exports2.workflowPathSummary = workflowPathSummary2;
+    var executionSignals_1 = require_executionSignals();
     var provenance_1 = require_provenance();
     var diff_1 = require_diff();
     var replay_1 = require_replay();
@@ -24115,7 +24157,8 @@ var require_analyzer = __commonJS({
     ]);
     var SHELL_PATTERNS = [
       { pattern: /\bshell_exec\b/i, reason: 'shell_execution inferred from explicit "shell_exec" mention.', confidence: "high" },
-      { pattern: /\bbash\b/i, reason: "shell_execution inferred from explicit bash execution reference.", confidence: "high" },
+      { pattern: executionSignals_1.SHELL_INVOCATION, reason: "shell_execution inferred from an explicit shell invocation.", confidence: "high" },
+      { pattern: executionSignals_1.SHELL_COMMANDS_PHRASE, reason: "shell_execution inferred from shell command wording.", confidence: "medium" },
       { pattern: /\bexecute\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i, reason: "shell_execution inferred from command execution language.", confidence: "high" },
       { pattern: /\brun\s+(?:any\s+|all\s+)?(?:shell\s+)?commands?\b/i, reason: "shell_execution inferred from command execution language.", confidence: "high" },
       { pattern: /\bshell\s*execution\b/i, reason: "shell_execution inferred from shell execution wording.", confidence: "high" },
@@ -24198,8 +24241,8 @@ var require_analyzer = __commonJS({
     var OVERRIDE_PATTERNS = [
       { pattern: /\bignore\s+(?:previous|all|prior|earlier|above)?\s*(?:instructions?|restrictions?|rules?|policy|approval|guardrails?)\b/i, reason: "policy_override inferred from ignore/override instruction.", confidence: "high" },
       { pattern: /\bdisregard\s+(?:previous|all|prior|earlier|above)?\s*(?:instructions?|restrictions?|rules?|policy|guardrails?)\b/i, reason: "policy_override inferred from disregard instruction.", confidence: "high" },
-      { pattern: /\boverride\b/i, reason: "policy_override inferred from override wording.", confidence: "high" },
-      { pattern: /\bbypass\b/i, reason: "policy_override inferred from bypass wording.", confidence: "high" },
+      { pattern: executionSignals_1.ESCALATING_OVERRIDE, reason: "policy_override inferred from override wording.", confidence: "high" },
+      { pattern: executionSignals_1.ESCALATING_BYPASS, reason: "policy_override inferred from bypass wording.", confidence: "high" },
       { pattern: /\belevated?\s+instructions?\b/i, reason: "policy_override inferred from elevated instruction wording.", confidence: "medium" }
     ];
     var APPROVAL_BYPASS_PATTERNS = [
@@ -24296,10 +24339,8 @@ var require_analyzer = __commonJS({
     function riskFromSeverity(severity, sink, text) {
       let risk = severity === "critical" ? "critical" : severity === "high" ? "high" : severity === "medium" ? "medium" : "low";
       if (sink && PRIVILEGED_SINKS.has(sink)) {
-        risk = maxRisk(risk, "high");
-        if (containsAny(text, CRITICAL_MODIFIER_PATTERNS)) {
-          risk = "critical";
-        }
+        const escalated = containsAny(text, CRITICAL_MODIFIER_PATTERNS);
+        risk = escalated ? "critical" : (0, executionSignals_1.hasDeclaredControl)(text) ? maxRisk(risk, "medium") : maxRisk(risk, "high");
       }
       if (containsAny(text, APPROVAL_BYPASS_PATTERNS) || containsAny(text, SYSTEM_REWRITE_PATTERNS)) {
         risk = maxRisk(risk, "high");
@@ -24465,7 +24506,7 @@ var require_analyzer = __commonJS({
     function createWorkflow(input, rawNodeSpecs) {
       const nodeSpecs = dedupeNodeSpecs(rawNodeSpecs);
       const sink = nodeSpecs[nodeSpecs.length - 1].type;
-      const haystack = [input.text, input.content || "", input.message || "", input.filePath || ""].join("\n");
+      const haystack = (0, executionSignals_1.stripCodeFenceLanguage)([input.text, input.content || "", input.message || "", input.filePath || ""].join("\n"));
       const risk = riskFromSeverity(input.severity, sink, haystack);
       const nodes = nodeSpecs.map((nodeSpec) => makeNode(nodeSpec, input));
       const edgeTypes = edgeTypesFor(nodeSpecs);
@@ -24547,7 +24588,7 @@ var require_analyzer = __commonJS({
       }).length > 0 || containsAny(text, TOOL_ROUTER_PATTERNS);
     }
     function inferWorkflowForFinding2(input) {
-      const haystack = [input.text, input.content || "", input.message || "", input.filePath || ""].join("\n");
+      const haystack = (0, executionSignals_1.stripCodeFenceLanguage)([input.text, input.content || "", input.message || "", input.filePath || ""].join("\n"));
       const isMcpRule = input.ruleId.startsWith("MCP-") || input.ruleId === "sec_mcp_tool_poisoning";
       const isInjection = input.ruleId.includes("llm01") || input.ruleId.includes("injection") || input.ruleId.includes("jailbreak") || input.ruleId === "sec_unbounded_persona" || input.ruleId === "sec_unbounded_access" || input.ruleId.includes("workflow") || input.ruleId.includes("privileged") || input.ruleId.includes("mcp_tool");
       const rag = matchPattern(haystack, RAG_PATTERNS);
@@ -24672,7 +24713,7 @@ var require_confidence = __commonJS({
     exports2.findingConfidence = findingConfidence2;
     function findingConfidence2(ruleId, evidenceKind = "direct") {
       if (ruleId === "sec_base64_encoded_payload" || ruleId === "sec_zero_width_injection" || ruleId === "sec_homoglyph_evasion" || ruleId.startsWith("sec_owasp_llm02") || // Script threats come from resolved code structure, not keywords.
-      ruleId === "sec_credential_exfiltration" || ruleId === "sec_remote_code_execution" || ruleId.startsWith("MCP-"))
+      ruleId === "sec_credential_exfiltration" || ruleId === "sec_remote_code_execution" || ruleId === "sec_destructive_command" || ruleId.startsWith("MCP-"))
         return "HIGH";
       if (evidenceKind === "absence")
         return "LOW";
@@ -24694,7 +24735,7 @@ var require_owasp = __commonJS({
         return "LLM02";
       if (ruleId === "sec_remote_code_execution")
         return "LLM03";
-      if (ruleId === "sec_workflow_escalation" || ruleId === "sec_privileged_sink_access" || ruleId === "sec_mcp_tool_poisoning" || ruleId === "sec_unbounded_access")
+      if (ruleId === "sec_workflow_escalation" || ruleId === "sec_privileged_sink_access" || ruleId === "sec_mcp_tool_poisoning" || ruleId === "sec_unbounded_access" || ruleId === "sec_destructive_command")
         return "LLM06";
       if (ruleId === "sec_rag_injection")
         return "LLM08";
@@ -53571,7 +53612,8 @@ var require_sarif2 = __commonJS({
         sec_unbounded_access: "Unbounded Tool Access",
         sec_rag_injection: "RAG Injection",
         sec_credential_exfiltration: "Credential Exfiltration",
-        sec_remote_code_execution: "Remote Code Execution"
+        sec_remote_code_execution: "Remote Code Execution",
+        sec_destructive_command: "Destructive Command"
       };
       if (MAP[ruleId])
         return MAP[ruleId];
@@ -59215,19 +59257,32 @@ var require_codeThreats = __commonJS({
   "../packages/core/dist/repository/codeThreats.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.CODE_THREAT_RULE_IDS = void 0;
+    exports2.CODE_THREAT_RISK = exports2.CODE_THREAT_REMEDIATION = exports2.CODE_THREAT_RULE_IDS = void 0;
     exports2.scanCodeForThreats = scanCodeForThreats2;
     var parser_1 = require_parser();
     var codeCapabilities_1 = require_codeCapabilities();
     exports2.CODE_THREAT_RULE_IDS = /* @__PURE__ */ new Set([
       "sec_credential_exfiltration",
-      "sec_remote_code_execution"
+      "sec_remote_code_execution",
+      "sec_destructive_command"
     ]);
+    exports2.CODE_THREAT_REMEDIATION = {
+      sec_credential_exfiltration: "Remove the credential read or the upload. A helper script should read only the one key it needs, from an environment variable, and send it only to that service.",
+      sec_remote_code_execution: "Do not execute downloaded code or pipe a download into a shell. Install a pinned, checksummed package from a registry instead.",
+      sec_destructive_command: "Limit deletes to paths inside the project (./dist, ./build) and never target the home directory, the filesystem root or a disk device."
+    };
+    exports2.CODE_THREAT_RISK = {
+      sec_credential_exfiltration: "An agent that runs this script sends SSH keys, cloud credentials, tokens or the whole environment to a remote host.",
+      sec_remote_code_execution: "Code fetched at run time executes with the agent's permissions; whoever controls the URL controls the machine.",
+      sec_destructive_command: "An agent that follows this instruction deletes the user's files or makes the machine unusable."
+    };
     var CREDENTIAL_PATH = /(?:^|[\\/~])\.(?:ssh|aws|gnupg|kube|docker)(?:[\\/]|$)|^\.(?:ssh|aws|gnupg)$|\bid_(?:rsa|dsa|ecdsa|ed25519)\b|(?:^|[\\/])\.(?:npmrc|netrc|pypirc|git-credentials)$|aws[\\/]credentials|\.docker[\\/]config\.json|\.kube[\\/]config|\/etc\/(?:shadow|passwd)\b|(?:^|[\\/])(?:Login Data|Cookies|wallet\.dat)$/;
     var DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
     var REVERSE_SHELL = /\b(?:ba)?sh\s+-i\s*>&?\s*\/dev\/tcp\/|\bnc\b[^\n]*\s-e\s+\/bin\/(?:ba)?sh/;
+    var DESTRUCTIVE = /\brm\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*\s+|-[a-zA-Z]+\s+-[a-zA-Z]+\s+|--recursive\s+|--force\s+)+(?:--no-preserve-root\s+)?(?:~\/?|\/\*?|\$HOME\/?|"\$HOME"\/?|\/(?:home|root|etc|usr|var)\/?)(?=\s|$|;|&|\||`|'|"|\))|--no-preserve-root\b|\bmkfs(?:\.\w+)?\s+\/dev\/|\bdd\s+[^\n]*\bof=\/dev\/(?:sd|nvme|hd|disk|xvd)|:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/;
     var SHELL_NETWORK = /\b(?:curl|wget|nc|ncat|nslookup|dig|scp|rsync|ftp)\b/;
     var SHELL_EXTENSIONS = /* @__PURE__ */ new Set([".sh", ".bash", ".zsh"]);
+    var INSTRUCTION_EXTENSIONS = /* @__PURE__ */ new Set([".md", ".mdx", ".prompt", ".ai", ".chat", ".txt", ".yml", ".yaml"]);
     function extensionOf(filePath) {
       const match = /\.[^./\\]+$/.exec(filePath);
       return match ? match[0].toLowerCase() : "";
@@ -59391,16 +59446,8 @@ var require_codeThreats = __commonJS({
         }
         if (PYTHON_SHELL.has(callee) && args2) {
           const command = constantString(args2.namedChildren[0]);
-          if (command && (DOWNLOAD_TO_SHELL.test(command) || REVERSE_SHELL.test(command))) {
-            facts.threats.push({
-              ruleId: "sec_remote_code_execution",
-              severity: "critical",
-              ...position(node),
-              source: "a remote download or shell",
-              sink: callee,
-              message: `Runs a shell command that pipes a download into a shell or opens a remote shell (${callee}).`
-            });
-          }
+          if (command)
+            facts.threats.push(...commandLineThreats(command, position(node).line).map((threat) => ({ ...threat, column: position(node).column, sink: callee })));
         }
       });
       const exfil = exfiltrationThreat(facts);
@@ -59456,20 +59503,43 @@ var require_codeThreats = __commonJS({
         }
         if (SCRIPT_SHELL.has(callee) && args2) {
           const command = constantString(args2.namedChildren[0]);
-          if (command && (DOWNLOAD_TO_SHELL.test(command) || REVERSE_SHELL.test(command))) {
-            facts.threats.push({
-              ruleId: "sec_remote_code_execution",
-              severity: "critical",
-              ...position(node),
-              source: "a remote download or shell",
-              sink: callee,
-              message: `Runs a shell command that pipes a download into a shell or opens a remote shell (${callee}).`
-            });
-          }
+          if (command)
+            facts.threats.push(...commandLineThreats(command, position(node).line).map((threat) => ({ ...threat, column: position(node).column, sink: callee })));
         }
       });
       const exfil = exfiltrationThreat(facts);
       return exfil ? [...facts.threats, exfil] : facts.threats;
+    }
+    function commandLineThreats(line, lineNumber) {
+      const threats = [];
+      if (DOWNLOAD_TO_SHELL.test(line) || REVERSE_SHELL.test(line)) {
+        threats.push({
+          ruleId: "sec_remote_code_execution",
+          severity: "critical",
+          line: lineNumber,
+          column: 1,
+          source: "a remote download or shell",
+          sink: "shell",
+          message: "Pipes downloaded or decoded content into a shell, or opens a remote shell."
+        });
+      }
+      if (DESTRUCTIVE.test(line)) {
+        threats.push({
+          ruleId: "sec_destructive_command",
+          severity: "critical",
+          line: lineNumber,
+          column: 1,
+          source: "a destructive command",
+          sink: "shell",
+          message: "Deletes the home directory or root filesystem, formats a disk, or exhausts the machine."
+        });
+      }
+      return threats;
+    }
+    function analyzeInstructionThreats(content) {
+      const threats = [];
+      content.split(/\r?\n/).forEach((line, index2) => threats.push(...commandLineThreats(line, index2 + 1)));
+      return threats;
     }
     function analyzeShellThreats(content) {
       const threats = [];
@@ -59480,17 +59550,7 @@ var require_codeThreats = __commonJS({
         const line = raw.replace(/(^|\s)#.*$/, "$1");
         if (!line.trim())
           return;
-        if (DOWNLOAD_TO_SHELL.test(line) || REVERSE_SHELL.test(line)) {
-          threats.push({
-            ruleId: "sec_remote_code_execution",
-            severity: "critical",
-            line: index2 + 1,
-            column: 1,
-            source: "a remote download or shell",
-            sink: "shell",
-            message: "Pipes downloaded or decoded content into a shell, or opens a remote shell."
-          });
-        }
+        threats.push(...commandLineThreats(line, index2 + 1));
         const credentialMatch = line.split(/\s+/).find((token) => CREDENTIAL_PATH.test(token.replace(/^["'$({]+|["')}]+$/g, "")));
         if (credentialMatch && !credential)
           credential = { text: credentialMatch, line: index2 + 1 };
@@ -59514,6 +59574,8 @@ var require_codeThreats = __commonJS({
     function scanCodeForThreats2(filePath, content) {
       if (SHELL_EXTENSIONS.has(extensionOf(filePath)))
         return analyzeShellThreats(content);
+      if (INSTRUCTION_EXTENSIONS.has(extensionOf(filePath)))
+        return analyzeInstructionThreats(content);
       const grammar = (0, parser_1.grammarForPath)(filePath);
       if (grammar !== "python" && grammar !== "typescript")
         return [];
@@ -59552,7 +59614,7 @@ var require_repository = __commonJS({
       for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.CODE_THREAT_RULE_IDS = exports2.scanCodeForThreats = exports2.loadCodeCapabilityGrammars = exports2.analyzeCodeCapabilities = void 0;
+    exports2.CODE_THREAT_RISK = exports2.CODE_THREAT_REMEDIATION = exports2.CODE_THREAT_RULE_IDS = exports2.scanCodeForThreats = exports2.loadCodeCapabilityGrammars = exports2.analyzeCodeCapabilities = void 0;
     __exportStar(require_types6(), exports2);
     __exportStar(require_confidence2(), exports2);
     __exportStar(require_analyzer2(), exports2);
@@ -59575,6 +59637,12 @@ var require_repository = __commonJS({
     } });
     Object.defineProperty(exports2, "CODE_THREAT_RULE_IDS", { enumerable: true, get: function() {
       return codeThreats_1.CODE_THREAT_RULE_IDS;
+    } });
+    Object.defineProperty(exports2, "CODE_THREAT_REMEDIATION", { enumerable: true, get: function() {
+      return codeThreats_1.CODE_THREAT_REMEDIATION;
+    } });
+    Object.defineProperty(exports2, "CODE_THREAT_RISK", { enumerable: true, get: function() {
+      return codeThreats_1.CODE_THREAT_RISK;
     } });
   }
 });
@@ -141219,8 +141287,7 @@ function getRiskExplanation(ruleId) {
   if (ruleId === "sec_rag_injection") return "Raw retrieval queries can let untrusted content steer context selection or poison model inputs.";
   if (ruleId === "sec_unbounded_persona") return "Unbounded role-play prompts can weaken instruction hierarchy and make policy bypass easier.";
   if (ruleId.startsWith("MCP-")) return "MCP configuration may expose tools, credentials, or execution capability beyond the agent workflow trust boundary.";
-  if (ruleId === "sec_credential_exfiltration") return "An agent that runs this script sends SSH keys, cloud credentials, tokens or the whole environment to a remote host.";
-  if (ruleId === "sec_remote_code_execution") return "Code fetched at run time executes with the agent's permissions; whoever controls the URL controls the machine.";
+  if (ruleId in import_core2.CODE_THREAT_RISK) return import_core2.CODE_THREAT_RISK[ruleId];
   return "This pattern weakens prompt reliability, auditability, or downstream safety controls.";
 }
 function lineLooksRelevant(line, ruleId) {
@@ -141435,7 +141502,7 @@ function codeThreatResult(filePath, content, activeSuppressions, inlineSuppressi
   const findings = (0, import_core2.scanCodeForThreats)(filePath, content).map((threat) => {
     const suppression = (0, import_core2.isFindingSuppressed)(threat.ruleId, filePath, activeSuppressions);
     const inlineSuppressed = isInlineSuppressed(threat.ruleId, threat.line, inlineSuppressions);
-    const recommendation = threat.ruleId === "sec_credential_exfiltration" ? "Remove the credential read or the upload. A helper script should read only the one key it needs, from an environment variable, and send it only to that service." : "Do not execute downloaded code. Install a pinned, checksummed package from a registry instead.";
+    const recommendation = import_core2.CODE_THREAT_REMEDIATION[threat.ruleId];
     return {
       rule_id: threat.ruleId,
       category: "security",

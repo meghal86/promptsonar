@@ -25,6 +25,7 @@ export function humanRuleName(ruleId: string): string {
         sec_rag_injection: 'RAG Injection',
         sec_credential_exfiltration: 'Credential Exfiltration',
         sec_remote_code_execution: 'Remote Code Execution',
+        sec_destructive_command: 'Destructive Command',
     };
     if (MAP[ruleId]) return MAP[ruleId];
     return ruleId.replace(/^sec_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

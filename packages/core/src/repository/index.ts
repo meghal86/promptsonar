@@ -14,4 +14,11 @@ export {
     type CodeCapabilityAnalysis,
     type CodeCapabilityEvidence,
 } from './codeCapabilities';
-export { scanCodeForThreats, CODE_THREAT_RULE_IDS, type CodeThreat, type CodeThreatRuleId } from './codeThreats';
+export {
+    scanCodeForThreats,
+    CODE_THREAT_RULE_IDS,
+    CODE_THREAT_REMEDIATION,
+    CODE_THREAT_RISK,
+    type CodeThreat,
+    type CodeThreatRuleId,
+} from './codeThreats';
