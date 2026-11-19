@@ -32,6 +32,7 @@ export function findingConfidence(
         ruleId === 'sec_approval_bypass' ||
         ruleId === 'sec_wildcard_tool_permission' ||
         ruleId === 'sec_unpinned_remote_install' ||
+        ruleId === 'sec_privilege_escalation' ||
         ruleId.startsWith('MCP-')
     ) return 'HIGH';
     if (evidenceKind === 'absence') return 'LOW';

@@ -29,7 +29,6 @@ function isPlausibleCardNumber(value: string): boolean {
 }
 
 const PII_REGEXES = [
-    { name: "Email Address", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i },
     { name: "SSN", pattern: /\b\d{3}-\d{2}-\d{4}\b/ },
     { name: "Credit Card", pattern: CARD_CANDIDATE },
     { name: "OpenAI API Key", pattern: /sk-(?:live|test|proj)-[a-zA-Z0-9]{32,}/i },
@@ -99,7 +98,20 @@ export function isTestOrSpecPath(filePath?: string): boolean {
 // Deliberately narrow — real keys (including canonical vendor sample keys like
 // AKIA...EXAMPLE used in tests) must still fire, so "example" is NOT a marker.
 function looksLikePlaceholder(value: string): boolean {
-    return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b/i.test(value);
+    // "..." / "…" marks a truncated example value (token="hf_abc123...").
+    return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b|\.{3}|\u2026/i.test(value);
+}
+
+// Documentation addresses: reserved domains (RFC 2606/6761) and the usual
+// placeholders (you@lab.org, your.email@institution.edu, user@domain.com).
+const PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme)\.(?:com|org|net|edu|io)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@/i;
+
+/** An email in a prompt is contact information, not a credential: MEDIUM, and only when it is not a placeholder. */
+function realEmail(text: string): string | undefined {
+    for (const match of text.matchAll(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g)) {
+        if (!PLACEHOLDER_EMAIL.test(match[0])) return match[0];
+    }
+    return undefined;
 }
 
 export function checkPii(input: RuleInput): Finding[] {
@@ -127,6 +139,19 @@ export function checkPii(input: RuleInput): Finding[] {
                 penalty_score: 20
             });
         }
+    }
+
+    const email = realEmail(text);
+    if (email) {
+        findings.push({
+            rule_id: "sec_owasp_llm02_pii",
+            category: "security",
+            severity: "medium",
+            matchedText: email,
+            explanation: 'Potential Sensitive Information Disclosure (OWASP LLM02): an email address is hardcoded in the prompt.',
+            suggested_fix: 'Pass contact details in as a template parameter unless the address is meant to be public.',
+            penalty_score: 10
+        });
     }
 
     return findings;

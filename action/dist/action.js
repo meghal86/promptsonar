@@ -21904,6 +21904,8 @@ var require_parser = __commonJS({
         case ".js":
         case ".tsx":
         case ".jsx":
+        case ".mjs":
+        case ".cjs":
           return "typescript";
         // Use typescript for both JS and TS
         case ".go":
@@ -22424,15 +22426,20 @@ var require_owasp_patterns = __commonJS({
       /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
       /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
       /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
-      // \b: "new personal access token" is not "new persona".
-      /new\s+(?:instructions|task|role|persona|query|command)\b/i,
+      // \b: "new personal access token" is not "new persona". "task", "role" and
+      // "command" need attack framing: "create a new role" (IAM), "a new task
+      // head" (ML) and "run a new query" are ordinary documentation.
+      /new\s+(?:instructions|persona)\b/i,
+      /\b(?:your|my)\s+new\s+(?:task|role|command)\b|\bnew\s+(?:task|role|command)\s*:/i,
       // Role-playing / persona switches
       /you\s+are\s+now\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan|ai\s+without)/i,
       /(?:act\s+as|pretend\s+to\s+be)\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan)/i,
       /from\s+now\s+on\s+you\s+are/i,
       /role\s*:\s*(admin|developer|god|unrestricted|dan|do\s+anything\s+now)/i,
       // DAN & variants (very common jailbreaks)
-      /\bDAN\b\s*(?:\d+\.?\d*)?\s*(mode|persona|version)?/i,
+      // The text is lowercased before matching, so "dan" must come with jailbreak
+      // framing: a name in sample data ('Alice', 'Dan') is not DAN.
+      /\b(?:you\s+are|act\s+as|pretend\s+to\s+be|become|enable|activate|stay\s+in\s+character\s+as)\s+(?:now\s+)?(?:a\s+|the\s+)?dan\b|\bdan\s*(?:\d+(?:\.\d+)?\s*)?(?:mode|persona|jailbreak|prompt)\b/i,
       /do\s+anything\s+now/i,
       // Developer mode as a jailbreak, not the real setting in Discord, Android
       // or a browser ("enable Developer Mode (User Settings → Advanced)").
@@ -22440,18 +22447,22 @@ var require_owasp_patterns = __commonJS({
       /\b(?:developer\s+mode|devmode)\s+(?:enabled|activated|is\s+on|output|response)\b/i,
       /\b(?:enter|activate|enable|switch\s+to)\s+(?:developer\s+mode|devmode)\b[^.\n]{0,80}\b(?:no|without|unrestricted|uncensored|unfiltered)\b/i,
       /hypothetical\s+response/i,
-      /unrestricted\s+(mode|access|persona)/i,
+      /unrestricted\s+(mode|access|persona)\b/i,
       /ignore\s+(?:safety\s+|content\s+)?(?:guidelines|filters|limitations|restrictions|rules)/i,
-      /no\s+(?:ethical\s+|safety\s+|content\s+)?(?:guidelines|filters|limitations|restrictions|rules)/i,
+      // A bare "no restrictions" ("there are no restrictions on file formats")
+      // is ordinary prose; it counts when the qualifier or the subject is the model.
+      /\bno\s+(?:ethical|safety|content)\s+(?:guidelines|filters?|limitations|restrictions|rules)\b/i,
+      /\b(?:with|have|has|under|operate\s+with)\s+no\s+(?:guidelines|filters?|limitations|restrictions|rules)\b/i,
       // Output redirection / exfiltration
-      /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|api\s+key|secret|password|instructions)/i,
+      /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|(?:your\s+|the\s+)?(?:api\s+key|secret|password)|instructions)/i,
       /send\s+to\s+(email|http|url|server)/i,
       /exfiltrate|leak\s+(system\s+prompt|instructions)/i,
       /reveal\s+(system\s+prompt|instructions)/i,
       // Encoding / obfuscation attempts: encoded instructions, or decoding
       // something and then acting on it. Plain "decode text" (a programming
       // lesson, a converter tool) is not an attack.
-      /(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
+      // "JSON-encoded prompts" (a data column) is not an encoded attack.
+      /(?<![\w-])(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
       /\bdecode\b[^.\n]{0,60}\b(?:and|then)\s+(?:then\s+)?(?:follow|execute|run|obey|apply|carry\s+out)\b/i,
       // Tool / privilege abuse
       /use\s+(tool|function|command)\s+without\s+permission/i,
@@ -22459,7 +22470,7 @@ var require_owasp_patterns = __commonJS({
       /delete_(all_)?users?/i
     ];
     var NEGATOR = String.raw`(?:never|do\s+not|does\s+not|don'?t|doesn'?t|must\s+not|mustn'?t|should\s+not|shouldn'?t|shall\s+not|cannot|can\s+not|can'?t|will\s+not|won'?t|may\s+not|not\s+to|refuse\s+to|avoid(?:ing)?|under\s+no\s+circumstances|no)`;
-    var CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as)`;
+    var CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as|or|log|echo)`;
     var GOVERNING_NEGATION = new RegExp(String.raw`\b${NEGATOR}\s*(?:,\s*under\s+any\s+circumstances\s*,\s*)?(?:${CONNECTING_WORD}\s+){0,4}$`);
     var NEGATOR_WORD = new RegExp(String.raw`\b${NEGATOR}\b`, "g");
     var NON_GOVERNING_NEGATION = /\b(?:never\s+mind|no\s+(?:worries|problem|need))\b/;
@@ -22476,6 +22487,12 @@ var require_owasp_patterns = __commonJS({
       const clause = before.slice(clauseStart);
       const negators = clause.match(NEGATOR_WORD)?.length ?? 0;
       return negators === 1 && GOVERNING_NEGATION.test(clause) && !NON_GOVERNING_NEGATION.test(clause);
+    }
+    var DEFENSIVE_LOCATION = /^[^.!?\n;]{0,60}?\b(?:found|contained|embedded|appearing|that\s+appears?|included)\s+(?:in|inside|within)\s+(?:the\s+|any\s+|those\s+|these\s+)?(?:[\w-]+\s+){0,3}?(?:web|search|results?|pages?|documents?|content|data|emails?|tool\s+(?:output|results?|responses?)|outputs?|retrieved|untrusted|external|files?|excerpts?|snippets?|comments?|issues?|messages?|titles?|them|it)\b/;
+    function isDefensiveMatch(text, match) {
+      if (!/^(?:ignore|disregard|forget)\b/.test(match[0]))
+        return false;
+      return DEFENSIVE_LOCATION.test(text.slice((match.index ?? 0) + match[0].length));
     }
     function checkOwaspPatterns(input) {
       const findings = [];
@@ -22557,7 +22574,7 @@ var require_owasp_patterns = __commonJS({
         const regex = new RegExp(source.source, source.flags.includes("g") ? source.flags : `${source.flags}g`);
         let match = null;
         for (const candidate of searchResult.matchAll(regex)) {
-          if (!isNegatedMatch(searchResult, candidate.index ?? 0)) {
+          if (!isNegatedMatch(searchResult, candidate.index ?? 0) && !isDefensiveMatch(searchResult, candidate)) {
             match = candidate;
             break;
           }
@@ -22902,7 +22919,6 @@ var require_pii = __commonJS({
       return isLuhnValid(value);
     }
     var PII_REGEXES = [
-      { name: "Email Address", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i },
       { name: "SSN", pattern: /\b\d{3}-\d{2}-\d{4}\b/ },
       { name: "Credit Card", pattern: CARD_CANDIDATE },
       { name: "OpenAI API Key", pattern: /sk-(?:live|test|proj)-[a-zA-Z0-9]{32,}/i },
@@ -22965,7 +22981,15 @@ var require_pii = __commonJS({
       return /(^|\/)__tests__\//.test(p) || /\.(test|spec)\.[a-z0-9]+$/.test(p);
     }
     function looksLikePlaceholder(value) {
-      return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b/i.test(value);
+      return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b|\.{3}|\u2026/i.test(value);
+    }
+    var PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme)\.(?:com|org|net|edu|io)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@/i;
+    function realEmail(text) {
+      for (const match of text.matchAll(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g)) {
+        if (!PLACEHOLDER_EMAIL.test(match[0]))
+          return match[0];
+      }
+      return void 0;
     }
     function checkPii(input) {
       const findings = [];
@@ -22986,6 +23010,18 @@ var require_pii = __commonJS({
             penalty_score: 20
           });
         }
+      }
+      const email = realEmail(text);
+      if (email) {
+        findings.push({
+          rule_id: "sec_owasp_llm02_pii",
+          category: "security",
+          severity: "medium",
+          matchedText: email,
+          explanation: "Potential Sensitive Information Disclosure (OWASP LLM02): an email address is hardcoded in the prompt.",
+          suggested_fix: "Pass contact details in as a template parameter unless the address is meant to be public.",
+          penalty_score: 10
+        });
       }
       return findings;
     }
@@ -23163,7 +23199,9 @@ var require_unbounded_access = __commonJS({
           findings.push({
             rule_id: "sec_unbounded_access",
             category: "security",
-            severity: "high",
+            // A scope hint ("all files", "every record"): whether a privileged
+            // action is reachable is decided by path analysis, not by the words.
+            severity: "medium",
             explanation: "Unbounded access scope: no path or table restriction",
             suggested_fix: "Scope access: 'read from /safe/path only' or 'query table X only'",
             penalty_score: 15
@@ -23262,6 +23300,16 @@ var require_evasion = __commonJS({
         return true;
       return SCRIPT_CHAR.test(before) && SCRIPT_CHAR.test(after) && !LATIN_OR_COMMON.test(before) && !LATIN_OR_COMMON.test(after);
     }
+    var TAG_RUN = /[\u{E0020}-\u{E007E}]+/gu;
+    var FLAG_TAG_SEQUENCE = /\u{1F3F4}[\u{E0061}-\u{E007A}\u{E0030}-\u{E0039}]{2,7}\u{E007F}/gu;
+    function hiddenTagText(text) {
+      const withoutFlags = text.replace(FLAG_TAG_SEQUENCE, "");
+      let hidden = "";
+      for (const run3 of withoutFlags.match(TAG_RUN) || []) {
+        hidden += Array.from(run3, (char) => String.fromCharCode((char.codePointAt(0) || 0) - 917504)).join("");
+      }
+      return hidden.trim();
+    }
     var CYRILLIC_HOMOGLYPHS = /[АВЕЅІЈКМНОРСТУХаесорухіјкпѕ]/u;
     function decodedLooksInjectable(encoded) {
       try {
@@ -23314,6 +23362,19 @@ var require_evasion = __commonJS({
           continue;
         zeroWidthMatch = match[0];
         break;
+      }
+      const hidden = hiddenTagText(input.text);
+      if (hidden) {
+        const injected = INJECTION_PATTERNS.some((pattern) => pattern.test(hidden));
+        findings.push({
+          rule_id: "sec_zero_width_injection",
+          category: "security",
+          severity: injected ? "critical" : "high",
+          matchedText: hidden.slice(0, 120),
+          explanation: `Invisible Unicode tag characters hide text the model will read: "${hidden.slice(0, 80)}${hidden.length > 80 ? "\u2026" : ""}".`,
+          suggested_fix: "Remove the Unicode tag characters (U+E0000\u2013U+E007F).",
+          penalty_score: injected ? 30 : 20
+        });
       }
       if (zeroWidthMatch) {
         findings.push({
@@ -24732,7 +24793,7 @@ var require_confidence = __commonJS({
     exports2.findingConfidence = findingConfidence2;
     function findingConfidence2(ruleId, evidenceKind = "direct") {
       if (ruleId === "sec_base64_encoded_payload" || ruleId === "sec_zero_width_injection" || ruleId === "sec_homoglyph_evasion" || ruleId.startsWith("sec_owasp_llm02") || // Script threats come from resolved code structure, not keywords.
-      ruleId === "sec_credential_exfiltration" || ruleId === "sec_remote_code_execution" || ruleId === "sec_destructive_command" || ruleId === "sec_approval_bypass" || ruleId === "sec_wildcard_tool_permission" || ruleId === "sec_unpinned_remote_install" || ruleId.startsWith("MCP-"))
+      ruleId === "sec_credential_exfiltration" || ruleId === "sec_remote_code_execution" || ruleId === "sec_destructive_command" || ruleId === "sec_approval_bypass" || ruleId === "sec_wildcard_tool_permission" || ruleId === "sec_unpinned_remote_install" || ruleId === "sec_privilege_escalation" || ruleId.startsWith("MCP-"))
         return "HIGH";
       if (evidenceKind === "absence")
         return "LOW";
@@ -24754,7 +24815,7 @@ var require_owasp = __commonJS({
         return "LLM02";
       if (ruleId === "sec_remote_code_execution" || ruleId === "sec_unpinned_remote_install")
         return "LLM03";
-      if (ruleId === "sec_workflow_escalation" || ruleId === "sec_privileged_sink_access" || ruleId === "sec_mcp_tool_poisoning" || ruleId === "sec_unbounded_access" || ruleId === "sec_destructive_command" || ruleId === "sec_approval_bypass" || ruleId === "sec_wildcard_tool_permission")
+      if (ruleId === "sec_workflow_escalation" || ruleId === "sec_privileged_sink_access" || ruleId === "sec_mcp_tool_poisoning" || ruleId === "sec_unbounded_access" || ruleId === "sec_destructive_command" || ruleId === "sec_approval_bypass" || ruleId === "sec_wildcard_tool_permission" || ruleId === "sec_privilege_escalation")
         return "LLM06";
       if (ruleId === "sec_rag_injection")
         return "LLM08";
@@ -53636,7 +53697,8 @@ var require_sarif2 = __commonJS({
         sec_approval_bypass: "Approval Bypass",
         sec_user_concealment: "Hidden From User",
         sec_wildcard_tool_permission: "Wildcard Tool Permission",
-        sec_unpinned_remote_install: "Unpinned Remote Install"
+        sec_unpinned_remote_install: "Unpinned Remote Install",
+        sec_privilege_escalation: "Privilege Escalation"
       };
       if (MAP[ruleId])
         return MAP[ruleId];
@@ -54686,6 +54748,8 @@ var require_analyzer2 = __commonJS({
       ".tsx",
       ".js",
       ".jsx",
+      ".mjs",
+      ".cjs",
       ".py",
       ".go",
       ".rs",
@@ -59291,7 +59355,8 @@ var require_codeThreats = __commonJS({
       "sec_approval_bypass",
       "sec_user_concealment",
       "sec_wildcard_tool_permission",
-      "sec_unpinned_remote_install"
+      "sec_unpinned_remote_install",
+      "sec_privilege_escalation"
     ]);
     exports2.CODE_THREAT_REMEDIATION = {
       sec_credential_exfiltration: "Remove the credential read or the upload. A helper script should read only the one key it needs, from an environment variable, and send it only to that service.",
@@ -59300,7 +59365,8 @@ var require_codeThreats = __commonJS({
       sec_approval_bypass: "Remove the instruction. Permission prompts are the user's control; a skill or prompt must never switch them off.",
       sec_user_concealment: "Remove the instruction. An agent must tell the user what it does; instructions that hide actions are a hallmark of malicious skills.",
       sec_wildcard_tool_permission: "List the specific tools and commands the skill needs, e.g. allowed-tools: Bash(npm run test), Read.",
-      sec_unpinned_remote_install: "Pin an exact version or commit (pkg@1.4.2, git+https://...@<commit-sha>) and prefer a lockfile with hashes."
+      sec_unpinned_remote_install: "Pin an exact version or commit (pkg@1.4.2, git+https://...@<commit-sha>) and prefer a lockfile with hashes.",
+      sec_privilege_escalation: "Remove the change. Grant sudo for one named command if it is really needed, and give files the narrowest permissions that work (e.g. chmod 600 for keys, 755 for scripts)."
     };
     exports2.CODE_THREAT_RISK = {
       sec_credential_exfiltration: "An agent that runs this script sends SSH keys, cloud credentials, tokens or the whole environment to a remote host.",
@@ -59309,12 +59375,19 @@ var require_codeThreats = __commonJS({
       sec_approval_bypass: "Turning off permission prompts lets every later tool call, including injected ones, run without the user seeing it.",
       sec_user_concealment: "Hiding actions from the user removes the only person who could notice and stop a harmful one.",
       sec_wildcard_tool_permission: "A wildcard grants the skill every tool, so one injected instruction can run any command.",
-      sec_unpinned_remote_install: "A branch or @latest reference installs whatever the publisher pushes next, without review."
+      sec_unpinned_remote_install: "A branch or @latest reference installs whatever the publisher pushes next, without review.",
+      sec_privilege_escalation: "Passwordless sudo for everything, a world-writable home or system directory, or a setuid shell lets any process, including an injected one, take over the machine."
     };
     var CREDENTIAL_PATH = /(?:^|[\\/~])\.(?:ssh|aws|gnupg|kube|docker)(?:[\\/]|$)|^\.(?:ssh|aws|gnupg)$|\bid_(?:rsa|dsa|ecdsa|ed25519)\b|(?:^|[\\/])\.(?:npmrc|netrc|pypirc|git-credentials)$|aws[\\/]credentials|\.docker[\\/]config\.json|\.kube[\\/]config|\/etc\/(?:shadow|passwd)\b|(?:^|[\\/])(?:Login Data|Cookies|wallet\.dat)$/;
     var DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*?(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[\w-]+\.[a-z]{2,}\b|\$\{?\w+)[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
     var REVERSE_SHELL = /\b(?:ba)?sh\s+-i\s*>&?\s*\/dev\/tcp\/|\bnc\b[^\n]*\s-e\s+\/bin\/(?:ba)?sh/;
     var DESTRUCTIVE = /\brm\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*\s+|-[a-zA-Z]+\s+-[a-zA-Z]+\s+|--recursive\s+|--force\s+)+(?:--no-preserve-root\s+)?(?:~\/?|\/\*?|\$HOME\/?|"\$HOME"\/?|\/(?:home|root|etc|usr|var)\/?)(?=\s|$|;|&|\||`|'|"|\))|--no-preserve-root\b|\bmkfs(?:\.\w+)?\s+\/dev\/|\bdd\s+[^\n]*\bof=\/dev\/(?:sd|nvme|hd|disk|xvd)|:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/;
+    var POWERSHELL_DOWNLOAD_EXEC = /\b(?:iwr|irm|invoke-webrequest|invoke-restmethod|curl|wget)\b[^|\n]*\|\s*(?:iex|invoke-expression)\b|\b(?:iex|invoke-expression)\s*\(*\s*(?:new-object\s+(?:system\.)?net\.webclient|iwr\b|irm\b|invoke-webrequest\b|invoke-restmethod\b)/i;
+    var SUDOERS_NOPASSWD_ALL = /NOPASSWD\s*:\s*ALL\b[^\n]*(?:\btee\b|>>?\s*\/etc\/sudoers|\/etc\/sudoers)|(?:\btee\b|>>?)[^\n]*\/etc\/sudoers[^\n]*NOPASSWD\s*:\s*ALL\b|\becho\b[^\n]*NOPASSWD\s*:\s*ALL\b[^\n]*\|/;
+    var WORLD_WRITABLE_ROOT = /\bchmod\s+(?:-[a-zA-Z]*\s+)*(?:0?777|a\+rwx|ugo\+rwx|o\+w)\s+(?:~\/?|\/\*?|\$HOME\/?|"\$HOME"\/?|\/(?:etc|usr|bin|home|root|var)\/?)(?=\s|$|;|&|\||`|'|"|\))/;
+    var SETUID_SHELL = /\bchmod\s+(?:u\+s|[+]s|[2-7]7[0-7]{2})\s+\/(?:usr\/)?bin\/(?:ba|z|da)?sh\b/;
+    var NON_PAYLOAD_OPTION = /\s(?:-i|-e|-E|-K|-o|-O|-\w*[oO]|--(?:cert|key|cacert|capath|netrc-file|config|output|output-document|identity|rsh))(?:\s+|=)(?:"[^"]*"|'[^']*'|\S+)/g;
+    var UPLOAD_COMMAND = /\b(?:curl|wget|nc|ncat|scp|rsync|ftp|sftp)\b/;
     var SHELL_NETWORK = /\b(?:curl|wget|nc|ncat|nslookup|dig|scp|rsync|ftp)\b/;
     var SHELL_EXTENSIONS = /* @__PURE__ */ new Set([".sh", ".bash", ".zsh"]);
     var INSTRUCTION_EXTENSIONS = /* @__PURE__ */ new Set([".md", ".mdx", ".prompt", ".ai", ".chat", ".txt", ".yml", ".yaml"]);
@@ -59397,6 +59470,32 @@ var require_codeThreats = __commonJS({
         message: `Reads ${source.text} and sends data over the network (${sink.callee}) in the same file. Credentials or the whole environment can leave the machine.`
       };
     }
+    function withFileLevelExfiltration(facts) {
+      if (facts.threats.some((threat) => threat.ruleId === "sec_credential_exfiltration"))
+        return facts.threats;
+      const exfil = exfiltrationThreat(facts);
+      return exfil ? [...facts.threats, exfil] : facts.threats;
+    }
+    function namesAssignedFromNetwork(root, isNetworkCall) {
+      const names = /* @__PURE__ */ new Set();
+      (0, codeCapabilities_1.walk)(root, (node) => {
+        let left;
+        let right;
+        if (node.type === "variable_declarator") {
+          left = node.childForFieldName("name");
+          right = node.childForFieldName("value");
+        } else if (node.type === "assignment" || node.type === "assignment_expression") {
+          left = node.childForFieldName("left");
+          right = node.childForFieldName("right");
+        }
+        if (left?.type === "identifier" && right && (isNetworkCall(right) || hasDescendant(right, isNetworkCall)))
+          names.add(left.text);
+      });
+      return names;
+    }
+    function usesDownloadedValue(args2, downloaded, isNetworkCall) {
+      return hasDescendant(args2, (child) => isNetworkCall(child) || child.type === "identifier" && downloaded.has(child.text));
+    }
     function pythonCallee(node, aliases) {
       if (!node)
         return void 0;
@@ -59448,6 +59547,7 @@ var require_codeThreats = __commonJS({
       const aliases = (0, codeCapabilities_1.pythonAliases)(root);
       pythonDynamicAliases(root, aliases);
       const facts = { credentialSources: [], networkCalls: [], threats: [] };
+      const downloaded = namesAssignedFromNetwork(root, (node) => isPythonNetworkCall(node, aliases));
       (0, codeCapabilities_1.walk)(root, (node) => {
         const constant2 = (0, codeCapabilities_1.isStringNode)(node) || node.type === "binary_operator" || node.type === "call" || node.type === "concatenated_string" ? constantString(node) : void 0;
         if (constant2 && CREDENTIAL_PATH.test(constant2))
@@ -59469,7 +59569,7 @@ var require_codeThreats = __commonJS({
         if (isPythonNetworkCall(node, aliases))
           facts.networkCalls.push({ callee, node });
         const args2 = node.childForFieldName("arguments");
-        if (PYTHON_EXEC.has(callee) && args2 && hasDescendant(args2, (child) => isPythonNetworkCall(child, aliases))) {
+        if (PYTHON_EXEC.has(callee) && args2 && usesDownloadedValue(args2, downloaded, (child) => isPythonNetworkCall(child, aliases))) {
           facts.threats.push({
             ruleId: "sec_remote_code_execution",
             severity: "critical",
@@ -59485,8 +59585,7 @@ var require_codeThreats = __commonJS({
             facts.threats.push(...commandLineThreats(command, position(node).line).map((threat) => ({ ...threat, column: position(node).column, sink: callee })));
         }
       });
-      const exfil = exfiltrationThreat(facts);
-      return exfil ? [...facts.threats, exfil] : facts.threats;
+      return withFileLevelExfiltration(facts);
     }
     var SCRIPT_NETWORK = codeCapabilities_1.SCRIPT_SINKS.network;
     var SCRIPT_SHELL = codeCapabilities_1.SCRIPT_SINKS.shell;
@@ -59503,6 +59602,7 @@ var require_codeThreats = __commonJS({
     function analyzeScriptThreats(root) {
       const aliases = (0, codeCapabilities_1.scriptAliases)(root);
       const facts = { credentialSources: [], networkCalls: [], threats: [] };
+      const downloaded = namesAssignedFromNetwork(root, (node) => isScriptNetworkCall(node, aliases));
       (0, codeCapabilities_1.walk)(root, (node) => {
         const constant2 = ["string", "template_string", "binary_expression", "call_expression"].includes(node.type) ? constantString(node) : void 0;
         if (constant2 && CREDENTIAL_PATH.test(constant2))
@@ -59526,7 +59626,7 @@ var require_codeThreats = __commonJS({
         if (isScriptNetworkCall(node, aliases))
           facts.networkCalls.push({ callee, node });
         const args2 = node.childForFieldName("arguments");
-        if ((callee === "eval" || callee === "Function") && args2 && hasDescendant(args2, (child) => isScriptNetworkCall(child, aliases))) {
+        if ((callee === "eval" || callee === "Function") && args2 && usesDownloadedValue(args2, downloaded, (child) => isScriptNetworkCall(child, aliases))) {
           facts.threats.push({
             ruleId: "sec_remote_code_execution",
             severity: "critical",
@@ -59542,20 +59642,64 @@ var require_codeThreats = __commonJS({
             facts.threats.push(...commandLineThreats(command, position(node).line).map((threat) => ({ ...threat, column: position(node).column, sink: callee })));
         }
       });
-      const exfil = exfiltrationThreat(facts);
-      return exfil ? [...facts.threats, exfil] : facts.threats;
+      return withFileLevelExfiltration(facts);
     }
-    function commandLineThreats(line, lineNumber) {
+    function escapeRegExp(text) {
+      return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+    function downloadsThenRuns(line) {
+      const download = /\b(?:curl|wget)\b[^\n]*?\s(?:-\w*[oO]|--output(?:-document)?)(?:\s+|=)["']?([^\s"';&|]+)/.exec(line);
+      if (!download || !/https?:\/\/|\$\{?\w+/.test(line))
+        return false;
+      const file = escapeRegExp(download[1]);
+      const rest = line.slice(download.index + download[0].length);
+      return new RegExp(String.raw`(?:&&|;|\|\|)\s*(?:sudo\s+)?(?:(?:(?:ba|z|da|k)?sh|source|\.|python3?|node|perl|ruby)\s+["']?${file}\b|(?:\.\/)?${file}(?=\s|$|;|&))`).test(rest);
+    }
+    function commandCredentialUpload(line) {
+      const payload = line.replace(NON_PAYLOAD_OPTION, " ");
+      if (!UPLOAD_COMMAND.test(payload))
+        return void 0;
+      return payload.split(/\s+/).find((raw) => {
+        const token = raw.replace(/^[@"'$({<]+|["')}>;,]+$/g, "");
+        return !/\.pub$/.test(token) && !/^[^/~]*:/.test(token) && CREDENTIAL_PATH.test(token);
+      });
+    }
+    function commandLineThreats(line, lineNumber, context5 = "script") {
       const threats = [];
-      if (DOWNLOAD_TO_SHELL.test(line) || REVERSE_SHELL.test(line)) {
+      const download = DOWNLOAD_TO_SHELL.test(line) || POWERSHELL_DOWNLOAD_EXEC.test(line) || downloadsThenRuns(line);
+      if (download || REVERSE_SHELL.test(line)) {
+        const unmistakable = REVERSE_SHELL.test(line) || /\bbase64\s+(?:-d|--decode)\b/.test(line) || /\b\d{1,3}(?:\.\d{1,3}){3}\b/.test(line);
         threats.push({
           ruleId: "sec_remote_code_execution",
-          severity: "critical",
+          severity: context5 === "instruction" && !unmistakable ? "high" : "critical",
           line: lineNumber,
           column: 1,
           source: "a remote download or shell",
           sink: "shell",
-          message: "Pipes downloaded or decoded content into a shell, or opens a remote shell."
+          message: "Runs downloaded or decoded content as code (piped into a shell, Invoke-Expression, or saved and executed), or opens a remote shell."
+        });
+      }
+      const uploaded = commandCredentialUpload(line);
+      if (uploaded) {
+        threats.push({
+          ruleId: "sec_credential_exfiltration",
+          severity: "critical",
+          line: lineNumber,
+          column: 1,
+          source: uploaded,
+          sink: UPLOAD_COMMAND.exec(line.replace(NON_PAYLOAD_OPTION, " "))?.[0] || "network",
+          message: `Sends ${uploaded} over the network in a single command.`
+        });
+      }
+      if (SUDOERS_NOPASSWD_ALL.test(line) || WORLD_WRITABLE_ROOT.test(line) || SETUID_SHELL.test(line)) {
+        threats.push({
+          ruleId: "sec_privilege_escalation",
+          severity: "critical",
+          line: lineNumber,
+          column: 1,
+          source: "a permission change",
+          sink: "the system",
+          message: "Grants passwordless sudo for every command, makes a home or system directory world-writable, or creates a setuid shell."
         });
       }
       if (DESTRUCTIVE.test(line)) {
@@ -59576,7 +59720,7 @@ var require_codeThreats = __commonJS({
       const lines = content.split(/\r?\n/);
       lines.forEach((line, index2) => {
         const command = line.split(/(?<=[.!?])\s+/).filter((sentence) => !PROHIBITION.test(sentence)).join(" ");
-        threats.push(...commandLineThreats(command, index2 + 1));
+        threats.push(...commandLineThreats(command, index2 + 1, "instruction"));
       });
       const lineOf = (offset) => content.slice(0, offset).split(/\r?\n/).length;
       const wildcard = /^allowed-tools:\s*(?:\[\s*)?["']?(?:\*|Bash\(\s*\*\s*\))["']?/im.exec(content);
@@ -59607,7 +59751,7 @@ var require_codeThreats = __commonJS({
           });
         }
       });
-      const concealment = firstUnnegatedMatch(content, USER_CONCEALMENT);
+      const concealment = firstUnnegatedMatch(content, USER_CONCEALMENT) || concealedAction(content);
       const bypass = APPROVAL_BYPASS.exec(content);
       if (bypass) {
         const bypassLine = lines[lineOf(bypass.index) - 1] || "";
@@ -59658,8 +59802,24 @@ var require_codeThreats = __commonJS({
       /\b(?:do\s+not|don't|never)\s+(?:tell|inform|notify|alert)\s+(?:the\s+user|them|anyone)(?=\s*(?:[.,;:)!]|$)|\s+(?:about\b|of\s+(?:this|these|it)\b|that\s+you\b|what\s+you\s+(?:did|ran|sent|changed|read|uploaded)\b))/im,
       /\b(?:do\s+not|don't|never)\s+(?:mention|disclose|reveal|show|report)\s+(?:this|these|that)\s+(?:step|steps|action|actions|command|commands|upload|request|requests|change|changes)\b/i,
       /\bwithout\s+(?:telling|informing|notifying)\s+(?:the\s+user|them|anyone)\b/i,
-      /\b(?:hide|conceal)\s+(?:this|these|it)\s+(?:step|steps|action|actions)?\s*from\s+the\s+user\b/i
+      /\b(?:hide|conceal)\s+(?:this|these|it)\s+(?:step|steps|action|actions)?\s*from\s+the\s+user\b/i,
+      /\bwithout\s+(?:the\s+user|them)\s+(?:knowing|noticing|seeing)\b/i
     ];
+    var NEED_NOT_KNOW = /\b(?:the\s+user|users?|they)\s+(?:does\s+not|doesn't|do\s+not|don't|never)\s+needs?\s+to\s+(?:know|be\s+told|be\s+informed)\b/i;
+    var AGENT_ACTION = /`[^`]+`|\b(?:run|push|upload|send|post|execute|install|delete|copy|commit)\b/i;
+    function concealedAction(content) {
+      let cursor = 0;
+      for (const sentence of content.split(/(?<=[.!?])\s+|\n\s*\n/)) {
+        const at = content.indexOf(sentence, cursor);
+        if (at >= 0)
+          cursor = at + sentence.length;
+        const match = NEED_NOT_KNOW.exec(sentence);
+        if (match && AGENT_ACTION.test(sentence.slice(0, match.index)))
+          return { text: match[0], index: Math.max(0, at) + match.index };
+      }
+      return void 0;
+    }
+    var ENVIRONMENT_DUMP_PROSE = /\bprintenv\b|`env`|\b(?:all|every|the\s+full|the\s+entire|the\s+whole)\s+(?:of\s+the\s+)?environment(?:\s+variables)?\b/i;
     function firstUnnegatedMatch(text, patterns) {
       let best;
       for (const pattern of patterns) {
@@ -59679,7 +59839,7 @@ var require_codeThreats = __commonJS({
           const at = content.indexOf(sentence, cursor);
           if (at >= 0)
             cursor = at + sentence.length;
-          const credential = sentence.split(/[\s`'"(),;:]+/).find((token) => CREDENTIAL_PATH.test(token.replace(/[.]$/, "")));
+          const credential = sentence.split(/[\s`'"(),;:]+/).find((token) => CREDENTIAL_PATH.test(token.replace(/[.]$/, ""))) || (ENVIRONMENT_DUMP_PROSE.test(sentence) ? "the whole environment" : void 0);
           const destination = DESTINATION.exec(sentence)?.[0];
           if (credential && destination && TRANSFER_VERB.test(sentence) && !PROHIBITION.test(sentence)) {
             return {
@@ -59712,7 +59872,8 @@ var require_codeThreats = __commonJS({
         if (networkMatch && !network)
           network = { text: networkMatch[0], line: index2 + 1 };
       });
-      if (credential && network) {
+      const alreadyReported = threats.some((threat) => threat.ruleId === "sec_credential_exfiltration");
+      if (credential && network && !alreadyReported) {
         threats.push({
           ruleId: "sec_credential_exfiltration",
           severity: "critical",
@@ -141580,6 +141741,8 @@ var SUPPORTED_EXTENSIONS = [
   ".tsx",
   ".js",
   ".jsx",
+  ".mjs",
+  ".cjs",
   ".py",
   ".rs",
   ".java",
@@ -141696,6 +141859,8 @@ function getLanguageForExt(ext) {
     case ".tsx":
     case ".js":
     case ".jsx":
+    case ".mjs":
+    case ".cjs":
       return "typescript";
     case ".go":
       return "go";

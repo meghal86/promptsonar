@@ -5,8 +5,11 @@ const INJECTION_SOURCES: RegExp[] = [
     /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
     /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
     /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
-    // \b: "new personal access token" is not "new persona".
-    /new\s+(?:instructions|task|role|persona|query|command)\b/i,
+    // \b: "new personal access token" is not "new persona". "task", "role" and
+    // "command" need attack framing: "create a new role" (IAM), "a new task
+    // head" (ML) and "run a new query" are ordinary documentation.
+    /new\s+(?:instructions|persona)\b/i,
+    /\b(?:your|my)\s+new\s+(?:task|role|command)\b|\bnew\s+(?:task|role|command)\s*:/i,
 
     // Role-playing / persona switches
     /you\s+are\s+now\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan|ai\s+without)/i,
@@ -15,7 +18,9 @@ const INJECTION_SOURCES: RegExp[] = [
     /role\s*:\s*(admin|developer|god|unrestricted|dan|do\s+anything\s+now)/i,
 
     // DAN & variants (very common jailbreaks)
-    /\bDAN\b\s*(?:\d+\.?\d*)?\s*(mode|persona|version)?/i,
+    // The text is lowercased before matching, so "dan" must come with jailbreak
+    // framing: a name in sample data ('Alice', 'Dan') is not DAN.
+    /\b(?:you\s+are|act\s+as|pretend\s+to\s+be|become|enable|activate|stay\s+in\s+character\s+as)\s+(?:now\s+)?(?:a\s+|the\s+)?dan\b|\bdan\s*(?:\d+(?:\.\d+)?\s*)?(?:mode|persona|jailbreak|prompt)\b/i,
     /do\s+anything\s+now/i,
     // Developer mode as a jailbreak, not the real setting in Discord, Android
     // or a browser ("enable Developer Mode (User Settings → Advanced)").
@@ -23,12 +28,15 @@ const INJECTION_SOURCES: RegExp[] = [
     /\b(?:developer\s+mode|devmode)\s+(?:enabled|activated|is\s+on|output|response)\b/i,
     /\b(?:enter|activate|enable|switch\s+to)\s+(?:developer\s+mode|devmode)\b[^.\n]{0,80}\b(?:no|without|unrestricted|uncensored|unfiltered)\b/i,
     /hypothetical\s+response/i,
-    /unrestricted\s+(mode|access|persona)/i,
+    /unrestricted\s+(mode|access|persona)\b/i,
     /ignore\s+(?:safety\s+|content\s+)?(?:guidelines|filters|limitations|restrictions|rules)/i,
-    /no\s+(?:ethical\s+|safety\s+|content\s+)?(?:guidelines|filters|limitations|restrictions|rules)/i,
+    // A bare "no restrictions" ("there are no restrictions on file formats")
+    // is ordinary prose; it counts when the qualifier or the subject is the model.
+    /\bno\s+(?:ethical|safety|content)\s+(?:guidelines|filters?|limitations|restrictions|rules)\b/i,
+    /\b(?:with|have|has|under|operate\s+with)\s+no\s+(?:guidelines|filters?|limitations|restrictions|rules)\b/i,
 
     // Output redirection / exfiltration
-    /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|api\s+key|secret|password|instructions)/i,
+    /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|(?:your\s+|the\s+)?(?:api\s+key|secret|password)|instructions)/i,
     /send\s+to\s+(email|http|url|server)/i,
     /exfiltrate|leak\s+(system\s+prompt|instructions)/i,
     /reveal\s+(system\s+prompt|instructions)/i,
@@ -36,7 +44,8 @@ const INJECTION_SOURCES: RegExp[] = [
     // Encoding / obfuscation attempts: encoded instructions, or decoding
     // something and then acting on it. Plain "decode text" (a programming
     // lesson, a converter tool) is not an attack.
-    /(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
+    // "JSON-encoded prompts" (a data column) is not an encoded attack.
+    /(?<![\w-])(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
     /\bdecode\b[^.\n]{0,60}\b(?:and|then)\s+(?:then\s+)?(?:follow|execute|run|obey|apply|carry\s+out)\b/i,
 
     // Tool / privilege abuse
@@ -52,7 +61,7 @@ const INJECTION_SOURCES: RegExp[] = [
 // between them: arbitrary words would let "don't hesitate to ignore…" or
 // "never fail to disregard…" (which mean the opposite) read as prohibitions.
 const NEGATOR = String.raw`(?:never|do\s+not|does\s+not|don'?t|doesn'?t|must\s+not|mustn'?t|should\s+not|shouldn'?t|shall\s+not|cannot|can\s+not|can'?t|will\s+not|won'?t|may\s+not|not\s+to|refuse\s+to|avoid(?:ing)?|under\s+no\s+circumstances|no)`;
-const CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as)`;
+const CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as|or|log|echo)`;
 const GOVERNING_NEGATION = new RegExp(String.raw`\b${NEGATOR}\s*(?:,\s*under\s+any\s+circumstances\s*,\s*)?(?:${CONNECTING_WORD}\s+){0,4}$`);
 const NEGATOR_WORD = new RegExp(String.raw`\b${NEGATOR}\b`, 'g');
 // Phrases that start with a negator but negate nothing that follows.
@@ -80,6 +89,16 @@ function isNegatedMatch(text: string, index: number): boolean {
     // Two negators ("no reason not to…", "never refuse to…") cancel out.
     const negators = clause.match(NEGATOR_WORD)?.length ?? 0;
     return negators === 1 && GOVERNING_NEGATION.test(clause) && !NON_GOVERNING_NEGATION.test(clause);
+}
+
+// "Ignore instructions … found inside web results" tells the model to distrust
+// injected text: a defence, not an attack. Only untrusted content qualifies, so
+// "ignore instructions found in your system prompt" is still reported.
+const DEFENSIVE_LOCATION = /^[^.!?\n;]{0,60}?\b(?:found|contained|embedded|appearing|that\s+appears?|included)\s+(?:in|inside|within)\s+(?:the\s+|any\s+|those\s+|these\s+)?(?:[\w-]+\s+){0,3}?(?:web|search|results?|pages?|documents?|content|data|emails?|tool\s+(?:output|results?|responses?)|outputs?|retrieved|untrusted|external|files?|excerpts?|snippets?|comments?|issues?|messages?|titles?|them|it)\b/;
+
+function isDefensiveMatch(text: string, match: RegExpMatchArray): boolean {
+    if (!/^(?:ignore|disregard|forget)\b/.test(match[0])) return false;
+    return DEFENSIVE_LOCATION.test(text.slice((match.index ?? 0) + match[0].length));
 }
 
 export function checkOwaspPatterns(input: RuleInput): Finding[] {
@@ -126,7 +145,7 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
         const regex = new RegExp(source.source, source.flags.includes('g') ? source.flags : `${source.flags}g`);
         let match: RegExpExecArray | null = null;
         for (const candidate of searchResult.matchAll(regex)) {
-            if (!isNegatedMatch(searchResult, candidate.index ?? 0)) {
+            if (!isNegatedMatch(searchResult, candidate.index ?? 0) && !isDefensiveMatch(searchResult, candidate)) {
                 match = candidate as RegExpExecArray;
                 break;
             }

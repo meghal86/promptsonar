@@ -30,6 +30,7 @@ export function humanRuleName(ruleId: string): string {
         sec_user_concealment: 'Hidden From User',
         sec_wildcard_tool_permission: 'Wildcard Tool Permission',
         sec_unpinned_remote_install: 'Unpinned Remote Install',
+        sec_privilege_escalation: 'Privilege Escalation',
     };
     if (MAP[ruleId]) return MAP[ruleId];
     return ruleId.replace(/^sec_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

@@ -41,7 +41,8 @@ export type CodeThreatRuleId =
     | 'sec_approval_bypass'
     | 'sec_user_concealment'
     | 'sec_wildcard_tool_permission'
-    | 'sec_unpinned_remote_install';
+    | 'sec_unpinned_remote_install'
+    | 'sec_privilege_escalation';
 
 export const CODE_THREAT_RULE_IDS: ReadonlySet<string> = new Set<CodeThreatRuleId>([
     'sec_credential_exfiltration',
@@ -51,6 +52,7 @@ export const CODE_THREAT_RULE_IDS: ReadonlySet<string> = new Set<CodeThreatRuleI
     'sec_user_concealment',
     'sec_wildcard_tool_permission',
     'sec_unpinned_remote_install',
+    'sec_privilege_escalation',
 ]);
 
 /** What to do about each script threat; shared by the CLI, Action and dashboard. */
@@ -62,6 +64,7 @@ export const CODE_THREAT_REMEDIATION: Record<CodeThreatRuleId, string> = {
     sec_user_concealment: 'Remove the instruction. An agent must tell the user what it does; instructions that hide actions are a hallmark of malicious skills.',
     sec_wildcard_tool_permission: 'List the specific tools and commands the skill needs, e.g. allowed-tools: Bash(npm run test), Read.',
     sec_unpinned_remote_install: 'Pin an exact version or commit (pkg@1.4.2, git+https://...@<commit-sha>) and prefer a lockfile with hashes.',
+    sec_privilege_escalation: 'Remove the change. Grant sudo for one named command if it is really needed, and give files the narrowest permissions that work (e.g. chmod 600 for keys, 755 for scripts).',
 };
 
 export const CODE_THREAT_RISK: Record<CodeThreatRuleId, string> = {
@@ -72,6 +75,7 @@ export const CODE_THREAT_RISK: Record<CodeThreatRuleId, string> = {
     sec_user_concealment: 'Hiding actions from the user removes the only person who could notice and stop a harmful one.',
     sec_wildcard_tool_permission: 'A wildcard grants the skill every tool, so one injected instruction can run any command.',
     sec_unpinned_remote_install: 'A branch or @latest reference installs whatever the publisher pushes next, without review.',
+    sec_privilege_escalation: 'Passwordless sudo for everything, a world-writable home or system directory, or a setuid shell lets any process, including an injected one, take over the machine.',
 };
 
 export interface CodeThreat {
@@ -98,6 +102,18 @@ const REVERSE_SHELL = /\b(?:ba)?sh\s+-i\s*>&?\s*\/dev\/tcp\/|\bnc\b[^\n]*\s-e\s+
 // the machine to death. Project-relative deletes (rm -rf ./dist) are not matched.
 const DESTRUCTIVE = /\brm\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*\s+|-[a-zA-Z]+\s+-[a-zA-Z]+\s+|--recursive\s+|--force\s+)+(?:--no-preserve-root\s+)?(?:~\/?|\/\*?|\$HOME\/?|"\$HOME"\/?|\/(?:home|root|etc|usr|var)\/?)(?=\s|$|;|&|\||`|'|"|\))|--no-preserve-root\b|\bmkfs(?:\.\w+)?\s+\/dev\/|\bdd\s+[^\n]*\bof=\/dev\/(?:sd|nvme|hd|disk|xvd)|:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/;
 
+// PowerShell: a download piped into, or wrapped by, Invoke-Expression.
+const POWERSHELL_DOWNLOAD_EXEC = /\b(?:iwr|irm|invoke-webrequest|invoke-restmethod|curl|wget)\b[^|\n]*\|\s*(?:iex|invoke-expression)\b|\b(?:iex|invoke-expression)\s*\(*\s*(?:new-object\s+(?:system\.)?net\.webclient|iwr\b|irm\b|invoke-webrequest\b|invoke-restmethod\b)/i;
+// Passwordless sudo for every command written into sudoers; a world-writable
+// home, root or system directory; a setuid shell.
+const SUDOERS_NOPASSWD_ALL = /NOPASSWD\s*:\s*ALL\b[^\n]*(?:\btee\b|>>?\s*\/etc\/sudoers|\/etc\/sudoers)|(?:\btee\b|>>?)[^\n]*\/etc\/sudoers[^\n]*NOPASSWD\s*:\s*ALL\b|\becho\b[^\n]*NOPASSWD\s*:\s*ALL\b[^\n]*\|/;
+const WORLD_WRITABLE_ROOT = /\bchmod\s+(?:-[a-zA-Z]*\s+)*(?:0?777|a\+rwx|ugo\+rwx|o\+w)\s+(?:~\/?|\/\*?|\$HOME\/?|"\$HOME"\/?|\/(?:etc|usr|bin|home|root|var)\/?)(?=\s|$|;|&|\||`|'|"|\))/;
+const SETUID_SHELL = /\bchmod\s+(?:u\+s|[+]s|[2-7]7[0-7]{2})\s+\/(?:usr\/)?bin\/(?:ba|z|da)?sh\b/;
+// Data a command sends: options that authenticate (-i key, --cert, --netrc-file)
+// or name the download target (-o, -O) are removed before looking for a
+// credential, so "rsync -e 'ssh -i ~/.ssh/deploy'" and "wget -O ~/.ssh/known_hosts" are not uploads.
+const NON_PAYLOAD_OPTION = /\s(?:-i|-e|-E|-K|-o|-O|-\w*[oO]|--(?:cert|key|cacert|capath|netrc-file|config|output|output-document|identity|rsh))(?:\s+|=)(?:"[^"]*"|'[^']*'|\S+)/g;
+const UPLOAD_COMMAND = /\b(?:curl|wget|nc|ncat|scp|rsync|ftp|sftp)\b/;
 const SHELL_NETWORK = /\b(?:curl|wget|nc|ncat|nslookup|dig|scp|rsync|ftp)\b/;
 
 const SHELL_EXTENSIONS = new Set(['.sh', '.bash', '.zsh']);
@@ -193,6 +209,39 @@ function exfiltrationThreat(facts: FileFacts): CodeThreat | undefined {
     };
 }
 
+/** Adds the file-level credential-to-network finding unless a command already reported one. */
+function withFileLevelExfiltration(facts: FileFacts): CodeThreat[] {
+    if (facts.threats.some(threat => threat.ruleId === 'sec_credential_exfiltration')) return facts.threats;
+    const exfil = exfiltrationThreat(facts);
+    return exfil ? [...facts.threats, exfil] : facts.threats;
+}
+
+/**
+ * Names assigned from an expression that makes a network call
+ * (p = await fetch(url).then(r => r.text()), r = requests.get(url)), so
+ * eval(atob(p)) / exec(r.text) are seen as executing the download.
+ */
+function namesAssignedFromNetwork(root: any, isNetworkCall: (node: any) => boolean): Set<string> {
+    const names = new Set<string>();
+    walk(root, node => {
+        let left: any;
+        let right: any;
+        if (node.type === 'variable_declarator') {
+            left = node.childForFieldName('name');
+            right = node.childForFieldName('value');
+        } else if (node.type === 'assignment' || node.type === 'assignment_expression') {
+            left = node.childForFieldName('left');
+            right = node.childForFieldName('right');
+        }
+        if (left?.type === 'identifier' && right && (isNetworkCall(right) || hasDescendant(right, isNetworkCall))) names.add(left.text);
+    });
+    return names;
+}
+
+function usesDownloadedValue(args: any, downloaded: Set<string>, isNetworkCall: (node: any) => boolean): boolean {
+    return hasDescendant(args, child => isNetworkCall(child) || (child.type === 'identifier' && downloaded.has(child.text)));
+}
+
 // --- Python -----------------------------------------------------------------
 
 /** Resolve a Python callee, following __import__("m") and getattr(x, "name"). */
@@ -247,6 +296,7 @@ function analyzePythonThreats(root: any): CodeThreat[] {
     const aliases = pythonAliases(root);
     pythonDynamicAliases(root, aliases);
     const facts: FileFacts = { credentialSources: [], networkCalls: [], threats: [] };
+    const downloaded = namesAssignedFromNetwork(root, node => isPythonNetworkCall(node, aliases));
 
     walk(root, node => {
         const constant = (isStringNode(node) || node.type === 'binary_operator' || node.type === 'call' || node.type === 'concatenated_string')
@@ -278,7 +328,7 @@ function analyzePythonThreats(root: any): CodeThreat[] {
         if (isPythonNetworkCall(node, aliases)) facts.networkCalls.push({ callee, node });
 
         const args = node.childForFieldName('arguments');
-        if (PYTHON_EXEC.has(callee) && args && hasDescendant(args, child => isPythonNetworkCall(child, aliases))) {
+        if (PYTHON_EXEC.has(callee) && args && usesDownloadedValue(args, downloaded, child => isPythonNetworkCall(child, aliases))) {
             facts.threats.push({
                 ruleId: 'sec_remote_code_execution', severity: 'critical', ...position(node),
                 source: 'a network download', sink: callee,
@@ -291,8 +341,7 @@ function analyzePythonThreats(root: any): CodeThreat[] {
         }
     });
 
-    const exfil = exfiltrationThreat(facts);
-    return exfil ? [...facts.threats, exfil] : facts.threats;
+    return withFileLevelExfiltration(facts);
 }
 
 // --- JavaScript / TypeScript --------------------------------------------------
@@ -314,6 +363,7 @@ function isScriptNetworkCall(node: any, aliases: Map<string, string>): boolean {
 function analyzeScriptThreats(root: any): CodeThreat[] {
     const aliases = scriptAliases(root);
     const facts: FileFacts = { credentialSources: [], networkCalls: [], threats: [] };
+    const downloaded = namesAssignedFromNetwork(root, node => isScriptNetworkCall(node, aliases));
 
     walk(root, node => {
         const constant = ['string', 'template_string', 'binary_expression', 'call_expression'].includes(node.type)
@@ -342,7 +392,7 @@ function analyzeScriptThreats(root: any): CodeThreat[] {
         if (isScriptNetworkCall(node, aliases)) facts.networkCalls.push({ callee, node });
 
         const args = node.childForFieldName('arguments');
-        if ((callee === 'eval' || callee === 'Function') && args && hasDescendant(args, child => isScriptNetworkCall(child, aliases))) {
+        if ((callee === 'eval' || callee === 'Function') && args && usesDownloadedValue(args, downloaded, child => isScriptNetworkCall(child, aliases))) {
             facts.threats.push({
                 ruleId: 'sec_remote_code_execution', severity: 'critical', ...position(node),
                 source: 'a network download', sink: callee,
@@ -355,20 +405,65 @@ function analyzeScriptThreats(root: any): CodeThreat[] {
         }
     });
 
-    const exfil = exfiltrationThreat(facts);
-    return exfil ? [...facts.threats, exfil] : facts.threats;
+    return withFileLevelExfiltration(facts);
 }
 
 // --- Shell scripts --------------------------------------------------------------
 
-/** Command-level threats on one line of a script or of instructions an agent will follow. */
-function commandLineThreats(line: string, lineNumber: number): CodeThreat[] {
+function escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** `curl -o f URL && sh f`, `wget -qO f URL; chmod +x f; ./f`: the downloaded file is then run. */
+function downloadsThenRuns(line: string): boolean {
+    const download = /\b(?:curl|wget)\b[^\n]*?\s(?:-\w*[oO]|--output(?:-document)?)(?:\s+|=)["']?([^\s"';&|]+)/.exec(line);
+    if (!download || !/https?:\/\/|\$\{?\w+/.test(line)) return false;
+    const file = escapeRegExp(download[1]);
+    const rest = line.slice(download.index + download[0].length);
+    return new RegExp(String.raw`(?:&&|;|\|\|)\s*(?:sudo\s+)?(?:(?:(?:ba|z|da|k)?sh|source|\.|python3?|node|perl|ruby)\s+["']?${file}\b|(?:\.\/)?${file}(?=\s|$|;|&))`).test(rest);
+}
+
+/** The credential a command sends (cat ~/.npmrc | curl -d @-, scp ~/.ssh host:), if any. */
+function commandCredentialUpload(line: string): string | undefined {
+    const payload = line.replace(NON_PAYLOAD_OPTION, ' ');
+    if (!UPLOAD_COMMAND.test(payload)) return undefined;
+    return payload.split(/\s+/).find(raw => {
+        const token = raw.replace(/^[@"'$({<]+|["')}>;,]+$/g, '');
+        // host:~/.ssh/... is a remote path (copied from, not to), and a .pub key is public.
+        return !/\.pub$/.test(token) && !/^[^/~]*:/.test(token) && CREDENTIAL_PATH.test(token);
+    });
+}
+
+/**
+ * Command-level threats on one line of a script or of instructions an agent
+ * will follow. In instructions an https installer piped into a shell (a
+ * vendor's documented `curl … | sh`) is HIGH, for review; a raw IP, decoded
+ * payload or reverse shell is CRITICAL everywhere.
+ */
+function commandLineThreats(line: string, lineNumber: number, context: 'script' | 'instruction' = 'script'): CodeThreat[] {
     const threats: CodeThreat[] = [];
-    if (DOWNLOAD_TO_SHELL.test(line) || REVERSE_SHELL.test(line)) {
+    const download = DOWNLOAD_TO_SHELL.test(line) || POWERSHELL_DOWNLOAD_EXEC.test(line) || downloadsThenRuns(line);
+    if (download || REVERSE_SHELL.test(line)) {
+        const unmistakable = REVERSE_SHELL.test(line) || /\bbase64\s+(?:-d|--decode)\b/.test(line) || /\b\d{1,3}(?:\.\d{1,3}){3}\b/.test(line);
         threats.push({
-            ruleId: 'sec_remote_code_execution', severity: 'critical', line: lineNumber, column: 1,
+            ruleId: 'sec_remote_code_execution', severity: context === 'instruction' && !unmistakable ? 'high' : 'critical', line: lineNumber, column: 1,
             source: 'a remote download or shell', sink: 'shell',
-            message: 'Pipes downloaded or decoded content into a shell, or opens a remote shell.',
+            message: 'Runs downloaded or decoded content as code (piped into a shell, Invoke-Expression, or saved and executed), or opens a remote shell.',
+        });
+    }
+    const uploaded = commandCredentialUpload(line);
+    if (uploaded) {
+        threats.push({
+            ruleId: 'sec_credential_exfiltration', severity: 'critical', line: lineNumber, column: 1,
+            source: uploaded, sink: UPLOAD_COMMAND.exec(line.replace(NON_PAYLOAD_OPTION, ' '))?.[0] || 'network',
+            message: `Sends ${uploaded} over the network in a single command.`,
+        });
+    }
+    if (SUDOERS_NOPASSWD_ALL.test(line) || WORLD_WRITABLE_ROOT.test(line) || SETUID_SHELL.test(line)) {
+        threats.push({
+            ruleId: 'sec_privilege_escalation', severity: 'critical', line: lineNumber, column: 1,
+            source: 'a permission change', sink: 'the system',
+            message: 'Grants passwordless sudo for every command, makes a home or system directory world-writable, or creates a setuid shell.',
         });
     }
     if (DESTRUCTIVE.test(line)) {
@@ -392,7 +487,7 @@ function analyzeInstructionThreats(content: string): CodeThreat[] {
     // "Never run its curl | sh lines" is a prohibition, not an instruction.
     lines.forEach((line, index) => {
         const command = line.split(/(?<=[.!?])\s+/).filter(sentence => !PROHIBITION.test(sentence)).join(' ');
-        threats.push(...commandLineThreats(command, index + 1));
+        threats.push(...commandLineThreats(command, index + 1, 'instruction'));
     });
     const lineOf = (offset: number) => content.slice(0, offset).split(/\r?\n/).length;
 
@@ -420,7 +515,7 @@ function analyzeInstructionThreats(content: string): CodeThreat[] {
         }
     });
 
-    const concealment = firstUnnegatedMatch(content, USER_CONCEALMENT);
+    const concealment = firstUnnegatedMatch(content, USER_CONCEALMENT) || concealedAction(content);
     const bypass = APPROVAL_BYPASS.exec(content);
     if (bypass) {
         // "Only inside a disposable container" is advice, not an attack.
@@ -474,7 +569,28 @@ const USER_CONCEALMENT = [
     /\b(?:do\s+not|don't|never)\s+(?:mention|disclose|reveal|show|report)\s+(?:this|these|that)\s+(?:step|steps|action|actions|command|commands|upload|request|requests|change|changes)\b/i,
     /\bwithout\s+(?:telling|informing|notifying)\s+(?:the\s+user|them|anyone)\b/i,
     /\b(?:hide|conceal)\s+(?:this|these|it)\s+(?:step|steps|action|actions)?\s*from\s+the\s+user\b/i,
+    /\bwithout\s+(?:the\s+user|them)\s+(?:knowing|noticing|seeing)\b/i,
 ];
+
+// "The user does not need to know about the mirror" hides an action only when
+// the same sentence tells the agent to do something; "the user doesn't need
+// to know Python" or "…about the cache" in docs does not.
+const NEED_NOT_KNOW = /\b(?:the\s+user|users?|they)\s+(?:does\s+not|doesn't|do\s+not|don't|never)\s+needs?\s+to\s+(?:know|be\s+told|be\s+informed)\b/i;
+const AGENT_ACTION = /`[^`]+`|\b(?:run|push|upload|send|post|execute|install|delete|copy|commit)\b/i;
+
+function concealedAction(content: string): { text: string; index: number } | undefined {
+    let cursor = 0;
+    for (const sentence of content.split(/(?<=[.!?])\s+|\n\s*\n/)) {
+        const at = content.indexOf(sentence, cursor);
+        if (at >= 0) cursor = at + sentence.length;
+        const match = NEED_NOT_KNOW.exec(sentence);
+        if (match && AGENT_ACTION.test(sentence.slice(0, match.index))) return { text: match[0], index: Math.max(0, at) + match.index };
+    }
+    return undefined;
+}
+
+// Prose that dumps the whole environment: `printenv`, `env`, "all environment variables".
+const ENVIRONMENT_DUMP_PROSE = /\bprintenv\b|`env`|\b(?:all|every|the\s+full|the\s+entire|the\s+whole)\s+(?:of\s+the\s+)?environment(?:\s+variables)?\b/i;
 
 function firstUnnegatedMatch(text: string, patterns: RegExp[]): { text: string; index: number } | undefined {
     let best: { text: string; index: number } | undefined;
@@ -497,7 +613,8 @@ function proseCredentialExfiltration(content: string): (Omit<CodeThreat, 'line' 
         for (const sentence of paragraph.split(/(?<=[.!?])\s+(?=[A-Z])/)) {
             const at = content.indexOf(sentence, cursor);
             if (at >= 0) cursor = at + sentence.length;
-            const credential = sentence.split(/[\s`'"(),;:]+/).find(token => CREDENTIAL_PATH.test(token.replace(/[.]$/, '')));
+            const credential = sentence.split(/[\s`'"(),;:]+/).find(token => CREDENTIAL_PATH.test(token.replace(/[.]$/, '')))
+                || (ENVIRONMENT_DUMP_PROSE.test(sentence) ? 'the whole environment' : undefined);
             const destination = DESTINATION.exec(sentence)?.[0];
             if (credential && destination && TRANSFER_VERB.test(sentence) && !PROHIBITION.test(sentence)) {
                 return {
@@ -526,7 +643,8 @@ function analyzeShellThreats(content: string): CodeThreat[] {
         const networkMatch = SHELL_NETWORK.exec(line);
         if (networkMatch && !network) network = { text: networkMatch[0], line: index + 1 };
     });
-    if (credential && network) {
+    const alreadyReported = threats.some(threat => threat.ruleId === 'sec_credential_exfiltration');
+    if (credential && network && !alreadyReported) {
         threats.push({
             ruleId: 'sec_credential_exfiltration', severity: 'critical', line: network.line, column: 1,
             source: credential.text, sink: network.text,

@@ -28,7 +28,8 @@ export function owaspRefForRule(ruleId: string): string {
         ruleId === 'sec_unbounded_access' ||
         ruleId === 'sec_destructive_command' ||
         ruleId === 'sec_approval_bypass' ||
-        ruleId === 'sec_wildcard_tool_permission'
+        ruleId === 'sec_wildcard_tool_permission' ||
+        ruleId === 'sec_privilege_escalation'
     ) return 'LLM06';
     // LLM08 Vector and Embedding Weaknesses: untrusted input steering retrieval.
     if (ruleId === 'sec_rag_injection') return 'LLM08';

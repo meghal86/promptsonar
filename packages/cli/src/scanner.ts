@@ -591,7 +591,7 @@ function computePillarScores(findings: ScanFinding[]): Record<string, number> {
 }
 
 const SUPPORTED_EXTENSIONS = [
-    '.ts', '.tsx', '.js', '.jsx',
+    '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
     '.py',
     '.rs',
     '.java',
@@ -695,7 +695,7 @@ const MAX_BEST_PRACTICE_PER_FILE = 10;
 function getLanguageForExt(ext: string): string {
     switch (ext) {
         case '.py': return 'python';
-        case '.ts': case '.tsx': case '.js': case '.jsx': return 'typescript';
+        case '.ts': case '.tsx': case '.js': case '.jsx': case '.mjs': case '.cjs': return 'typescript';
         case '.go': return 'go';
         case '.java': return 'java';
         case '.rs': return 'rust';

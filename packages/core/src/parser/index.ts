@@ -168,7 +168,9 @@ function getLanguageName(extension: string): string | null {
         case '.ts':
         case '.js':
         case '.tsx':
-        case '.jsx': return 'typescript'; // Use typescript for both JS and TS
+        case '.jsx':
+        case '.mjs':
+        case '.cjs': return 'typescript'; // Use typescript for both JS and TS
         case '.go': return 'go';
         case '.java': return 'java';
         case '.rs': return 'rust';

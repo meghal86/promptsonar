@@ -21,7 +21,9 @@ export function checkUnboundedAccess(input: RuleInput): Finding[] {
             findings.push({
                 rule_id: "sec_unbounded_access",
                 category: "security",
-                severity: "high",
+                // A scope hint ("all files", "every record"): whether a privileged
+                // action is reachable is decided by path analysis, not by the words.
+                severity: "medium",
                 explanation: "Unbounded access scope: no path or table restriction",
                 suggested_fix: "Scope access: 'read from /safe/path only' or 'query table X only'",
                 penalty_score: 15

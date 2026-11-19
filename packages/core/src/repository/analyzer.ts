@@ -113,6 +113,8 @@ const TEXT_EXTENSIONS = new Set([
     '.tsx',
     '.js',
     '.jsx',
+    '.mjs',
+    '.cjs',
     '.py',
     '.go',
     '.rs',

@@ -44,6 +44,19 @@ function isTextJoiner(text: string, index: number): boolean {
     return SCRIPT_CHAR.test(before) && SCRIPT_CHAR.test(after)
         && !LATIN_OR_COMMON.test(before) && !LATIN_OR_COMMON.test(after);
 }
+const TAG_RUN = /[\u{E0020}-\u{E007E}]+/gu;
+const FLAG_TAG_SEQUENCE = /\u{1F3F4}[\u{E0061}-\u{E007A}\u{E0030}-\u{E0039}]{2,7}\u{E007F}/gu;
+
+/** Text hidden in tag characters, decoded to ASCII, outside subdivision flags; '' if none. */
+function hiddenTagText(text: string): string {
+    const withoutFlags = text.replace(FLAG_TAG_SEQUENCE, '');
+    let hidden = '';
+    for (const run of withoutFlags.match(TAG_RUN) || []) {
+        hidden += Array.from(run, char => String.fromCharCode((char.codePointAt(0) || 0) - 0xE0000)).join('');
+    }
+    return hidden.trim();
+}
+
 const CYRILLIC_HOMOGLYPHS = /[АВЕЅІЈКМНОРСТУХаесорухіјкпѕ]/u;
 
 function hasMathHomoglyph(text: string): boolean {
@@ -113,6 +126,23 @@ export function checkEvasionPatterns(input: RuleInput): Finding[] {
         zeroWidthMatch = match[0];
         break;
     }
+    // Unicode tag characters (U+E0020–U+E007E) render as nothing but carry ASCII
+    // text a model reads ("ASCII smuggling"). The one legitimate use is a
+    // subdivision flag: U+1F3F4, tag letters, then the U+E007F terminator.
+    const hidden = hiddenTagText(input.text);
+    if (hidden) {
+        const injected = INJECTION_PATTERNS.some(pattern => pattern.test(hidden));
+        findings.push({
+            rule_id: 'sec_zero_width_injection',
+            category: 'security',
+            severity: injected ? 'critical' : 'high',
+            matchedText: hidden.slice(0, 120),
+            explanation: `Invisible Unicode tag characters hide text the model will read: "${hidden.slice(0, 80)}${hidden.length > 80 ? '…' : ''}".`,
+            suggested_fix: 'Remove the Unicode tag characters (U+E0000–U+E007F).',
+            penalty_score: injected ? 30 : 20,
+        });
+    }
+
     if (zeroWidthMatch) {
         findings.push({
             rule_id: 'sec_zero_width_injection',
