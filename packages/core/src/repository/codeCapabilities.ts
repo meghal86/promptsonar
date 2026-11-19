@@ -66,7 +66,8 @@ const FS_METHODS = [
 const VSCODE_FS_METHODS = ['readFile', 'writeFile', 'delete', 'rename', 'copy', 'createDirectory', 'readDirectory'];
 const HTTP_VERBS = ['get', 'post', 'put', 'delete', 'patch', 'head', 'request'];
 
-const SCRIPT_SINKS: Record<CodeCapability, Set<string>> = {
+/** @internal Shared with codeThreats. */
+export const SCRIPT_SINKS: Record<CodeCapability, Set<string>> = {
     shell: new Set([
         'child_process.exec', 'child_process.execSync', 'child_process.execFile', 'child_process.execFileSync',
         'child_process.spawn', 'child_process.spawnSync', 'child_process.fork',
@@ -85,7 +86,8 @@ const SCRIPT_SINKS: Record<CodeCapability, Set<string>> = {
     secret: new Set(),
 };
 
-const PYTHON_SINKS: Record<CodeCapability, Set<string>> = {
+/** @internal Shared with codeThreats. */
+export const PYTHON_SINKS: Record<CodeCapability, Set<string>> = {
     shell: new Set([
         'subprocess.run', 'subprocess.call', 'subprocess.check_call', 'subprocess.check_output',
         'subprocess.Popen', 'subprocess.getoutput', 'subprocess.getstatusoutput',
@@ -118,7 +120,8 @@ function isCredentialName(name: string): boolean {
         || has('TOKEN') || has('APIKEY') || pair('API', 'KEY') || pair('PRIVATE', 'KEY') || pair('ACCESS', 'KEY');
 }
 
-function normalizeModule(name: string): string {
+/** @internal Shared with codeThreats. */
+export function normalizeModule(name: string): string {
     return name.replace(/^node:/, '').replace(/^fs\/promises$/, 'fs');
 }
 
@@ -126,7 +129,8 @@ function normalizeCallee(name: string): string {
     return name.replace(/^node:/, '').replace(/^fs\.promises\./, 'fs.').replace(/^fs\/promises\./, 'fs.');
 }
 
-function stringValue(node: any): string {
+/** @internal Shared with codeThreats. */
+export function stringValue(node: any): string {
     // string -> string_fragment (script) / string_content (python); template_string -> raw text.
     const parts = (node.namedChildren || [])
         .filter((child: any) => child.type === 'string_fragment' || child.type === 'string_content')
@@ -135,17 +139,20 @@ function stringValue(node: any): string {
     return String(node.text || '').replace(/^[`'"]+|[`'"]+$/g, '');
 }
 
-function isStringNode(node: any): boolean {
+/** @internal Shared with codeThreats. */
+export function isStringNode(node: any): boolean {
     return node?.type === 'string' || node?.type === 'template_string';
 }
 
-function walk(node: any, visit: (node: any) => void): void {
+/** @internal Shared with codeThreats. */
+export function walk(node: any, visit: (node: any) => void): void {
     visit(node);
     for (const child of node.namedChildren || []) walk(child, visit);
 }
 
 /** Dotted path of a callee/object node, or undefined if it is not a plain name chain. */
-function dottedPath(node: any): string | undefined {
+/** @internal Shared with codeThreats. */
+export function dottedPath(node: any): string | undefined {
     if (!node) return undefined;
     if (node.type === 'identifier' || node.type === 'property_identifier') return node.text;
     if (node.type === 'member_expression') {
@@ -170,7 +177,8 @@ function dottedPath(node: any): string | undefined {
     return undefined;
 }
 
-function resolve(path: string, aliases: Map<string, string>): string {
+/** @internal Shared with codeThreats. */
+export function resolve(path: string, aliases: Map<string, string>): string {
     const [head, ...rest] = path.split('.');
     const mapped = aliases.get(head);
     return normalizeCallee(mapped ? [mapped, ...rest].join('.') : path);
@@ -204,7 +212,8 @@ class Collector {
     }
 }
 
-function scriptAliases(root: any): Map<string, string> {
+/** @internal Shared with codeThreats. */
+export function scriptAliases(root: any): Map<string, string> {
     const aliases = new Map<string, string>();
     walk(root, node => {
         if (node.type === 'import_statement') {
@@ -274,7 +283,8 @@ function analyzeScript(root: any, content: string): CodeCapabilityAnalysis {
     return collector.result(executableText(root, content));
 }
 
-function pythonAliases(root: any): Map<string, string> {
+/** @internal Shared with codeThreats. */
+export function pythonAliases(root: any): Map<string, string> {
     const aliases = new Map<string, string>();
     walk(root, node => {
         if (node.type === 'import_statement') {
@@ -391,7 +401,8 @@ function executableText(root: any, source: string): string {
     return chars.join('');
 }
 
-function hasSyntaxError(root: any): boolean {
+/** @internal Shared with codeThreats. */
+export function hasSyntaxError(root: any): boolean {
     return typeof root.hasError === 'function' ? root.hasError() : Boolean(root.hasError);
 }
 

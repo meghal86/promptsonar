@@ -24671,7 +24671,8 @@ var require_confidence = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.findingConfidence = findingConfidence2;
     function findingConfidence2(ruleId, evidenceKind = "direct") {
-      if (ruleId === "sec_base64_encoded_payload" || ruleId === "sec_zero_width_injection" || ruleId === "sec_homoglyph_evasion" || ruleId.startsWith("sec_owasp_llm02") || ruleId.startsWith("MCP-"))
+      if (ruleId === "sec_base64_encoded_payload" || ruleId === "sec_zero_width_injection" || ruleId === "sec_homoglyph_evasion" || ruleId.startsWith("sec_owasp_llm02") || // Script threats come from resolved code structure, not keywords.
+      ruleId === "sec_credential_exfiltration" || ruleId === "sec_remote_code_execution" || ruleId.startsWith("MCP-"))
         return "HIGH";
       if (evidenceKind === "absence")
         return "LOW";
@@ -24689,8 +24690,10 @@ var require_owasp = __commonJS({
     function owaspRefForRule2(ruleId) {
       if (ruleId.startsWith("sec_owasp_llm01") || ruleId.startsWith("sec_unicode") || ruleId === "sec_unbounded_persona" || ruleId === "sec_base64_encoded_payload" || ruleId === "sec_homoglyph_evasion" || ruleId === "sec_zero_width_injection")
         return "LLM01";
-      if (ruleId.startsWith("sec_owasp_llm02"))
+      if (ruleId.startsWith("sec_owasp_llm02") || ruleId === "sec_credential_exfiltration")
         return "LLM02";
+      if (ruleId === "sec_remote_code_execution")
+        return "LLM03";
       if (ruleId === "sec_workflow_escalation" || ruleId === "sec_privileged_sink_access" || ruleId === "sec_mcp_tool_poisoning" || ruleId === "sec_unbounded_access")
         return "LLM06";
       if (ruleId === "sec_rag_injection")
@@ -53566,7 +53569,9 @@ var require_sarif2 = __commonJS({
         sec_privileged_sink_access: "Privileged Sink Access",
         sec_unbounded_persona: "Unbounded Persona",
         sec_unbounded_access: "Unbounded Tool Access",
-        sec_rag_injection: "RAG Injection"
+        sec_rag_injection: "RAG Injection",
+        sec_credential_exfiltration: "Credential Exfiltration",
+        sec_remote_code_execution: "Remote Code Execution"
       };
       if (MAP[ruleId])
         return MAP[ruleId];
@@ -54080,11 +54085,21 @@ var require_codeCapabilities = __commonJS({
   "../packages/core/dist/repository/codeCapabilities.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.loadCodeCapabilityGrammars = loadCodeCapabilityGrammars2;
+    exports2.PYTHON_SINKS = exports2.SCRIPT_SINKS = void 0;
+    exports2.loadCodeCapabilityGrammars = loadCodeCapabilityGrammars3;
+    exports2.normalizeModule = normalizeModule;
+    exports2.stringValue = stringValue;
+    exports2.isStringNode = isStringNode;
+    exports2.walk = walk;
+    exports2.dottedPath = dottedPath;
+    exports2.resolve = resolve4;
+    exports2.scriptAliases = scriptAliases;
+    exports2.pythonAliases = pythonAliases;
+    exports2.hasSyntaxError = hasSyntaxError;
     exports2.analyzeCodeCapabilities = analyzeCodeCapabilities;
     var parser_1 = require_parser();
     var CODE_CAPABILITY_GRAMMARS = ["typescript", "python"];
-    async function loadCodeCapabilityGrammars2() {
+    async function loadCodeCapabilityGrammars3() {
       try {
         await (0, parser_1.loadGrammars)(CODE_CAPABILITY_GRAMMARS);
       } catch {
@@ -54120,7 +54135,7 @@ var require_codeCapabilities = __commonJS({
     ];
     var VSCODE_FS_METHODS = ["readFile", "writeFile", "delete", "rename", "copy", "createDirectory", "readDirectory"];
     var HTTP_VERBS = ["get", "post", "put", "delete", "patch", "head", "request"];
-    var SCRIPT_SINKS = {
+    exports2.SCRIPT_SINKS = {
       shell: /* @__PURE__ */ new Set([
         "child_process.exec",
         "child_process.execSync",
@@ -54153,7 +54168,7 @@ var require_codeCapabilities = __commonJS({
       ]),
       secret: /* @__PURE__ */ new Set()
     };
-    var PYTHON_SINKS = {
+    exports2.PYTHON_SINKS = {
       shell: /* @__PURE__ */ new Set([
         "subprocess.run",
         "subprocess.call",
@@ -54335,7 +54350,7 @@ var require_codeCapabilities = __commonJS({
     }
     function analyzeScript(root, content) {
       const aliases = scriptAliases(root);
-      const collector = new Collector(SCRIPT_SINKS);
+      const collector = new Collector(exports2.SCRIPT_SINKS);
       walk(root, (node) => {
         if (node.type === "call_expression" || node.type === "new_expression") {
           const callee = node.childForFieldName(node.type === "call_expression" ? "function" : "constructor");
@@ -54403,7 +54418,7 @@ var require_codeCapabilities = __commonJS({
     }
     function analyzePython(root, content) {
       const aliases = pythonAliases(root);
-      const collector = new Collector(PYTHON_SINKS);
+      const collector = new Collector(exports2.PYTHON_SINKS);
       walk(root, (node) => {
         if (node.type === "call") {
           const path6 = dottedPath(node.childForFieldName("function"));
@@ -59195,6 +59210,327 @@ var require_closure = __commonJS({
   }
 });
 
+// ../packages/core/dist/repository/codeThreats.js
+var require_codeThreats = __commonJS({
+  "../packages/core/dist/repository/codeThreats.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.CODE_THREAT_RULE_IDS = void 0;
+    exports2.scanCodeForThreats = scanCodeForThreats2;
+    var parser_1 = require_parser();
+    var codeCapabilities_1 = require_codeCapabilities();
+    exports2.CODE_THREAT_RULE_IDS = /* @__PURE__ */ new Set([
+      "sec_credential_exfiltration",
+      "sec_remote_code_execution"
+    ]);
+    var CREDENTIAL_PATH = /(?:^|[\\/~])\.(?:ssh|aws|gnupg|kube|docker)(?:[\\/]|$)|^\.(?:ssh|aws|gnupg)$|\bid_(?:rsa|dsa|ecdsa|ed25519)\b|(?:^|[\\/])\.(?:npmrc|netrc|pypirc|git-credentials)$|aws[\\/]credentials|\.docker[\\/]config\.json|\.kube[\\/]config|\/etc\/(?:shadow|passwd)\b|(?:^|[\\/])(?:Login Data|Cookies|wallet\.dat)$/;
+    var DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
+    var REVERSE_SHELL = /\b(?:ba)?sh\s+-i\s*>&?\s*\/dev\/tcp\/|\bnc\b[^\n]*\s-e\s+\/bin\/(?:ba)?sh/;
+    var SHELL_NETWORK = /\b(?:curl|wget|nc|ncat|nslookup|dig|scp|rsync|ftp)\b/;
+    var SHELL_EXTENSIONS = /* @__PURE__ */ new Set([".sh", ".bash", ".zsh"]);
+    function extensionOf(filePath) {
+      const match = /\.[^./\\]+$/.exec(filePath);
+      return match ? match[0].toLowerCase() : "";
+    }
+    function constantString(node) {
+      if (!node)
+        return void 0;
+      if ((0, codeCapabilities_1.isStringNode)(node)) {
+        if (node.type === "template_string" && (node.namedChildren || []).some((c) => c.type === "template_substitution")) {
+          return void 0;
+        }
+        return (0, codeCapabilities_1.stringValue)(node);
+      }
+      if (node.type === "parenthesized_expression")
+        return constantString(node.namedChildren[0]);
+      if (node.type === "concatenated_string") {
+        const parts = node.namedChildren.map(constantString);
+        return parts.every((part) => part !== void 0) ? parts.join("") : void 0;
+      }
+      if (node.type === "binary_expression" || node.type === "binary_operator") {
+        const operator = node.childForFieldName("operator")?.text;
+        if (operator !== "+")
+          return void 0;
+        const left = constantString(node.childForFieldName("left"));
+        const right = constantString(node.childForFieldName("right"));
+        return left !== void 0 && right !== void 0 ? left + right : void 0;
+      }
+      if (node.type === "call_expression" || node.type === "call") {
+        const fn = node.childForFieldName("function");
+        const args2 = node.childForFieldName("arguments")?.namedChildren || [];
+        const property = fn?.childForFieldName(fn.type === "attribute" ? "attribute" : "property");
+        if (!fn || property?.text !== "join")
+          return void 0;
+        const receiver = fn.childForFieldName("object");
+        const list = fn.type === "attribute" ? args2[0] : receiver;
+        const separator = fn.type === "attribute" ? constantString(receiver) : args2[0] ? constantString(args2[0]) : ",";
+        if (separator === void 0 || !list || !["array", "list", "tuple"].includes(list.type))
+          return void 0;
+        const parts = list.namedChildren.map(constantString);
+        return parts.every((part) => part !== void 0) ? parts.join(separator) : void 0;
+      }
+      return void 0;
+    }
+    function position(node) {
+      return { line: node.startPosition.row + 1, column: node.startPosition.column + 1 };
+    }
+    var PYTHON_SERIALIZERS = /* @__PURE__ */ new Set(["json.dumps", "str", "repr", "pickle.dumps", "yaml.dump", "yaml.safe_dump", "urllib.parse.urlencode", "base64.b64encode"]);
+    var SCRIPT_SERIALIZERS = /* @__PURE__ */ new Set(["JSON.stringify", "Object.entries", "Object.keys", "Object.values", "String", "Buffer.from", "btoa", "querystring.stringify", "URLSearchParams"]);
+    function flowsIntoCall(node, isTarget) {
+      for (let current = node.parent; current; current = current.parent) {
+        if (/statement|declaration|definition|^program$|^module$|^block$/.test(current.type) && !/expression/.test(current.type))
+          return false;
+        if ((current.type === "call" || current.type === "call_expression" || current.type === "new_expression") && isTarget(current))
+          return true;
+      }
+      return false;
+    }
+    function hasDescendant(node, predicate) {
+      let found = false;
+      (0, codeCapabilities_1.walk)(node, (child) => {
+        if (!found && child !== node && predicate(child))
+          found = true;
+      });
+      return found;
+    }
+    function exfiltrationThreat(facts) {
+      const source = facts.credentialSources[0] || facts.envDump;
+      const sink = facts.networkCalls[0];
+      if (!source || !sink)
+        return void 0;
+      return {
+        ruleId: "sec_credential_exfiltration",
+        severity: "critical",
+        ...position(sink.node),
+        source: source.text,
+        sink: sink.callee,
+        message: `Reads ${source.text} and sends data over the network (${sink.callee}) in the same file. Credentials or the whole environment can leave the machine.`
+      };
+    }
+    function pythonCallee(node, aliases) {
+      if (!node)
+        return void 0;
+      if (node.type === "call") {
+        const fn = node.childForFieldName("function");
+        const args2 = node.childForFieldName("arguments")?.namedChildren || [];
+        if (fn?.text === "__import__" && args2[0]) {
+          const name = constantString(args2[0]);
+          return name ? (0, codeCapabilities_1.normalizeModule)(name) : void 0;
+        }
+        if (fn?.text === "getattr" && args2.length >= 2) {
+          const base = pythonCallee(args2[0], aliases);
+          const attribute = constantString(args2[1]);
+          return base && attribute ? `${base}.${attribute}` : void 0;
+        }
+        return void 0;
+      }
+      if (node.type === "attribute") {
+        const object = pythonCallee(node.childForFieldName("object"), aliases);
+        const attribute = node.childForFieldName("attribute")?.text;
+        return object && attribute ? `${object}.${attribute}` : void 0;
+      }
+      const path6 = (0, codeCapabilities_1.dottedPath)(node);
+      return path6 ? (0, codeCapabilities_1.resolve)(path6, aliases) : void 0;
+    }
+    function pythonDynamicAliases(root, aliases) {
+      (0, codeCapabilities_1.walk)(root, (node) => {
+        if (node.type !== "assignment")
+          return;
+        const left = node.childForFieldName("left");
+        const right = node.childForFieldName("right");
+        if (left?.type !== "identifier" || right?.type !== "call")
+          return;
+        const target = pythonCallee(right, aliases);
+        if (target)
+          aliases.set(left.text, target);
+      });
+    }
+    var PYTHON_NETWORK = codeCapabilities_1.PYTHON_SINKS.network;
+    var PYTHON_EXEC = /* @__PURE__ */ new Set(["exec", "eval", "compile", "builtins.exec", "builtins.eval"]);
+    var PYTHON_SHELL = codeCapabilities_1.PYTHON_SINKS.shell;
+    function isPythonNetworkCall(node, aliases) {
+      if (node.type !== "call")
+        return false;
+      const callee = pythonCallee(node.childForFieldName("function"), aliases);
+      return Boolean(callee && (PYTHON_NETWORK.has(callee) || /^(?:requests|httpx)\.\w+$/.test(callee)));
+    }
+    function analyzePythonThreats(root) {
+      const aliases = (0, codeCapabilities_1.pythonAliases)(root);
+      pythonDynamicAliases(root, aliases);
+      const facts = { credentialSources: [], networkCalls: [], threats: [] };
+      (0, codeCapabilities_1.walk)(root, (node) => {
+        const constant2 = (0, codeCapabilities_1.isStringNode)(node) || node.type === "binary_operator" || node.type === "call" || node.type === "concatenated_string" ? constantString(node) : void 0;
+        if (constant2 && CREDENTIAL_PATH.test(constant2))
+          facts.credentialSources.push({ text: constant2, node });
+        if (node.type === "attribute" || node.type === "identifier") {
+          const parent2 = node.parent;
+          if (pythonCallee(node, aliases) === "os.environ" && parent2?.type !== "subscript" && parent2?.type !== "keyword_argument" && parent2?.type !== "dictionary_splat" && !(parent2?.type === "attribute" && ["get", "setdefault", "pop"].includes(parent2.childForFieldName("attribute")?.text)) && !(node.type === "identifier" && parent2?.type === "attribute") && flowsIntoCall(node, (call) => {
+            const callee2 = pythonCallee(call.childForFieldName("function"), aliases);
+            return Boolean(callee2 && (PYTHON_SERIALIZERS.has(callee2) || isPythonNetworkCall(call, aliases)));
+          })) {
+            facts.envDump = facts.envDump || { text: "the whole environment (os.environ)", node };
+          }
+        }
+        if (node.type !== "call")
+          return;
+        const callee = pythonCallee(node.childForFieldName("function"), aliases);
+        if (!callee)
+          return;
+        if (isPythonNetworkCall(node, aliases))
+          facts.networkCalls.push({ callee, node });
+        const args2 = node.childForFieldName("arguments");
+        if (PYTHON_EXEC.has(callee) && args2 && hasDescendant(args2, (child) => isPythonNetworkCall(child, aliases))) {
+          facts.threats.push({
+            ruleId: "sec_remote_code_execution",
+            severity: "critical",
+            ...position(node),
+            source: "a network download",
+            sink: callee,
+            message: `Executes code downloaded at runtime (${callee} of a network response). Whoever controls that URL controls this machine.`
+          });
+        }
+        if (PYTHON_SHELL.has(callee) && args2) {
+          const command = constantString(args2.namedChildren[0]);
+          if (command && (DOWNLOAD_TO_SHELL.test(command) || REVERSE_SHELL.test(command))) {
+            facts.threats.push({
+              ruleId: "sec_remote_code_execution",
+              severity: "critical",
+              ...position(node),
+              source: "a remote download or shell",
+              sink: callee,
+              message: `Runs a shell command that pipes a download into a shell or opens a remote shell (${callee}).`
+            });
+          }
+        }
+      });
+      const exfil = exfiltrationThreat(facts);
+      return exfil ? [...facts.threats, exfil] : facts.threats;
+    }
+    var SCRIPT_NETWORK = codeCapabilities_1.SCRIPT_SINKS.network;
+    var SCRIPT_SHELL = codeCapabilities_1.SCRIPT_SINKS.shell;
+    function scriptCallee(node, aliases) {
+      const path6 = (0, codeCapabilities_1.dottedPath)(node);
+      return path6 ? (0, codeCapabilities_1.resolve)(path6, aliases) : void 0;
+    }
+    function isScriptNetworkCall(node, aliases) {
+      if (node.type !== "call_expression" && node.type !== "new_expression")
+        return false;
+      const callee = scriptCallee(node.childForFieldName(node.type === "call_expression" ? "function" : "constructor"), aliases);
+      return Boolean(callee && SCRIPT_NETWORK.has(callee));
+    }
+    function analyzeScriptThreats(root) {
+      const aliases = (0, codeCapabilities_1.scriptAliases)(root);
+      const facts = { credentialSources: [], networkCalls: [], threats: [] };
+      (0, codeCapabilities_1.walk)(root, (node) => {
+        const constant2 = ["string", "template_string", "binary_expression", "call_expression"].includes(node.type) ? constantString(node) : void 0;
+        if (constant2 && CREDENTIAL_PATH.test(constant2))
+          facts.credentialSources.push({ text: constant2, node });
+        if (node.type === "member_expression" && (0, codeCapabilities_1.dottedPath)(node) === "process.env") {
+          const parent2 = node.parent;
+          const accessed = (parent2?.type === "member_expression" || parent2?.type === "subscript_expression") && parent2.childForFieldName("object")?.id === node.id;
+          const passedOn = parent2?.type === "spread_element" || parent2?.type === "pair" && parent2.childForFieldName("key")?.text === "env";
+          const serialized = flowsIntoCall(node, (call) => {
+            const callee2 = scriptCallee(call.childForFieldName(call.type === "call_expression" ? "function" : "constructor"), aliases);
+            return Boolean(callee2 && (SCRIPT_SERIALIZERS.has(callee2) || isScriptNetworkCall(call, aliases)));
+          });
+          if (!accessed && !passedOn && serialized)
+            facts.envDump = facts.envDump || { text: "the whole environment (process.env)", node };
+        }
+        if (node.type !== "call_expression" && node.type !== "new_expression")
+          return;
+        const callee = scriptCallee(node.childForFieldName(node.type === "call_expression" ? "function" : "constructor"), aliases);
+        if (!callee)
+          return;
+        if (isScriptNetworkCall(node, aliases))
+          facts.networkCalls.push({ callee, node });
+        const args2 = node.childForFieldName("arguments");
+        if ((callee === "eval" || callee === "Function") && args2 && hasDescendant(args2, (child) => isScriptNetworkCall(child, aliases))) {
+          facts.threats.push({
+            ruleId: "sec_remote_code_execution",
+            severity: "critical",
+            ...position(node),
+            source: "a network download",
+            sink: callee,
+            message: `Executes code downloaded at runtime (${callee} of a network response). Whoever controls that URL controls this machine.`
+          });
+        }
+        if (SCRIPT_SHELL.has(callee) && args2) {
+          const command = constantString(args2.namedChildren[0]);
+          if (command && (DOWNLOAD_TO_SHELL.test(command) || REVERSE_SHELL.test(command))) {
+            facts.threats.push({
+              ruleId: "sec_remote_code_execution",
+              severity: "critical",
+              ...position(node),
+              source: "a remote download or shell",
+              sink: callee,
+              message: `Runs a shell command that pipes a download into a shell or opens a remote shell (${callee}).`
+            });
+          }
+        }
+      });
+      const exfil = exfiltrationThreat(facts);
+      return exfil ? [...facts.threats, exfil] : facts.threats;
+    }
+    function analyzeShellThreats(content) {
+      const threats = [];
+      const lines = content.split(/\r?\n/);
+      let credential;
+      let network;
+      lines.forEach((raw, index2) => {
+        const line = raw.replace(/(^|\s)#.*$/, "$1");
+        if (!line.trim())
+          return;
+        if (DOWNLOAD_TO_SHELL.test(line) || REVERSE_SHELL.test(line)) {
+          threats.push({
+            ruleId: "sec_remote_code_execution",
+            severity: "critical",
+            line: index2 + 1,
+            column: 1,
+            source: "a remote download or shell",
+            sink: "shell",
+            message: "Pipes downloaded or decoded content into a shell, or opens a remote shell."
+          });
+        }
+        const credentialMatch = line.split(/\s+/).find((token) => CREDENTIAL_PATH.test(token.replace(/^["'$({]+|["')}]+$/g, "")));
+        if (credentialMatch && !credential)
+          credential = { text: credentialMatch, line: index2 + 1 };
+        const networkMatch = SHELL_NETWORK.exec(line);
+        if (networkMatch && !network)
+          network = { text: networkMatch[0], line: index2 + 1 };
+      });
+      if (credential && network) {
+        threats.push({
+          ruleId: "sec_credential_exfiltration",
+          severity: "critical",
+          line: network.line,
+          column: 1,
+          source: credential.text,
+          sink: network.text,
+          message: `Reads ${credential.text} and sends data over the network (${network.text}) in the same script.`
+        });
+      }
+      return threats;
+    }
+    function scanCodeForThreats2(filePath, content) {
+      if (SHELL_EXTENSIONS.has(extensionOf(filePath)))
+        return analyzeShellThreats(content);
+      const grammar = (0, parser_1.grammarForPath)(filePath);
+      if (grammar !== "python" && grammar !== "typescript")
+        return [];
+      const tree = (0, parser_1.parseWithLoadedGrammar)(grammar, content);
+      if (!tree)
+        return [];
+      try {
+        if ((0, codeCapabilities_1.hasSyntaxError)(tree.rootNode))
+          return [];
+        return grammar === "python" ? analyzePythonThreats(tree.rootNode) : analyzeScriptThreats(tree.rootNode);
+      } finally {
+        tree.delete();
+      }
+    }
+  }
+});
+
 // ../packages/core/dist/repository/index.js
 var require_repository = __commonJS({
   "../packages/core/dist/repository/index.js"(exports2) {
@@ -59216,6 +59552,7 @@ var require_repository = __commonJS({
       for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.CODE_THREAT_RULE_IDS = exports2.scanCodeForThreats = exports2.loadCodeCapabilityGrammars = exports2.analyzeCodeCapabilities = void 0;
     __exportStar(require_types6(), exports2);
     __exportStar(require_confidence2(), exports2);
     __exportStar(require_analyzer2(), exports2);
@@ -59225,7 +59562,20 @@ var require_repository = __commonJS({
     __exportStar(require_discovery(), exports2);
     __exportStar(require_contentDiscovery(), exports2);
     __exportStar(require_closure(), exports2);
-    __exportStar(require_codeCapabilities(), exports2);
+    var codeCapabilities_1 = require_codeCapabilities();
+    Object.defineProperty(exports2, "analyzeCodeCapabilities", { enumerable: true, get: function() {
+      return codeCapabilities_1.analyzeCodeCapabilities;
+    } });
+    Object.defineProperty(exports2, "loadCodeCapabilityGrammars", { enumerable: true, get: function() {
+      return codeCapabilities_1.loadCodeCapabilityGrammars;
+    } });
+    var codeThreats_1 = require_codeThreats();
+    Object.defineProperty(exports2, "scanCodeForThreats", { enumerable: true, get: function() {
+      return codeThreats_1.scanCodeForThreats;
+    } });
+    Object.defineProperty(exports2, "CODE_THREAT_RULE_IDS", { enumerable: true, get: function() {
+      return codeThreats_1.CODE_THREAT_RULE_IDS;
+    } });
   }
 });
 
@@ -140869,6 +141219,8 @@ function getRiskExplanation(ruleId) {
   if (ruleId === "sec_rag_injection") return "Raw retrieval queries can let untrusted content steer context selection or poison model inputs.";
   if (ruleId === "sec_unbounded_persona") return "Unbounded role-play prompts can weaken instruction hierarchy and make policy bypass easier.";
   if (ruleId.startsWith("MCP-")) return "MCP configuration may expose tools, credentials, or execution capability beyond the agent workflow trust boundary.";
+  if (ruleId === "sec_credential_exfiltration") return "An agent that runs this script sends SSH keys, cloud credentials, tokens or the whole environment to a remote host.";
+  if (ruleId === "sec_remote_code_execution") return "Code fetched at run time executes with the agent's permissions; whoever controls the URL controls the machine.";
   return "This pattern weakens prompt reliability, auditability, or downstream safety controls.";
 }
 function lineLooksRelevant(line, ruleId) {
@@ -141019,7 +141371,9 @@ var SUPPORTED_EXTENSIONS = [
   ".yml",
   ".yaml",
   ".md",
-  ".txt"
+  ".txt",
+  ".sh",
+  ".bash"
 ];
 var SUPPORTED_MARKDOWN_PROMPT_FILES = /* @__PURE__ */ new Set([
   "skill.md",
@@ -141075,6 +141429,44 @@ var DEFAULT_IGNORE_PATTERNS = [
   "**/test_parse.*"
 ];
 var MAX_FILE_SIZE_BYTES = 1024 * 1024;
+var SCRIPT_ONLY_EXTENSIONS = /* @__PURE__ */ new Set([".sh", ".bash"]);
+function codeThreatResult(filePath, content, activeSuppressions, inlineSuppressions) {
+  const lines = content.split(/\r?\n/);
+  const findings = (0, import_core2.scanCodeForThreats)(filePath, content).map((threat) => {
+    const suppression = (0, import_core2.isFindingSuppressed)(threat.ruleId, filePath, activeSuppressions);
+    const inlineSuppressed = isInlineSuppressed(threat.ruleId, threat.line, inlineSuppressions);
+    const recommendation = threat.ruleId === "sec_credential_exfiltration" ? "Remove the credential read or the upload. A helper script should read only the one key it needs, from an environment variable, and send it only to that service." : "Do not execute downloaded code. Install a pinned, checksummed package from a registry instead.";
+    return {
+      rule_id: threat.ruleId,
+      category: "security",
+      severity: threat.severity,
+      line: threat.line,
+      column: threat.column,
+      message: threat.message,
+      fix: recommendation,
+      owasp_ref: (0, import_core2.owaspRefForRule)(threat.ruleId),
+      owasp: (0, import_core2.owaspRefForRule)(threat.ruleId),
+      recommendation,
+      evidence: (lines[threat.line - 1] || "").trim().slice(0, 220),
+      confidence: (0, import_core2.findingConfidence)(threat.ruleId),
+      docs_url: getRuleDocsUrl(threat.ruleId),
+      why: `${threat.source} reaches ${threat.sink}.`,
+      risk: getRiskExplanation(threat.ruleId),
+      waived: Boolean(suppression || inlineSuppressed),
+      suppression_reason: suppression?.reason || (inlineSuppressed ? "Inline promptsonar-ignore comment" : void 0),
+      suppression_source: suppression?.source || (inlineSuppressed ? "inline" : void 0)
+    };
+  });
+  if (findings.length === 0) return void 0;
+  return {
+    filePath,
+    overall_score: scoreFromFindings(findings),
+    status: statusFromFindings(findings),
+    pillar_scores: computePillarScores(findings),
+    findings_count: findings.length,
+    findings
+  };
+}
 function getLanguageForExt(ext) {
   switch (ext) {
     case ".py":
@@ -141097,6 +141489,7 @@ function getLanguageForExt(ext) {
   }
 }
 async function scanFiles(targetPath, options) {
+  await (0, import_core2.loadCodeCapabilityGrammars)();
   const results = [];
   let activeSuppressions = [];
   for (const suppressionFile of findSuppressionFiles(targetPath, options.waiverFile)) {
@@ -141154,7 +141547,7 @@ async function scanFiles(targetPath, options) {
           continue;
         }
       }
-      const prompts = await (0, import_core2.parseFile)({ filePath, content, language });
+      const prompts = SCRIPT_ONLY_EXTENSIONS.has(ext) ? [] : await (0, import_core2.parseFile)({ filePath, content, language });
       for (const prompt of prompts) {
         const evalResult = (0, import_core2.evaluatePrompt)(
           { text: prompt.text, language, context: { filePath } }
@@ -141206,6 +141599,8 @@ async function scanFiles(targetPath, options) {
           findings: scanFindings
         });
       }
+      const threats = codeThreatResult(filePath, content, activeSuppressions, inlineSuppressions);
+      if (threats) results.push(threats);
     } catch (err2) {
       if (options.verbose) {
         console.warn(`[PromptSonar] Skipping ${filePath}: ${err2}`);
@@ -141241,7 +141636,8 @@ async function scanFileContent(filePath, content, options) {
         return results;
       }
     }
-    const prompts = await (0, import_core2.parseFile)({ filePath, content, language });
+    await (0, import_core2.loadCodeCapabilityGrammars)();
+    const prompts = SCRIPT_ONLY_EXTENSIONS.has(ext) ? [] : await (0, import_core2.parseFile)({ filePath, content, language });
     for (const prompt of prompts) {
       const evalResult = (0, import_core2.evaluatePrompt)({ text: prompt.text, language, context: { filePath } });
       const scanFindings = evalResult.findings.map((f) => {
@@ -141291,6 +141687,8 @@ async function scanFileContent(filePath, content, options) {
         findings: scanFindings
       });
     }
+    const threats = codeThreatResult(filePath, content, activeSuppressions, inlineSuppressions);
+    if (threats) results.push(threats);
   } catch (err2) {
     if (options.verbose) {
       console.warn(`[PromptSonar] Skipping ${filePath}: ${err2}`);

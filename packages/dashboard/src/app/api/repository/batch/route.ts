@@ -136,11 +136,11 @@ export async function POST(request: Request) {
         report = closureReport.report;
         scanResults = closureReport.scanResults;
       } else {
+        // Syntax-tree capability and threat detection need grammars loaded before the synchronous scan.
+        await loadCodeCapabilityGrammars();
         scanResults = Array.isArray(body?.scanResults)
           ? (body.scanResults as ScanResult[]).map(reportScanResult) as unknown as RepositoryScanResult[]
           : scanUploadedFiles(bounded.files);
-        // Syntax-tree capability detection needs its grammars loaded before the synchronous analysis.
-        await loadCodeCapabilityGrammars();
         report = analyzeRepositoryExecutionFromFiles(
           REPORT_ROOT,
           bounded.files,

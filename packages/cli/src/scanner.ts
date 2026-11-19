@@ -19,6 +19,8 @@ import {
     McpFinding,
     normalizeMcpFindingContextual,
     scanContentForSecrets,
+    scanCodeForThreats,
+    loadCodeCapabilityGrammars,
     findingConfidence,
     owaspRefForRule,
     inferArtifactKind,
@@ -152,6 +154,12 @@ function getRiskExplanation(ruleId: string): string {
     }
     if (ruleId === 'sec_unbounded_access') {
         return 'Over-broad tool or data access gives an agent more authority than the task requires.';
+    }
+    if (ruleId === 'sec_credential_exfiltration') {
+        return 'An agent that runs this script sends SSH keys, cloud credentials, tokens or the whole environment to a remote host.';
+    }
+    if (ruleId === 'sec_remote_code_execution') {
+        return 'Code fetched at run time executes with the agent\'s permissions; whoever controls the URL controls the machine.';
     }
     if (ruleId === 'sec_rag_injection') {
         return 'Raw retrieval queries can let untrusted content steer context selection or poison model inputs.';
@@ -595,7 +603,11 @@ const SUPPORTED_EXTENSIONS = [
     '.prompt', '.ai', '.chat',
     '.json', '.yml', '.yaml',
     '.md', '.txt',
+    // Shell scripts are read only for script threats and hardcoded secrets.
+    '.sh', '.bash',
 ];
+
+const SCRIPT_ONLY_EXTENSIONS = new Set(['.sh', '.bash']);
 
 const SUPPORTED_MARKDOWN_PROMPT_FILES = new Set([
     'skill.md',
@@ -980,6 +992,9 @@ export async function scanFiles(targetPath: string, options: {
     maxFileSizeBytes?: number;
 }): Promise<ScanResult[]> {
     const results: ScanResult[] = [];
+    // Script threat detection parses Python and JS/TS synchronously once the
+    // grammars are loaded.
+    await loadCodeCapabilityGrammars();
     const scanSummary: ScanSummary = {
         files_scanned: 0,
         files_skipped: 0,
@@ -1062,7 +1077,7 @@ export async function scanFiles(targetPath: string, options: {
                 }
             }
 
-            const prompts = await parseFile({ filePath, content, language });
+            const prompts = SCRIPT_ONLY_EXTENSIONS.has(ext) ? [] : await parseFile({ filePath, content, language });
             const fileFindings: ScanFinding[] = [];
 
             for (const prompt of prompts) {
@@ -1172,6 +1187,40 @@ export async function scanFiles(targetPath: string, options: {
                     why: secretFindingWhy(secret.name, artifactKind, executionIntent),
                     risk: getRiskExplanation('sec_owasp_llm02_pii'),
                     docs_url: getRuleDocsUrl('sec_owasp_llm02_pii'),
+                    waived: Boolean(configSuppression || inlineSuppressed),
+                    artifactKind,
+                    executionIntent,
+                    suppression_reason: configSuppression?.reason || (inlineSuppressed ? 'Inline promptsonar-ignore comment' : undefined),
+                    suppression_source: configSuppression?.source || (inlineSuppressed ? 'inline' : undefined),
+                });
+            }
+
+            // Script behaviour: credential exfiltration, download-and-execute.
+            const contentLines = content.split(/\r?\n/);
+            for (const threat of scanCodeForThreats(filePath, content)) {
+                const configSuppression = isFindingSuppressed(threat.ruleId, filePath, activeSuppressions);
+                const inlineSuppressed = isInlineSuppressed(threat.ruleId, threat.line, inlineSuppressions);
+                const severity = displayedSeverityForArtifact(threat.severity, 'security', artifactKind, executionIntent);
+                const recommendation = threat.ruleId === 'sec_credential_exfiltration'
+                    ? 'Remove the credential read or the upload. A helper script should read only the one key it needs, from an environment variable, and send it only to that service.'
+                    : 'Do not execute downloaded code. Install a pinned, checksummed package from a registry instead.';
+                fileFindings.push({
+                    rule_id: threat.ruleId,
+                    category: 'security',
+                    severity,
+                    ...severityContext(threat.severity, severity, artifactKind, executionIntent),
+                    line: threat.line,
+                    column: threat.column,
+                    message: threat.message,
+                    fix: recommendation,
+                    recommendation,
+                    owasp_ref: owaspRefForRule(threat.ruleId),
+                    owasp: owaspRefForRule(threat.ruleId),
+                    evidence: (contentLines[threat.line - 1] || '').trim().slice(0, 220),
+                    confidence: findingConfidence(threat.ruleId),
+                    why: `${threat.source} reaches ${threat.sink}.`,
+                    risk: getRiskExplanation(threat.ruleId),
+                    docs_url: getRuleDocsUrl(threat.ruleId),
                     waived: Boolean(configSuppression || inlineSuppressed),
                     artifactKind,
                     executionIntent,

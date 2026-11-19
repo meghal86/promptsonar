@@ -28,6 +28,8 @@ import {
     type CanonicalIssueContext,
     findingConfidence,
     owaspRefForRule,
+    scanCodeForThreats,
+    loadCodeCapabilityGrammars,
 } from '@promptsonar/core';
 import { formatToSarif } from '@promptsonar/core/dist/formatter/sarif';
 
@@ -88,6 +90,8 @@ function getRiskExplanation(ruleId: string): string {
     if (ruleId === 'sec_rag_injection') return 'Raw retrieval queries can let untrusted content steer context selection or poison model inputs.';
     if (ruleId === 'sec_unbounded_persona') return 'Unbounded role-play prompts can weaken instruction hierarchy and make policy bypass easier.';
     if (ruleId.startsWith('MCP-')) return 'MCP configuration may expose tools, credentials, or execution capability beyond the agent workflow trust boundary.';
+    if (ruleId === 'sec_credential_exfiltration') return 'An agent that runs this script sends SSH keys, cloud credentials, tokens or the whole environment to a remote host.';
+    if (ruleId === 'sec_remote_code_execution') return 'Code fetched at run time executes with the agent\'s permissions; whoever controls the URL controls the machine.';
     return 'This pattern weakens prompt reliability, auditability, or downstream safety controls.';
 }
 
@@ -243,6 +247,7 @@ function computePillarScores(findings: ScanFinding[]): Record<string, number> {
 const SUPPORTED_EXTENSIONS = [
     '.ts', '.tsx', '.js', '.jsx', '.py', '.rs', '.java', '.go', '.cs',
     '.prompt', '.ai', '.chat', '.json', '.yml', '.yaml', '.md', '.txt',
+    '.sh', '.bash',
 ];
 
 const SUPPORTED_MARKDOWN_PROMPT_FILES = new Set([
@@ -302,6 +307,55 @@ const DEFAULT_IGNORE_PATTERNS = [
 
 const MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
+// Shell scripts are read only for script threats.
+const SCRIPT_ONLY_EXTENSIONS = new Set(['.sh', '.bash']);
+
+/** Script behaviour (credential exfiltration, download-and-execute), as the CLI reports it. */
+function codeThreatResult(
+    filePath: string,
+    content: string,
+    activeSuppressions: Suppression[],
+    inlineSuppressions: Map<number, Set<string>>,
+): ScanResult | undefined {
+    const lines = content.split(/\r?\n/);
+    const findings: ScanFinding[] = scanCodeForThreats(filePath, content).map(threat => {
+        const suppression = isFindingSuppressed(threat.ruleId, filePath, activeSuppressions);
+        const inlineSuppressed = isInlineSuppressed(threat.ruleId, threat.line, inlineSuppressions);
+        const recommendation = threat.ruleId === 'sec_credential_exfiltration'
+            ? 'Remove the credential read or the upload. A helper script should read only the one key it needs, from an environment variable, and send it only to that service.'
+            : 'Do not execute downloaded code. Install a pinned, checksummed package from a registry instead.';
+        return {
+            rule_id: threat.ruleId,
+            category: 'security',
+            severity: threat.severity,
+            line: threat.line,
+            column: threat.column,
+            message: threat.message,
+            fix: recommendation,
+            owasp_ref: owaspRefForRule(threat.ruleId),
+            owasp: owaspRefForRule(threat.ruleId),
+            recommendation,
+            evidence: (lines[threat.line - 1] || '').trim().slice(0, 220),
+            confidence: findingConfidence(threat.ruleId),
+            docs_url: getRuleDocsUrl(threat.ruleId),
+            why: `${threat.source} reaches ${threat.sink}.`,
+            risk: getRiskExplanation(threat.ruleId),
+            waived: Boolean(suppression || inlineSuppressed),
+            suppression_reason: suppression?.reason || (inlineSuppressed ? 'Inline promptsonar-ignore comment' : undefined),
+            suppression_source: suppression?.source || (inlineSuppressed ? 'inline' : undefined),
+        };
+    });
+    if (findings.length === 0) return undefined;
+    return {
+        filePath,
+        overall_score: scoreFromFindings(findings),
+        status: statusFromFindings(findings),
+        pillar_scores: computePillarScores(findings),
+        findings_count: findings.length,
+        findings,
+    };
+}
+
 function getLanguageForExt(ext: string): string {
     switch (ext) {
         case '.py': return 'python';
@@ -319,6 +373,8 @@ export async function scanFiles(targetPath: string, options: {
     diffOnly?: boolean;
     waiverFile?: string;
 }): Promise<ScanResult[]> {
+    // Script threat detection parses Python and JS/TS once grammars are loaded.
+    await loadCodeCapabilityGrammars();
     const results: ScanResult[] = [];
 
     let activeSuppressions: Suppression[] = [];
@@ -388,7 +444,7 @@ export async function scanFiles(targetPath: string, options: {
                 }
             }
 
-            const prompts = await parseFile({ filePath, content, language });
+            const prompts = SCRIPT_ONLY_EXTENSIONS.has(ext) ? [] : await parseFile({ filePath, content, language });
 
             for (const prompt of prompts) {
                 const evalResult: RuleResult = evaluatePrompt(
@@ -443,6 +499,8 @@ export async function scanFiles(targetPath: string, options: {
                     findings: scanFindings,
                 });
             }
+            const threats = codeThreatResult(filePath, content, activeSuppressions, inlineSuppressions);
+            if (threats) results.push(threats);
         } catch (err) {
             if (options.verbose) {
                 console.warn(`[PromptSonar] Skipping ${filePath}: ${err}`);
@@ -487,7 +545,8 @@ export async function scanFileContent(filePath: string, content: string, options
             }
         }
 
-        const prompts = await parseFile({ filePath, content, language });
+        await loadCodeCapabilityGrammars();
+        const prompts = SCRIPT_ONLY_EXTENSIONS.has(ext) ? [] : await parseFile({ filePath, content, language });
         for (const prompt of prompts) {
             const evalResult: RuleResult = evaluatePrompt({ text: prompt.text, language, context: { filePath } });
             const scanFindings: ScanFinding[] = evalResult.findings.map(f => {
@@ -538,6 +597,8 @@ export async function scanFileContent(filePath: string, content: string, options
                 findings: scanFindings,
             });
         }
+        const threats = codeThreatResult(filePath, content, activeSuppressions, inlineSuppressions);
+        if (threats) results.push(threats);
     } catch (err) {
         if (options.verbose) {
             console.warn(`[PromptSonar] Skipping ${filePath}: ${err}`);

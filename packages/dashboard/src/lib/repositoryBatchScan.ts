@@ -5,6 +5,7 @@ import {
   loadCodeCapabilityGrammars,
   evaluateRepositoryWithClosure,
   evaluatePrompt,
+  scanCodeForThreats,
   InMemoryRepositorySource,
   NON_PRODUCTION_PROVENANCE,
   type Finding,
@@ -168,6 +169,28 @@ export function scanUploadedFiles(files: RepositoryUploadFile[]): RepositoryScan
     });
     findings.push(...ruleResult.findings.map(finding => mapFinding(content, finding)));
 
+    // Script behaviour, as the CLI and Action report it. Needs grammars loaded
+    // (loadCodeCapabilityGrammars) before this synchronous scan.
+    const lines = content.split(/\r?\n/);
+    for (const threat of scanCodeForThreats(file.path, content)) {
+      findings.push({
+        rule_id: threat.ruleId,
+        category: 'security',
+        severity: threat.severity,
+        line: threat.line,
+        column: threat.column,
+        message: threat.message,
+        fix: '',
+        recommendation: '',
+        evidence: (lines[threat.line - 1] || '').trim().slice(0, 220),
+        evidenceKind: 'direct',
+        confidence: 'HIGH',
+        why: `${threat.source} reaches ${threat.sink}.`,
+        risk: threat.message,
+        waived: false,
+      });
+    }
+
     if (findings.length > 0) {
       results.push({ filePath, findings });
     }
@@ -211,9 +234,9 @@ export async function buildUploadedRepositoryReport(
     return { report: closure.report, scanResults: closure.report.findings };
   }
 
-  const scanResults = scanUploadedFiles(files);
-  // Syntax-tree capability detection needs its grammars loaded before the synchronous analysis.
+  // Syntax-tree capability and threat detection need grammars loaded before the synchronous scan.
   await loadCodeCapabilityGrammars();
+  const scanResults = scanUploadedFiles(files);
   const report = analyzeRepositoryExecutionFromFiles(
     REPORT_ROOT,
     files,

@@ -15,7 +15,9 @@ export function owaspRefForRule(ruleId: string): string {
         ruleId === 'sec_homoglyph_evasion' ||
         ruleId === 'sec_zero_width_injection'
     ) return 'LLM01';
-    if (ruleId.startsWith('sec_owasp_llm02')) return 'LLM02';
+    if (ruleId.startsWith('sec_owasp_llm02') || ruleId === 'sec_credential_exfiltration') return 'LLM02';
+    // LLM03 Supply Chain: code fetched and executed at runtime is unverified.
+    if (ruleId === 'sec_remote_code_execution') return 'LLM03';
     // LLM06 Excessive Agency covers untrusted input reaching privileged
     // execution, tools acting without approval, and over-broad tool/data access.
     if (

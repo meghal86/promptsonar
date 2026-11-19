@@ -23,6 +23,8 @@ export function humanRuleName(ruleId: string): string {
         sec_unbounded_persona: 'Unbounded Persona',
         sec_unbounded_access: 'Unbounded Tool Access',
         sec_rag_injection: 'RAG Injection',
+        sec_credential_exfiltration: 'Credential Exfiltration',
+        sec_remote_code_execution: 'Remote Code Execution',
     };
     if (MAP[ruleId]) return MAP[ruleId];
     return ruleId.replace(/^sec_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

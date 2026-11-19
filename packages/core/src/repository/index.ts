@@ -7,4 +7,11 @@ export * from './source';
 export * from './discovery';
 export * from './contentDiscovery';
 export * from './closure';
-export * from './codeCapabilities';
+export {
+    analyzeCodeCapabilities,
+    loadCodeCapabilityGrammars,
+    type CodeCapability,
+    type CodeCapabilityAnalysis,
+    type CodeCapabilityEvidence,
+} from './codeCapabilities';
+export { scanCodeForThreats, CODE_THREAT_RULE_IDS, type CodeThreat, type CodeThreatRuleId } from './codeThreats';

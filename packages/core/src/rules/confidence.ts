@@ -25,6 +25,9 @@ export function findingConfidence(
         ruleId === 'sec_zero_width_injection' ||
         ruleId === 'sec_homoglyph_evasion' ||
         ruleId.startsWith('sec_owasp_llm02') ||
+        // Script threats come from resolved code structure, not keywords.
+        ruleId === 'sec_credential_exfiltration' ||
+        ruleId === 'sec_remote_code_execution' ||
         ruleId.startsWith('MCP-')
     ) return 'HIGH';
     if (evidenceKind === 'absence') return 'LOW';
