@@ -601,7 +601,8 @@ function firstUnnegatedMatch(text: string, patterns: RegExp[]): { text: string; 
     return best;
 }
 
-const TRANSFER_VERB = /\b(?:send|upload|post|paste|share|email|forward|submit|transmit|include|attach|copy)\b/i;
+// English, plus the common verbs in Spanish, Portuguese, French, German and Italian.
+const TRANSFER_VERB = /(?:^|[^\p{L}])(?:send|upload|post|paste|share|email|forward|submit|transmit|include|attach|copy|env[ií]a|enviar|envie|envoie|envoyer|sende|senden|schicke|invia|inviare|manda|mandar)(?![\p{L}])/iu;
 const DESTINATION = /https?:\/\/\S+|\b[\w.+-]+@[\w-]+\.[\w.-]+\b/i;
 const PROHIBITION = /\b(?:never|do\s+not|don't|must\s+not|should\s+not|shouldn't)\b/i;
 
@@ -651,7 +652,36 @@ function analyzeShellThreats(content: string): CodeThreat[] {
             message: `Reads ${credential.text} and sends data over the network (${network.text}) in the same script.`,
         });
     }
+    const cloneThenRun = unpinnedCloneThenRun(lines);
+    if (cloneThenRun) threats.push(cloneThenRun);
     return threats;
+}
+
+const GIT_CLONE = /\bgit\s+clone\b[^\n]*?((?:https?:\/\/|git@)[^\s"'`]+)/;
+// --branch v1.2.3 / -b 2.0, or a later checkout/reset to a commit or version tag.
+const PINNED_CLONE = /\s(?:--branch|-b)\s+["']?v?\d+(?:\.\d+)+/;
+const PINNED_CHECKOUT = /\bgit\s+(?:-C\s+\S+\s+)?(?:checkout|reset\s+--hard)\s+["']?(?:[0-9a-f]{7,40}|v?\d+(?:\.\d+)+)\b/;
+// Running something from the checkout: ./install.sh, bash setup.sh, make install, pip install .
+const RUNS_SCRIPT = /(?:^|[;&|(]\s*|\bthen\s+)(?:sudo\s+)?(?:\.\/[\w.-]+|(?:ba|z)?sh\s+["']?[\w./$-]+\.sh\b|make\s+install\b|pip3?\s+install\s+(?:-e\s+)?\.(?:\s|$))/;
+
+/**
+ * A script that clones a third-party repository at whatever its default branch
+ * holds and then runs code from it (its installer): whoever controls that
+ * repository decides what runs. Pinning a tag or commit removes the finding.
+ */
+function unpinnedCloneThenRun(lines: string[]): CodeThreat | undefined {
+    const code = lines.map(raw => raw.replace(/(^|\s)#.*$/, '$1'));
+    const cloneIndex = code.findIndex(line => GIT_CLONE.test(line));
+    if (cloneIndex < 0) return undefined;
+    if (PINNED_CLONE.test(code[cloneIndex]) || code.some(line => PINNED_CHECKOUT.test(line))) return undefined;
+    const runsIndex = code.findIndex((line, index) => index >= cloneIndex && RUNS_SCRIPT.test(line.trim()));
+    if (runsIndex < 0) return undefined;
+    const url = GIT_CLONE.exec(code[cloneIndex])?.[1] || 'a git repository';
+    return {
+        ruleId: 'sec_unpinned_remote_install', severity: 'high', line: runsIndex + 1, column: 1,
+        source: url, sink: code[runsIndex].trim().slice(0, 80),
+        message: `Clones ${url} at its latest commit and runs code from it; whoever controls that repository controls what this script installs.`,
+    };
 }
 
 /**

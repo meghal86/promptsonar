@@ -5,6 +5,9 @@ const INJECTION_SOURCES: RegExp[] = [
     /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
     /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
     /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+    // "Ignore previous instructions" in Spanish, Portuguese, French, German, Italian.
+    /\bignor(?:a|e|ez|ar|er|en)\s+(?:todas\s+|todos\s+|toutes\s+|tutte\s+)?(?:las|os|as|les|le)\s+(?:instrucciones|instruções|instrucoes|instructions|istruzioni)\s+(?:anteriores|previas|précédentes|precedentes|precedenti)\b/i,
+    /\bignorier(?:e|en)\s+(?:sie\s+)?(?:alle\s+)?(?:vorherigen|bisherigen|früheren)\s+anweisungen\b/i,
     // \b: "new personal access token" is not "new persona". "task", "role" and
     // "command" need attack framing: "create a new role" (IAM), "a new task
     // head" (ML) and "run a new query" are ordinary documentation.
@@ -38,7 +41,10 @@ const INJECTION_SOURCES: RegExp[] = [
     // Output redirection / exfiltration
     /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|(?:your\s+|the\s+)?(?:api\s+key|secret|password)|instructions)/i,
     /send\s+to\s+(email|http|url|server)/i,
-    /exfiltrate|leak\s+(system\s+prompt|instructions)/i,
+    // An instruction to exfiltrate, at the start of a sentence or list item;
+    // "secrets were exfiltrated" in an incident write-up is not one.
+    /(?:^|[.!?:;]\s+)\s*(?:[-*]\s+)?exfiltrate\s+(?:the|all|any|every|their|user|users'?|this|these|those|secrets?|data|credentials?|keys?|tokens?|files?|env)\b/im,
+    /\bleak\s+(?:the\s+|your\s+)?(?:system\s+prompt|instructions)\b/i,
     /reveal\s+(system\s+prompt|instructions)/i,
 
     // Encoding / obfuscation attempts: encoded instructions, or decoding

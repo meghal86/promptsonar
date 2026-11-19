@@ -22426,6 +22426,9 @@ var require_owasp_patterns = __commonJS({
       /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
       /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
       /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+      // "Ignore previous instructions" in Spanish, Portuguese, French, German, Italian.
+      /\bignor(?:a|e|ez|ar|er|en)\s+(?:todas\s+|todos\s+|toutes\s+|tutte\s+)?(?:las|os|as|les|le)\s+(?:instrucciones|instruções|instrucoes|instructions|istruzioni)\s+(?:anteriores|previas|précédentes|precedentes|precedenti)\b/i,
+      /\bignorier(?:e|en)\s+(?:sie\s+)?(?:alle\s+)?(?:vorherigen|bisherigen|früheren)\s+anweisungen\b/i,
       // \b: "new personal access token" is not "new persona". "task", "role" and
       // "command" need attack framing: "create a new role" (IAM), "a new task
       // head" (ML) and "run a new query" are ordinary documentation.
@@ -22456,7 +22459,10 @@ var require_owasp_patterns = __commonJS({
       // Output redirection / exfiltration
       /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|(?:your\s+|the\s+)?(?:api\s+key|secret|password)|instructions)/i,
       /send\s+to\s+(email|http|url|server)/i,
-      /exfiltrate|leak\s+(system\s+prompt|instructions)/i,
+      // An instruction to exfiltrate, at the start of a sentence or list item;
+      // "secrets were exfiltrated" in an incident write-up is not one.
+      /(?:^|[.!?:;]\s+)\s*(?:[-*]\s+)?exfiltrate\s+(?:the|all|any|every|their|user|users'?|this|these|those|secrets?|data|credentials?|keys?|tokens?|files?|env)\b/im,
+      /\bleak\s+(?:the\s+|your\s+)?(?:system\s+prompt|instructions)\b/i,
       /reveal\s+(system\s+prompt|instructions)/i,
       // Encoding / obfuscation attempts: encoded instructions, or decoding
       // something and then acting on it. Plain "decode text" (a programming
@@ -22983,7 +22989,7 @@ var require_pii = __commonJS({
     function looksLikePlaceholder(value) {
       return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b|\.{3}|\u2026/i.test(value);
     }
-    var PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme)\.(?:com|org|net|edu|io)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@/i;
+    var PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme|evil|attacker|target|victim|exploit|hacker)\.(?:com|org|net|edu|io)$|@(?:[\w-]+\.)*[\w-]+\.(?:local|internal|lan|corp)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@/i;
     function realEmail(text) {
       for (const match of text.matchAll(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g)) {
         if (!PLACEHOLDER_EMAIL.test(match[0]))
@@ -59829,7 +59835,7 @@ var require_codeThreats = __commonJS({
       }
       return best;
     }
-    var TRANSFER_VERB = /\b(?:send|upload|post|paste|share|email|forward|submit|transmit|include|attach|copy)\b/i;
+    var TRANSFER_VERB = /(?:^|[^\p{L}])(?:send|upload|post|paste|share|email|forward|submit|transmit|include|attach|copy|env[ií]a|enviar|envie|envoie|envoyer|sende|senden|schicke|invia|inviare|manda|mandar)(?![\p{L}])/iu;
     var DESTINATION = /https?:\/\/\S+|\b[\w.+-]+@[\w-]+\.[\w.-]+\b/i;
     var PROHIBITION = /\b(?:never|do\s+not|don't|must\s+not|should\s+not|shouldn't)\b/i;
     function proseCredentialExfiltration(content) {
@@ -59884,7 +59890,35 @@ var require_codeThreats = __commonJS({
           message: `Reads ${credential.text} and sends data over the network (${network.text}) in the same script.`
         });
       }
+      const cloneThenRun = unpinnedCloneThenRun(lines);
+      if (cloneThenRun)
+        threats.push(cloneThenRun);
       return threats;
+    }
+    var GIT_CLONE = /\bgit\s+clone\b[^\n]*?((?:https?:\/\/|git@)[^\s"'`]+)/;
+    var PINNED_CLONE = /\s(?:--branch|-b)\s+["']?v?\d+(?:\.\d+)+/;
+    var PINNED_CHECKOUT = /\bgit\s+(?:-C\s+\S+\s+)?(?:checkout|reset\s+--hard)\s+["']?(?:[0-9a-f]{7,40}|v?\d+(?:\.\d+)+)\b/;
+    var RUNS_SCRIPT = /(?:^|[;&|(]\s*|\bthen\s+)(?:sudo\s+)?(?:\.\/[\w.-]+|(?:ba|z)?sh\s+["']?[\w./$-]+\.sh\b|make\s+install\b|pip3?\s+install\s+(?:-e\s+)?\.(?:\s|$))/;
+    function unpinnedCloneThenRun(lines) {
+      const code = lines.map((raw) => raw.replace(/(^|\s)#.*$/, "$1"));
+      const cloneIndex = code.findIndex((line) => GIT_CLONE.test(line));
+      if (cloneIndex < 0)
+        return void 0;
+      if (PINNED_CLONE.test(code[cloneIndex]) || code.some((line) => PINNED_CHECKOUT.test(line)))
+        return void 0;
+      const runsIndex = code.findIndex((line, index2) => index2 >= cloneIndex && RUNS_SCRIPT.test(line.trim()));
+      if (runsIndex < 0)
+        return void 0;
+      const url2 = GIT_CLONE.exec(code[cloneIndex])?.[1] || "a git repository";
+      return {
+        ruleId: "sec_unpinned_remote_install",
+        severity: "high",
+        line: runsIndex + 1,
+        column: 1,
+        source: url2,
+        sink: code[runsIndex].trim().slice(0, 80),
+        message: `Clones ${url2} at its latest commit and runs code from it; whoever controls that repository controls what this script installs.`
+      };
     }
     function scanCodeForThreats2(filePath, content) {
       if (SHELL_EXTENSIONS.has(extensionOf(filePath)))

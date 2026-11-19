@@ -128,6 +128,9 @@ describe('sec_owasp_llm02_pii: email addresses', () => {
             'Add `mailto=you@example.com` to get into the polite pool.',
             '| email@university.edu |',
             'User-Agent: MyCompany admin@mycompany.com',
+            '{"new_email":"attacker@evil.com"}',
+            'email=victim@target.com',
+            '| vCenter 6.x | `administrator@vsphere.local` |',
         ]) expect(pii(text), text).toEqual([]);
     });
 

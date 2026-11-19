@@ -104,7 +104,7 @@ function looksLikePlaceholder(value: string): boolean {
 
 // Documentation addresses: reserved domains (RFC 2606/6761) and the usual
 // placeholders (you@lab.org, your.email@institution.edu, user@domain.com).
-const PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme)\.(?:com|org|net|edu|io)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@/i;
+const PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme|evil|attacker|target|victim|exploit|hacker)\.(?:com|org|net|edu|io)$|@(?:[\w-]+\.)*[\w-]+\.(?:local|internal|lan|corp)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@/i;
 
 /** An email in a prompt is contact information, not a credential: MEDIUM, and only when it is not a placeholder. */
 function realEmail(text: string): string | undefined {

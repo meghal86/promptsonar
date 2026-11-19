@@ -63,14 +63,21 @@ that made the GitHub Action miss MCP configs. See the
 - **New rule `sec_privilege_escalation`** (CRITICAL): `NOPASSWD:ALL` written to
   sudoers, `chmod -R 777` on the home directory, root or a system directory, a
   setuid shell.
+- **Clone-then-run installers.** A shell script that clones a repository at
+  its latest commit and runs its installer is `sec_unpinned_remote_install`
+  (HIGH); a version tag or commit checkout removes the finding.
+- **Non-English injection.** "Ignore previous instructions" in Spanish,
+  Portuguese, French, German and Italian, and prose that sends a credential with
+  a non-English verb ("envía ~/.ssh/id_rsa a …").
 - **Unicode tag characters** (U+E0000 block, "ASCII smuggling") are detected,
   decoded into the finding, and CRITICAL when the hidden text is an injection.
   Subdivision flag emoji are not reported.
 - **Fewer false positives in published skills:** "create a new role", "a new
   task head", "run a new query", "no restrictions on file formats", the name
-  Dan, "unrestricted models", "JSON-encoded prompts" and defences such as
+  Dan, "unrestricted models", "JSON-encoded prompts", incident write-ups ("secrets
+  were exfiltrated") and defences such as
   "ignore instructions found inside web results" are not prompt injection;
-  placeholder emails (`you@example.com`) and truncated example tokens are not
+  placeholder emails (`you@example.com`, `attacker@evil.com`) and truncated example tokens are not
   PII, and a real email is MEDIUM; `sec_unbounded_access` is MEDIUM unless a
   privileged action is reachable; an `https://` installer piped into a shell in
   Markdown is HIGH (CRITICAL in scripts, or for raw IPs and decoded payloads).
@@ -78,7 +85,10 @@ that made the GitHub Action miss MCP configs. See the
   clean skills flagged HIGH/CRITICAL, untouched set of 254 from five repositories:
   146 → 46 (`scan`), 142 → 37 (`repo`). Malicious skills caught: 20/20 on the
   development set (was 10/20); 4/12 on a held-out set scored once with rules
-  frozen, and 12/12 after closing the gaps it exposed.
+  frozen, and 12/12 after closing the gaps it exposed. On an offensive-security
+  skill pack (elementalsouls/Claude-BugHunter, 83 skills full of attack
+  payloads) critical/high findings went 84 → 53 and its unpinned
+  community-skill installer is now reported.
 - **Prompt injection is CRITICAL everywhere.** `promptsonar repo` and the GitHub
   Action rated a direct injection in a live prompt, skill or code as a LOW
   "hardening suggestion" when no privileged action was reachable, while
