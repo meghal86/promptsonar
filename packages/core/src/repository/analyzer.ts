@@ -2455,6 +2455,41 @@ function capIssueConfidence(
     };
 }
 
+// Rules whose match is itself an attack string (not a capability). With direct
+// evidence in a live prompt, skill or agent instruction they are a
+// vulnerability and keep the rule's severity, as `promptsonar scan` reports it.
+// Without this they fell through to the capability model, which rated an
+// "ignore all previous instructions" in a production prompt as a LOW
+// hardening suggestion, so the GitHub Action's fail-on gate never fired.
+const PROMPT_INJECTION_RULE_IDS = new Set([
+    'sec_owasp_llm01_injection',
+    'sec_unicode_injection_obfuscation',
+    'sec_zero_width_injection',
+]);
+
+function directInjectionAssessment(
+    finding: RepositoryScanFinding,
+    provenance: RepositoryProvenance,
+    evidenceIds: string[],
+): VerdictInput['directVulnerability'] {
+    const live = !NON_PRODUCTION_PROVENANCE.has(provenance) && !isReferenceOrTestFinding(finding);
+    if (!PROMPT_INJECTION_RULE_IDS.has(finding.rule_id) || !live || finding.evidenceKind === 'absence') {
+        return { present: false };
+    }
+    return {
+        present: true,
+        ruleId: finding.rule_id,
+        confidence: 'probable',
+        // No extra cap: the rule's own severity applies (CRITICAL for injection).
+        severityCeiling: 'critical',
+        basis: {
+            kind: 'direct_evidence',
+            directEvidenceClass: 'prompt_injection',
+            evidenceIds: evidenceIds.length > 0 ? evidenceIds : ['prompt-injection-direct-evidence'],
+        },
+    };
+}
+
 function contextualizeRepositoryFinding(args: {
     finding: RepositoryScanFinding;
     artifact?: RepositoryArtifact;
@@ -2511,7 +2546,7 @@ function contextualizeRepositoryFinding(args: {
         controlState,
         contextAvailability: controlState === 'unavailable' ? 'unavailable' : 'complete',
         intent: intentAssessment.expected === true ? 'expected' : intentAssessment.expected === false ? 'unexpected' : 'unknown',
-        directVulnerability: { present: false },
+        directVulnerability: directInjectionAssessment(finding, provenance, evidenceIds),
         sourceToSinkBasis,
     };
     const referenceSecurityObservation = nonProductionReference

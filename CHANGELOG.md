@@ -30,6 +30,11 @@ that made the GitHub Action miss MCP configs. See the
   docs and test files keep their LOW display severity but now carry
   `original_severity` and `severity_note`, and the terminal output says what
   the severity would be in a live prompt.
+- **Prompt injection is CRITICAL everywhere.** `promptsonar repo` and the GitHub
+  Action rated a direct injection in a live prompt, skill or code as a LOW
+  "hardening suggestion" when no privileged action was reachable, while
+  `promptsonar scan` said CRITICAL; the Action's `fail-on` gate never fired on it.
+  All three now agree.
 - Finding **confidence is separate from severity** (HIGH for exact signatures,
   MEDIUM for keyword matches, LOW for absence-based findings).
 - One rule-to-OWASP table shared by the CLI, SARIF and the Action.

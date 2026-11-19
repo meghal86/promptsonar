@@ -140,6 +140,15 @@ describe('GitHub Action fail-on default', () => {
         expect(run.status, log).toBe(0);
     }, 180_000);
 
+    // The gate counts the repository report, which used to rate a prompt
+    // injection with no reachable privileged action as LOW, so fail-on never
+    // fired on one. It now keeps the rule's CRITICAL, as `promptsonar scan` does.
+    it('fails fail-on: critical on a prompt injection embedded in code', () => {
+        const { run, log, outputFile } = runCommittedBundle({ 'INPUT_FAIL-ON': 'critical' }, { 'agent.py': LANGUAGE_FIXTURES['agent.py'] });
+        expect(Number(readOutputs(outputFile).critical_count), log).toBeGreaterThan(0);
+        expect(run.status, log).not.toBe(0);
+    }, 180_000);
+
     it('still fails the build when fail-on: critical is set', () => {
         const { run, log } = runCommittedBundle({ 'INPUT_FAIL-ON': 'critical' }, UNSAFE_MCP);
         expect(run.status, log).not.toBe(0);

@@ -98,6 +98,7 @@ export type VulnerabilityBasis =
             | 'authorization_wildcard'
             | 'direct_command_injection'
             | 'exposed_private_key'
+            | 'prompt_injection'
             | 'other';
         evidenceIds: string[];
     };

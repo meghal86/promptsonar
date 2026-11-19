@@ -56633,6 +56633,29 @@ ${finding.message || ""}`).forEach((action5) => actions.add(action5));
         definition: (0, confidence_1.repositoryConfidenceDefinition)(ceiling)
       };
     }
+    var PROMPT_INJECTION_RULE_IDS = /* @__PURE__ */ new Set([
+      "sec_owasp_llm01_injection",
+      "sec_unicode_injection_obfuscation",
+      "sec_zero_width_injection"
+    ]);
+    function directInjectionAssessment(finding, provenance, evidenceIds) {
+      const live = !types_1.NON_PRODUCTION_PROVENANCE.has(provenance) && !isReferenceOrTestFinding(finding);
+      if (!PROMPT_INJECTION_RULE_IDS.has(finding.rule_id) || !live || finding.evidenceKind === "absence") {
+        return { present: false };
+      }
+      return {
+        present: true,
+        ruleId: finding.rule_id,
+        confidence: "probable",
+        // No extra cap: the rule's own severity applies (CRITICAL for injection).
+        severityCeiling: "critical",
+        basis: {
+          kind: "direct_evidence",
+          directEvidenceClass: "prompt_injection",
+          evidenceIds: evidenceIds.length > 0 ? evidenceIds : ["prompt-injection-direct-evidence"]
+        }
+      };
+    }
     function contextualizeRepositoryFinding(args2) {
       const { finding, artifact, provenance, pathIds, reachablePaths, evidenceIds } = args2;
       const artifactKind = artifactKindForContext(artifact, provenance);
@@ -56672,7 +56695,7 @@ ${finding.evidence || ""}`, {
         controlState,
         contextAvailability: controlState === "unavailable" ? "unavailable" : "complete",
         intent: intentAssessment.expected === true ? "expected" : intentAssessment.expected === false ? "unexpected" : "unknown",
-        directVulnerability: { present: false },
+        directVulnerability: directInjectionAssessment(finding, provenance, evidenceIds),
         sourceToSinkBasis
       };
       const referenceSecurityObservation = nonProductionReference && isReferenceOrTestFinding(finding) && finding.category === "security";
