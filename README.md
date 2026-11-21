@@ -496,6 +496,8 @@ Research workflow and launch evidence live in `research/repo-scan/` and `researc
 
 PromptSonar includes public benchmark fixtures under `benchmarks/`, a responsible benchmark methodology in [docs/benchmark.md](docs/benchmark.md), and a current public repository benchmark in [docs/benchmark-report.md](docs/benchmark-report.md).
 
+The [agent-skill scanner benchmark](benchmarks/skills/) compares PromptSonar with five other skill scanners on generated attacks and on hundreds of published skills pinned to commits, including the measures where another tool does better.
+
 Current public benchmark snapshot:
 
 - 20 public AI/agent repositories scanned locally.
