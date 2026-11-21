@@ -15,8 +15,32 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import * as path from 'path';
 import { isMcpConfigFile, isScannable } from '../shared/detection';
+import { isScriptFile, threatDiagnostics } from '../shared/threats';
 // @ts-ignore
-import { parseFile, evaluatePrompt, auditMcpConfig } from '@promptsonar/core';
+import { parseFile, evaluatePrompt, auditMcpConfig, scanCodeForThreats, loadCodeCapabilityGrammars, CODE_THREAT_REMEDIATION } from '@promptsonar/core';
+
+// Python and JS/TS grammars load asynchronously once; behaviour checks on
+// scripts wait for them. Shell scripts and instructions need no grammar.
+const grammarsReady: Promise<void> = Promise.resolve(loadCodeCapabilityGrammars()).catch((error: unknown) => {
+    console.error('PromptSonar: could not load parser grammars; script checks for Python/JS are off.', error);
+});
+
+/** Diagnostics for credential exfiltration, download-and-execute and other script/instruction threats. */
+async function scriptThreatDiagnostics(filePath: string, text: string): Promise<Diagnostic[]> {
+    await grammarsReady;
+    try {
+        return threatDiagnostics(scanCodeForThreats(filePath, text), CODE_THREAT_REMEDIATION).map(item => ({
+            severity: item.level === 'error' ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
+            range: { start: { line: item.line, character: item.character }, end: { line: item.line, character: Number.MAX_VALUE } },
+            message: item.message,
+            source: 'PromptSonar',
+            code: item.code,
+        }));
+    } catch (error) {
+        console.error('PromptSonar script check failed:', error);
+        return [];
+    }
+}
 
 const connection = createConnection(ProposedFeatures.all);
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
@@ -66,7 +90,13 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const uri = textDocument.uri;
     const filePath = filePathFromUri(uri);
 
-    if (Buffer.byteLength(text, 'utf8') > DEFAULT_MAX_FILE_SIZE_BYTES || !isScannable(filePath, text)) {
+    const tooLarge = Buffer.byteLength(text, 'utf8') > DEFAULT_MAX_FILE_SIZE_BYTES;
+    if (!tooLarge && !isScannable(filePath, text) && isScriptFile(filePath)) {
+        // A script that is not a prompt file: behaviour checks only, as the CLI does.
+        connection.sendDiagnostics({ uri: textDocument.uri, diagnostics: await scriptThreatDiagnostics(filePath, text) });
+        return;
+    }
+    if (tooLarge || !isScannable(filePath, text)) {
         connection.sendDiagnostics({ uri: textDocument.uri, diagnostics: [] });
         connection.sendNotification('promptsonar/scanResult', { score: null, file: uri, tokenEstimate: 0 });
         return;
@@ -188,6 +218,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
             }
         }
 
+        diagnostics.push(...await scriptThreatDiagnostics(filePath, text));
         connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
 
         // Compute average score for status bar

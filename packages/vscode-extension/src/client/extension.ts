@@ -102,7 +102,9 @@ const PROMPTSONAR_DOCUMENT_SELECTOR: vscode.DocumentSelector = [
     { scheme: 'file', language: 'plaintext' },
     { scheme: 'file', language: 'json' },
     { scheme: 'file', language: 'yaml' },
-    { scheme: 'file', pattern: '**/*.{prompt,md,txt,json,yml,yaml}' },
+    { scheme: 'file', language: 'shellscript' },
+    { scheme: 'file', pattern: '**/*.{prompt,md,mdc,txt,json,yml,yaml,mjs,cjs,sh,bash,zsh}' },
+    { scheme: 'file', pattern: '**/.cursorrules' },
 ];
 
 const SUPPORTED_MARKDOWN_PROMPT_FILES = new Set([

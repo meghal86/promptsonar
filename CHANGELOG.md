@@ -149,6 +149,16 @@ Measured on five public MCP repositories: critical/high findings went from 80
 - No longer rescans its own previous reports in a reused workspace (which ran
   out of memory), and skips files over 1 MB like the CLI.
 
+### Editors (VS Code and Cursor)
+- The extensions report the same script and instruction threats as the CLI
+  (credential exfiltration, download-and-execute, destructive commands,
+  privilege escalation, approval bypass, concealment) for Python, JS/TS
+  (including `.mjs`/`.cjs`) and shell scripts. Quoted attack examples show as
+  warnings that say why.
+- `SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules` and `.mdc`
+  rule files are read as agent instructions; they were skipped unless they
+  contained a chat-style `system:` line.
+
 ### CLI
 - Piped output (`--json`, `--sarif` into `jq` etc.) is no longer truncated at
   64 KB.

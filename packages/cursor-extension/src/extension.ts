@@ -5,6 +5,7 @@ import {
   analyzeCursorDocument,
   applyCursorFixAndDiff,
   cursorDiagnosticsForFindings,
+  cursorGrammarsReady,
   cursorSarif,
   isCursorSupportedFile,
   type CursorAnalysisResult,
@@ -170,6 +171,10 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   if (vscode.window.activeTextEditor) scheduleScan(vscode.window.activeTextEditor.document);
+  // Python/JS script checks need the parser grammars; rescan once they load.
+  void cursorGrammarsReady.then(() => {
+    if (vscode.window.activeTextEditor) scheduleScan(vscode.window.activeTextEditor.document);
+  });
 
   const activeScan = async (): Promise<CursorAnalysisResult | undefined> => {
     const document = vscode.window.activeTextEditor?.document;

@@ -1,6 +1,9 @@
 import {
   auditMcpConfig,
+  CODE_THREAT_REMEDIATION,
   evaluatePrompt,
+  loadCodeCapabilityGrammars,
+  scanCodeForThreats,
   formatToSarif,
   normalizeMcpAuditResultContextual,
   type Finding,
@@ -11,6 +14,7 @@ import {
   isMcpConfigFile,
   isPromptFile,
   isScannable,
+  isScriptFile,
   pickWorstWorkflowFinding,
   reportText,
   workflowDiffReportBetween,
@@ -51,7 +55,32 @@ export interface CursorDiagnostic {
 }
 
 export function isCursorSupportedFile(filePath: string, content?: string): boolean {
-  return isScannable(filePath, content);
+  return isScannable(filePath, content) || isScriptFile(filePath);
+}
+
+/**
+ * Python and JS/TS grammars for the script checks load once, asynchronously;
+ * until then those checks return nothing (shell and instruction checks need no
+ * grammar). Awaited at activation.
+ */
+export const cursorGrammarsReady: Promise<void> = Promise.resolve(loadCodeCapabilityGrammars()).catch(() => undefined);
+
+/** Credential exfiltration, download-and-execute and other script/instruction threats, as the CLI reports them. */
+function threatFindings(filePath: string, content: string): Finding[] {
+  try {
+    const lines = content.split(/\r?\n/);
+    return scanCodeForThreats(filePath, content).map((threat) => ({
+      rule_id: threat.ruleId,
+      category: 'security' as const,
+      severity: threat.severity,
+      explanation: `${threat.message} (line ${threat.line})`,
+      suggested_fix: CODE_THREAT_REMEDIATION[threat.ruleId],
+      matchedText: (lines[threat.line - 1] || '').trim(),
+      ...(threat.quotedExample ? { severityNote: 'Quoted as an example of an attack, so reported as MEDIUM.' } : {}),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function scoreFindings(findings: Finding[]): number {
@@ -110,8 +139,9 @@ export function analyzeCursorDocument(
   if (isMcpConfigFile(filePath)) {
     mcpAudit = normalizeMcpAuditResultContextual(auditMcpConfig(filePath, content));
     findings = mcpFindings(mcpAudit);
-  } else if (isPromptFile(filePath, content)) {
-    findings = evaluatePrompt({ text: content, context: { filePath } }).findings;
+  } else {
+    if (isPromptFile(filePath, content)) findings = evaluatePrompt({ text: content, context: { filePath } }).findings;
+    findings = [...findings, ...threatFindings(filePath, content)];
   }
 
   const score = scoreFindings(findings);

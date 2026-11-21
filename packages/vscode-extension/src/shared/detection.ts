@@ -18,6 +18,8 @@ const STRUCTURED_EXT = /\.(ya?ml|json)$/i;
 const PROMPT_NAME_HINT =
     /(prompt|agent|system|instruction|persona|llm|copilot|claude|cursor|skill|\.ai)/i;
 const PROMPT_CONTENT_HINT = /(^|\n)\s*(system|assistant|user|developer)\s*:/i;
+// Agent instruction files read by coding agents: always prompts, whatever their content.
+const AGENT_INSTRUCTION_FILE = /(^|[\\/])(?:skills?|agents?|claude|gemini|copilot-instructions)\.md$|(^|[\\/])\.cursorrules$|\.mdc$/i;
 
 const MCP_FILE_PATTERNS: RegExp[] = [
     /(^|[\\/])mcp\.(json|ya?ml)$/i,
@@ -40,6 +42,7 @@ export function isMcpConfigFile(filePath: string): boolean {
 export function isPromptFileName(filePath: string): boolean {
     const lower = filePath.toLowerCase();
     if (PROMPT_SUFFIXES.some((s) => lower.endsWith(s))) return true;
+    if (AGENT_INSTRUCTION_FILE.test(lower)) return true;
     if (STRUCTURED_EXT.test(lower) && PROMPT_NAME_HINT.test(baseName(lower))) return true;
     return false;
 }

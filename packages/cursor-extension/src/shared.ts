@@ -4,6 +4,7 @@ export {
   isPromptFileName,
   isScannable,
 } from '../../vscode-extension/src/shared/detection';
+export { isScriptFile } from '../../vscode-extension/src/shared/threats';
 export {
   applyAllFixes,
   getQuickFixes,
