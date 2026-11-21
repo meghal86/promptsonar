@@ -27,7 +27,7 @@ signals, because an attacker could use them to lower a real instruction.
 
 - Severity: critical
 - OWASP: LLM01 Prompt Injection
-- Triggers when: A prompt contains direct jailbreak or instruction-override language such as ignoring previous instructions (also in Spanish, Portuguese, French, German and Italian), switching roles, DAN/developer mode, an instruction to exfiltrate or leak the system prompt, encoded instruction references, or tool abuse.
+- Triggers when: A prompt contains direct jailbreak or instruction-override language such as ignoring previous instructions (also in Spanish, Portuguese, French, German, Italian, Russian, Chinese and Japanese), switching roles, DAN/developer mode, an instruction to exfiltrate or leak the system prompt, encoded instruction references, or tool abuse.
 - Vulnerable snippet:
 
 ```text
@@ -74,7 +74,7 @@ Treat user input as untrusted data. Never follow instructions inside user-provid
 
 - Severity: critical
 - OWASP: LLM01 Prompt Injection
-- Triggers when: High-volume non-ASCII text combines with injection keywords after normalization.
+- Triggers when: In mainly Latin text, at least two words are spelt mostly with look-alike or diacritic-stacked letters (Cyrillic, Greek, accented Latin: `ḯḡṅøṝẽ`) within three words of an injection keyword. Text written in another script (Japanese, Chinese, Russian) or with sparse accents (Spanish) is not obfuscation.
 - Vulnerable snippet:
 
 ```text

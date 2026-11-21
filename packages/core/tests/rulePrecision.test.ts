@@ -183,3 +183,15 @@ describe('file-level secret scan: documented examples', () => {
         expect(scanContentForSecrets('aws_access_key_id = AKIAIOSFODNN7EXAMPLE').map(match => match.documentedExample)).toEqual([undefined]);
     });
 });
+
+describe('sec_unicode_injection_obfuscation: other scripts and languages are not obfuscation', () => {
+    // Translated skills (everything-claude-code docs/ja-JP, zh-CN, es) that mention prompts.
+    it('Japanese, Chinese, Spanish and Russian text', () => {
+        for (const text of [
+            '- すべてのプロジェクトで `.env` を `.gitignore` に**追加する**。system prompt を変更しない。',
+            'Agent 3：聊天（DanteChatColumn、JustChatPage）— 使用 system prompt 和 instructions。',
+            'Usa el prompt del sistema y revisa las instrucciones de configuración. También está la sección de gestión.',
+            'Системный prompt задаёт поведение модели; инструкции хранятся в конфигурации проекта.',
+        ]) expect(has(text, 'sec_unicode_injection_obfuscation'), text).toBe(false);
+    });
+});

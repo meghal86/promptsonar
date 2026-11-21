@@ -67,6 +67,15 @@ const INJECTION_SOURCES: RegExp[] = [
     /\b(?:call|invoke|run|execute|use|trigger)\s+(?:the\s+)?delete_(?:all_)?users?\b/i
 ];
 
+// Patterns in a non-Latin script run on the original text: the homoglyph step
+// below maps Cyrillic letters to Latin, which would break genuine Russian.
+const NATIVE_SCRIPT_INJECTION_SOURCES: RegExp[] = [
+    // Russian, Chinese and Japanese.
+    /игнорир(?:уй|уйте|овать)\s+(?:все\s+)?(?:предыдущие|прежние|прошлые)\s+(?:инструкции|указания|команды)/i,
+    /忽略(?:之前|以上|先前|前面|所有)(?:的)?(?:所有)?(?:指令|指示|说明|規則|规则)/,
+    /(?:以前|これまで|上記|前)の(?:すべての)?(?:指示|命令|ルール)を(?:すべて)?無視/,
+];
+
 
 // A negator that directly governs the match: "never ignore…", "you must not
 // enter developer mode", "do not follow new instructions", "never, under any
@@ -114,6 +123,32 @@ function isDefensiveMatch(text: string, match: RegExpMatchArray): boolean {
     return DEFENSIVE_LOCATION.test(text.slice((match.index ?? 0) + match[0].length));
 }
 
+// A letter that can disguise a Latin one: Cyrillic, Greek, or non-ASCII Latin
+// (accented or stacked with combining marks).
+const DISGUISING_LETTER = /[\p{Script=Cyrillic}\p{Script=Greek}]|(?![\x00-\x7F])\p{Script=Latin}/u;
+const ALPHABETIC_TOKEN = /^[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{M}]+$/u;
+const INJECTION_KEYWORD = /^(?:ignore|reveal|system|prompt|instructions?|previous|disregard)$/i;
+
+/**
+ * True when at least two words are mostly disguising letters (60%+), they are
+ * under half of the alphabetic words (the text is mainly Latin), and one sits
+ * within three words of an injection keyword.
+ */
+function hasObfuscatedInjectionTokens(text: string): boolean {
+    const tokens = (text.match(/[\p{L}\p{M}]+/gu) || []).filter(token => ALPHABETIC_TOKEN.test(token));
+    if (tokens.length === 0) return false;
+    const disguised = tokens.map(token => {
+        const letters = Array.from(token).filter(char => /\p{L}/u.test(char));
+        const marks = Array.from(token).length - letters.length;
+        const odd = letters.filter(char => DISGUISING_LETTER.test(char)).length;
+        return letters.length >= 3 && (odd + marks) / letters.length >= 0.6;
+    });
+    const count = disguised.filter(Boolean).length;
+    if (count < 2 || count / tokens.length >= 0.5) return false;
+    return disguised.some((isDisguised, index) => isDisguised
+        && tokens.slice(Math.max(0, index - 3), index + 4).some(token => INJECTION_KEYWORD.test(token)));
+}
+
 export function checkOwaspPatterns(input: RuleInput): Finding[] {
     const findings: Finding[] = [];
 
@@ -150,12 +185,14 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
     normalizedText = normalizedText.split('').map(char => homoglyphMap[char] || char).join('');
 
     // D. Lowercase for pattern matching
-    const searchResult = normalizedText.toLowerCase();
+    const searchText = normalizedText.toLowerCase();
 
     // 1. Check every occurrence of each source; report the first one that is
     // not the object of a prohibition ("never ignore previous instructions").
-    for (const source of INJECTION_SOURCES) {
+    const originalLower = input.text.toLowerCase();
+    for (const source of [...INJECTION_SOURCES, ...NATIVE_SCRIPT_INJECTION_SOURCES]) {
         const regex = new RegExp(source.source, source.flags.includes('g') ? source.flags : `${source.flags}g`);
+        const searchResult = NATIVE_SCRIPT_INJECTION_SOURCES.includes(source) ? originalLower : searchText;
         let match: RegExpExecArray | null = null;
         // A match on a line that quotes or discusses an attack (a table of
         // injection patterns, an incident write-up) is kept as MEDIUM.
@@ -219,23 +256,16 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
         });
     }
 
-    // Heuristic: many non-ASCII letters near injection words. Only letters and
-    // combining marks count (diacritic-stacked "ḯḡṅøṝẽ" and Cyrillic do);
-    // arrows, dashes, quotes, bullets and emoji, common in docs and connector
-    // instructions, are not obfuscation.
-    const OBFUSCATING_LETTER = /(?![\x00-\x7F])[\p{L}\p{M}]/u;
-    const nonAsciiCount = Array.from(normalizedText).filter(char => OBFUSCATING_LETTER.test(char)).length;
-    const hasInjectionKeyword = /ignore|reveal|prompt|instruction|system/i.test(normalizedText);
-    const obfuscatingSource = OBFUSCATING_LETTER.source;
-    const hasProximity =
-      new RegExp(`${obfuscatingSource}.{0,20}(?:ignore|reveal|system)`, 'iu').test(normalizedText) ||
-      new RegExp(`(?:ignore|reveal|system).{0,20}${obfuscatingSource}`, 'iu').test(normalizedText);
-    if (nonAsciiCount > 10 && hasInjectionKeyword && hasProximity) {
+    // Obfuscation: mostly Latin text in which some words are spelt with
+    // look-alike or diacritic-stacked letters ("ḯḡṅøṝẽ", "ИИИИИИ") next to
+    // injection keywords. Text written in another script (Japanese, Chinese,
+    // Russian) or a language with sparse accents (Spanish) is not obfuscation.
+    if (hasObfuscatedInjectionTokens(input.text)) {
         findings.push({
             rule_id: "sec_unicode_injection_obfuscation",
             category: "security",
             severity: "critical",
-            explanation: 'Potential prompt injection obfuscation detected: High volume of Non-ASCII characters combined with injection keywords.',
+            explanation: 'Potential prompt injection obfuscation detected: words spelt with look-alike or diacritic-stacked letters next to injection keywords.',
             suggested_fix: 'Remove the obfuscated text and rely on standard ASCII or Unicode blocks.',
             penalty_score: 30
         });

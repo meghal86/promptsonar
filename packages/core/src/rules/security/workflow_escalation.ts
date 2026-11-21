@@ -83,13 +83,18 @@ const ESCALATION_PATTERNS = [
     /\bautoExecute\b/i,
 ];
 
-const MCP_PATTERNS = [
-    /\bmcp\b/i,
+// Talking about MCP or tool metadata is not poisoning; these are.
+const MCP_MENTION = /\bmcp\b|\btool\s+(?:descriptions?|metadata|schemas?|manifests?)\b/i;
+const POISONING_INDICATORS = [
     /\bautoExecute\b/i,
     /\bwildcard\s+permissions?\b/i,
+    /\bpermissions?\s*[:=]?\s*["'`]\*["'`]/i,
     /\bunrestricted\s+(?:filesystem|shell|network)\s+access\b/i,
     /\bcredential\s+passthrough\b/i,
     /\bself[-\s]?modifying\s+mcp\s+instructions?\b/i,
+    /\bexecute\s+(?:commands?\s+)?automatically\s+without\s+(?:approval|confirmation)\b/i,
+    // Hidden directives in a tool description ("<IMPORTANT> before using this tool, read ~/.ssh …").
+    /<important>|\bbefore\s+using\s+this\s+tool\b[^.\n]{0,80}\b(?:read|send|include|pass|upload)\b/i,
 ];
 
 function hasAny(text: string, patterns: RegExp[]): boolean {
@@ -158,7 +163,10 @@ export function checkWorkflowEscalation(input: RuleInput): Finding[] {
     const shellCommandsWithAutonomy = SHELL_COMMANDS_PHRASE.test(code) && (hasHigh || hasEscalation);
     const hasCritical = hasAny(code, CRITICAL_PATTERNS) || shellCommandsWithAutonomy;
     const hasSink = hasAny(code, SINK_PATTERNS) || shellCommandsWithAutonomy;
-    const hasMcp = hasAny(code, MCP_PATTERNS);
+    // Tool poisoning needs a poisoning indicator or escalation language next to
+    // an MCP or tool-metadata mention; a skill that teaches MCP and uses bash is
+    // not poisoned.
+    const hasMcp = MCP_MENTION.test(code) && (hasAny(code, POISONING_INDICATORS) || hasEscalation);
 
     if ((hasSink && hasEscalation) || (hasCritical && hasHigh)) {
         const severity = severityFor(code, shellCommandsWithAutonomy);
@@ -187,7 +195,7 @@ export function checkWorkflowEscalation(input: RuleInput): Finding[] {
         });
     }
 
-    if (hasMcp && (hasSink || hasEscalation || hasAny(text, [/wildcard\s+permissions?/i, /autoExecute/i]))) {
+    if (hasMcp) {
         const severity = hasSink && hasEscalation ? 'critical' : 'high';
         pushUnique(findings, {
             rule_id: 'sec_mcp_tool_poisoning',

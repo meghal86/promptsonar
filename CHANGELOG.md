@@ -98,6 +98,16 @@ that made the GitHub Action miss MCP configs. See the
   or prohibitions are MEDIUM; a zero-width space escaping a code fence is not
   reported; model descriptions ("tts-1 ignore instructions"), "with no filter",
   `delete_user(id)` and "Decode params and execute arbitrage" are not injection.
+- **Non-ASCII obfuscation is about disguised words, not other languages.**
+  `sec_unicode_injection_obfuscation` fired on Japanese, Chinese and Spanish
+  translations of skills. It now needs words spelt mostly with look-alike or
+  diacritic-stacked letters, in mainly Latin text, next to injection keywords.
+  "Ignore previous instructions" is now detected in Russian, Chinese and
+  Japanese too (with Spanish, Portuguese, French, German and Italian).
+- **MCP tool poisoning needs a poisoning indicator** (auto-execute, wildcard or
+  unrestricted permissions, credential pass-through, hidden directives in a tool
+  description, or escalation). A skill that teaches MCP development and uses a
+  shell is not poisoned.
 - **Linear-time matching.** A Markdown table separator could make a new pattern
   backtrack exponentially and hang a scan; patterns are now linear, with a
   timing test on hostile input.

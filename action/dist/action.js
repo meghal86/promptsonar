@@ -22567,6 +22567,12 @@ var require_owasp_patterns = __commonJS({
       // Asking for a destructive tool call; the function name in code or docs is not.
       /\b(?:call|invoke|run|execute|use|trigger)\s+(?:the\s+)?delete_(?:all_)?users?\b/i
     ];
+    var NATIVE_SCRIPT_INJECTION_SOURCES = [
+      // Russian, Chinese and Japanese.
+      /игнорир(?:уй|уйте|овать)\s+(?:все\s+)?(?:предыдущие|прежние|прошлые)\s+(?:инструкции|указания|команды)/i,
+      /忽略(?:之前|以上|先前|前面|所有)(?:的)?(?:所有)?(?:指令|指示|说明|規則|规则)/,
+      /(?:以前|これまで|上記|前)の(?:すべての)?(?:指示|命令|ルール)を(?:すべて)?無視/
+    ];
     var NEGATOR = String.raw`(?:never|do\s+not|does\s+not|don'?t|doesn'?t|must\s+not|mustn'?t|should\s+not|shouldn'?t|shall\s+not|cannot|can\s+not|can'?t|will\s+not|won'?t|may\s+not|not\s+to|refuse\s+to|avoid(?:ing)?|under\s+no\s+circumstances|no)`;
     var CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as|or|log|echo|introduce|adopt|assume|create|invent|take|on|use|a|an)`;
     var GOVERNING_NEGATION = new RegExp(String.raw`\b${NEGATOR}\s*(?:,\s*under\s+any\s+circumstances\s*,\s*)?(?:${CONNECTING_WORD}\s+){0,4}$`);
@@ -22591,6 +22597,24 @@ var require_owasp_patterns = __commonJS({
       if (!/^(?:ignore|disregard|forget)\b/.test(match[0]))
         return false;
       return DEFENSIVE_LOCATION.test(text.slice((match.index ?? 0) + match[0].length));
+    }
+    var DISGUISING_LETTER = new RegExp("[\\p{Script=Cyrillic}\\p{Script=Greek}]|(?![\\x00-\\x7F])\\p{Script=Latin}", "u");
+    var ALPHABETIC_TOKEN = /^[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{M}]+$/u;
+    var INJECTION_KEYWORD = /^(?:ignore|reveal|system|prompt|instructions?|previous|disregard)$/i;
+    function hasObfuscatedInjectionTokens(text) {
+      const tokens = (text.match(/[\p{L}\p{M}]+/gu) || []).filter((token) => ALPHABETIC_TOKEN.test(token));
+      if (tokens.length === 0)
+        return false;
+      const disguised = tokens.map((token) => {
+        const letters = Array.from(token).filter((char) => new RegExp("\\p{L}", "u").test(char));
+        const marks = Array.from(token).length - letters.length;
+        const odd = letters.filter((char) => DISGUISING_LETTER.test(char)).length;
+        return letters.length >= 3 && (odd + marks) / letters.length >= 0.6;
+      });
+      const count = disguised.filter(Boolean).length;
+      if (count < 2 || count / tokens.length >= 0.5)
+        return false;
+      return disguised.some((isDisguised, index2) => isDisguised && tokens.slice(Math.max(0, index2 - 3), index2 + 4).some((token) => INJECTION_KEYWORD.test(token)));
     }
     function checkOwaspPatterns(input) {
       const findings = [];
@@ -22667,9 +22691,11 @@ var require_owasp_patterns = __commonJS({
         "\uFF4F": "o"
       };
       normalizedText = normalizedText.split("").map((char) => homoglyphMap[char] || char).join("");
-      const searchResult = normalizedText.toLowerCase();
-      for (const source of INJECTION_SOURCES) {
+      const searchText = normalizedText.toLowerCase();
+      const originalLower = input.text.toLowerCase();
+      for (const source of [...INJECTION_SOURCES, ...NATIVE_SCRIPT_INJECTION_SOURCES]) {
         const regex = new RegExp(source.source, source.flags.includes("g") ? source.flags : `${source.flags}g`);
+        const searchResult = NATIVE_SCRIPT_INJECTION_SOURCES.includes(source) ? originalLower : searchText;
         let match = null;
         let example = null;
         for (const candidate of searchResult.matchAll(regex)) {
@@ -22729,17 +22755,12 @@ var require_owasp_patterns = __commonJS({
           penalty_score: 20
         });
       }
-      const OBFUSCATING_LETTER = /(?![\x00-\x7F])[\p{L}\p{M}]/u;
-      const nonAsciiCount = Array.from(normalizedText).filter((char) => OBFUSCATING_LETTER.test(char)).length;
-      const hasInjectionKeyword = /ignore|reveal|prompt|instruction|system/i.test(normalizedText);
-      const obfuscatingSource = OBFUSCATING_LETTER.source;
-      const hasProximity = new RegExp(`${obfuscatingSource}.{0,20}(?:ignore|reveal|system)`, "iu").test(normalizedText) || new RegExp(`(?:ignore|reveal|system).{0,20}${obfuscatingSource}`, "iu").test(normalizedText);
-      if (nonAsciiCount > 10 && hasInjectionKeyword && hasProximity) {
+      if (hasObfuscatedInjectionTokens(input.text)) {
         findings.push({
           rule_id: "sec_unicode_injection_obfuscation",
           category: "security",
           severity: "critical",
-          explanation: "Potential prompt injection obfuscation detected: High volume of Non-ASCII characters combined with injection keywords.",
+          explanation: "Potential prompt injection obfuscation detected: words spelt with look-alike or diacritic-stacked letters next to injection keywords.",
           suggested_fix: "Remove the obfuscated text and rely on standard ASCII or Unicode blocks.",
           penalty_score: 30
         });
@@ -23666,13 +23687,17 @@ var require_workflow_escalation = __commonJS({
       /\bautonomous\s+(?:agent|execution|mode)\b/i,
       /\bautoExecute\b/i
     ];
-    var MCP_PATTERNS = [
-      /\bmcp\b/i,
+    var MCP_MENTION = /\bmcp\b|\btool\s+(?:descriptions?|metadata|schemas?|manifests?)\b/i;
+    var POISONING_INDICATORS = [
       /\bautoExecute\b/i,
       /\bwildcard\s+permissions?\b/i,
+      /\bpermissions?\s*[:=]?\s*["'`]\*["'`]/i,
       /\bunrestricted\s+(?:filesystem|shell|network)\s+access\b/i,
       /\bcredential\s+passthrough\b/i,
-      /\bself[-\s]?modifying\s+mcp\s+instructions?\b/i
+      /\bself[-\s]?modifying\s+mcp\s+instructions?\b/i,
+      /\bexecute\s+(?:commands?\s+)?automatically\s+without\s+(?:approval|confirmation)\b/i,
+      // Hidden directives in a tool description ("<IMPORTANT> before using this tool, read ~/.ssh …").
+      /<important>|\bbefore\s+using\s+this\s+tool\b[^.\n]{0,80}\b(?:read|send|include|pass|upload)\b/i
     ];
     function hasAny(text, patterns) {
       return patterns.some((pattern) => pattern.test(text));
@@ -23714,7 +23739,7 @@ var require_workflow_escalation = __commonJS({
       const shellCommandsWithAutonomy = executionSignals_1.SHELL_COMMANDS_PHRASE.test(code) && (hasHigh || hasEscalation);
       const hasCritical = hasAny(code, CRITICAL_PATTERNS) || shellCommandsWithAutonomy;
       const hasSink = hasAny(code, SINK_PATTERNS) || shellCommandsWithAutonomy;
-      const hasMcp = hasAny(code, MCP_PATTERNS);
+      const hasMcp = MCP_MENTION.test(code) && (hasAny(code, POISONING_INDICATORS) || hasEscalation);
       if (hasSink && hasEscalation || hasCritical && hasHigh) {
         const severity = severityFor(code, shellCommandsWithAutonomy);
         pushUnique(findings, {
@@ -23737,7 +23762,7 @@ var require_workflow_escalation = __commonJS({
           penalty_score: severity === "critical" ? 40 : 25
         });
       }
-      if (hasMcp && (hasSink || hasEscalation || hasAny(text, [/wildcard\s+permissions?/i, /autoExecute/i]))) {
+      if (hasMcp) {
         const severity = hasSink && hasEscalation ? "critical" : "high";
         pushUnique(findings, {
           rule_id: "sec_mcp_tool_poisoning",
