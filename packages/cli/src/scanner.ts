@@ -20,6 +20,7 @@ import {
     normalizeMcpFindingContextual,
     scanContentForSecrets,
     scanCodeForThreats,
+    QUOTED_EXAMPLE_NOTE,
     CODE_THREAT_REMEDIATION,
     CODE_THREAT_RISK,
     loadCodeCapabilityGrammars,
@@ -1127,6 +1128,7 @@ export async function scanFiles(targetPath: string, options: {
                         category,
                         severity,
                         ...severityContext(f.originalSeverity ?? f.severity, severity, promptArtifactKind, promptExecutionIntent),
+                        ...(f.severityNote ? { severity_note: f.severityNote } : {}),
                         line: evidenceLine,
                         column: evidenceColumn,
                         message,
@@ -1164,14 +1166,16 @@ export async function scanFiles(targetPath: string, options: {
             for (const secret of scanContentForSecrets(content, filePath)) {
                 const configSuppression = isFindingSuppressed('sec_owasp_llm02_pii', filePath, activeSuppressions);
                 const inlineSuppressed = isInlineSuppressed('sec_owasp_llm02_pii', secret.line, inlineSuppressions);
-                const severity = displayedSeverityForArtifact('high', 'security', artifactKind, executionIntent);
+                const secretSeverity = secret.documentedExample ? 'medium' : 'high';
+                const severity = displayedSeverityForArtifact(secretSeverity, 'security', artifactKind, executionIntent);
                 const recommendation = getRecommendationForArtifact('sec_owasp_llm02_pii', '', artifactKind, executionIntent);
                 const message = secretFindingMessage(secret.name, artifactKind, executionIntent);
                 fileFindings.push({
                     rule_id: 'sec_owasp_llm02_pii',
                     category: 'security',
                     severity,
-                    ...severityContext('high', severity, artifactKind, executionIntent),
+                    ...severityContext(secretSeverity, severity, artifactKind, executionIntent),
+                    ...(secret.documentedExample ? { severity_note: `Shown as an example in documentation (labelled as an example, a fake value or a table of credential types). Lowered to MEDIUM; rotate it if it is a real ${secret.name}.` } : {}),
                     line: secret.line,
                     column: secret.column,
                     message,
@@ -1204,6 +1208,7 @@ export async function scanFiles(targetPath: string, options: {
                     category: 'security',
                     severity,
                     ...severityContext(threat.severity, severity, artifactKind, executionIntent),
+                    ...(threat.quotedExample ? { severity_note: QUOTED_EXAMPLE_NOTE } : {}),
                     line: threat.line,
                     column: threat.column,
                     message: threat.message,

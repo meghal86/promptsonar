@@ -29,6 +29,7 @@ import {
     findingConfidence,
     owaspRefForRule,
     scanCodeForThreats,
+    QUOTED_EXAMPLE_NOTE,
     CODE_THREAT_REMEDIATION,
     CODE_THREAT_RISK,
     loadCodeCapabilityGrammars,
@@ -65,6 +66,8 @@ export interface ScanFinding {
     context?: CanonicalIssueContext;
     suppression_reason?: string;
     suppression_source?: string;
+    /** Why the severity is lower than the rule's default (e.g. a quoted attack example). */
+    severity_note?: string;
 }
 
 function getRuleDocsUrl(ruleId: string): string {
@@ -342,6 +345,7 @@ function codeThreatResult(
             waived: Boolean(suppression || inlineSuppressed),
             suppression_reason: suppression?.reason || (inlineSuppressed ? 'Inline promptsonar-ignore comment' : undefined),
             suppression_source: suppression?.source || (inlineSuppressed ? 'inline' : undefined),
+            ...(threat.quotedExample ? { severity_note: QUOTED_EXAMPLE_NOTE } : {}),
         };
     });
     if (findings.length === 0) return undefined;
@@ -468,6 +472,7 @@ export async function scanFiles(targetPath: string, options: {
                     const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions);
                     return {
                         rule_id: f.rule_id,
+                        ...(f.severityNote ? { severity_note: f.severityNote } : {}),
                         category: getCategoryForRule(f.rule_id),
                         severity: f.severity,
                         line: prompt.startLine,
@@ -566,6 +571,7 @@ export async function scanFileContent(filePath: string, content: string, options
                 });
                 return {
                     rule_id: f.rule_id,
+                    ...(f.severityNote ? { severity_note: f.severityNote } : {}),
                     category: getCategoryForRule(f.rule_id),
                     severity: f.severity,
                     line: prompt.startLine,

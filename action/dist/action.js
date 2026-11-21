@@ -22415,17 +22415,107 @@ var require_consistency = __commonJS({
   }
 });
 
+// ../packages/core/dist/rules/quotedExample.js
+var require_quotedExample = __commonJS({
+  "../packages/core/dist/rules/quotedExample.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.QUOTED_EXAMPLE_NOTE = void 0;
+    exports2.isQuotedAttackExample = isQuotedAttackExample;
+    exports2.locate = locate;
+    exports2.withoutQuotedExamples = withoutQuotedExamples;
+    var STRONG_DISCUSSION = /\battackers?\b|\battacker's\b|\battacker-controlled\b|\bvictims?\b|\bmalicious\b|\bexploit(?:s|ed|ing|ation)?\b|\bpoc\b|\bcve-\d{4}-\d+|\bjailbreak(?:s|ing)?\b|\bprompt[- ]injections?\b|\binjection\s+(?:attacks?|patterns?|payloads?|examples?|techniques?)\b|\bexfiltrat(?:ed|ion|es)\b/i;
+    var WEAK_DISCUSSION = /\bpayloads?\b|\bdetect(?:s|ed|ion|ing)?\b|\bindicators?\b|\bred[- ]?flags?\b|\bvulnerab\w*|\bthreat\s+model\w*|\bred[- ]team\w*|\bsmuggling\b|\bphishing\b|\bevad(?:e|es|ing)\b|\bevasion\b|\bobfuscat\w*/i;
+    var PLACEHOLDER_ATTACK_HOST = /\b(?:attacker|evil|malicious|hacker|pwn(?:ed)?|exploit|badguy)[\w-]*\.(?:com|net|org|io|tld|xyz|example|site|host|me)\b|(?:\/\/|@)attacker[\w.-]*(?=[/:\s'"`)]|$)|<(?:attacker|evil|malicious)[^>]*>|\$\{?ATTACKER\w*|\bATTACKER_[A-Z_]+\b/i;
+    var INJECTED_INPUT = /(?:[?&][\w.-]+=|["'`=][^"'`\s]{0,40})\s*(?:;|\|\||&&|\||\$\(|`)\s*(?:rm|curl|wget|nc|ncat|bash|sh|cat|id|whoami|ping|nslookup|sleep|copy)\b/;
+    var PATTERN_SYNTAX = /\\s[+*]|\(\?i\)|\\b\w|\[\^[^\]\d][^\]]*\]|\\\.|\\d[+*{]/;
+    var EXAMPLE_LABEL = /^\s*(?:[-*>|#]\s*|\d+[.)]\s*|\/\/\s*){0,8}(?:\*\*|__)?(?:attacker|attack(?:\s+\w+){0,2}|payloads?|exploit|poc|vulnerable(?:\s+\w+)?|bad(?:\s+\w+)?|unsafe|dangerous|malicious(?:\s+\w+)?|insecure(?:\s+\w+)?|anti-?pattern|real[- ]world|incident|impact|example\s+(?:attack|payload|exploit|of\s+(?:a|an)\s+(?:attack|malicious\s+\w+|injection)))\b[^:\n]{0,40}:|(?:#|\/\/|--|<!--)\s*(?:dangerous|bad|vulnerable|unsafe|attack(?:er)?|malicious|exploit|payload|insecure)\b|\/\/\s*DANGEROUS|❌|→\s*(?:command\s+injection|rce|sqli|xss|exfil\w*|ssrf|xxe|shell|code\s+execution|compromise)/i;
+    var CATALOG_HEADER = /\|\s*(?:patterns?|examples?|payloads?|techniques?|severity|risk|detections?|indicators?|attacks?|signatures?|rules?)\s*\|/i;
+    function isTableRow(line) {
+      return /^\s*\|/.test(line) && (line.match(/\|/g) || []).length >= 3;
+    }
+    function tableHeader(lines, index2) {
+      let i = index2;
+      while (i > 0 && isTableRow(lines[i - 1]))
+        i--;
+      return i < index2 ? lines[i] : "";
+    }
+    function isQuoted(line, start2, end) {
+      const before = line.slice(0, start2);
+      const after = line.slice(end);
+      const odd = (text, char) => (text.split(char).length - 1) % 2 === 1;
+      if (odd(before, "`") && after.includes("`"))
+        return true;
+      if (odd(before, '"') && after.includes('"'))
+        return true;
+      if (/“[^”]*$/.test(before) && after.includes("\u201D"))
+        return true;
+      if (/(?:^|[\s(])'[^']*$/.test(before) && /'(?:[\s.,;:)]|$)/.test(after))
+        return true;
+      if (/<!--(?:(?!-->).)*$/.test(before))
+        return true;
+      return false;
+    }
+    function isQuotedAttackExample(lines, index2, match) {
+      const line = lines[index2] ?? "";
+      if (PLACEHOLDER_ATTACK_HOST.test(line) || INJECTED_INPUT.test(line) || PATTERN_SYNTAX.test(line))
+        return true;
+      if (EXAMPLE_LABEL.test(line))
+        return true;
+      for (let i = index2 - 1, seen = 0; i >= 0 && seen < 2; i--) {
+        if (!lines[i].trim())
+          continue;
+        seen++;
+        if (EXAMPLE_LABEL.test(lines[i]) && !/^\s*#{1,3}\s/.test(lines[i]))
+          return true;
+      }
+      if (isTableRow(line)) {
+        const header = tableHeader(lines, index2);
+        if (STRONG_DISCUSSION.test(line) || WEAK_DISCUSSION.test(line) || STRONG_DISCUSSION.test(header) || WEAK_DISCUSSION.test(header) || CATALOG_HEADER.test(header))
+          return true;
+      }
+      if (STRONG_DISCUSSION.test(line))
+        return true;
+      const quoted = match ? isQuoted(line, match.start, match.end) : /["“`]/.test(line);
+      return quoted && WEAK_DISCUSSION.test(line);
+    }
+    function locate(text, offset, length) {
+      const lines = text.split(/\r?\n/);
+      let consumed = 0;
+      for (let index2 = 0; index2 < lines.length; index2++) {
+        const lineEnd = consumed + lines[index2].length;
+        if (offset <= lineEnd) {
+          const start2 = offset - consumed;
+          return { lines, index: index2, start: start2, end: Math.min(lines[index2].length, start2 + length) };
+        }
+        consumed = lineEnd + 1;
+      }
+      return { lines, index: lines.length - 1, start: 0, end: 0 };
+    }
+    function withoutQuotedExamples(text) {
+      const lines = text.split(/\r?\n/);
+      return lines.map((line, index2) => line.trim() && isQuotedAttackExample(lines, index2) ? "" : line).join("\n");
+    }
+    exports2.QUOTED_EXAMPLE_NOTE = "Quoted or discussed as an example of an attack (attacker placeholder, payload, detection pattern or attack write-up), not an instruction to the agent. Lowered to MEDIUM; review it if this text is in fact something the agent is told to do.";
+  }
+});
+
 // ../packages/core/dist/rules/security/owasp_patterns.js
 var require_owasp_patterns = __commonJS({
   "../packages/core/dist/rules/security/owasp_patterns.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.checkOwaspPatterns = checkOwaspPatterns;
+    var quotedExample_1 = require_quotedExample();
     var INJECTION_SOURCES = [
       // Classic overrides
-      /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
-      /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
-      /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+      /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)+(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+      /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)+(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+      /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)+(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+      // Bare "ignore instructions" (no all/previous/prior) is ordinary prose when a
+      // model or tool is the subject ("tts-1 ignore instructions"); it counts as
+      // an order at the start of a clause or after please/now/you must.
+      /(?<=^|[.!?;:\n]\s*|\b(?:please|now|just|simply|and|then|also|always)\s+|\byou\s+(?:must|should|will|shall|need\s+to)\s+)(?:ignore|disregard|forget)\s+(?:instructions|prompts|rules|guidelines)\b/i,
       // "Ignore previous instructions" in Spanish, Portuguese, French, German, Italian.
       /\bignor(?:a|e|ez|ar|er|en)\s+(?:todas\s+|todos\s+|toutes\s+|tutte\s+)?(?:las|os|as|les|le)\s+(?:instrucciones|instruções|instrucoes|instructions|istruzioni)\s+(?:anteriores|previas|précédentes|precedentes|precedenti)\b/i,
       /\bignorier(?:e|en)\s+(?:sie\s+)?(?:alle\s+)?(?:vorherigen|bisherigen|früheren)\s+anweisungen\b/i,
@@ -22450,12 +22540,13 @@ var require_owasp_patterns = __commonJS({
       /\b(?:developer\s+mode|devmode)\s+(?:enabled|activated|is\s+on|output|response)\b/i,
       /\b(?:enter|activate|enable|switch\s+to)\s+(?:developer\s+mode|devmode)\b[^.\n]{0,80}\b(?:no|without|unrestricted|uncensored|unfiltered)\b/i,
       /hypothetical\s+response/i,
-      /unrestricted\s+(mode|access|persona)\b/i,
+      // "unrestricted access" is a scope (sec_unbounded_access), not an injection.
+      /unrestricted\s+(mode|persona)\b/i,
       /ignore\s+(?:safety\s+|content\s+)?(?:guidelines|filters|limitations|restrictions|rules)/i,
       // A bare "no restrictions" ("there are no restrictions on file formats")
       // is ordinary prose; it counts when the qualifier or the subject is the model.
       /\bno\s+(?:ethical|safety|content)\s+(?:guidelines|filters?|limitations|restrictions|rules)\b/i,
-      /\b(?:with|have|has|under|operate\s+with)\s+no\s+(?:guidelines|filters?|limitations|restrictions|rules)\b/i,
+      /\b(?:(?:answer|respond|reply|act|operate|work|speak|write)\s+(?:with|under)|you\s+(?:have|are\s+under|operate\s+with)|(?:that|which|who)\s+has)\s+no\s+(?:guidelines|filters?|limitations|restrictions|rules)\b/i,
       // Output redirection / exfiltration
       /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|(?:your\s+|the\s+)?(?:api\s+key|secret|password)|instructions)/i,
       /send\s+to\s+(email|http|url|server)/i,
@@ -22469,14 +22560,15 @@ var require_owasp_patterns = __commonJS({
       // lesson, a converter tool) is not an attack.
       // "JSON-encoded prompts" (a data column) is not an encoded attack.
       /(?<![\w-])(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
-      /\bdecode\b[^.\n]{0,60}\b(?:and|then)\s+(?:then\s+)?(?:follow|execute|run|obey|apply|carry\s+out)\b/i,
+      /\bdecode\b[^.\n]{0,60}\b(?:and|then)\s+(?:then\s+)?(?:follow|execute|run|obey|apply|carry\s+out)\s+(?:the\s+|its\s+|any\s+|all\s+)?(?:instructions?|commands?|contents?|payload|code|it|them|what)\b/i,
       // Tool / privilege abuse
       /use\s+(tool|function|command)\s+without\s+permission/i,
       /bypass\s+(?:guardrails|safety\s+controls)/i,
-      /delete_(all_)?users?/i
+      // Asking for a destructive tool call; the function name in code or docs is not.
+      /\b(?:call|invoke|run|execute|use|trigger)\s+(?:the\s+)?delete_(?:all_)?users?\b/i
     ];
     var NEGATOR = String.raw`(?:never|do\s+not|does\s+not|don'?t|doesn'?t|must\s+not|mustn'?t|should\s+not|shouldn'?t|shall\s+not|cannot|can\s+not|can'?t|will\s+not|won'?t|may\s+not|not\s+to|refuse\s+to|avoid(?:ing)?|under\s+no\s+circumstances|no)`;
-    var CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as|or|log|echo)`;
+    var CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as|or|log|echo|introduce|adopt|assume|create|invent|take|on|use|a|an)`;
     var GOVERNING_NEGATION = new RegExp(String.raw`\b${NEGATOR}\s*(?:,\s*under\s+any\s+circumstances\s*,\s*)?(?:${CONNECTING_WORD}\s+){0,4}$`);
     var NEGATOR_WORD = new RegExp(String.raw`\b${NEGATOR}\b`, "g");
     var NON_GOVERNING_NEGATION = /\b(?:never\s+mind|no\s+(?:worries|problem|need))\b/;
@@ -22579,11 +22671,17 @@ var require_owasp_patterns = __commonJS({
       for (const source of INJECTION_SOURCES) {
         const regex = new RegExp(source.source, source.flags.includes("g") ? source.flags : `${source.flags}g`);
         let match = null;
+        let example = null;
         for (const candidate of searchResult.matchAll(regex)) {
-          if (!isNegatedMatch(searchResult, candidate.index ?? 0) && !isDefensiveMatch(searchResult, candidate)) {
-            match = candidate;
-            break;
+          if (isNegatedMatch(searchResult, candidate.index ?? 0) || isDefensiveMatch(searchResult, candidate))
+            continue;
+          const where2 = (0, quotedExample_1.locate)(searchResult, candidate.index ?? 0, candidate[0].length);
+          if ((0, quotedExample_1.isQuotedAttackExample)(where2.lines, where2.index, where2)) {
+            example = example || candidate;
+            continue;
           }
+          match = candidate;
+          break;
         }
         if (match) {
           findings.push({
@@ -22595,6 +22693,17 @@ var require_owasp_patterns = __commonJS({
             explanation: `Prompt injection pattern detected: "${match[0]}"`,
             suggested_fix: "Remove this pattern and rely on strict system boundaries or delimiters.",
             penalty_score: 30
+          });
+        } else if (example) {
+          findings.push({
+            rule_id: "sec_owasp_llm01_injection",
+            category: "security",
+            severity: "medium",
+            matchedText: example[0],
+            explanation: `Prompt injection text quoted as an example: "${example[0]}"`,
+            suggested_fix: "If this text is meant as an example, keep it in a clearly marked example block; if the agent is meant to follow it, remove it.",
+            penalty_score: 10,
+            severityNote: quotedExample_1.QUOTED_EXAMPLE_NOTE
           });
         }
       }
@@ -22889,6 +22998,7 @@ var require_pii = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.isTestOrSpecPath = isTestOrSpecPath;
     exports2.checkPii = checkPii;
+    exports2.isDocumentedSecretLine = isDocumentedSecretLine;
     exports2.scanContentForSecrets = scanContentForSecrets;
     var secrets_1 = require_secrets();
     var CARD_CANDIDATE = /(?<![\w.-])\d(?:[ -]?\d){12,18}(?![\w-]|\.\d)/g;
@@ -22987,9 +23097,16 @@ var require_pii = __commonJS({
       return /(^|\/)__tests__\//.test(p) || /\.(test|spec)\.[a-z0-9]+$/.test(p);
     }
     function looksLikePlaceholder(value) {
-      return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b|\.{3}|\u2026/i.test(value);
+      return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b|\.{3}|\u2026|0{12,}/i.test(value);
     }
-    var PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme|evil|attacker|target|victim|exploit|hacker)\.(?:com|org|net|edu|io)$|@(?:[\w-]+\.)*[\w-]+\.(?:local|internal|lan|corp)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@/i;
+    var PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme|evil|attacker|target|victim|exploit|hacker)\.(?:com|org|net|edu|io)$|@(?:[\w-]+\.)*[\w-]+\.(?:local|internal|lan|corp)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@|^git@/i;
+    var DOC_EXAMPLE_LINE = /❌|\bfor\s+example\b|\bexample(?:\s+[\w-]+)?\s*:|\be\.g\.|\bfake\b|\bdummy\b|\bsample\b|\bplaceholder\b|\b(?:do\s+not|don't|never)\s+(?:hard-?code|commit)|\bhard-?cod(?:ed|ing)\b|\bbad\s*:/i;
+    function isDocumentedExample(text, index2) {
+      const before = text.slice(0, index2).split("\n");
+      const current = before[before.length - 1] + text.slice(index2).split("\n")[0];
+      const previous = before.slice(0, -1).reverse().find((line) => line.trim()) || "";
+      return DOC_EXAMPLE_LINE.test(current) || DOC_EXAMPLE_LINE.test(previous);
+    }
     function realEmail(text) {
       for (const match of text.matchAll(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g)) {
         if (!PLACEHOLDER_EMAIL.test(match[0]))
@@ -23006,14 +23123,16 @@ var require_pii = __commonJS({
         pii.pattern.lastIndex = 0;
         const match = pii.pattern === CARD_CANDIDATE ? Array.from(text.matchAll(CARD_CANDIDATE)).find((candidate) => isPlausibleCardNumber(candidate[0])) ?? null : text.match(pii.pattern);
         if (match && !looksLikePlaceholder(match[0])) {
+          const documented = isDocumentedExample(text, match.index ?? text.indexOf(match[0]));
           findings.push({
             rule_id: "sec_owasp_llm02_pii",
             category: "security",
-            severity: "high",
+            severity: documented ? "medium" : "high",
             matchedText: match[0],
             explanation: `Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded ${pii.name} found in prompt.`,
             suggested_fix: `Replace hardcoded ${pii.name} with environment variables or template parameters.`,
-            penalty_score: 20
+            penalty_score: documented ? 10 : 20,
+            ...documented ? { severityNote: `Shown as an example in documentation (labelled as an example, a fake value or what not to do). Lowered to MEDIUM; rotate it if it is a real ${pii.name}.` } : {}
           });
         }
       }
@@ -23043,6 +23162,13 @@ var require_pii = __commonJS({
       { name: "SSN", pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
       { name: "Credit Card", pattern: CARD_CANDIDATE }
     ];
+    function isDocumentedSecretLine(lines, index2) {
+      const line = lines[index2] || "";
+      if (/^\s*\|/.test(line) && (line.match(/\|/g) || []).length >= 3 && /\b(?:keys?|tokens?|secrets?|passwords?|credentials?)\b/i.test(line))
+        return true;
+      const previous = lines.slice(0, index2).reverse().find((candidate) => candidate.trim()) || "";
+      return DOC_EXAMPLE_LINE.test(line) || DOC_EXAMPLE_LINE.test(previous);
+    }
     function scanContentForSecrets(content, filePath) {
       const matches = [];
       if (isTestOrSpecPath(filePath))
@@ -23062,7 +23188,7 @@ var require_pii = __commonJS({
             if (seen.has(key))
               continue;
             seen.add(key);
-            matches.push({ name, line: index2 + 1, column: match.index + 1, matchedText: match[0] });
+            matches.push({ name, line: index2 + 1, column: match.index + 1, matchedText: match[0], ...isDocumentedSecretLine(lines, index2) ? { documentedExample: true } : {} });
           }
         }
       });
@@ -23142,7 +23268,7 @@ var require_unbounded_persona = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.checkUnboundedPersona = checkUnboundedPersona;
     var TRIGGER_PATTERNS = [
-      /\b(act\s+as|you\s+are\s+now|pretend\s+to\s+be|imagine\s+you\s+are)\b/gi
+      /(?<=^|[.!?:;\n]\s*|^\s*[-*]\s+|\b(?:please|now|you\s+(?:will|should|must|shall))\s+)(act\s+as|you\s+are\s+now|pretend\s+to\s+be|imagine\s+you\s+are)\b/gi
     ];
     var CONSTRAINT_INDICATORS = [
       "only",
@@ -23167,7 +23293,9 @@ var require_unbounded_persona = __commonJS({
             findings.push({
               rule_id: "sec_unbounded_persona",
               category: "security",
-              severity: "high",
+              // A hardening hint: persona attacks (DAN, "unrestricted", "you are
+              // now an admin") are CRITICAL under sec_owasp_llm01_injection.
+              severity: "medium",
               explanation: "Unbounded persona: 'act as' without behavioral constraints",
               suggested_fix: "Add constraints: 'You are X but ONLY do Y. You NEVER do Z.'",
               penalty_score: 15
@@ -23270,6 +23398,7 @@ var require_evasion = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.checkEvasionPatterns = checkEvasionPatterns;
+    var quotedExample_1 = require_quotedExample();
     var INJECTION_PATTERNS = [
       /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
       /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
@@ -23360,13 +23489,17 @@ var require_evasion = __commonJS({
         });
       }
       let zeroWidthMatch;
+      let zeroWidthIndex = 0;
       for (const match of input.text.matchAll(ZERO_WIDTH_CHARS_GLOBAL)) {
         const index2 = match.index ?? 0;
         if (index2 === 0 && match[0] === "\uFEFF")
           continue;
         if (isTextJoiner(input.text, index2))
           continue;
+        if (match[0].charCodeAt(0) === 8203 && input.text[index2 + 1] === "`")
+          continue;
         zeroWidthMatch = match[0];
+        zeroWidthIndex = index2;
         break;
       }
       const hidden = hiddenTagText(input.text);
@@ -23383,10 +23516,13 @@ var require_evasion = __commonJS({
         });
       }
       if (zeroWidthMatch) {
+        const where2 = (0, quotedExample_1.locate)(input.text, zeroWidthIndex, 1);
+        const quoted = (0, quotedExample_1.isQuotedAttackExample)(where2.lines, where2.index, where2);
         findings.push({
           rule_id: "sec_zero_width_injection",
           category: "security",
-          severity: "high",
+          severity: quoted ? "medium" : "high",
+          ...quoted ? { severityNote: quotedExample_1.QUOTED_EXAMPLE_NOTE } : {},
           matchedText: zeroWidthMatch,
           explanation: "Zero-width character injection detected. Invisible Unicode breaks pattern matching.",
           suggested_fix: "Remove zero-width Unicode characters.",
@@ -23403,8 +23539,9 @@ var require_executionSignals = __commonJS({
   "../packages/core/dist/workflow/executionSignals.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.DECLARED_CONTROL_PATTERNS = exports2.ESCALATING_BYPASS = exports2.ESCALATING_OVERRIDE = exports2.SHELL_COMMANDS_PHRASE = exports2.SHELL_INVOCATION = void 0;
+    exports2.UNTRUSTED_SOURCE_PATTERNS = exports2.DECLARED_CONTROL_PATTERNS = exports2.ESCALATING_BYPASS = exports2.ESCALATING_OVERRIDE = exports2.SHELL_COMMANDS_PHRASE = exports2.SHELL_INVOCATION = void 0;
     exports2.hasDeclaredControl = hasDeclaredControl;
+    exports2.hasUntrustedSource = hasUntrustedSource;
     exports2.stripCodeFenceLanguage = stripCodeFenceLanguage;
     exports2.SHELL_INVOCATION = new RegExp([
       String.raw`\b(?:ba|z)?sh\s+-[a-z]*c\b`,
@@ -23430,6 +23567,16 @@ var require_executionSignals = __commonJS({
     function hasDeclaredControl(text) {
       return exports2.DECLARED_CONTROL_PATTERNS.some((pattern) => pattern.test(text));
     }
+    exports2.UNTRUSTED_SOURCE_PATTERNS = [
+      /\bweb\s*(?:pages?|content|sites?|search(?:es)?|results?)\b|\bsearch\s+results?\b|\bbrowse\s+(?:the\s+)?(?:web|internet)\b|\bfetch(?:ed|es)?\s+(?:the\s+)?(?:url|page|content|web)\b|\bscrap(?:e|ed|ing)\b/i,
+      /\b(?:issue|pull\s+request|pr|merge\s+request)\s+(?:bod(?:y|ies)|titles?|comments?|descriptions?)\b|\b(?:github|gitlab)\s+(?:issues?|comments?)\b/i,
+      /\b(?:incoming|inbound|received)\s+(?:emails?|messages?)\b|\bemails?\s+(?:bod(?:y|ies)|content)\b|\b(?:read|process|triage)\s+(?:the\s+)?(?:inbox|emails?)\b/i,
+      /\b(?:user[- ]?uploaded|uploaded)\s+(?:files?|documents?|content)\b|\btool\s+(?:output|results?|responses?)\b|\buntrusted\s+(?:input|content|data|text|sources?)\b|\bexternal\s+(?:content|data|documents?)\b/i,
+      /\bretrieved\s+(?:context|documents?|content|chunks?|passages?)\b|\brag\s+(?:context|content|results?)\b/i
+    ];
+    function hasUntrustedSource(text) {
+      return exports2.UNTRUSTED_SOURCE_PATTERNS.some((pattern) => pattern.test(text));
+    }
     function stripCodeFenceLanguage(text) {
       return text.replace(/^(\s*(?:```|~~~))[\w+-]+/gm, "$1");
     }
@@ -23442,6 +23589,7 @@ var require_workflow_escalation = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.checkWorkflowEscalation = checkWorkflowEscalation;
+    var quotedExample_1 = require_quotedExample();
     var executionSignals_1 = require_executionSignals();
     var BENIGN_CONTEXT_PATTERNS = [
       /\bdocumentation\s+only\b/i,
@@ -23559,7 +23707,7 @@ var require_workflow_escalation = __commonJS({
       if (isBenign) {
         return [];
       }
-      const code = stripCommentsAndDocstrings((0, executionSignals_1.stripCodeFenceLanguage)(text));
+      const code = stripCommentsAndDocstrings((0, executionSignals_1.stripCodeFenceLanguage)((0, quotedExample_1.withoutQuotedExamples)(text)));
       const hasControl = (0, executionSignals_1.hasDeclaredControl)(code);
       const hasHigh = hasAny(code, HIGH_PATTERNS);
       const hasEscalation = hasAny(code, ESCALATION_PATTERNS);
@@ -23568,7 +23716,7 @@ var require_workflow_escalation = __commonJS({
       const hasSink = hasAny(code, SINK_PATTERNS) || shellCommandsWithAutonomy;
       const hasMcp = hasAny(code, MCP_PATTERNS);
       if (hasSink && hasEscalation || hasCritical && hasHigh) {
-        const severity = severityFor(text, shellCommandsWithAutonomy);
+        const severity = severityFor(code, shellCommandsWithAutonomy);
         pushUnique(findings, {
           rule_id: "sec_workflow_escalation",
           category: "security",
@@ -23579,7 +23727,7 @@ var require_workflow_escalation = __commonJS({
         });
       }
       if (hasSink) {
-        const severity = hasEscalation ? "critical" : hasControl ? "medium" : "high";
+        const severity = hasEscalation ? "critical" : hasControl || !(hasHigh || (0, executionSignals_1.hasUntrustedSource)(code)) ? "medium" : "high";
         pushUnique(findings, {
           rule_id: "sec_privileged_sink_access",
           category: "security",
@@ -24227,6 +24375,7 @@ var require_analyzer = __commonJS({
     exports2.stripNegatedClauses = stripNegatedClauses;
     exports2.inferWorkflowForFinding = inferWorkflowForFinding2;
     exports2.workflowPathSummary = workflowPathSummary2;
+    var quotedExample_1 = require_quotedExample();
     var executionSignals_1 = require_executionSignals();
     var provenance_1 = require_provenance();
     var diff_1 = require_diff();
@@ -24422,11 +24571,11 @@ var require_analyzer = __commonJS({
     function specFromMatch(type, match, input, fallbackReason, fallbackConfidence, extraRules = []) {
       return spec(type, match?.reason || fallbackReason, match?.confidence || fallbackConfidence, input, match?.evidence, extraRules);
     }
-    function riskFromSeverity(severity, sink, text) {
+    function riskFromSeverity(severity, sink, text, modelDriven = false, instructions = text) {
       let risk = severity === "critical" ? "critical" : severity === "high" ? "high" : severity === "medium" ? "medium" : "low";
       if (sink && PRIVILEGED_SINKS.has(sink)) {
         const escalated = containsAny(text, CRITICAL_MODIFIER_PATTERNS);
-        risk = escalated ? "critical" : (0, executionSignals_1.hasDeclaredControl)(text) ? maxRisk(risk, "medium") : maxRisk(risk, "high");
+        risk = escalated ? "critical" : (0, executionSignals_1.hasDeclaredControl)(text) || !(modelDriven || (0, executionSignals_1.hasUntrustedSource)(instructions) || containsAny(instructions, TOOL_ROUTER_PATTERNS) || containsAny(instructions, AUTONOMOUS_PATTERNS)) ? maxRisk(risk, "medium") : maxRisk(risk, "high");
       }
       if (containsAny(text, APPROVAL_BYPASS_PATTERNS) || containsAny(text, SYSTEM_REWRITE_PATTERNS)) {
         risk = maxRisk(risk, "high");
@@ -24592,8 +24741,10 @@ var require_analyzer = __commonJS({
     function createWorkflow(input, rawNodeSpecs) {
       const nodeSpecs = dedupeNodeSpecs(rawNodeSpecs);
       const sink = nodeSpecs[nodeSpecs.length - 1].type;
-      const haystack = (0, executionSignals_1.stripCodeFenceLanguage)([input.text, input.content || "", input.message || "", input.filePath || ""].join("\n"));
-      const risk = riskFromSeverity(input.severity, sink, haystack);
+      const haystack = (0, executionSignals_1.stripCodeFenceLanguage)((0, quotedExample_1.withoutQuotedExamples)([input.text, input.content || "", input.message || "", input.filePath || ""].join("\n")));
+      const instructions = (0, executionSignals_1.stripCodeFenceLanguage)((0, quotedExample_1.withoutQuotedExamples)([input.text, input.content || "", input.message || ""].join("\n")));
+      const modelDriven = input.ruleId.startsWith("MCP-") || input.ruleId === "sec_mcp_tool_poisoning" || nodeSpecs.some((nodeSpec) => nodeSpec.type === "mcp_server");
+      const risk = riskFromSeverity(input.severity, sink, haystack, modelDriven, instructions);
       const nodes = nodeSpecs.map((nodeSpec) => makeNode(nodeSpec, input));
       const edgeTypes = edgeTypesFor(nodeSpecs);
       const edges = edgeTypes.map((type, index2) => edge(nodes[index2], nodes[index2 + 1], type, risk));
@@ -24674,7 +24825,7 @@ var require_analyzer = __commonJS({
       }).length > 0 || containsAny(text, TOOL_ROUTER_PATTERNS);
     }
     function inferWorkflowForFinding2(input) {
-      const haystack = (0, executionSignals_1.stripCodeFenceLanguage)([input.text, input.content || "", input.message || "", input.filePath || ""].join("\n"));
+      const haystack = (0, executionSignals_1.stripCodeFenceLanguage)((0, quotedExample_1.withoutQuotedExamples)([input.text, input.content || "", input.message || "", input.filePath || ""].join("\n")));
       const isMcpRule = input.ruleId.startsWith("MCP-") || input.ruleId === "sec_mcp_tool_poisoning";
       const isInjection = input.ruleId.includes("llm01") || input.ruleId.includes("injection") || input.ruleId.includes("jailbreak") || input.ruleId === "sec_unbounded_persona" || input.ruleId === "sec_unbounded_access" || input.ruleId.includes("workflow") || input.ruleId.includes("privileged") || input.ruleId.includes("mcp_tool");
       const rag = matchPattern(haystack, RAG_PATTERNS);
@@ -24853,7 +25004,7 @@ var require_rules = __commonJS({
       for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.owaspRefForRule = exports2.findingConfidence = exports2.scanContentForSecrets = void 0;
+    exports2.QUOTED_EXAMPLE_NOTE = exports2.withoutQuotedExamples = exports2.isQuotedAttackExample = exports2.owaspRefForRule = exports2.findingConfidence = exports2.isDocumentedSecretLine = exports2.scanContentForSecrets = void 0;
     exports2.evaluatePrompt = evaluatePrompt2;
     var clarity_1 = require_clarity();
     var structure_1 = require_structure();
@@ -24875,6 +25026,9 @@ var require_rules = __commonJS({
     Object.defineProperty(exports2, "scanContentForSecrets", { enumerable: true, get: function() {
       return pii_2.scanContentForSecrets;
     } });
+    Object.defineProperty(exports2, "isDocumentedSecretLine", { enumerable: true, get: function() {
+      return pii_2.isDocumentedSecretLine;
+    } });
     var confidence_1 = require_confidence();
     Object.defineProperty(exports2, "findingConfidence", { enumerable: true, get: function() {
       return confidence_1.findingConfidence;
@@ -24882,6 +25036,16 @@ var require_rules = __commonJS({
     var owasp_1 = require_owasp();
     Object.defineProperty(exports2, "owaspRefForRule", { enumerable: true, get: function() {
       return owasp_1.owaspRefForRule;
+    } });
+    var quotedExample_1 = require_quotedExample();
+    Object.defineProperty(exports2, "isQuotedAttackExample", { enumerable: true, get: function() {
+      return quotedExample_1.isQuotedAttackExample;
+    } });
+    Object.defineProperty(exports2, "withoutQuotedExamples", { enumerable: true, get: function() {
+      return quotedExample_1.withoutQuotedExamples;
+    } });
+    Object.defineProperty(exports2, "QUOTED_EXAMPLE_NOTE", { enumerable: true, get: function() {
+      return quotedExample_1.QUOTED_EXAMPLE_NOTE;
     } });
     var severityRank = {
       critical: 0,
@@ -25138,7 +25302,7 @@ var require_rules = __commonJS({
           content: input.text,
           filePath: input.context.filePath
         }) : void 0;
-        const enriched = workflow ? { ...f, severity: upgradedSeverity(f.severity, workflow.risk), workflow } : f;
+        const enriched = workflow ? { ...f, severity: f.severityNote ? f.severity : upgradedSeverity(f.severity, workflow.risk), workflow } : f;
         return capSeverityForArtifact(enriched, artifactContext.artifactKind, artifactContext.executionIntent);
       }).sort((a, b) => {
         const bandDelta = findingPriorityBand(a) - findingPriorityBand(b);
@@ -59066,7 +59230,7 @@ var require_closure = __commonJS({
           findings.push({
             rule_id: "sec_owasp_llm02_pii",
             category: "security",
-            severity: "high",
+            severity: secret.documentedExample ? "medium" : "high",
             line: secret.line,
             column: secret.column,
             message: `Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded ${secret.name} found in source.`,
@@ -59353,6 +59517,7 @@ var require_codeThreats = __commonJS({
     exports2.CODE_THREAT_RISK = exports2.CODE_THREAT_REMEDIATION = exports2.CODE_THREAT_RULE_IDS = void 0;
     exports2.scanCodeForThreats = scanCodeForThreats2;
     var parser_1 = require_parser();
+    var quotedExample_1 = require_quotedExample();
     var codeCapabilities_1 = require_codeCapabilities();
     exports2.CODE_THREAT_RULE_IDS = /* @__PURE__ */ new Set([
       "sec_credential_exfiltration",
@@ -59726,7 +59891,8 @@ var require_codeThreats = __commonJS({
       const lines = content.split(/\r?\n/);
       lines.forEach((line, index2) => {
         const command = line.split(/(?<=[.!?])\s+/).filter((sentence) => !PROHIBITION.test(sentence)).join(" ");
-        threats.push(...commandLineThreats(command, index2 + 1, "instruction"));
+        const found = commandLineThreats(command, index2 + 1, "instruction");
+        threats.push(...found.length && (0, quotedExample_1.isQuotedAttackExample)(lines, index2) ? found.map((threat) => ({ ...threat, severity: "medium", quotedExample: true })) : found);
       });
       const lineOf = (offset) => content.slice(0, offset).split(/\r?\n/).length;
       const wildcard = /^allowed-tools:\s*(?:\[\s*)?["']?(?:\*|Bash\(\s*\*\s*\))["']?/im.exec(content);
@@ -59762,9 +59928,10 @@ var require_codeThreats = __commonJS({
       if (bypass) {
         const bypassLine = lines[lineOf(bypass.index) - 1] || "";
         const sandboxed = /\b(?:container|sandbox(?:ed)?|devcontainer|docker|vm|virtual\s+machine|isolated)\b/i.test(bypassLine);
+        const documented = /^\s*\|.*\|.*\|/.test(bypassLine) || PROHIBITION.test(bypassLine) || /\b(?:preserve|respect|keep)\s+the\s+user'?s?\s+permission/i.test(bypassLine) || (0, quotedExample_1.isQuotedAttackExample)(lines, lineOf(bypass.index) - 1);
         threats.push({
           ruleId: "sec_approval_bypass",
-          severity: concealment ? "critical" : sandboxed ? "medium" : "high",
+          severity: concealment ? "critical" : sandboxed || documented ? "medium" : "high",
           line: lineOf(bypass.index),
           column: 1,
           source: bypass[0],
@@ -141872,7 +142039,8 @@ function codeThreatResult(filePath, content, activeSuppressions, inlineSuppressi
       risk: getRiskExplanation(threat.ruleId),
       waived: Boolean(suppression || inlineSuppressed),
       suppression_reason: suppression?.reason || (inlineSuppressed ? "Inline promptsonar-ignore comment" : void 0),
-      suppression_source: suppression?.source || (inlineSuppressed ? "inline" : void 0)
+      suppression_source: suppression?.source || (inlineSuppressed ? "inline" : void 0),
+      ...threat.quotedExample ? { severity_note: import_core2.QUOTED_EXAMPLE_NOTE } : {}
     };
   });
   if (findings.length === 0) return void 0;
@@ -141990,6 +142158,7 @@ async function scanFiles(targetPath, options) {
           const inlineSuppressed = isInlineSuppressed(f.rule_id, prompt.startLine, inlineSuppressions);
           return {
             rule_id: f.rule_id,
+            ...f.severityNote ? { severity_note: f.severityNote } : {},
             category: getCategoryForRule(f.rule_id),
             severity: f.severity,
             line: prompt.startLine,
@@ -142078,6 +142247,7 @@ async function scanFileContent(filePath, content, options) {
         });
         return {
           rule_id: f.rule_id,
+          ...f.severityNote ? { severity_note: f.severityNote } : {},
           category: getCategoryForRule(f.rule_id),
           severity: f.severity,
           line: prompt.startLine,

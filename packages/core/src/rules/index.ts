@@ -21,9 +21,10 @@ import {
 } from '../artifacts';
 
 export * from './types';
-export { scanContentForSecrets, type ContentSecretMatch } from './security/pii';
+export { scanContentForSecrets, isDocumentedSecretLine, type ContentSecretMatch } from './security/pii';
 export { findingConfidence, type FindingConfidence } from './confidence';
 export { owaspRefForRule } from './owasp';
+export { isQuotedAttackExample, withoutQuotedExamples, QUOTED_EXAMPLE_NOTE } from './quotedExample';
 
 const severityRank: Record<Severity, number> = {
     critical: 0,
@@ -313,8 +314,9 @@ export function evaluatePrompt(input: RuleInput, config: any = {}): RuleResult {
                 filePath: input.context.filePath,
             })
             : undefined;
+        // A quoted attack example keeps the severity its rule chose.
         const enriched = workflow
-            ? { ...f, severity: upgradedSeverity(f.severity, workflow.risk), workflow }
+            ? { ...f, severity: f.severityNote ? f.severity : upgradedSeverity(f.severity, workflow.risk), workflow }
             : f;
         return capSeverityForArtifact(enriched, artifactContext.artifactKind, artifactContext.executionIntent);
     }).sort((a, b) => {

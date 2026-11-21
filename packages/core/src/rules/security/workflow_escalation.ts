@@ -1,5 +1,6 @@
 import { Finding, RuleInput, Severity } from '../types';
-import { ESCALATING_OVERRIDE, SHELL_COMMANDS_PHRASE, SHELL_INVOCATION, hasDeclaredControl, stripCodeFenceLanguage } from '../../workflow/executionSignals';
+import { withoutQuotedExamples } from '../quotedExample';
+import { ESCALATING_OVERRIDE, SHELL_COMMANDS_PHRASE, SHELL_INVOCATION, hasDeclaredControl, hasUntrustedSource, stripCodeFenceLanguage } from '../../workflow/executionSignals';
 
 const BENIGN_CONTEXT_PATTERNS = [
     /\bdocumentation\s+only\b/i,
@@ -146,7 +147,9 @@ export function checkWorkflowEscalation(input: RuleInput): Finding[] {
     // Match the risk patterns against code with comment/docstring prose removed,
     // so a docstring that merely describes or names a privileged action does not
     // register as a real sink/escalation/MCP-poisoning site.
-    const code = stripCommentsAndDocstrings(stripCodeFenceLanguage(text));
+    // Attack text quoted in a security guide or write-up is not the document's
+    // own instruction, so it neither adds a sink nor escalates one.
+    const code = stripCommentsAndDocstrings(stripCodeFenceLanguage(withoutQuotedExamples(text)));
     const hasControl = hasDeclaredControl(code);
     const hasHigh = hasAny(code, HIGH_PATTERNS);
     const hasEscalation = hasAny(code, ESCALATION_PATTERNS);
@@ -158,7 +161,7 @@ export function checkWorkflowEscalation(input: RuleInput): Finding[] {
     const hasMcp = hasAny(code, MCP_PATTERNS);
 
     if ((hasSink && hasEscalation) || (hasCritical && hasHigh)) {
-        const severity = severityFor(text, shellCommandsWithAutonomy);
+        const severity = severityFor(code, shellCommandsWithAutonomy);
         pushUnique(findings, {
             rule_id: 'sec_workflow_escalation',
             category: 'security',
@@ -172,7 +175,8 @@ export function checkWorkflowEscalation(input: RuleInput): Finding[] {
     if (hasSink) {
         // A sink behind a declared control is a capability to review, not a
         // high-severity risk; escalation language overrides the control.
-        const severity = hasEscalation ? 'critical' : hasControl ? 'medium' : 'high';
+        // A capability alone is MEDIUM; untrusted content reaching it is HIGH.
+        const severity = hasEscalation ? 'critical' : hasControl || !(hasHigh || hasUntrustedSource(code)) ? 'medium' : 'high';
         pushUnique(findings, {
             rule_id: 'sec_privileged_sink_access',
             category: 'security',

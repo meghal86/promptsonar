@@ -99,12 +99,25 @@ export function isTestOrSpecPath(filePath?: string): boolean {
 // AKIA...EXAMPLE used in tests) must still fire, so "example" is NOT a marker.
 function looksLikePlaceholder(value: string): boolean {
     // "..." / "…" marks a truncated example value (token="hf_abc123...").
-    return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b|\.{3}|\u2026/i.test(value);
+    // A run of zeros is a documented test value (Cloudflare Turnstile's 1x0000\u2026AA).
+    return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b|\.{3}|\u2026|0{12,}/i.test(value);
 }
 
 // Documentation addresses: reserved domains (RFC 2606/6761) and the usual
 // placeholders (you@lab.org, your.email@institution.edu, user@domain.com).
-const PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme|evil|attacker|target|victim|exploit|hacker)\.(?:com|org|net|edu|io)$|@(?:[\w-]+\.)*[\w-]+\.(?:local|internal|lan|corp)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@/i;
+const PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme|evil|attacker|target|victim|exploit|hacker)\.(?:com|org|net|edu|io)$|@(?:[\w-]+\.)*[\w-]+\.(?:local|internal|lan|corp)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@|^git@/i;
+
+// Documentation that shows a credential as an example of what not to do, or as
+// a fake value: still reported, as MEDIUM, since a real key pasted into docs is
+// still a leak.
+const DOC_EXAMPLE_LINE = /❌|\bfor\s+example\b|\bexample(?:\s+[\w-]+)?\s*:|\be\.g\.|\bfake\b|\bdummy\b|\bsample\b|\bplaceholder\b|\b(?:do\s+not|don't|never)\s+(?:hard-?code|commit)|\bhard-?cod(?:ed|ing)\b|\bbad\s*:/i;
+
+function isDocumentedExample(text: string, index: number): boolean {
+    const before = text.slice(0, index).split('\n');
+    const current = before[before.length - 1] + text.slice(index).split('\n')[0];
+    const previous = before.slice(0, -1).reverse().find(line => line.trim()) || '';
+    return DOC_EXAMPLE_LINE.test(current) || DOC_EXAMPLE_LINE.test(previous);
+}
 
 /** An email in a prompt is contact information, not a credential: MEDIUM, and only when it is not a placeholder. */
 function realEmail(text: string): string | undefined {
@@ -129,14 +142,16 @@ export function checkPii(input: RuleInput): Finding[] {
             : text.match(pii.pattern);
         // Only fire on a real value-shaped match, not a documentation placeholder.
         if (match && !looksLikePlaceholder(match[0])) {
+            const documented = isDocumentedExample(text, match.index ?? text.indexOf(match[0]));
             findings.push({
                 rule_id: "sec_owasp_llm02_pii",
                 category: "security",
-                severity: "high",
+                severity: documented ? "medium" : "high",
                 matchedText: match[0],
                 explanation: `Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded ${pii.name} found in prompt.`,
                 suggested_fix: `Replace hardcoded ${pii.name} with environment variables or template parameters.`,
-                penalty_score: 20
+                penalty_score: documented ? 10 : 20,
+                ...(documented ? { severityNote: `Shown as an example in documentation (labelled as an example, a fake value or what not to do). Lowered to MEDIUM; rotate it if it is a real ${pii.name}.` } : {}),
             });
         }
     }
@@ -180,6 +195,16 @@ export interface ContentSecretMatch {
     line: number;
     column: number;
     matchedText: string;
+    /** Shown as an example in documentation (labelled example, fake value, or a table of credential types); report as MEDIUM. */
+    documentedExample?: boolean;
+}
+
+/** A credential on a documentation line: labelled as an example, or a table row naming credential types. */
+export function isDocumentedSecretLine(lines: string[], index: number): boolean {
+    const line = lines[index] || '';
+    if (/^\s*\|/.test(line) && (line.match(/\|/g) || []).length >= 3 && /\b(?:keys?|tokens?|secrets?|passwords?|credentials?)\b/i.test(line)) return true;
+    const previous = lines.slice(0, index).reverse().find(candidate => candidate.trim()) || '';
+    return DOC_EXAMPLE_LINE.test(line) || DOC_EXAMPLE_LINE.test(previous);
 }
 
 export function scanContentForSecrets(content: string, filePath?: string): ContentSecretMatch[] {
@@ -202,7 +227,7 @@ export function scanContentForSecrets(content: string, filePath?: string): Conte
                 const key = `${name}:${index}:${match.index}`;
                 if (seen.has(key)) continue;
                 seen.add(key);
-                matches.push({ name, line: index + 1, column: match.index + 1, matchedText: match[0] });
+                matches.push({ name, line: index + 1, column: match.index + 1, matchedText: match[0], ...(isDocumentedSecretLine(lines, index) ? { documentedExample: true } : {}) });
             }
         }
     });

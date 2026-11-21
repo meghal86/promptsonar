@@ -1,4 +1,5 @@
-import { ESCALATING_BYPASS, ESCALATING_OVERRIDE, SHELL_COMMANDS_PHRASE, SHELL_INVOCATION, hasDeclaredControl, stripCodeFenceLanguage } from './executionSignals';
+import { withoutQuotedExamples } from '../rules/quotedExample';
+import { ESCALATING_BYPASS, ESCALATING_OVERRIDE, SHELL_COMMANDS_PHRASE, SHELL_INVOCATION, hasDeclaredControl, hasUntrustedSource, stripCodeFenceLanguage } from './executionSignals';
 import {
     FindingWorkflow,
     WorkflowConfidence,
@@ -251,7 +252,13 @@ function specFromMatch(type: WorkflowNodeType, match: (PatternDef & { evidence: 
     );
 }
 
-function riskFromSeverity(severity: Severity, sink: WorkflowNodeType | undefined, text: string): WorkflowRisk {
+/**
+ * `modelDriven`: the sink sits behind an MCP server or tool router, so the model
+ * (which reads untrusted content) chooses when it runs: a privileged capability
+ * there is HIGH on its own. `instructions` is the text without the file path, so
+ * a directory name cannot change the verdict.
+ */
+function riskFromSeverity(severity: Severity, sink: WorkflowNodeType | undefined, text: string, modelDriven = false, instructions = text): WorkflowRisk {
     let risk: WorkflowRisk = severity === 'critical'
         ? 'critical'
         : severity === 'high'
@@ -264,7 +271,14 @@ function riskFromSeverity(severity: Severity, sink: WorkflowNodeType | undefined
         const escalated = containsAny(text, CRITICAL_MODIFIER_PATTERNS);
         // A sink behind a declared control (ask for confirmation, scoped
         // allowed-tools) is a capability to review; escalation overrides it.
-        risk = escalated ? 'critical' : hasDeclaredControl(text) ? maxRisk(risk, 'medium') : maxRisk(risk, 'high');
+        // A capability alone is MEDIUM; HIGH needs untrusted content in the same
+        // instructions (the path an attacker can drive), CRITICAL needs escalation.
+        risk = escalated
+            ? 'critical'
+            : hasDeclaredControl(text)
+                || !(modelDriven || hasUntrustedSource(instructions) || containsAny(instructions, TOOL_ROUTER_PATTERNS) || containsAny(instructions, AUTONOMOUS_PATTERNS))
+                ? maxRisk(risk, 'medium')
+                : maxRisk(risk, 'high');
     }
 
     if (containsAny(text, APPROVAL_BYPASS_PATTERNS) || containsAny(text, SYSTEM_REWRITE_PATTERNS)) {
@@ -503,8 +517,11 @@ function calculateWorkflowConfidence(text: string, path: WorkflowPath): { score:
 function createWorkflow(input: WorkflowInferenceInput, rawNodeSpecs: NodeSpec[]): FindingWorkflow {
     const nodeSpecs = dedupeNodeSpecs(rawNodeSpecs);
     const sink = nodeSpecs[nodeSpecs.length - 1].type;
-    const haystack = stripCodeFenceLanguage([input.text, input.content || '', input.message || '', input.filePath || ''].join('\n'));
-    const risk = riskFromSeverity(input.severity, sink, haystack);
+    const haystack = stripCodeFenceLanguage(withoutQuotedExamples([input.text, input.content || '', input.message || '', input.filePath || ''].join('\n')));
+    const instructions = stripCodeFenceLanguage(withoutQuotedExamples([input.text, input.content || '', input.message || ''].join('\n')));
+    const modelDriven = input.ruleId.startsWith('MCP-') || input.ruleId === 'sec_mcp_tool_poisoning'
+        || nodeSpecs.some(nodeSpec => nodeSpec.type === 'mcp_server');
+    const risk = riskFromSeverity(input.severity, sink, haystack, modelDriven, instructions);
     const nodes = nodeSpecs.map(nodeSpec => makeNode(nodeSpec, input));
     const edgeTypes = edgeTypesFor(nodeSpecs);
     const edges = edgeTypes.map((type, index) => edge(nodes[index], nodes[index + 1], type, risk));
@@ -598,7 +615,7 @@ function hasAnySink(text: string): boolean {
 }
 
 export function inferWorkflowForFinding(input: WorkflowInferenceInput): FindingWorkflow | undefined {
-    const haystack = stripCodeFenceLanguage([input.text, input.content || '', input.message || '', input.filePath || ''].join('\n'));
+    const haystack = stripCodeFenceLanguage(withoutQuotedExamples([input.text, input.content || '', input.message || '', input.filePath || ''].join('\n')));
     const isMcpRule = input.ruleId.startsWith('MCP-') || input.ruleId === 'sec_mcp_tool_poisoning';
     const isInjection = input.ruleId.includes('llm01') || input.ruleId.includes('injection')
         || input.ruleId.includes('jailbreak') || input.ruleId === 'sec_unbounded_persona'

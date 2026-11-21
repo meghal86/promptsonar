@@ -1,10 +1,15 @@
 import { RuleInput, Finding } from '../types';
+import { isQuotedAttackExample, locate, QUOTED_EXAMPLE_NOTE } from '../quotedExample';
 
 const INJECTION_SOURCES: RegExp[] = [
     // Classic overrides
-    /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
-    /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
-    /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+    /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)+(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+    /disregard\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)+(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+    /forget\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)+(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
+    // Bare "ignore instructions" (no all/previous/prior) is ordinary prose when a
+    // model or tool is the subject ("tts-1 ignore instructions"); it counts as
+    // an order at the start of a clause or after please/now/you must.
+    /(?<=^|[.!?;:\n]\s*|\b(?:please|now|just|simply|and|then|also|always)\s+|\byou\s+(?:must|should|will|shall|need\s+to)\s+)(?:ignore|disregard|forget)\s+(?:instructions|prompts|rules|guidelines)\b/i,
     // "Ignore previous instructions" in Spanish, Portuguese, French, German, Italian.
     /\bignor(?:a|e|ez|ar|er|en)\s+(?:todas\s+|todos\s+|toutes\s+|tutte\s+)?(?:las|os|as|les|le)\s+(?:instrucciones|instruções|instrucoes|instructions|istruzioni)\s+(?:anteriores|previas|précédentes|precedentes|precedenti)\b/i,
     /\bignorier(?:e|en)\s+(?:sie\s+)?(?:alle\s+)?(?:vorherigen|bisherigen|früheren)\s+anweisungen\b/i,
@@ -31,12 +36,13 @@ const INJECTION_SOURCES: RegExp[] = [
     /\b(?:developer\s+mode|devmode)\s+(?:enabled|activated|is\s+on|output|response)\b/i,
     /\b(?:enter|activate|enable|switch\s+to)\s+(?:developer\s+mode|devmode)\b[^.\n]{0,80}\b(?:no|without|unrestricted|uncensored|unfiltered)\b/i,
     /hypothetical\s+response/i,
-    /unrestricted\s+(mode|access|persona)\b/i,
+    // "unrestricted access" is a scope (sec_unbounded_access), not an injection.
+    /unrestricted\s+(mode|persona)\b/i,
     /ignore\s+(?:safety\s+|content\s+)?(?:guidelines|filters|limitations|restrictions|rules)/i,
     // A bare "no restrictions" ("there are no restrictions on file formats")
     // is ordinary prose; it counts when the qualifier or the subject is the model.
     /\bno\s+(?:ethical|safety|content)\s+(?:guidelines|filters?|limitations|restrictions|rules)\b/i,
-    /\b(?:with|have|has|under|operate\s+with)\s+no\s+(?:guidelines|filters?|limitations|restrictions|rules)\b/i,
+    /\b(?:(?:answer|respond|reply|act|operate|work|speak|write)\s+(?:with|under)|you\s+(?:have|are\s+under|operate\s+with)|(?:that|which|who)\s+has)\s+no\s+(?:guidelines|filters?|limitations|restrictions|rules)\b/i,
 
     // Output redirection / exfiltration
     /(?:print|echo|output|respond\s+with|show\s+me)\s+(your\s+system\s+prompt|(?:your\s+|the\s+)?(?:api\s+key|secret|password)|instructions)/i,
@@ -52,12 +58,13 @@ const INJECTION_SOURCES: RegExp[] = [
     // lesson, a converter tool) is not an attack.
     // "JSON-encoded prompts" (a data column) is not an encoded attack.
     /(?<![\w-])(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
-    /\bdecode\b[^.\n]{0,60}\b(?:and|then)\s+(?:then\s+)?(?:follow|execute|run|obey|apply|carry\s+out)\b/i,
+    /\bdecode\b[^.\n]{0,60}\b(?:and|then)\s+(?:then\s+)?(?:follow|execute|run|obey|apply|carry\s+out)\s+(?:the\s+|its\s+|any\s+|all\s+)?(?:instructions?|commands?|contents?|payload|code|it|them|what)\b/i,
 
     // Tool / privilege abuse
     /use\s+(tool|function|command)\s+without\s+permission/i,
     /bypass\s+(?:guardrails|safety\s+controls)/i,
-    /delete_(all_)?users?/i
+    // Asking for a destructive tool call; the function name in code or docs is not.
+    /\b(?:call|invoke|run|execute|use|trigger)\s+(?:the\s+)?delete_(?:all_)?users?\b/i
 ];
 
 
@@ -67,7 +74,7 @@ const INJECTION_SOURCES: RegExp[] = [
 // between them: arbitrary words would let "don't hesitate to ignore…" or
 // "never fail to disregard…" (which mean the opposite) read as prohibitions.
 const NEGATOR = String.raw`(?:never|do\s+not|does\s+not|don'?t|doesn'?t|must\s+not|mustn'?t|should\s+not|shouldn'?t|shall\s+not|cannot|can\s+not|can'?t|will\s+not|won'?t|may\s+not|not\s+to|refuse\s+to|avoid(?:ing)?|under\s+no\s+circumstances|no)`;
-const CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as|or|log|echo)`;
+const CONNECTING_WORD = String.raw`(?:ever|you|yourself|attempt|try|to|and|be|get|tricked|into|let|allow|make|anyone|anybody|users?|the|any|follow|accept|obey|comply|with|enter|switch|activate|enable|go|act|in|execute|run|respond|reply|output|print|show|share|disclose|reveal|treat|as|or|log|echo|introduce|adopt|assume|create|invent|take|on|use|a|an)`;
 const GOVERNING_NEGATION = new RegExp(String.raw`\b${NEGATOR}\s*(?:,\s*under\s+any\s+circumstances\s*,\s*)?(?:${CONNECTING_WORD}\s+){0,4}$`);
 const NEGATOR_WORD = new RegExp(String.raw`\b${NEGATOR}\b`, 'g');
 // Phrases that start with a negator but negate nothing that follows.
@@ -150,11 +157,18 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
     for (const source of INJECTION_SOURCES) {
         const regex = new RegExp(source.source, source.flags.includes('g') ? source.flags : `${source.flags}g`);
         let match: RegExpExecArray | null = null;
+        // A match on a line that quotes or discusses an attack (a table of
+        // injection patterns, an incident write-up) is kept as MEDIUM.
+        let example: RegExpExecArray | null = null;
         for (const candidate of searchResult.matchAll(regex)) {
-            if (!isNegatedMatch(searchResult, candidate.index ?? 0) && !isDefensiveMatch(searchResult, candidate)) {
-                match = candidate as RegExpExecArray;
-                break;
+            if (isNegatedMatch(searchResult, candidate.index ?? 0) || isDefensiveMatch(searchResult, candidate)) continue;
+            const where = locate(searchResult, candidate.index ?? 0, candidate[0].length);
+            if (isQuotedAttackExample(where.lines, where.index, where)) {
+                example = example || candidate as RegExpExecArray;
+                continue;
             }
+            match = candidate as RegExpExecArray;
+            break;
         }
         if (match) {
             findings.push({
@@ -165,6 +179,17 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
                 explanation: `Prompt injection pattern detected: "${match[0]}"`,
                 suggested_fix: 'Remove this pattern and rely on strict system boundaries or delimiters.',
                 penalty_score: 30
+            });
+        } else if (example) {
+            findings.push({
+                rule_id: "sec_owasp_llm01_injection",
+                category: "security",
+                severity: "medium",
+                matchedText: example[0],
+                explanation: `Prompt injection text quoted as an example: "${example[0]}"`,
+                suggested_fix: 'If this text is meant as an example, keep it in a clearly marked example block; if the agent is meant to follow it, remove it.',
+                penalty_score: 10,
+                severityNote: QUOTED_EXAMPLE_NOTE,
             });
         }
     }

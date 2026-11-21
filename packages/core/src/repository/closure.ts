@@ -395,7 +395,7 @@ async function scanAnalyzedFilesForRepository(rootPath: string, analyzedFiles: A
             findings.push({
                 rule_id: 'sec_owasp_llm02_pii',
                 category: 'security',
-                severity: 'high',
+                severity: secret.documentedExample ? 'medium' : 'high',
                 line: secret.line,
                 column: secret.column,
                 message: `Potential Sensitive Information Disclosure (OWASP LLM02): Hardcoded ${secret.name} found in source.`,

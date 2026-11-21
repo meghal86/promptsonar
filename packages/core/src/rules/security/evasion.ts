@@ -1,4 +1,5 @@
 import { Finding, RuleInput } from '../types';
+import { isQuotedAttackExample, locate, QUOTED_EXAMPLE_NOTE } from '../quotedExample';
 
 const INJECTION_PATTERNS: RegExp[] = [
     /ignore\s+(?:all\s+|any\s+|previous\s+|above\s+|prior\s+|earlier\s+)*(?:instructions|prompts|rules|commands|guidelines|context|filter)/i,
@@ -119,11 +120,16 @@ export function checkEvasionPatterns(input: RuleInput): Finding[] {
     // and a joiner inside an emoji sequence or a non-Latin word is part of the
     // text — ignore those. Any other zero-width character still fires.
     let zeroWidthMatch: string | undefined;
+    let zeroWidthIndex = 0;
     for (const match of input.text.matchAll(ZERO_WIDTH_CHARS_GLOBAL)) {
         const index = match.index ?? 0;
         if (index === 0 && match[0] === '\uFEFF') continue;
         if (isTextJoiner(input.text, index)) continue;
+        // U+200B right before a backtick escapes a Markdown code fence (shows a
+        // literal ``` inside a fenced block); it hides no text.
+        if (match[0].charCodeAt(0) === 0x200B && input.text[index + 1] === '`') continue;
         zeroWidthMatch = match[0];
+        zeroWidthIndex = index;
         break;
     }
     // Unicode tag characters (U+E0020–U+E007E) render as nothing but carry ASCII
@@ -144,10 +150,15 @@ export function checkEvasionPatterns(input: RuleInput): Finding[] {
     }
 
     if (zeroWidthMatch) {
+        // A zero-width character inside a quoted evasion example ("e.g. ig<U+200B>nore")
+        // documents the technique.
+        const where = locate(input.text, zeroWidthIndex, 1);
+        const quoted = isQuotedAttackExample(where.lines, where.index, where);
         findings.push({
             rule_id: 'sec_zero_width_injection',
             category: 'security',
-            severity: 'high',
+            severity: quoted ? 'medium' : 'high',
+            ...(quoted ? { severityNote: QUOTED_EXAMPLE_NOTE } : {}),
             matchedText: zeroWidthMatch,
             explanation: 'Zero-width character injection detected. Invisible Unicode breaks pattern matching.',
             suggested_fix: 'Remove zero-width Unicode characters.',

@@ -10,6 +10,8 @@ export interface Finding {
     severity: Severity;
     /** Severity before file context (example, docs, test) capped it; unset when not capped. */
     originalSeverity?: Severity;
+    /** Why the rule reported a lower severity than its default (e.g. a quoted attack example). */
+    severityNote?: string;
     explanation: string;
     suggested_fix?: string;
     workflow?: FindingWorkflow;

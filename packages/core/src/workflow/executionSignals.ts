@@ -38,6 +38,20 @@ export function hasDeclaredControl(text: string): boolean {
     return DECLARED_CONTROL_PATTERNS.some(pattern => pattern.test(text));
 }
 
+// Content the agent reads but nobody vetted: what turns a privileged capability
+// into a path an attacker can drive (indirect prompt injection).
+export const UNTRUSTED_SOURCE_PATTERNS = [
+    /\bweb\s*(?:pages?|content|sites?|search(?:es)?|results?)\b|\bsearch\s+results?\b|\bbrowse\s+(?:the\s+)?(?:web|internet)\b|\bfetch(?:ed|es)?\s+(?:the\s+)?(?:url|page|content|web)\b|\bscrap(?:e|ed|ing)\b/i,
+    /\b(?:issue|pull\s+request|pr|merge\s+request)\s+(?:bod(?:y|ies)|titles?|comments?|descriptions?)\b|\b(?:github|gitlab)\s+(?:issues?|comments?)\b/i,
+    /\b(?:incoming|inbound|received)\s+(?:emails?|messages?)\b|\bemails?\s+(?:bod(?:y|ies)|content)\b|\b(?:read|process|triage)\s+(?:the\s+)?(?:inbox|emails?)\b/i,
+    /\b(?:user[- ]?uploaded|uploaded)\s+(?:files?|documents?|content)\b|\btool\s+(?:output|results?|responses?)\b|\buntrusted\s+(?:input|content|data|text|sources?)\b|\bexternal\s+(?:content|data|documents?)\b/i,
+    /\bretrieved\s+(?:context|documents?|content|chunks?|passages?)\b|\brag\s+(?:context|content|results?)\b/i,
+];
+
+export function hasUntrustedSource(text: string): boolean {
+    return UNTRUSTED_SOURCE_PATTERNS.some(pattern => pattern.test(text));
+}
+
 /** ```bash / ~~~sh fence lines name a language; they are not instructions. */
 export function stripCodeFenceLanguage(text: string): string {
     return text.replace(/^(\s*(?:```|~~~))[\w+-]+/gm, '$1');
