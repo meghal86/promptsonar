@@ -22427,7 +22427,7 @@ var require_quotedExample = __commonJS({
     var STRONG_DISCUSSION = /\battackers?\b|\battacker's\b|\battacker-controlled\b|\bvictims?\b|\bmalicious\b|\bexploit(?:s|ed|ing|ation)?\b|\bpoc\b|\bcve-\d{4}-\d+|\bjailbreak(?:s|ing)?\b|\bprompt[- ]injections?\b|\binjection\s+(?:attacks?|patterns?|payloads?|examples?|techniques?)\b|\bexfiltrat(?:ed|ion|es)\b/i;
     var WEAK_DISCUSSION = /\bpayloads?\b|\bdetect(?:s|ed|ion|ing)?\b|\bindicators?\b|\bred[- ]?flags?\b|\bvulnerab\w*|\bthreat\s+model\w*|\bred[- ]team\w*|\bsmuggling\b|\bphishing\b|\bevad(?:e|es|ing)\b|\bevasion\b|\bobfuscat\w*/i;
     var PLACEHOLDER_ATTACK_HOST = /\b(?:attacker|evil|malicious|hacker|pwn(?:ed)?|exploit|badguy)[\w-]*\.(?:com|net|org|io|tld|xyz|example|site|host|me)\b|(?:\/\/|@)attacker[\w.-]*(?=[/:\s'"`)]|$)|<(?:attacker|evil|malicious)[^>]*>|\$\{?ATTACKER\w*|\bATTACKER_[A-Z_]+\b/i;
-    var INJECTED_INPUT = /(?:[?&][\w.-]+=|["'`=][^"'`\s]{0,40})\s*(?:;|\|\||&&|\||\$\(|`)\s*(?:rm|curl|wget|nc|ncat|bash|sh|cat|id|whoami|ping|nslookup|sleep|copy)\b/;
+    var INJECTED_INPUT = /(?:[?&][\w.-]+=\s*|["'`=][^"'`\s]{0,40}\s*(?=;|\||&&)|["'`=][^"'`\s]{1,40}\s*)(?:;|\|\||&&|\||\$\(|`)\s*(?:rm|curl|wget|nc|ncat|bash|sh|cat|id|whoami|ping|nslookup|sleep|copy)\b/;
     var PATTERN_SYNTAX = /\\s[+*]|\(\?i\)|\\b\w|\[\^[^\]\d][^\]]*\]|\\\.|\\d[+*{]/;
     var EXAMPLE_LABEL = /^\s*(?:[-*>|#]\s*|\d+[.)]\s*|\/\/\s*){0,8}(?:\*\*|__)?(?:attacker|attack(?:\s+\w+){0,2}|payloads?|exploit|poc|vulnerable(?:\s+\w+)?|bad(?:\s+\w+)?|unsafe|dangerous|malicious(?:\s+\w+)?|insecure(?:\s+\w+)?|anti-?pattern|real[- ]world|incident|impact|example\s+(?:attack|payload|exploit|of\s+(?:a|an)\s+(?:attack|malicious\s+\w+|injection)))\b[^:\n]{0,40}:|(?:#|\/\/|--|<!--)\s*(?:dangerous|bad|vulnerable|unsafe|attack(?:er)?|malicious|exploit|payload|insecure)\b|\/\/\s*DANGEROUS|❌|→\s*(?:command\s+injection|rce|sqli|xss|exfil\w*|ssrf|xxe|shell|code\s+execution|compromise)/i;
     var CATALOG_HEADER = /\|\s*(?:patterns?|examples?|payloads?|techniques?|severity|risk|detections?|indicators?|attacks?|signatures?|rules?)\s*\|/i;
@@ -22522,7 +22522,10 @@ var require_owasp_patterns = __commonJS({
       // \b: "new personal access token" is not "new persona". "task", "role" and
       // "command" need attack framing: "create a new role" (IAM), "a new task
       // head" (ML) and "run a new query" are ordinary documentation.
-      /new\s+(?:instructions|persona)\b/i,
+      // "new persona" needs an order to take it on: "Onboarding new persona" in a
+      // product table is not one.
+      /new\s+instructions\b/i,
+      /\b(?:adopt|assume|take\s+on|switch\s+to|become|use|enter)\s+(?:a\s+|the\s+|this\s+)?new\s+persona\b|\byour\s+new\s+persona\b/i,
       /\b(?:your|my)\s+new\s+(?:task|role|command)\b|\bnew\s+(?:task|role|command)\s*:/i,
       // Role-playing / persona switches
       /you\s+are\s+now\s+(?:a|an|the|an)?\s*(?:god|admin|hacker|unrestricted|developer|dan|ai\s+without)/i,
@@ -22559,7 +22562,9 @@ var require_owasp_patterns = __commonJS({
       // something and then acting on it. Plain "decode text" (a programming
       // lesson, a converter tool) is not an attack.
       // "JSON-encoded prompts" (a data column) is not an encoded attack.
-      /(?<![\w-])(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
+      // An order to act on encoded text; "Encoded instructions in data" in a list
+      // of threats names the risk.
+      /\b(?:follow|execute|run|obey|decode|apply|read|use)\s+(?:the\s+|these\s+|this\s+|my\s+)?(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
       /\bdecode\b[^.\n]{0,60}\b(?:and|then)\s+(?:then\s+)?(?:follow|execute|run|obey|apply|carry\s+out)\s+(?:the\s+|its\s+|any\s+|all\s+)?(?:instructions?|commands?|contents?|payload|code|it|them|what)\b/i,
       // Tool / privilege abuse
       /use\s+(tool|function|command)\s+without\s+permission/i,
@@ -22578,7 +22583,7 @@ var require_owasp_patterns = __commonJS({
     var GOVERNING_NEGATION = new RegExp(String.raw`\b${NEGATOR}\s*(?:,\s*under\s+any\s+circumstances\s*,\s*)?(?:${CONNECTING_WORD}\s+){0,4}$`);
     var NEGATOR_WORD = new RegExp(String.raw`\b${NEGATOR}\b`, "g");
     var NON_GOVERNING_NEGATION = /\b(?:never\s+mind|no\s+(?:worries|problem|need))\b/;
-    var CLAUSE_BOUNDARY = /[.!?;:\n]|,(?!\s*under\s+any\s+circumstances)|\b(?:but|instead|however|now|actually|then)\b/g;
+    var CLAUSE_BOUNDARY = /[.!?;:\n—–]|\s-\s|,(?!\s*under\s+any\s+circumstances)|\b(?:but|instead|however|now|actually|then)\b/g;
     function isNegatedMatch(text, index2) {
       const before = text.slice(Math.max(0, index2 - 120), index2);
       let clauseStart = 0;
@@ -22744,8 +22749,11 @@ var require_owasp_patterns = __commonJS({
           penalty_score: 20
         });
       }
-      const enclosedObfuscationPattern = new RegExp("[" + String.fromCodePoint(127232) + "-" + String.fromCodePoint(127487) + "]", "u");
-      if (enclosedObfuscationPattern.test(normalizedText)) {
+      const enclosedLetters = Array.from(normalizedText).filter((char) => {
+        const codePoint = char.codePointAt(0) || 0;
+        return codePoint >= 127248 && codePoint <= 127369;
+      }).length;
+      if (enclosedLetters >= 3) {
         findings.push({
           rule_id: "sec_unicode_enclosed_obfuscation",
           category: "security",
@@ -23055,6 +23063,13 @@ var require_pii = __commonJS({
         return false;
       return isLuhnValid(value);
     }
+    var EXAMPLE_SSNS = /* @__PURE__ */ new Set(["123-45-6789", "078-05-1120", "219-09-9999"]);
+    function isPlausibleSsn(value) {
+      const [area, group, serial] = value.split("-");
+      if (EXAMPLE_SSNS.has(value))
+        return false;
+      return area !== "000" && area !== "666" && group !== "00" && serial !== "0000";
+    }
     var PII_REGEXES = [
       { name: "SSN", pattern: /\b\d{3}-\d{2}-\d{4}\b/ },
       { name: "Credit Card", pattern: CARD_CANDIDATE },
@@ -23120,7 +23135,7 @@ var require_pii = __commonJS({
     function looksLikePlaceholder(value) {
       return /x{4,}|\*{3,}|your[_-]|<[^>]*>|_here\b|\.{3}|\u2026|0{12,}/i.test(value);
     }
-    var PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme|evil|attacker|target|victim|exploit|hacker)\.(?:com|org|net|edu|io)$|@(?:[\w-]+\.)*[\w-]+\.(?:local|internal|lan|corp)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@|^git@/i;
+    var PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme|evil|attacker|target|victim|exploit|hacker)\.(?:com|org|net|edu|io)$|@(?:[\w-]+\.)*[\w-]+\.(?:local|internal|lan|corp)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@|^git@|^[a-z]@[a-z]\.[a-z]{2,3}$/i;
     var DOC_EXAMPLE_LINE = /❌|\bfor\s+example\b|\bexample(?:\s+[\w-]+)?\s*:|\be\.g\.|\bfake\b|\bdummy\b|\bsample\b|\bplaceholder\b|\b(?:do\s+not|don't|never)\s+(?:hard-?code|commit)|\bhard-?cod(?:ed|ing)\b|\bbad\s*:/i;
     function isDocumentedExample(text, index2) {
       const before = text.slice(0, index2).split("\n");
@@ -23142,9 +23157,11 @@ var require_pii = __commonJS({
       const text = (0, secrets_1.redactSecretReferences)(input.text);
       for (const pii of PII_REGEXES) {
         pii.pattern.lastIndex = 0;
-        const match = pii.pattern === CARD_CANDIDATE ? Array.from(text.matchAll(CARD_CANDIDATE)).find((candidate) => isPlausibleCardNumber(candidate[0])) ?? null : text.match(pii.pattern);
+        const match = pii.pattern === CARD_CANDIDATE ? Array.from(text.matchAll(CARD_CANDIDATE)).find((candidate) => isPlausibleCardNumber(candidate[0])) ?? null : pii.name === "SSN" ? Array.from(text.matchAll(new RegExp(pii.pattern.source, "g"))).find((candidate) => isPlausibleSsn(candidate[0])) ?? null : text.match(pii.pattern);
         if (match && !looksLikePlaceholder(match[0])) {
-          const documented = isDocumentedExample(text, match.index ?? text.indexOf(match[0]));
+          const offset = match.index ?? text.indexOf(match[0]);
+          const lineIndex = text.slice(0, offset).split("\n").length - 1;
+          const documented = isDocumentedExample(text, offset) || isDocumentedSecretLine(text.split("\n"), lineIndex);
           findings.push({
             rule_id: "sec_owasp_llm02_pii",
             category: "security",
@@ -23185,7 +23202,7 @@ var require_pii = __commonJS({
     ];
     function isDocumentedSecretLine(lines, index2) {
       const line = lines[index2] || "";
-      if (/^\s*\|/.test(line) && (line.match(/\|/g) || []).length >= 3 && /\b(?:keys?|tokens?|secrets?|passwords?|credentials?)\b/i.test(line))
+      if (/^\s*\|/.test(line) && (line.match(/\|/g) || []).length >= 3 && /\b(?:keys?|tokens?|secrets?|passwords?|credentials?|ssn|social\s+security|card|phone|email)\b/i.test(line))
         return true;
       const previous = lines.slice(0, index2).reverse().find((candidate) => candidate.trim()) || "";
       return DOC_EXAMPLE_LINE.test(line) || DOC_EXAMPLE_LINE.test(previous);
@@ -23202,6 +23219,8 @@ var require_pii = __commonJS({
           let match;
           while ((match = pattern.exec(line)) !== null) {
             if (name === "Credit Card" && !isPlausibleCardNumber(match[0]))
+              continue;
+            if (name === "SSN" && !isPlausibleSsn(match[0]))
               continue;
             if (looksLikePlaceholder(match[0]))
               continue;
@@ -23819,7 +23838,8 @@ var require_ethics = __commonJS({
             rule_id: "ethics_manipulation",
             category: "ethics",
             // New category
-            severity: "high",
+            // A content concern (marketing urgency), not a security risk.
+            severity: "medium",
             explanation: "Manipulative patterns detected: Prompt requests generation of fake urgency or psychological pressure.",
             suggested_fix: "Remove manipulative language patterns.",
             penalty_score: 15
@@ -59575,7 +59595,7 @@ var require_codeThreats = __commonJS({
       sec_privilege_escalation: "Passwordless sudo for everything, a world-writable home or system directory, or a setuid shell lets any process, including an injected one, take over the machine."
     };
     var CREDENTIAL_PATH = /(?:^|[\\/~])\.(?:ssh|aws|gnupg|kube|docker)(?:[\\/]|$)|^\.(?:ssh|aws|gnupg)$|\bid_(?:rsa|dsa|ecdsa|ed25519)\b|(?:^|[\\/])\.(?:npmrc|netrc|pypirc|git-credentials)$|aws[\\/]credentials|\.docker[\\/]config\.json|\.kube[\\/]config|\/etc\/(?:shadow|passwd)\b|(?:^|[\\/])(?:Login Data|Cookies|wallet\.dat)$/;
-    var DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*?(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[\w-]+\.[a-z]{2,}\b|\$\{?\w+)[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
+    var DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*?(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[\w-]+\.[a-z]{2,}\b|\$\{?\w+)[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|-D|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\b(?:ba|z|da|k)?sh\s+(?:-\w+\s+)*-c\s+["']?\$\(\s*(?:curl|wget)\b[^)\n]*(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b)|\b(?:(?:ba|z|da|k)?sh|source|\.)\s+<\(\s*(?:curl|wget)\b[^)\n]*(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b)/;
     var REVERSE_SHELL = /\b(?:ba)?sh\s+-i\s*>&?\s*\/dev\/tcp\/|\bnc\b[^\n]*\s-e\s+\/bin\/(?:ba)?sh/;
     var DESTRUCTIVE = /\brm\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*\s+|-[a-zA-Z]+\s+-[a-zA-Z]+\s+|--recursive\s+|--force\s+)+(?:--no-preserve-root\s+)?(?:~\/?|\/\*?|\$HOME\/?|"\$HOME"\/?|\/(?:home|root|etc|usr|var)\/?)(?=\s|$|;|&|\||`|'|"|\))|--no-preserve-root\b|\bmkfs(?:\.\w+)?\s+\/dev\/|\bdd\s+[^\n]*\bof=\/dev\/(?:sd|nvme|hd|disk|xvd)|:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/;
     var POWERSHELL_DOWNLOAD_EXEC = /\b(?:iwr|irm|invoke-webrequest|invoke-restmethod|curl|wget)\b[^|\n]*\|\s*(?:iex|invoke-expression)\b|\b(?:iex|invoke-expression)\s*\(*\s*(?:new-object\s+(?:system\.)?net\.webclient|iwr\b|irm\b|invoke-webrequest\b|invoke-restmethod\b)/i;
@@ -59860,8 +59880,35 @@ var require_codeThreats = __commonJS({
         return !/\.pub$/.test(token) && !/^[^/~]*:/.test(token) && CREDENTIAL_PATH.test(token);
       });
     }
+    var BASE64_RUN = /[A-Za-z0-9+/]{24,}={0,2}/g;
+    var DECODED_COMMAND = /\b(?:curl|wget)\b[^\n]*(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b)|\b(?:ba|z)?sh\s+-c\b|\/bin\/(?:ba|z)?sh\b|\bpowershell\b|\binvoke-expression\b|\biex\b|\bnc\s+-e\b/i;
+    function decodedCommand(line) {
+      for (const run3 of line.match(BASE64_RUN) || []) {
+        let decoded;
+        try {
+          decoded = Buffer.from(run3, "base64").toString("utf8");
+        } catch {
+          continue;
+        }
+        if (/^[\x09\x0A\x0D\x20-\x7E]+$/.test(decoded) && DECODED_COMMAND.test(decoded))
+          return decoded;
+      }
+      return void 0;
+    }
     function commandLineThreats(line, lineNumber, context5 = "script") {
       const threats = [];
+      const hidden = decodedCommand(line);
+      if (hidden) {
+        threats.push({
+          ruleId: "sec_remote_code_execution",
+          severity: "critical",
+          line: lineNumber,
+          column: 1,
+          source: "a base64-encoded command",
+          sink: "shell",
+          message: `Hides a command in base64 (decodes to: ${hidden.trim().slice(0, 120)}).`
+        });
+      }
       const download = DOWNLOAD_TO_SHELL.test(line) || POWERSHELL_DOWNLOAD_EXEC.test(line) || downloadsThenRuns(line);
       if (download || REVERSE_SHELL.test(line)) {
         const unmistakable = REVERSE_SHELL.test(line) || /\bbase64\s+(?:-d|--decode)\b/.test(line) || /\b\d{1,3}(?:\.\d{1,3}){3}\b/.test(line);
@@ -59919,6 +59966,7 @@ var require_codeThreats = __commonJS({
         const found = commandLineThreats(command, index2 + 1, "instruction");
         threats.push(...found.length && (0, quotedExample_1.isQuotedAttackExample)(lines, index2) ? found.map((threat) => ({ ...threat, severity: "medium", quotedExample: true })) : found);
       });
+      threats.push(...deliveryThreats(lines));
       const lineOf = (offset) => content.slice(0, offset).split(/\r?\n/).length;
       const wildcard = /^allowed-tools:\s*(?:\[\s*)?["']?(?:\*|Bash\(\s*\*\s*\))["']?/im.exec(content);
       if (wildcard) {
@@ -59978,6 +60026,36 @@ var require_codeThreats = __commonJS({
       const exfil = proseCredentialExfiltration(content);
       if (exfil)
         threats.push({ ...exfil, line: lineOf(exfil.offset), column: 1 });
+      return threats;
+    }
+    var ARCHIVE_LINK = /https?:\/\/\S+?\.(?:zip|7z|rar|exe|msi|dmg|pkg|appimage)\b/i;
+    var ARCHIVE_PASSWORD = /\b(?:extract|unzip|unpack|decompress|open)\w*\b[^\n]{0,40}?\b(?:password|passphrase|using)\b|\b(?:archive|zip)\s+password\b|\bpassword\s*[:=]\s*`?[\w-]{3,}/i;
+    var PASTE_SITE = /\b(?:glot\.io|pastebin\.com|rentry\.(?:co|org)|hastebin\.\w+|paste\.ee|controlc\.com|termbin\.com|ghostbin\.\w+|privatebin\.\w+|dpaste\.\w+|ix\.io|sprunge\.us)\b/i;
+    var RUN_IN_TERMINAL = /\b(?:run|execute|paste|copy|enter)\b[^\n]{0,80}\b(?:terminal|command\s+prompt|powershell|shell|console)\b|\b(?:terminal|powershell)\b[^\n]{0,40}\b(?:run|execute|paste)\b/i;
+    function deliveryThreats(lines) {
+      const threats = [];
+      lines.forEach((line, index2) => {
+        const window2 = lines.slice(Math.max(0, index2 - 3), index2 + 7).join("\n");
+        let message;
+        if (ARCHIVE_LINK.test(line) && ARCHIVE_PASSWORD.test(window2)) {
+          message = "Tells the reader to download an archive or executable and extract it with a password, which hides its contents from antivirus scanning.";
+        } else if (PASTE_SITE.test(line) && RUN_IN_TERMINAL.test(window2)) {
+          message = "Tells the reader to run a command taken from a paste site, which nobody reviews and which can change after publication.";
+        }
+        if (!message)
+          return;
+        const quoted = (0, quotedExample_1.isQuotedAttackExample)(lines, index2);
+        threats.push({
+          ruleId: "sec_remote_code_execution",
+          severity: quoted ? "medium" : "critical",
+          line: index2 + 1,
+          column: 1,
+          source: "a downloaded installer",
+          sink: "the user's machine",
+          message,
+          ...quoted ? { quotedExample: true } : {}
+        });
+      });
       return threats;
     }
     var APPROVAL_BYPASS = /--dangerously-skip-permissions\b|["']?defaultMode["']?\s*[:=]\s*["']?bypassPermissions\b|\bbypassPermissions\b|["']?approval_policy["']?\s*[:=]\s*["']?never\b|--dangerously-bypass-approvals-and-sandbox\b|(?:^|\s)--yolo\b/im;

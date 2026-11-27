@@ -97,9 +97,10 @@ export interface CodeThreat {
 // after folding string concatenation.
 const CREDENTIAL_PATH = /(?:^|[\\/~])\.(?:ssh|aws|gnupg|kube|docker)(?:[\\/]|$)|^\.(?:ssh|aws|gnupg)$|\bid_(?:rsa|dsa|ecdsa|ed25519)\b|(?:^|[\\/])\.(?:npmrc|netrc|pypirc|git-credentials)$|aws[\\/]credentials|\.docker[\\/]config\.json|\.kube[\\/]config|\/etc\/(?:shadow|passwd)\b|(?:^|[\\/])(?:Login Data|Cookies|wallet\.dat)$/;
 
+// Also the command-substitution forms: sh -c "$(curl URL)" and bash <(curl URL).
 // A download needs a target: a URL, IP, domain or variable before the pipe
 // ("curl ... | bash" as a placeholder in a reviewer's checklist is not one).
-const DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*?(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[\w-]+\.[a-z]{2,}\b|\$\{?\w+)[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
+const DOWNLOAD_TO_SHELL = /\b(?:curl|wget)\b[^|\n;]*?(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[\w-]+\.[a-z]{2,}\b|\$\{?\w+)[^|\n;]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\bbase64\s+(?:-d|-D|--decode)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\b(?:ba|z|da|k)?sh\s+(?:-\w+\s+)*-c\s+["']?\$\(\s*(?:curl|wget)\b[^)\n]*(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b)|\b(?:(?:ba|z|da|k)?sh|source|\.)\s+<\(\s*(?:curl|wget)\b[^)\n]*(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b)/;
 const REVERSE_SHELL = /\b(?:ba)?sh\s+-i\s*>&?\s*\/dev\/tcp\/|\bnc\b[^\n]*\s-e\s+\/bin\/(?:ba)?sh/;
 // Wipes the home directory or the root filesystem, formats a disk, or forks
 // the machine to death. Project-relative deletes (rm -rf ./dist) are not matched.
@@ -443,8 +444,37 @@ function commandCredentialUpload(line: string): string | undefined {
  * vendor's documented `curl … | sh`) is HIGH, for review; a raw IP, decoded
  * payload or reverse shell is CRITICAL everywhere.
  */
+// A base64 run long enough to hold a command.
+const BASE64_RUN = /[A-Za-z0-9+/]{24,}={0,2}/g;
+// What a hidden command looks like once decoded: a shell, a download, PowerShell.
+const DECODED_COMMAND = /\b(?:curl|wget)\b[^\n]*(?:https?:\/\/|\b\d{1,3}(?:\.\d{1,3}){3}\b)|\b(?:ba|z)?sh\s+-c\b|\/bin\/(?:ba|z)?sh\b|\bpowershell\b|\binvoke-expression\b|\biex\b|\bnc\s+-e\b/i;
+
+/** The decoded text of base64 runs on a line that decode to a command, if any. */
+function decodedCommand(line: string): string | undefined {
+    for (const run of line.match(BASE64_RUN) || []) {
+        let decoded: string;
+        try {
+            decoded = Buffer.from(run, 'base64').toString('utf8');
+        } catch {
+            continue;
+        }
+        if (/^[\x09\x0A\x0D\x20-\x7E]+$/.test(decoded) && DECODED_COMMAND.test(decoded)) return decoded;
+    }
+    return undefined;
+}
+
 function commandLineThreats(line: string, lineNumber: number, context: 'script' | 'instruction' = 'script'): CodeThreat[] {
     const threats: CodeThreat[] = [];
+    // A command hidden in base64 ("echo 'L2Jpbi9i…' | base64 -D | bash"): the
+    // ClawHavoc skills told users to paste exactly this into Terminal.
+    const hidden = decodedCommand(line);
+    if (hidden) {
+        threats.push({
+            ruleId: 'sec_remote_code_execution', severity: 'critical', line: lineNumber, column: 1,
+            source: 'a base64-encoded command', sink: 'shell',
+            message: `Hides a command in base64 (decodes to: ${hidden.trim().slice(0, 120)}).`,
+        });
+    }
     const download = DOWNLOAD_TO_SHELL.test(line) || POWERSHELL_DOWNLOAD_EXEC.test(line) || downloadsThenRuns(line);
     if (download || REVERSE_SHELL.test(line)) {
         const unmistakable = REVERSE_SHELL.test(line) || /\bbase64\s+(?:-d|--decode)\b/.test(line) || /\b\d{1,3}(?:\.\d{1,3}){3}\b/.test(line);
@@ -497,6 +527,7 @@ function analyzeInstructionThreats(content: string): CodeThreat[] {
             ? found.map(threat => ({ ...threat, severity: 'medium' as const, quotedExample: true }))
             : found));
     });
+    threats.push(...deliveryThreats(lines));
     const lineOf = (offset: number) => content.slice(0, offset).split(/\r?\n/).length;
 
     // allowed-tools: "*" (or Bash(*)) grants every tool.
@@ -553,6 +584,35 @@ function analyzeInstructionThreats(content: string): CodeThreat[] {
     const exfil = proseCredentialExfiltration(content);
     if (exfil) threats.push({ ...exfil, line: lineOf(exfil.offset), column: 1 } as CodeThreat);
 
+    return threats;
+}
+
+// Malware delivery used by real malicious skills (ClawHavoc, 2026): a
+// "prerequisite" archive or executable with an extraction password (which
+// defeats antivirus scanning of the archive), or a command to copy from a paste
+// site into a terminal (unreviewed, and changeable after publication).
+const ARCHIVE_LINK = /https?:\/\/\S+?\.(?:zip|7z|rar|exe|msi|dmg|pkg|appimage)\b/i;
+const ARCHIVE_PASSWORD = /\b(?:extract|unzip|unpack|decompress|open)\w*\b[^\n]{0,40}?\b(?:password|passphrase|using)\b|\b(?:archive|zip)\s+password\b|\bpassword\s*[:=]\s*`?[\w-]{3,}/i;
+const PASTE_SITE = /\b(?:glot\.io|pastebin\.com|rentry\.(?:co|org)|hastebin\.\w+|paste\.ee|controlc\.com|termbin\.com|ghostbin\.\w+|privatebin\.\w+|dpaste\.\w+|ix\.io|sprunge\.us)\b/i;
+const RUN_IN_TERMINAL = /\b(?:run|execute|paste|copy|enter)\b[^\n]{0,80}\b(?:terminal|command\s+prompt|powershell|shell|console)\b|\b(?:terminal|powershell)\b[^\n]{0,40}\b(?:run|execute|paste)\b/i;
+
+function deliveryThreats(lines: string[]): CodeThreat[] {
+    const threats: CodeThreat[] = [];
+    lines.forEach((line, index) => {
+        const window = lines.slice(Math.max(0, index - 3), index + 7).join('\n');
+        let message: string | undefined;
+        if (ARCHIVE_LINK.test(line) && ARCHIVE_PASSWORD.test(window)) {
+            message = 'Tells the reader to download an archive or executable and extract it with a password, which hides its contents from antivirus scanning.';
+        } else if (PASTE_SITE.test(line) && RUN_IN_TERMINAL.test(window)) {
+            message = 'Tells the reader to run a command taken from a paste site, which nobody reviews and which can change after publication.';
+        }
+        if (!message) return;
+        const quoted = isQuotedAttackExample(lines, index);
+        threats.push({
+            ruleId: 'sec_remote_code_execution', severity: quoted ? 'medium' : 'critical', line: index + 1, column: 1,
+            source: 'a downloaded installer', sink: 'the user\'s machine', message, ...(quoted ? { quotedExample: true } : {}),
+        });
+    });
     return threats;
 }
 

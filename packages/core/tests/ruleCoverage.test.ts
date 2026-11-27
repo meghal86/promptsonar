@@ -13,9 +13,12 @@ describe('rule coverage for previously untested rules', () => {
     });
 
     it('sec_unicode_enclosed_obfuscation fires on Enclosed Alphanumeric Supplement characters', () => {
-        const obfuscated = `Run this ${String.fromCodePoint(0x1F110)} step now.`;
-        expect(ruleIds(obfuscated)).toContain('sec_unicode_enclosed_obfuscation');
+        // A word spelt in enclosed letters (🄸🄶🄽🄾🅁🄴); a single symbol, an emoji
+        // button (🆕) or a flag (regional indicators) spells nothing.
+        const enclosedWord = [0x1F138, 0x1F136, 0x1F13D, 0x1F13E, 0x1F141, 0x1F134].map(code => String.fromCodePoint(code)).join('');
+        expect(ruleIds(`Run this ${enclosedWord} step now.`)).toContain('sec_unicode_enclosed_obfuscation');
         expect(ruleIds('Run this step now.')).not.toContain('sec_unicode_enclosed_obfuscation');
+        expect(ruleIds(`New feature ${String.fromCodePoint(0x1F195)} in the ${String.fromCodePoint(0x1F1FA, 0x1F1F8)} market.`)).not.toContain('sec_unicode_enclosed_obfuscation');
     });
 
     it('sec_unicode_injection_obfuscation fires on heavy non-ASCII near injection keywords', () => {

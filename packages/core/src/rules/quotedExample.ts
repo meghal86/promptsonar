@@ -27,8 +27,9 @@ const PLACEHOLDER_ATTACK_HOST = /\b(?:attacker|evil|malicious|hacker|pwn(?:ed)?|
 
 // A command smuggled into an input: ?dir=; rm -rf /   "; curl …   name=$(id)   'localhost; rm -rf /'
 // The payload sits inside a quoted value or a parameter, so it is data sent to a
-// target, not a command chain (`make && curl … | bash` is not matched).
-const INJECTED_INPUT = /(?:[?&][\w.-]+=|["'`=][^"'`\s]{0,40})\s*(?:;|\|\||&&|\||\$\(|`)\s*(?:rm|curl|wget|nc|ncat|bash|sh|cat|id|whoami|ping|nslookup|sleep|copy)\b/;
+// target, not a command chain (`make && curl … | bash` is not matched). A `$(`
+// needs a value before it ("value$(id)"): `sh -c "$(curl …)"` is shell quoting.
+const INJECTED_INPUT = /(?:[?&][\w.-]+=\s*|["'`=][^"'`\s]{0,40}\s*(?=;|\||&&)|["'`=][^"'`\s]{1,40}\s*)(?:;|\|\||&&|\||\$\(|`)\s*(?:rm|curl|wget|nc|ncat|bash|sh|cat|id|whoami|ping|nslookup|sleep|copy)\b/;
 
 // Regex syntax: the line defines a detection pattern.
 const PATTERN_SYNTAX = /\\s[+*]|\(\?i\)|\\b\w|\[\^[^\]\d][^\]]*\]|\\\.|\\d[+*{]/;

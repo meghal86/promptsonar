@@ -16,7 +16,10 @@ const INJECTION_SOURCES: RegExp[] = [
     // \b: "new personal access token" is not "new persona". "task", "role" and
     // "command" need attack framing: "create a new role" (IAM), "a new task
     // head" (ML) and "run a new query" are ordinary documentation.
-    /new\s+(?:instructions|persona)\b/i,
+    // "new persona" needs an order to take it on: "Onboarding new persona" in a
+    // product table is not one.
+    /new\s+instructions\b/i,
+    /\b(?:adopt|assume|take\s+on|switch\s+to|become|use|enter)\s+(?:a\s+|the\s+|this\s+)?new\s+persona\b|\byour\s+new\s+persona\b/i,
     /\b(?:your|my)\s+new\s+(?:task|role|command)\b|\bnew\s+(?:task|role|command)\s*:/i,
 
     // Role-playing / persona switches
@@ -57,7 +60,9 @@ const INJECTION_SOURCES: RegExp[] = [
     // something and then acting on it. Plain "decode text" (a programming
     // lesson, a converter tool) is not an attack.
     // "JSON-encoded prompts" (a data column) is not an encoded attack.
-    /(?<![\w-])(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
+    // An order to act on encoded text; "Encoded instructions in data" in a list
+    // of threats names the risk.
+    /\b(?:follow|execute|run|obey|decode|apply|read|use)\s+(?:the\s+|these\s+|this\s+|my\s+)?(?:rot13|base64|hex|encoded)\s+(?:prompt|instructions)/i,
     /\bdecode\b[^.\n]{0,60}\b(?:and|then)\s+(?:then\s+)?(?:follow|execute|run|obey|apply|carry\s+out)\s+(?:the\s+|its\s+|any\s+|all\s+)?(?:instructions?|commands?|contents?|payload|code|it|them|what)\b/i,
 
     // Tool / privilege abuse
@@ -89,7 +94,7 @@ const NEGATOR_WORD = new RegExp(String.raw`\b${NEGATOR}\b`, 'g');
 // Phrases that start with a negator but negate nothing that follows.
 const NON_GOVERNING_NEGATION = /\b(?:never\s+mind|no\s+(?:worries|problem|need))\b/;
 // Clause boundaries: the negator must be in the same clause as the match.
-const CLAUSE_BOUNDARY = /[.!?;:\n]|,(?!\s*under\s+any\s+circumstances)|\b(?:but|instead|however|now|actually|then)\b/g;
+const CLAUSE_BOUNDARY = /[.!?;:\n—–]|\s-\s|,(?!\s*under\s+any\s+circumstances)|\b(?:but|instead|however|now|actually|then)\b/g;
 
 /**
  * True when the match at `index` is the object of a prohibition — e.g. a
@@ -244,8 +249,13 @@ export function checkOwaspPatterns(input: RuleInput): Finding[] {
         });
     }
 
-    const enclosedObfuscationPattern = new RegExp('[' + String.fromCodePoint(0x1F100) + '-' + String.fromCodePoint(0x1F1FF) + ']', 'u');
-    if (enclosedObfuscationPattern.test(normalizedText)) {
+    // Enclosed and squared Latin letters (U+1F110–U+1F189) spell words; emoji
+    // buttons (🆕 🆗), regional-indicator flags and a single 🅰 do not.
+    const enclosedLetters = Array.from(normalizedText).filter(char => {
+        const codePoint = char.codePointAt(0) || 0;
+        return codePoint >= 0x1F110 && codePoint <= 0x1F189;
+    }).length;
+    if (enclosedLetters >= 3) {
         findings.push({
             rule_id: "sec_unicode_enclosed_obfuscation",
             category: "security",

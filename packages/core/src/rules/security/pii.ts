@@ -28,6 +28,16 @@ function isPlausibleCardNumber(value: string): boolean {
     return isLuhnValid(value);
 }
 
+// Never issued: area 000 or 666, group 00, serial 0000. Published examples:
+// 123-45-6789, 078-05-1120, 219-09-9999. Area 9xx stays in: those are ITINs,
+// which are personal data too.
+const EXAMPLE_SSNS = new Set(['123-45-6789', '078-05-1120', '219-09-9999']);
+function isPlausibleSsn(value: string): boolean {
+    const [area, group, serial] = value.split('-');
+    if (EXAMPLE_SSNS.has(value)) return false;
+    return area !== '000' && area !== '666' && group !== '00' && serial !== '0000';
+}
+
 const PII_REGEXES = [
     { name: "SSN", pattern: /\b\d{3}-\d{2}-\d{4}\b/ },
     { name: "Credit Card", pattern: CARD_CANDIDATE },
@@ -105,7 +115,7 @@ function looksLikePlaceholder(value: string): boolean {
 
 // Documentation addresses: reserved domains (RFC 2606/6761) and the usual
 // placeholders (you@lab.org, your.email@institution.edu, user@domain.com).
-const PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme|evil|attacker|target|victim|exploit|hacker)\.(?:com|org|net|edu|io)$|@(?:[\w-]+\.)*[\w-]+\.(?:local|internal|lan|corp)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@|^git@/i;
+const PLACEHOLDER_EMAIL = /@(?:[\w-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]{2,})?$|@(?:[\w-]+\.)*(?:example|email|domain|company|mycompany|yourcompany|university|institution|lab|org|acme|evil|attacker|target|victim|exploit|hacker)\.(?:com|org|net|edu|io)$|@(?:[\w-]+\.)*[\w-]+\.(?:local|internal|lan|corp)$|^(?:you|your|yours|user|username|name|email|someone|me|first\.last|firstname\.lastname|john\.doe|jane\.doe|your[._-]?email|admin|colleague)@|^git@|^[a-z]@[a-z]\.[a-z]{2,3}$/i;
 
 // Documentation that shows a credential as an example of what not to do, or as
 // a fake value: still reported, as MEDIUM, since a real key pasted into docs is
@@ -139,10 +149,14 @@ export function checkPii(input: RuleInput): Finding[] {
         // UUID or test number) does not hide a real card later in the text.
         const match = pii.pattern === CARD_CANDIDATE
             ? Array.from(text.matchAll(CARD_CANDIDATE)).find(candidate => isPlausibleCardNumber(candidate[0])) ?? null
-            : text.match(pii.pattern);
+            : pii.name === 'SSN'
+                ? Array.from(text.matchAll(new RegExp(pii.pattern.source, 'g'))).find(candidate => isPlausibleSsn(candidate[0])) ?? null
+                : text.match(pii.pattern);
         // Only fire on a real value-shaped match, not a documentation placeholder.
         if (match && !looksLikePlaceholder(match[0])) {
-            const documented = isDocumentedExample(text, match.index ?? text.indexOf(match[0]));
+            const offset = match.index ?? text.indexOf(match[0]);
+            const lineIndex = text.slice(0, offset).split('\n').length - 1;
+            const documented = isDocumentedExample(text, offset) || isDocumentedSecretLine(text.split('\n'), lineIndex);
             findings.push({
                 rule_id: "sec_owasp_llm02_pii",
                 category: "security",
@@ -202,7 +216,7 @@ export interface ContentSecretMatch {
 /** A credential on a documentation line: labelled as an example, or a table row naming credential types. */
 export function isDocumentedSecretLine(lines: string[], index: number): boolean {
     const line = lines[index] || '';
-    if (/^\s*\|/.test(line) && (line.match(/\|/g) || []).length >= 3 && /\b(?:keys?|tokens?|secrets?|passwords?|credentials?)\b/i.test(line)) return true;
+    if (/^\s*\|/.test(line) && (line.match(/\|/g) || []).length >= 3 && /\b(?:keys?|tokens?|secrets?|passwords?|credentials?|ssn|social\s+security|card|phone|email)\b/i.test(line)) return true;
     const previous = lines.slice(0, index).reverse().find(candidate => candidate.trim()) || '';
     return DOC_EXAMPLE_LINE.test(line) || DOC_EXAMPLE_LINE.test(previous);
 }
@@ -221,6 +235,7 @@ export function scanContentForSecrets(content: string, filePath?: string): Conte
                 // Credit-card regex also matches long digit runs; require a
                 // plausible card (issuer prefix, not a test number, Luhn-valid).
                 if (name === 'Credit Card' && !isPlausibleCardNumber(match[0])) continue;
+                if (name === 'SSN' && !isPlausibleSsn(match[0])) continue;
                 // A commented-out or placeholder value is documentation, not a
                 // live secret (e.g. `# API_KEY = "your-key-here"`).
                 if (looksLikePlaceholder(match[0])) continue;

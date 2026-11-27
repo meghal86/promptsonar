@@ -39,7 +39,8 @@ export function checkEthics(input: RuleInput): Finding[] {
             findings.push({
                 rule_id: "ethics_manipulation",
                 category: "ethics", // New category
-                severity: "high",
+                // A content concern (marketing urgency), not a security risk.
+                severity: "medium",
                 explanation: "Manipulative patterns detected: Prompt requests generation of fake urgency or psychological pressure.",
                 suggested_fix: "Remove manipulative language patterns.",
                 penalty_score: 15

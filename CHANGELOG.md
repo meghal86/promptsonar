@@ -108,6 +108,22 @@ that made the GitHub Action miss MCP configs. See the
   unrestricted permissions, credential pass-through, hidden directives in a tool
   description, or escalation). A skill that teaches MCP development and uses a
   shell is not poisoned.
+- **Real-world malware delivery.** Tested against 100 real malicious ClawHub
+  skills (MalSkills benchmark, ClawHavoc campaign), PromptSonar caught 22. It
+  now reports the techniques they use as `sec_remote_code_execution`:
+  password-protected "prerequisite" downloads, commands taken from paste sites
+  into a terminal, commands hidden in base64 (decoded and checked, including
+  macOS `base64 -D`), and `sh -c "$(curl …)"` / `bash <(curl …)`. On the
+  publisher-held-out half, scored once: 58 of 63 caught (was 13), 1–3 of 49
+  benign skills flagged; Cisco skill-scanner 55 and 7, NVIDIA SkillSpector 60
+  and 18.
+- **Precision on published ClawHub skills:** a dash ends a clause, so "No
+  credential leakage — Never output API keys" is a prohibition; "new persona"
+  and "encoded instructions" need an order; the SSA's example SSNs and
+  never-issued numbers are not personal data (ITINs still are); `a@b.com` is a
+  placeholder; credential-type tables are documentation; emoji buttons and flags
+  are not enclosed-letter obfuscation; marketing urgency (`ethics_manipulation`)
+  is MEDIUM.
 - **Linear-time matching.** A Markdown table separator could make a new pattern
   backtrack exponentially and hang a scan; patterns are now linear, with a
   timing test on hostile input.
